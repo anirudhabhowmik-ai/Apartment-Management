@@ -6,7 +6,10 @@ export type ModalRouteParams = {
   "add-account": undefined;
   "switch-account": undefined;
   "create-group": { accountId: string };
-  "add-member": { groupId: string; groupType: "apartment" | "staff" | "expense" };
+  "add-member": {
+    groupId: string;
+    groupType: "apartment" | "staff" | "expense";
+  };
   "edit-member": {
     memberId: string;
     groupId: string;

@@ -2,12 +2,12 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
-  FlatList,
-  SafeAreaView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    FlatList,
+    SafeAreaView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { useAccounts } from "../../hooks/useAccounts";
 
@@ -55,10 +55,7 @@ export default function SwitchAccountScreen() {
           <Text style={styles.emptySubtitle}>
             Create your first apartment or home account
           </Text>
-          <TouchableOpacity
-            style={styles.addButton}
-            onPress={handleAddNew}
-          >
+          <TouchableOpacity style={styles.addButton} onPress={handleAddNew}>
             <Ionicons name="add" size={20} color="#fff" />
             <Text style={styles.addButtonText}>Create Account</Text>
           </TouchableOpacity>
@@ -82,9 +79,7 @@ export default function SwitchAccountScreen() {
                 >
                   <View style={styles.accountIcon}>
                     <Ionicons
-                      name={
-                        item.type === "apartment" ? "business" : "home"
-                      }
+                      name={item.type === "apartment" ? "business" : "home"}
                       size={24}
                       color="#1a73e8"
                     />
@@ -107,10 +102,7 @@ export default function SwitchAccountScreen() {
             }}
           />
 
-          <TouchableOpacity
-            style={styles.addButton}
-            onPress={handleAddNew}
-          >
+          <TouchableOpacity style={styles.addButton} onPress={handleAddNew}>
             <Ionicons name="add-circle-outline" size={20} color="#fff" />
             <Text style={styles.addButtonText}>Add New Account</Text>
           </TouchableOpacity>

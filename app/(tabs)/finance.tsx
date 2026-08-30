@@ -2,24 +2,24 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  RefreshControl,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View
+    ActivityIndicator,
+    RefreshControl,
+    SafeAreaView,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { useAccounts } from "../../hooks/useAccounts";
 import { usePayments } from "../../hooks/usePayments";
 import {
-  getPaymentCategoryColor,
-  getPaymentStatusColor,
-  Payment,
-  PaymentCategory,
-  PaymentStatus,
-  PaymentSummary,
+    getPaymentCategoryColor,
+    getPaymentStatusColor,
+    Payment,
+    PaymentCategory,
+    PaymentStatus,
+    PaymentSummary,
 } from "../../types/payment";
 
 // Quick filter options
@@ -316,7 +316,9 @@ export default function FinanceScreen() {
             style={styles.selectButton}
             onPress={() =>
               router.push(
-                accounts.length > 0 ? "/(modals)/switch-account" : "/(modals)/add-account",
+                accounts.length > 0
+                  ? "/(modals)/switch-account"
+                  : "/(modals)/add-account",
               )
             }
           >

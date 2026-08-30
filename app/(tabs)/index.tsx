@@ -277,7 +277,9 @@ export default function HomeScreen() {
               style={styles.createPropertyButton}
               onPress={() =>
                 router.push(
-                  accounts.length > 0 ? "/(modals)/switch-account" : "/(modals)/add-account",
+                  accounts.length > 0
+                    ? "/(modals)/switch-account"
+                    : "/(modals)/add-account",
                 )
               }
             >
