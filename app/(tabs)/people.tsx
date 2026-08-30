@@ -2,13 +2,18 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    Image,
+    Modal,
+    SafeAreaView,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
+import DatePickerModal from "../../components/DatePickerModal";
+import MonthYearPickerModal from "../../components/MonthYearPickerModal";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useGroups } from "../../hooks/useGroups";
 import { useMemberStore } from "../../store/memberStore";
@@ -66,10 +71,22 @@ export default function PeopleScreen() {
   const router = useRouter();
   const { selectedAccountId, selectedAccount } = useAccounts();
   const { groups, createGroup } = useGroups(selectedAccountId);
-  const { getMembersByGroup } = useMemberStore();
+  const { getMembersByGroup, updateMember } = useMemberStore();
 
   const tabTypes: GroupType[] = ["apartment", "staff", "expense"];
   const [activeTab, setActiveTab] = useState<GroupType>("apartment");
+  const [selectedMonth, setSelectedMonth] = useState<string | null>(
+    new Date().toISOString().slice(0, 7),
+  );
+  const [showMonthPicker, setShowMonthPicker] = useState(false);
+  const [paymentMember, setPaymentMember] = useState<any>(null);
+  const [paidDate, setPaidDate] = useState(
+    new Date().toISOString().slice(0, 10),
+  );
+  const [showPaidDatePicker, setShowPaidDatePicker] = useState(false);
+  const [showAdditionalAmount, setShowAdditionalAmount] = useState(false);
+  const [additionalAmount, setAdditionalAmount] = useState("");
+  const [additionalNote, setAdditionalNote] = useState("");
 
   const handleAdd = async (type: GroupType) => {
     const existingGroup = groups.find((group) => group.type === type);
@@ -139,18 +156,69 @@ export default function PeopleScreen() {
   }
 
   const activeGroups = groups.filter((group) => group.type === activeTab);
-  const activeMembers = activeGroups.flatMap((group) =>
+  const membersInActiveGroup = activeGroups.flatMap((group) =>
     getMembersByGroup(group.id),
   );
+  const activeMembers = selectedMonth
+    ? membersInActiveGroup.filter((member) => {
+        const date =
+          activeTab === "expense" && "dueDate" in member
+            ? member.dueDate
+            : member.createdAt;
+        return date?.slice(0, 7) === selectedMonth;
+      })
+    : membersInActiveGroup;
 
   const isApartment = activeTab === "apartment";
   const isStaff = activeTab === "staff";
   const isExpense = activeTab === "expense";
+  const paymentAmount = paymentMember
+    ? isApartment
+      ? paymentMember.maintenanceAmount
+      : paymentMember.monthlySalary
+    : 0;
+
+  const openPaymentModal = (member: any) => {
+    setPaymentMember(member);
+    setPaidDate(new Date().toISOString().slice(0, 10));
+    setShowAdditionalAmount(false);
+    setAdditionalAmount("");
+    setAdditionalNote("");
+  };
+
+  const markAsPaid = () => {
+    if (!paymentMember) return;
+    updateMember(paymentMember.id, {
+      paymentStatus: "paid",
+      paidDate,
+      additionalAmount: showAdditionalAmount
+        ? Number(additionalAmount) || 0
+        : 0,
+      additionalNote: showAdditionalAmount
+        ? additionalNote.trim() || undefined
+        : undefined,
+    });
+    setPaymentMember(null);
+  };
 
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <Text style={styles.title}>Groups</Text>
+        <TouchableOpacity
+          style={styles.monthFilter}
+          onPress={() => setShowMonthPicker(true)}
+        >
+          <Ionicons name="calendar-outline" size={18} color="#1a73e8" />
+          <Text style={styles.monthFilterText}>
+            {selectedMonth
+              ? new Date(`${selectedMonth}-01T00:00:00`).toLocaleString(
+                  "default",
+                  { month: "short", year: "numeric" },
+                )
+              : "All months"}
+          </Text>
+        </TouchableOpacity>
       </View>
 
       {/* Segmented Tab Bar (no count here anymore) */}
@@ -210,105 +278,278 @@ export default function PeopleScreen() {
         ) : (
           <View style={styles.membersList}>
             {activeMembers.map((member: any) => (
-              <TouchableOpacity
-                key={member.id}
-                style={styles.memberItem}
-                onPress={() =>
-                  router.push({
-                    pathname: "/(modals)/edit-member",
-                    params: {
-                      memberId: member.id,
-                      groupId: member.groupId,
-                      groupType: activeTab,
-                    },
-                  })
-                }
-              >
-                <View
-                  style={[
-                    styles.memberIcon,
-                    isExpense && styles.memberIconExpense,
-                  ]}
+              <View key={member.id} style={styles.memberPaymentCard}>
+                <TouchableOpacity
+                  key={member.id}
+                  style={styles.memberItem}
+                  onPress={() =>
+                    router.push({
+                      pathname: "/(modals)/edit-member",
+                      params: {
+                        memberId: member.id,
+                        groupId: member.groupId,
+                        groupType: activeTab,
+                      },
+                    })
+                  }
                 >
-                  {isExpense ? (
-                    <Ionicons name="cash-outline" size={18} color="#fff" />
-                  ) : (
-                    <Text style={styles.memberInitial}>
-                      {member.name?.charAt(0)?.toUpperCase() ?? "?"}
-                    </Text>
-                  )}
-                </View>
-
-                <View style={styles.memberInfo}>
-                  <View style={styles.memberTitleRow}>
-                    <Text style={styles.memberName} numberOfLines={1}>
-                      {isExpense ? member.category || member.name : member.name}
-                    </Text>
-                    {member.role && (
-                      <View style={styles.roleBadge}>
-                        <Text style={styles.roleBadgeText}>
-                          {member.role.charAt(0).toUpperCase() +
-                            member.role.slice(1)}
-                        </Text>
-                      </View>
+                  <View
+                    style={[
+                      styles.memberIcon,
+                      isExpense && styles.memberIconExpense,
+                    ]}
+                  >
+                    {isExpense ? (
+                      <Ionicons name="cash-outline" size={18} color="#fff" />
+                    ) : member.photoUri ? (
+                      <Image
+                        source={{ uri: member.photoUri }}
+                        style={styles.memberPhoto}
+                      />
+                    ) : (
+                      <Text style={styles.memberInitial}>
+                        {member.name?.charAt(0)?.toUpperCase() ?? "?"}
+                      </Text>
                     )}
                   </View>
 
-                  {isApartment && (
-                    <Text style={styles.memberSubtitle} numberOfLines={1}>
-                      {member.wing ? `${member.wing} - ` : ""}
-                      {member.flatNumber ? `Flat ${member.flatNumber}` : ""}
-                      {member.maintenanceAmount
-                        ? `  •  ₹${member.maintenanceAmount}/mo`
-                        : ""}
-                    </Text>
-                  )}
+                  <View style={styles.memberInfo}>
+                    <View style={styles.memberTitleRow}>
+                      <Text style={styles.memberName} numberOfLines={1}>
+                        {isExpense
+                          ? member.category || member.name
+                          : member.name}
+                      </Text>
+                      {member.role && (
+                        <View style={styles.roleBadge}>
+                          <Text style={styles.roleBadgeText}>
+                            {member.role.charAt(0).toUpperCase() +
+                              member.role.slice(1)}
+                          </Text>
+                        </View>
+                      )}
+                      {(isApartment || isStaff) &&
+                        (member.paymentStatus === "paid" ? (
+                          <TouchableOpacity
+                            style={[
+                              styles.statusBadge,
+                              styles.statusPaid,
+                              styles.inlineStatusBadge,
+                            ]}
+                            onPress={(event) => {
+                              event.stopPropagation();
+                              updateMember(member.id, {
+                                paymentStatus: "due",
+                                paidDate: undefined,
+                                additionalAmount: undefined,
+                                additionalNote: undefined,
+                              });
+                            }}
+                          >
+                            <Text
+                              style={[
+                                styles.statusBadgeText,
+                                styles.statusPaidText,
+                              ]}
+                            >
+                              Paid
+                            </Text>
+                          </TouchableOpacity>
+                        ) : (
+                          <View
+                            style={[
+                              styles.statusBadge,
+                              styles.statusDue,
+                              styles.inlineStatusBadge,
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.statusBadgeText,
+                                styles.statusDueText,
+                              ]}
+                            >
+                              Due
+                            </Text>
+                          </View>
+                        ))}
+                    </View>
 
-                  {isStaff && (
-                    <Text style={styles.memberSubtitle} numberOfLines={1}>
-                      {member.phone || ""}
-                      {member.monthlySalary
-                        ? `  •  ₹${member.monthlySalary}/mo`
-                        : ""}
-                    </Text>
-                  )}
+                    {isApartment && (
+                      <Text style={styles.memberSubtitle} numberOfLines={1}>
+                        {member.wing ? `${member.wing} - ` : ""}
+                        {member.flatNumber ? `Flat ${member.flatNumber}` : ""}
+                        {member.maintenanceAmount
+                          ? `  •  ₹${member.maintenanceAmount}/mo`
+                          : ""}
+                      </Text>
+                    )}
 
-                  {isExpense && (
-                    <Text style={styles.memberSubtitle} numberOfLines={1}>
-                      {member.amount ? `₹${member.amount}` : ""}
-                      {member.dueDate ? `  •  Due ${member.dueDate}` : ""}
-                    </Text>
-                  )}
-                </View>
+                    {isStaff && (
+                      <Text style={styles.memberSubtitle} numberOfLines={1}>
+                        {member.phone || ""}
+                        {member.monthlySalary
+                          ? `  •  ₹${member.monthlySalary}/mo`
+                          : ""}
+                      </Text>
+                    )}
 
-                {isExpense && member.status && (
-                  <View
-                    style={[
-                      styles.statusBadge,
-                      member.status === "paid"
-                        ? styles.statusPaid
-                        : styles.statusDue,
-                    ]}
-                  >
-                    <Text
+                    {isExpense && (
+                      <Text style={styles.memberSubtitle} numberOfLines={1}>
+                        {member.amount ? `₹${member.amount}` : ""}
+                        {member.dueDate ? `  •  Due ${member.dueDate}` : ""}
+                      </Text>
+                    )}
+                  </View>
+
+                  {isExpense && member.status && (
+                    <View
                       style={[
-                        styles.statusBadgeText,
+                        styles.statusBadge,
                         member.status === "paid"
-                          ? styles.statusPaidText
-                          : styles.statusDueText,
+                          ? styles.statusPaid
+                          : styles.statusDue,
                       ]}
                     >
-                      {member.status === "paid" ? "Paid" : "Due"}
-                    </Text>
-                  </View>
-                )}
+                      <Text
+                        style={[
+                          styles.statusBadgeText,
+                          member.status === "paid"
+                            ? styles.statusPaidText
+                            : styles.statusDueText,
+                        ]}
+                      >
+                        {member.status === "paid" ? "Paid" : "Due"}
+                      </Text>
+                    </View>
+                  )}
 
-                <Ionicons name="chevron-forward" size={18} color="#ccc" />
-              </TouchableOpacity>
+                  <Ionicons name="chevron-forward" size={18} color="#ccc" />
+                </TouchableOpacity>
+                {(isApartment || isStaff) && member.paymentStatus !== "paid" ? (
+                  <TouchableOpacity
+                    style={styles.markPaidButton}
+                    onPress={() => openPaymentModal(member)}
+                  >
+                    <Ionicons
+                      name="checkmark-circle-outline"
+                      size={18}
+                      color="#16803a"
+                    />
+                    <Text style={styles.markPaidButtonText}>Mark as Paid</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
             ))}
           </View>
         )}
       </ScrollView>
+      <MonthYearPickerModal
+        visible={showMonthPicker}
+        value={selectedMonth}
+        onClose={() => setShowMonthPicker(false)}
+        onSelect={setSelectedMonth}
+      />
+      <Modal
+        transparent
+        animationType="fade"
+        visible={Boolean(paymentMember)}
+        onRequestClose={() => setPaymentMember(null)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.paymentModal}>
+            <Text style={styles.paymentTitle}>Mark as Paid</Text>
+            <Text style={styles.paymentMemberName}>{paymentMember?.name}</Text>
+
+            <Text style={styles.paymentLabel}>
+              {isApartment ? "Maintenance Amount" : "Salary Amount"}
+            </Text>
+            <View style={styles.amountDisplay}>
+              <Text style={styles.amountText}>₹{paymentAmount || 0}</Text>
+            </View>
+
+            <TouchableOpacity
+              style={styles.additionalButton}
+              onPress={() => {
+                setShowAdditionalAmount(!showAdditionalAmount);
+                if (showAdditionalAmount) {
+                  setAdditionalAmount("");
+                  setAdditionalNote("");
+                }
+              }}
+            >
+              <Ionicons
+                name={
+                  showAdditionalAmount
+                    ? "remove-circle-outline"
+                    : "add-circle-outline"
+                }
+                size={18}
+                color={showAdditionalAmount ? "#dc2626" : "#1a73e8"}
+              />
+              <Text
+                style={[
+                  styles.additionalButtonText,
+                  showAdditionalAmount && styles.removeAdditionalButtonText,
+                ]}
+              >
+                {showAdditionalAmount
+                  ? "Remove additional amount"
+                  : "Add additional amount"}
+              </Text>
+            </TouchableOpacity>
+            {showAdditionalAmount ? (
+              <>
+                <TextInput
+                  style={styles.modalInput}
+                  placeholder="Additional amount"
+                  keyboardType="numeric"
+                  value={additionalAmount}
+                  onChangeText={(value) =>
+                    setAdditionalAmount(value.replace(/[^0-9]/g, ""))
+                  }
+                />
+                <TextInput
+                  style={styles.modalInput}
+                  placeholder="Note, e.g. bonus or event work"
+                  value={additionalNote}
+                  onChangeText={setAdditionalNote}
+                />
+              </>
+            ) : null}
+
+            <Text style={styles.paymentLabel}>Paid Date</Text>
+            <TouchableOpacity
+              style={styles.dateSelector}
+              onPress={() => setShowPaidDatePicker(true)}
+            >
+              <Text style={styles.dateSelectorText}>{paidDate}</Text>
+              <Ionicons name="calendar-outline" size={19} color="#1a73e8" />
+            </TouchableOpacity>
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.cancelPaymentButton}
+                onPress={() => setPaymentMember(null)}
+              >
+                <Text style={styles.cancelPaymentText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.confirmPaymentButton}
+                onPress={markAsPaid}
+              >
+                <Text style={styles.confirmPaymentText}>Confirm Payment</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+      <DatePickerModal
+        visible={showPaidDatePicker}
+        value={paidDate}
+        onClose={() => setShowPaidDatePicker(false)}
+        onSelect={setPaidDate}
+      />
     </SafeAreaView>
   );
 }
@@ -316,11 +557,26 @@ export default function PeopleScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f7f8fa" },
   header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: 16,
     paddingTop: 16,
     paddingBottom: 8,
   },
   title: { fontSize: 22, fontWeight: "700", color: "#111" },
+  monthFilter: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "#dbe7f8",
+  },
+  monthFilterText: { color: "#1a73e8", fontSize: 13, fontWeight: "600" },
 
   tabBar: {
     flexDirection: "row",
@@ -389,6 +645,12 @@ const styles = StyleSheet.create({
     borderColor: "#e7ebf3",
     padding: 8,
   },
+  memberPaymentCard: {
+    marginBottom: 6,
+    borderRadius: 10,
+    overflow: "hidden",
+    backgroundColor: "#f9fafb",
+  },
   memberItem: {
     flexDirection: "row",
     alignItems: "center",
@@ -414,6 +676,11 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "700",
     color: "#fff",
+  },
+  memberPhoto: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 20,
   },
   memberInfo: { flex: 1 },
   memberTitleRow: {
@@ -451,6 +718,93 @@ const styles = StyleSheet.create({
   statusBadgeText: { fontSize: 10, fontWeight: "700" },
   statusPaidText: { color: "#16a34a" },
   statusDueText: { color: "#dc2626" },
+  inlineStatusBadge: { marginRight: 0 },
+  markPaidButton: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 7,
+    borderTopWidth: 1,
+    borderTopColor: "#e2e8f0",
+    paddingVertical: 10,
+    backgroundColor: "#f0fdf4",
+  },
+  markPaidButtonText: { color: "#16803a", fontSize: 13, fontWeight: "700" },
+  modalOverlay: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: 24,
+    backgroundColor: "rgba(0, 0, 0, 0.4)",
+  },
+  paymentModal: {
+    width: "100%",
+    maxWidth: 380,
+    padding: 20,
+    borderRadius: 8,
+    backgroundColor: "#fff",
+  },
+  paymentTitle: { color: "#111", fontSize: 19, fontWeight: "700" },
+  paymentMemberName: { color: "#666", fontSize: 14, marginTop: 4 },
+  paymentLabel: {
+    color: "#555",
+    fontSize: 13,
+    fontWeight: "600",
+    marginTop: 18,
+    marginBottom: 7,
+  },
+  amountDisplay: {
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    borderRadius: 8,
+    backgroundColor: "#f4f8fe",
+  },
+  amountText: { color: "#111", fontSize: 17, fontWeight: "700" },
+  dateSelector: {
+    height: 48,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderWidth: 1,
+    borderColor: "#dde3ea",
+    borderRadius: 8,
+    paddingHorizontal: 13,
+  },
+  dateSelectorText: { color: "#333", fontSize: 14 },
+  additionalButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 7,
+    alignSelf: "flex-start",
+    marginTop: 16,
+    paddingVertical: 6,
+  },
+  additionalButtonText: { color: "#1a73e8", fontSize: 14, fontWeight: "600" },
+  removeAdditionalButtonText: { color: "#dc2626" },
+  modalInput: {
+    height: 48,
+    borderWidth: 1,
+    borderColor: "#dde3ea",
+    borderRadius: 8,
+    paddingHorizontal: 13,
+    fontSize: 14,
+    marginTop: 10,
+  },
+  modalActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 10,
+    marginTop: 22,
+  },
+  cancelPaymentButton: { paddingHorizontal: 14, paddingVertical: 11 },
+  cancelPaymentText: { color: "#555", fontWeight: "600" },
+  confirmPaymentButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderRadius: 7,
+    backgroundColor: "#16803a",
+  },
+  confirmPaymentText: { color: "#fff", fontWeight: "700" },
 
   emptyState: {
     alignItems: "center",

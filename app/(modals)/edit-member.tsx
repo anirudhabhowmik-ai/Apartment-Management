@@ -1,20 +1,24 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import * as ImagePicker from "expo-image-picker";
+import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    Image,
+    KeyboardAvoidingView,
+    Linking,
+    Modal,
+    Platform,
+    ScrollView,
+    StyleSheet,
+    Switch,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
+import DatePickerModal from "../../components/DatePickerModal";
 import { useMembers } from "../../hooks/useMembers";
-import { GroupType, MemberRole } from "../../types";
+import { BillAttachment, GroupType, MemberRole } from "../../types";
 
 interface RoleOption {
   role: MemberRole;
@@ -64,6 +68,9 @@ export default function EditMemberScreen() {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [role, setRole] = useState<MemberRole | null>(null);
+  const [isCustomRole, setIsCustomRole] = useState(false);
+  const [customRole, setCustomRole] = useState("");
+  const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [wing, setWing] = useState("");
   const [flatNumber, setFlatNumber] = useState("");
   const [areaSqft, setAreaSqft] = useState<string>("");
@@ -71,12 +78,17 @@ export default function EditMemberScreen() {
   const [maintenanceAmount, setMaintenanceAmount] = useState("");
   const [monthlySalary, setMonthlySalary] = useState("");
   const [expenseAmount, setExpenseAmount] = useState("");
+  const [expenseStatus, setExpenseStatus] = useState<"paid" | "due">("paid");
+  const [reminderEnabled, setReminderEnabled] = useState(false);
   const [expenseDescription, setExpenseDescription] = useState("");
   const [dueDate, setDueDate] = useState("");
+  const [billAttachments, setBillAttachments] = useState<BillAttachment[]>([]);
+  const [showDatePicker, setShowDatePicker] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
+  const hasFieldErrors = Object.values(fieldErrors).some(Boolean);
 
   // Load member data
   useEffect(() => {
@@ -86,6 +98,11 @@ export default function EditMemberScreen() {
       setName(member.name);
       setPhone(member.phone.replace("+91", ""));
       setRole(member.role);
+      setPhotoUri(member.photoUri || null);
+      if (!roleOptions.some((option) => option.role === member.role)) {
+        setIsCustomRole(true);
+        setCustomRole(member.role);
+      }
 
       if (groupType === "apartment" && "flatNumber" in member) {
         setWing(member.wing || "");
@@ -101,13 +118,54 @@ export default function EditMemberScreen() {
 
       if (groupType === "expense" && "amount" in member) {
         setExpenseAmount(member.amount?.toString() || "");
+        setExpenseStatus(member.status || "paid");
+        setReminderEnabled(member.reminderEnabled || false);
         setDueDate(member.dueDate || "");
         setExpenseDescription(member.description || "");
+        setBillAttachments(
+          member.billAttachments ||
+            (member.billUri
+              ? [
+                  {
+                    uri: member.billUri,
+                    name: member.billName || "Bill attachment",
+                  },
+                ]
+              : []),
+        );
       }
     };
 
     loadMemberData();
   }, []);
+
+  const handlePickPhoto = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+    });
+    if (!result.canceled && result.assets[0]) setPhotoUri(result.assets[0].uri);
+  };
+
+  const handlePickBill = async () => {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsMultipleSelection: true,
+      quality: 0.8,
+    });
+    if (!result.canceled) {
+      setBillAttachments((currentAttachments) => [
+        ...currentAttachments,
+        ...result.assets.map((asset) => ({
+          uri: asset.uri,
+          name: asset.fileName || "Bill image",
+          mimeType: asset.mimeType,
+        })),
+      ]);
+    }
+  };
 
   const handleUpdate = async () => {
     setError("");
@@ -118,14 +176,16 @@ export default function EditMemberScreen() {
       errors.name = "Name is required";
     }
 
-    if (!phone || phone.length === 0) {
-      errors.phone = "Phone number is missing";
-    } else if (phone.length !== 10) {
-      errors.phone = "Phone number must be 10 digits";
-    }
+    if (groupType !== "expense") {
+      if (!phone || phone.length === 0) {
+        errors.phone = "Phone number is missing";
+      } else if (phone.length !== 10) {
+        errors.phone = "Phone number must be 10 digits";
+      }
 
-    if (!role) {
-      errors.role = "Please select a role";
+      if (!role) {
+        errors.role = "Please select a role";
+      }
     }
 
     if (groupType === "apartment") {
@@ -166,8 +226,9 @@ export default function EditMemberScreen() {
     try {
       const updateData: any = {
         name: name.trim(),
-        phone: `+91${phone}`,
-        role,
+        phone: groupType === "expense" ? "" : `+91${phone}`,
+        role: groupType === "expense" ? "expense" : role,
+        photoUri: photoUri ?? undefined,
       };
 
       if (groupType === "apartment") {
@@ -188,8 +249,12 @@ export default function EditMemberScreen() {
 
       if (groupType === "expense") {
         updateData.amount = Number(expenseAmount);
+        updateData.status = expenseStatus;
+        updateData.reminderEnabled =
+          expenseStatus === "due" ? reminderEnabled : false;
         updateData.dueDate = dueDate || undefined;
         updateData.description = expenseDescription.trim() || undefined;
+        updateData.billAttachments = billAttachments;
       }
 
       await editMember(memberId, updateData);
@@ -240,104 +305,175 @@ export default function EditMemberScreen() {
       style={styles.container}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
+      <Stack.Screen
+        options={{
+          title: groupType === "expense" ? "Edit Expenses" : "Edit Member",
+        }}
+      />
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <View style={styles.header}>
-          <Text style={styles.title}>Edit Member</Text>
+          <Text style={styles.title}>
+            {groupType === "expense" ? "Edit Expenses" : "Edit Member"}
+          </Text>
           <TouchableOpacity onPress={handleDelete} style={styles.deleteButton}>
             <Ionicons name="trash-outline" size={24} color="#e53935" />
           </TouchableOpacity>
         </View>
 
-        <Text
-          style={[
-            styles.inputLabel,
-            fieldErrors.name && styles.inputLabelError,
-          ]}
-        >
-          Full Name *
-        </Text>
-        <TextInput
-          style={[styles.input, fieldErrors.name && styles.inputError]}
-          placeholder="e.g. Ramesh Kumar"
-          value={name}
-          onChangeText={(text) => {
-            setName(text);
-            if (fieldErrors.name) {
-              setFieldErrors({ ...fieldErrors, name: "" });
-            }
-          }}
-        />
-        {fieldErrors.name ? (
-          <Text style={styles.fieldError}>{fieldErrors.name}</Text>
-        ) : null}
-
-        <Text
-          style={[
-            styles.inputLabel,
-            fieldErrors.phone && styles.inputLabelError,
-          ]}
-        >
-          Phone Number *
-        </Text>
-        <View
-          style={[styles.phoneRow, fieldErrors.phone && styles.phoneRowError]}
-        >
-          <Text style={styles.prefix}>+91</Text>
-          <TextInput
-            style={styles.phoneInput}
-            placeholder="9876543210"
-            keyboardType="number-pad"
-            maxLength={10}
-            value={phone}
-            onChangeText={(t) => {
-              setPhone(t.replace(/[^0-9]/g, ""));
-              if (fieldErrors.phone) {
-                setFieldErrors({ ...fieldErrors, phone: "" });
-              }
-            }}
-          />
-        </View>
-        {fieldErrors.phone ? (
-          <Text style={styles.fieldError}>{fieldErrors.phone}</Text>
-        ) : null}
-
-        <Text
-          style={[
-            styles.inputLabel,
-            fieldErrors.role && styles.inputLabelError,
-          ]}
-        >
-          Role *
-        </Text>
-        <View style={styles.roleRow}>
-          {roleOptions.map((option) => (
+        {groupType !== "expense" ? (
+          <View style={styles.photoSection}>
             <TouchableOpacity
-              key={option.role}
+              style={styles.photoCircle}
+              onPress={handlePickPhoto}
+            >
+              {photoUri ? (
+                <Image source={{ uri: photoUri }} style={styles.photoImage} />
+              ) : (
+                <Ionicons name="camera-outline" size={24} color="#888" />
+              )}
+            </TouchableOpacity>
+            <Text style={styles.photoLabel}>
+              {photoUri ? "Change Photo" : "Add Photo (optional)"}
+            </Text>
+          </View>
+        ) : null}
+
+        {groupType !== "expense" && (
+          <>
+            <Text
               style={[
-                styles.roleChip,
-                role === option.role && styles.roleChipSelected,
+                styles.inputLabel,
+                fieldErrors.name && styles.inputLabelError,
               ]}
-              onPress={() => {
-                setRole(option.role);
-                if (fieldErrors.role) {
-                  setFieldErrors({ ...fieldErrors, role: "" });
+            >
+              {groupType === "expense" ? "Expense Name *" : "Full Name *"}
+            </Text>
+            <TextInput
+              style={[styles.input, fieldErrors.name && styles.inputError]}
+              placeholder={
+                groupType === "expense"
+                  ? "e.g. Water bill, Lift repair"
+                  : "e.g. Ramesh Kumar"
+              }
+              value={name}
+              onChangeText={(text) => {
+                setName(text);
+                if (fieldErrors.name) {
+                  setFieldErrors({ ...fieldErrors, name: "" });
                 }
               }}
+            />
+            {fieldErrors.name ? (
+              <Text style={styles.fieldError}>{fieldErrors.name}</Text>
+            ) : null}
+
+            <Text
+              style={[
+                styles.inputLabel,
+                fieldErrors.phone && styles.inputLabelError,
+              ]}
             >
-              <Text
+              Phone Number *
+            </Text>
+            <View
+              style={[
+                styles.phoneRow,
+                fieldErrors.phone && styles.phoneRowError,
+              ]}
+            >
+              <Text style={styles.prefix}>+91</Text>
+              <TextInput
+                style={styles.phoneInput}
+                placeholder="9876543210"
+                keyboardType="number-pad"
+                maxLength={10}
+                value={phone}
+                onChangeText={(t) => {
+                  setPhone(t.replace(/[^0-9]/g, ""));
+                  if (fieldErrors.phone) {
+                    setFieldErrors({ ...fieldErrors, phone: "" });
+                  }
+                }}
+              />
+            </View>
+            {fieldErrors.phone ? (
+              <Text style={styles.fieldError}>{fieldErrors.phone}</Text>
+            ) : null}
+
+            <Text
+              style={[
+                styles.inputLabel,
+                fieldErrors.role && styles.inputLabelError,
+              ]}
+            >
+              Role *
+            </Text>
+            <View style={styles.roleRow}>
+              {roleOptions.map((option) => (
+                <TouchableOpacity
+                  key={option.role}
+                  style={[
+                    styles.roleChip,
+                    role === option.role && styles.roleChipSelected,
+                  ]}
+                  onPress={() => {
+                    setRole(option.role);
+                    setIsCustomRole(false);
+                    setCustomRole("");
+                    if (fieldErrors.role) {
+                      setFieldErrors({ ...fieldErrors, role: "" });
+                    }
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.roleChipText,
+                      role === option.role && styles.roleChipTextSelected,
+                    ]}
+                  >
+                    {option.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+              <TouchableOpacity
                 style={[
-                  styles.roleChipText,
-                  role === option.role && styles.roleChipTextSelected,
+                  styles.roleChip,
+                  isCustomRole && styles.roleChipSelected,
                 ]}
+                onPress={() => {
+                  setIsCustomRole(true);
+                  setRole(customRole.trim() || null);
+                }}
               >
-                {option.label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-        {fieldErrors.role ? (
-          <Text style={styles.fieldError}>{fieldErrors.role}</Text>
-        ) : null}
+                <Text
+                  style={[
+                    styles.roleChipText,
+                    isCustomRole && styles.roleChipTextSelected,
+                  ]}
+                >
+                  Custom
+                </Text>
+              </TouchableOpacity>
+            </View>
+            {isCustomRole ? (
+              <TextInput
+                style={[styles.input, styles.customRoleInput]}
+                placeholder="Enter custom role"
+                value={customRole}
+                onChangeText={(text) => {
+                  setCustomRole(text);
+                  setRole(text.trim() || null);
+                  if (fieldErrors.role) {
+                    setFieldErrors({ ...fieldErrors, role: "" });
+                  }
+                }}
+              />
+            ) : null}
+            {fieldErrors.role ? (
+              <Text style={styles.fieldError}>{fieldErrors.role}</Text>
+            ) : null}
+          </>
+        )}
 
         {groupType === "apartment" && (
           <>
@@ -466,6 +602,28 @@ export default function EditMemberScreen() {
             <Text
               style={[
                 styles.inputLabel,
+                fieldErrors.name && styles.inputLabelError,
+              ]}
+            >
+              Expense Name *
+            </Text>
+            <TextInput
+              style={[styles.input, fieldErrors.name && styles.inputError]}
+              placeholder="e.g. Water bill, Lift repair"
+              value={name}
+              onChangeText={(text) => {
+                setName(text);
+                if (fieldErrors.name)
+                  setFieldErrors({ ...fieldErrors, name: "" });
+              }}
+            />
+            {fieldErrors.name ? (
+              <Text style={styles.fieldError}>{fieldErrors.name}</Text>
+            ) : null}
+
+            <Text
+              style={[
+                styles.inputLabel,
                 fieldErrors.expenseAmount && styles.inputLabelError,
               ]}
             >
@@ -490,13 +648,134 @@ export default function EditMemberScreen() {
               <Text style={styles.fieldError}>{fieldErrors.expenseAmount}</Text>
             ) : null}
 
-            <Text style={styles.inputLabel}>Due Date</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="YYYY-MM-DD"
-              value={dueDate}
-              onChangeText={setDueDate}
-            />
+            <Text style={styles.inputLabel}>Payment Status</Text>
+            <View style={styles.statusRow}>
+              <TouchableOpacity
+                style={[
+                  styles.statusOption,
+                  expenseStatus === "paid" && styles.statusOptionPaid,
+                ]}
+                onPress={() => {
+                  setExpenseStatus("paid");
+                  setReminderEnabled(false);
+                }}
+              >
+                <Ionicons
+                  name="checkmark-circle-outline"
+                  size={18}
+                  color={expenseStatus === "paid" ? "#16803a" : "#666"}
+                />
+                <Text
+                  style={[
+                    styles.statusOptionText,
+                    expenseStatus === "paid" && styles.statusOptionTextPaid,
+                  ]}
+                >
+                  Paid
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.statusOption,
+                  expenseStatus === "due" && styles.statusOptionDue,
+                ]}
+                onPress={() => setExpenseStatus("due")}
+              >
+                <Ionicons
+                  name="time-outline"
+                  size={18}
+                  color={expenseStatus === "due" ? "#b45f00" : "#666"}
+                />
+                <Text
+                  style={[
+                    styles.statusOptionText,
+                    expenseStatus === "due" && styles.statusOptionTextDue,
+                  ]}
+                >
+                  Due
+                </Text>
+              </TouchableOpacity>
+            </View>
+            {expenseStatus === "due" ? (
+              <View style={styles.reminderRow}>
+                <View>
+                  <Text style={styles.reminderTitle}>Set Reminder</Text>
+                  <Text style={styles.reminderSubtitle}>
+                    Get notified on the expense date
+                  </Text>
+                </View>
+                <Switch
+                  value={reminderEnabled}
+                  onValueChange={setReminderEnabled}
+                  trackColor={{ false: "#c9c9c9", true: "#86b9f4" }}
+                />
+              </View>
+            ) : null}
+
+            <Text style={styles.inputLabel}>Expense Date</Text>
+            <TouchableOpacity
+              style={styles.dateInput}
+              onPress={() => setShowDatePicker(true)}
+            >
+              <Text style={dueDate ? styles.dateText : styles.datePlaceholder}>
+                {dueDate || "Select date"}
+              </Text>
+              <Ionicons name="calendar-outline" size={20} color="#1a73e8" />
+            </TouchableOpacity>
+
+            <Text style={styles.inputLabel}>Bill Attachment (optional)</Text>
+            {billAttachments.length ? (
+              <View style={styles.attachmentList}>
+                {billAttachments.map((attachment, index) => (
+                  <View
+                    key={`${attachment.uri}-${index}`}
+                    style={styles.attachmentRow}
+                  >
+                    <Ionicons name="image-outline" size={20} color="#1a73e8" />
+                    <Text style={styles.attachmentName} numberOfLines={1}>
+                      {attachment.name}
+                    </Text>
+                    <TouchableOpacity
+                      style={styles.attachmentAction}
+                      onPress={() => Linking.openURL(attachment.uri)}
+                    >
+                      <Ionicons
+                        name="download-outline"
+                        size={20}
+                        color="#1a73e8"
+                      />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.attachmentAction}
+                      onPress={() =>
+                        setBillAttachments((currentAttachments) =>
+                          currentAttachments.filter(
+                            (_, attachmentIndex) => attachmentIndex !== index,
+                          ),
+                        )
+                      }
+                    >
+                      <Ionicons
+                        name="trash-outline"
+                        size={20}
+                        color="#e53935"
+                      />
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+            <TouchableOpacity
+              style={styles.attachButton}
+              onPress={handlePickBill}
+            >
+              <Ionicons name="attach-outline" size={20} color="#1a73e8" />
+              <Text style={styles.attachButtonText}>
+                {billAttachments.length
+                  ? "Add more attachments"
+                  : "Add bill attachments"}
+              </Text>
+            </TouchableOpacity>
 
             <Text style={styles.inputLabel}>Note</Text>
             <TextInput
@@ -509,7 +788,9 @@ export default function EditMemberScreen() {
           </>
         )}
 
-        {error ? <Text style={styles.error}>{error}</Text> : null}
+        {error && (error !== "Please fix all the errors" || hasFieldErrors) ? (
+          <Text style={styles.error}>{error}</Text>
+        ) : null}
 
         <TouchableOpacity
           style={[styles.button, loading && styles.buttonDisabled]}
@@ -521,6 +802,12 @@ export default function EditMemberScreen() {
           </Text>
         </TouchableOpacity>
       </ScrollView>
+      <DatePickerModal
+        visible={showDatePicker}
+        value={dueDate}
+        onClose={() => setShowDatePicker(false)}
+        onSelect={setDueDate}
+      />
       <Modal
         transparent
         animationType="fade"
@@ -579,6 +866,26 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   title: { fontSize: 22, fontWeight: "700" },
+  photoSection: { alignItems: "center", marginBottom: 8 },
+  photoCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: "#f0f0f0",
+    borderWidth: 1.5,
+    borderColor: "#ddd",
+    borderStyle: "dashed",
+    justifyContent: "center",
+    alignItems: "center",
+    overflow: "hidden",
+  },
+  photoImage: { width: 80, height: 80, borderRadius: 40 },
+  photoLabel: {
+    fontSize: 12,
+    color: "#1a73e8",
+    fontWeight: "600",
+    marginTop: 8,
+  },
   deleteButton: {
     padding: 8,
   },
@@ -652,6 +959,100 @@ const styles = StyleSheet.create({
     color: "#1a73e8",
     fontWeight: "700",
   },
+  customRoleInput: { marginTop: 10 },
+  statusRow: { flexDirection: "row", gap: 10 },
+  statusOption: {
+    flex: 1,
+    height: 46,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    borderWidth: 1,
+    borderColor: "#dedede",
+    borderRadius: 8,
+  },
+  statusOptionPaid: { borderColor: "#4caf70", backgroundColor: "#f0f9f2" },
+  statusOptionDue: { borderColor: "#ed9b40", backgroundColor: "#fff7ed" },
+  statusOptionText: { color: "#555", fontSize: 14, fontWeight: "600" },
+  statusOptionTextPaid: { color: "#16803a" },
+  statusOptionTextDue: { color: "#b45f00" },
+  reminderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: 12,
+    marginTop: 10,
+    borderRadius: 8,
+    backgroundColor: "#fff7ed",
+  },
+  reminderTitle: { color: "#333", fontSize: 14, fontWeight: "600" },
+  reminderSubtitle: { color: "#777", fontSize: 12, marginTop: 2 },
+  dateInput: {
+    height: 50,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderWidth: 1,
+    borderColor: "#e8e8e8",
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    backgroundColor: "#fff",
+  },
+  dateText: { color: "#333", fontSize: 15 },
+  datePlaceholder: { color: "#999", fontSize: 15 },
+  attachButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    height: 48,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: "#1a73e8",
+    borderRadius: 8,
+  },
+  attachButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    height: 44,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: "#7eaff0",
+    borderRadius: 8,
+    marginTop: 8,
+  },
+  attachButtonText: { color: "#1a73e8", fontWeight: "600" },
+  attachmentRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "#d8e7fb",
+    borderRadius: 8,
+    backgroundColor: "#f5f9ff",
+  },
+  attachmentList: {
+    borderWidth: 1,
+    borderColor: "#e2e9f4",
+    borderRadius: 8,
+    overflow: "hidden",
+  },
+  attachmentRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    backgroundColor: "#f8fbff",
+    borderBottomWidth: 1,
+    borderBottomColor: "#e2e9f4",
+  },
+  attachmentName: { flex: 1, color: "#333", fontSize: 14 },
+  attachmentAction: { padding: 4 },
   switchRow: {
     flexDirection: "row",
     justifyContent: "space-between",

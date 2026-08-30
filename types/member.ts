@@ -1,13 +1,10 @@
-export type MemberRole =
-  | "owner"
-  | "secretary"
-  | "tenant"
-  | "sweeper"
-  | "security"
-  | "maintenance"
-  | "electricity"
-  | "water"
-  | "other";
+export type MemberRole = string;
+
+export interface BillAttachment {
+  uri: string;
+  name: string;
+  mimeType?: string | null;
+}
 
 export interface BaseMember {
   id: string;
@@ -15,6 +12,11 @@ export interface BaseMember {
   name: string;
   phone: string;
   role: MemberRole;
+  photoUri?: string;
+  paymentStatus?: "paid" | "due";
+  paidDate?: string;
+  additionalAmount?: number;
+  additionalNote?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -38,7 +40,12 @@ export interface ExpenseEntry extends BaseMember {
   role: "electricity" | "water" | "maintenance" | "other";
   amount: number;
   dueDate?: string;
+  status?: "paid" | "due";
+  reminderEnabled?: boolean;
   description?: string;
+  billUri?: string;
+  billName?: string;
+  billAttachments?: BillAttachment[];
 }
 
 export type Member = FlatOwner | Staff | ExpenseEntry;

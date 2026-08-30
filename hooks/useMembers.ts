@@ -1,6 +1,13 @@
 import { useCallback, useEffect } from "react";
 import { useMemberStore } from "../store/memberStore";
-import { FlatOwner, GroupType, Member, MemberRole, Staff } from "../types";
+import {
+    BillAttachment,
+    FlatOwner,
+    GroupType,
+    Member,
+    MemberRole,
+    Staff,
+} from "../types";
 
 // TODO: replace with real backend calls (Supabase/Firebase table: members)
 async function fetchMembersForGroup(groupId: string): Promise<Member[]> {
@@ -17,6 +24,7 @@ export interface AddMemberInput {
   name: string;
   phone: string;
   role: MemberRole;
+  photoUri?: string;
   // Flat-specific fields
   wing?: string;
   flatNumber?: string;
@@ -29,7 +37,12 @@ export interface AddMemberInput {
   // Expense-specific fields
   amount?: number;
   dueDate?: string;
+  status?: "paid" | "due";
+  reminderEnabled?: boolean;
   description?: string;
+  billUri?: string;
+  billName?: string;
+  billAttachments?: BillAttachment[];
 }
 
 // Input shape for updating a member
@@ -37,6 +50,7 @@ export interface UpdateMemberInput {
   name?: string;
   phone?: string;
   role?: MemberRole;
+  photoUri?: string;
   // Flat-specific fields
   wing?: string;
   flatNumber?: string;
@@ -49,7 +63,12 @@ export interface UpdateMemberInput {
   // Expense-specific fields
   amount?: number;
   dueDate?: string;
+  status?: "paid" | "due";
+  reminderEnabled?: boolean;
   description?: string;
+  billUri?: string;
+  billName?: string;
+  billAttachments?: BillAttachment[];
 }
 
 async function createMemberApi(input: AddMemberInput): Promise<Member> {
@@ -59,6 +78,7 @@ async function createMemberApi(input: AddMemberInput): Promise<Member> {
     groupId: input.groupId,
     name: input.name,
     phone: input.phone,
+    photoUri: input.photoUri,
     createdAt: now,
     updatedAt: now,
   };
@@ -107,7 +127,12 @@ async function createMemberApi(input: AddMemberInput): Promise<Member> {
       role: input.role as "electricity" | "water" | "maintenance" | "other",
       amount: input.amount,
       dueDate: input.dueDate,
+      status: input.status ?? "paid",
+      reminderEnabled: input.reminderEnabled ?? false,
       description: input.description,
+      billUri: input.billUri,
+      billName: input.billName,
+      billAttachments: input.billAttachments,
     };
   }
 
