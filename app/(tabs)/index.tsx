@@ -195,14 +195,31 @@ export default function HomeScreen() {
         { name: "Suresh Kumar", role: "driver" },
       ];
 
-      setStats({
+      const nextStats = {
         totalProperties: apartmentCount,
         totalStaff: mockStaff.length, // Will be replaced with actual data
         monthlyIncome: monthlySummary?.totalIncome || 0,
         monthlyExpense: monthlySummary?.totalExpense || 0,
-      });
+      };
 
-      setRecentStaff(mockStaff);
+      setStats((currentStats) =>
+        currentStats.totalProperties === nextStats.totalProperties &&
+        currentStats.totalStaff === nextStats.totalStaff &&
+        currentStats.monthlyIncome === nextStats.monthlyIncome &&
+        currentStats.monthlyExpense === nextStats.monthlyExpense
+          ? currentStats
+          : nextStats,
+      );
+      setRecentStaff((currentStaff) =>
+        currentStaff.length === mockStaff.length &&
+        currentStaff.every(
+          (staff, index) =>
+            staff.name === mockStaff[index].name &&
+            staff.role === mockStaff[index].role,
+        )
+          ? currentStaff
+          : mockStaff,
+      );
     } catch (error) {
       console.error("Error loading dashboard data:", error);
     }

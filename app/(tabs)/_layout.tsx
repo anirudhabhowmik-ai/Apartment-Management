@@ -19,7 +19,13 @@ export default function TabsLayout() {
     if (selectedAccount) {
       const pendingPayments = getPendingPayments?.() || [];
       const pendingTasks = tasks?.filter((t) => t.status === "pending") || [];
-      setNotificationCount(pendingPayments.length + pendingTasks.length);
+      const nextNotificationCount =
+        pendingPayments.length + pendingTasks.length;
+      setNotificationCount((currentCount) =>
+        currentCount === nextNotificationCount
+          ? currentCount
+          : nextNotificationCount,
+      );
     }
   }, [selectedAccount, getPendingPayments, tasks]);
 
