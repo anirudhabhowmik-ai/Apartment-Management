@@ -1,17 +1,23 @@
 import { Ionicons } from "@expo/vector-icons";
+import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
-  Alert,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  Text,
-  TouchableOpacity,
-  View,
+    Alert,
+    Image,
+    Modal,
+    SafeAreaView,
+    ScrollView,
+    StyleSheet,
+    Switch,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { useAccounts } from "../../hooks/useAccounts";
+import { sendOtp, verifyOtp } from "../../services/otpService";
+import { useAccountStore } from "../../store/accountStore";
 import { useAuthStore } from "../../store/useAuthStore";
 
 interface MenuItem {
@@ -21,15 +27,24 @@ interface MenuItem {
   color: string;
   onPress: () => void;
   showArrow?: boolean;
-  badge?: string;
 }
 
 export default function ProfileScreen() {
   const router = useRouter();
-  const { user, logout } = useAuthStore();
-  const { accounts, selectedAccount } = useAccounts();
+  const { user, logout, setUser } = useAuthStore();
+  const { selectedAccount, editAccount } = useAccounts();
+  const setAccountSwitcherOpen = useAccountStore(
+    (state) => state.setAccountSwitcherOpen,
+  );
   const [notifications, setNotifications] = useState(true);
   const [darkMode, setDarkMode] = useState(false);
+  const [propertyName, setPropertyName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [editingName, setEditingName] = useState(false);
+  const [showPhoneModal, setShowPhoneModal] = useState(false);
+  const [phoneOtp, setPhoneOtp] = useState("");
+  const [phoneOtpSent, setPhoneOtpSent] = useState(false);
+  const [phoneError, setPhoneError] = useState("");
 
   const handleLogout = () => {
     Alert.alert("Logout", "Are you sure you want to logout?", [
@@ -48,33 +63,74 @@ export default function ProfileScreen() {
   const handleDeleteAccount = () => {
     Alert.alert(
       "Delete Account",
-      "Are you sure you want to delete your account? This action cannot be undone and all your data will be permanently lost.",
+      "Are you sure you want to delete your account?",
       [
         { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete Account",
-          style: "destructive",
-          onPress: () => {
-            // TODO: Implement delete account logic
-            Alert.alert(
-              "Account Deleted",
-              "Your account has been deleted successfully.",
-            );
-          },
-        },
+        { text: "Delete Account", style: "destructive" },
       ],
     );
   };
 
-  const handleAddAdmin = () => {
-    router.push({
-      pathname: "/(modals)/add-admin",
-      params: { accountId: selectedAccount?.id || "" },
+  const handleChangePhoto = async () => {
+    if (!selectedAccount) return;
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
     });
+
+    if (!result.canceled && result.assets[0]) {
+      await editAccount(selectedAccount.id, { photoUri: result.assets[0].uri });
+    }
   };
 
-  const handleSwitchAccount = () => {
-    router.push("/(modals)/switch-account");
+  const startEditingName = () => {
+    setPropertyName(selectedAccount?.name || "");
+    setEditingName(true);
+  };
+
+  const savePropertyName = async () => {
+    const trimmedName = propertyName.trim();
+    if (!trimmedName || !selectedAccount) return;
+
+    await editAccount(selectedAccount.id, { name: trimmedName });
+    setEditingName(false);
+  };
+
+  const openPhoneEditor = () => {
+    setPhone(user?.phone.replace(/^\+91/, "") || "");
+    setPhoneOtp("");
+    setPhoneError("");
+    setPhoneOtpSent(false);
+    setShowPhoneModal(true);
+  };
+
+  const handleSendPhoneOtp = async () => {
+    if (phone.length !== 10) {
+      setPhoneError("Enter a valid 10-digit phone number");
+      return;
+    }
+    const result = await sendOtp(`+91${phone}`);
+    if (result.success) {
+      setPhoneOtpSent(true);
+      setPhoneError("");
+    } else {
+      setPhoneError(result.message || "Unable to send OTP");
+    }
+  };
+
+  const verifyPhoneOtp = async () => {
+    const result = await verifyOtp(`+91${phone}`, phoneOtp);
+    if (!result.success) {
+      setPhoneError(result.message || "Invalid OTP");
+      return;
+    }
+    if (user) {
+      setUser({ ...user, phone: `+91${phone}` });
+    }
+    setShowPhoneModal(false);
   };
 
   const menuItems: MenuItem[] = [
@@ -83,21 +139,39 @@ export default function ProfileScreen() {
       title: "Switch Account",
       icon: "swap-horizontal-outline",
       color: "#1a73e8",
-      onPress: handleSwitchAccount,
+      onPress: () => setAccountSwitcherOpen(true),
     },
     {
       id: "add_admin",
       title: "Add Admin",
+      icon: "shield-outline",
+      color: "#7c3aed",
+      onPress: () =>
+        router.push({
+          pathname: "/(modals)/grant-access",
+          params: { accountId: selectedAccount?.id || "", role: "admin" },
+        }),
+    },
+    {
+      id: "add_member",
+      title: "Add Member Visibility",
       icon: "person-add-outline",
       color: "#4CAF50",
-      onPress: handleAddAdmin,
+      onPress: () =>
+        router.push({
+          pathname: "/(modals)/grant-access",
+          params: {
+            accountId: selectedAccount?.id || "",
+            role: "member_visibility",
+          },
+        }),
     },
     {
       id: "notifications",
       title: "Notifications",
       icon: "notifications-outline",
       color: "#FF9800",
-      onPress: () => setNotifications(!notifications),
+      onPress: () => setNotifications((enabled) => !enabled),
       showArrow: false,
     },
     {
@@ -105,7 +179,7 @@ export default function ProfileScreen() {
       title: "Dark Mode",
       icon: "moon-outline",
       color: "#607D8B",
-      onPress: () => setDarkMode(!darkMode),
+      onPress: () => setDarkMode((enabled) => !enabled),
       showArrow: false,
     },
     {
@@ -132,33 +206,87 @@ export default function ProfileScreen() {
         {/* Profile Header */}
         <View style={styles.profileHeader}>
           <View style={styles.avatarContainer}>
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>
-                {user?.name ? getInitials(user.name) : "U"}
-              </Text>
-            </View>
-            <TouchableOpacity style={styles.editAvatarButton}>
+            {selectedAccount?.photoUri ? (
+              <Image
+                source={{ uri: selectedAccount.photoUri }}
+                style={styles.avatar}
+              />
+            ) : (
+              <View style={styles.avatar}>
+                <Text style={styles.avatarText}>
+                  {selectedAccount?.name
+                    ? getInitials(selectedAccount.name)
+                    : "A"}
+                </Text>
+              </View>
+            )}
+            <TouchableOpacity
+              style={styles.cameraButton}
+              onPress={handleChangePhoto}
+            >
               <Ionicons name="camera-outline" size={16} color="#fff" />
             </TouchableOpacity>
           </View>
-          <Text style={styles.userName}>{user?.name || "User"}</Text>
-          <Text style={styles.userPhone}>
-            {user?.phone || "+91 9876543210"}
-          </Text>
-          <View style={styles.accountBadge}>
-            <Text style={styles.accountBadgeText}>
-              {selectedAccount?.name || "No Account Selected"}
-            </Text>
+          <View style={styles.profileDetailRow}>
+            {editingName ? (
+              <>
+                <TextInput
+                  style={styles.inlineNameInput}
+                  value={propertyName}
+                  onChangeText={setPropertyName}
+                  autoFocus
+                  onSubmitEditing={savePropertyName}
+                />
+                <TouchableOpacity
+                  style={styles.editButton}
+                  onPress={savePropertyName}
+                >
+                  <Ionicons name="checkmark" size={16} color="#1a73e8" />
+                  <Text style={styles.editButtonText}>Save</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <>
+                <Text style={styles.userName}>
+                  {selectedAccount?.name || "Apartment"}
+                </Text>
+                <TouchableOpacity
+                  style={styles.editButton}
+                  onPress={startEditingName}
+                >
+                  <Ionicons name="create-outline" size={16} color="#1a73e8" />
+                  <Text style={styles.editButtonText}>Edit</Text>
+                </TouchableOpacity>
+              </>
+            )}
           </View>
+          <View style={styles.profileDetailRow}>
+            <Text style={styles.userPhone}>
+              {user?.phone || "+91 9876543210"}
+            </Text>
+            <TouchableOpacity
+              style={styles.editButton}
+              onPress={openPhoneEditor}
+            >
+              <Ionicons name="create-outline" size={16} color="#1a73e8" />
+              <Text style={styles.editButtonText}>Edit</Text>
+            </TouchableOpacity>
+          </View>
+          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+            <Ionicons name="log-out-outline" size={18} color="#F44336" />
+            <Text style={styles.logoutText}>Logout</Text>
+          </TouchableOpacity>
         </View>
 
-        {/* Menu Items */}
         <View style={styles.menuSection}>
           <Text style={styles.menuSectionTitle}>Account Settings</Text>
-          {menuItems.map((item) => (
+          {menuItems.map((item, index) => (
             <TouchableOpacity
               key={item.id}
-              style={styles.menuItem}
+              style={[
+                styles.menuItem,
+                index === menuItems.length - 1 && styles.menuItemLast,
+              ]}
               onPress={item.onPress}
               activeOpacity={0.7}
             >
@@ -173,46 +301,96 @@ export default function ProfileScreen() {
                 </View>
                 <Text style={styles.menuItemTitle}>{item.title}</Text>
               </View>
-              <View style={styles.menuItemRight}>
-                {item.badge && (
-                  <View style={styles.badge}>
-                    <Text style={styles.badgeText}>{item.badge}</Text>
-                  </View>
-                )}
-                {item.id === "notifications" && (
-                  <Switch
-                    value={notifications}
-                    onValueChange={setNotifications}
-                    trackColor={{ false: "#e0e0e0", true: "#1a73e8" }}
-                    thumbColor={notifications ? "#fff" : "#fff"}
-                  />
-                )}
-                {item.id === "dark_mode" && (
-                  <Switch
-                    value={darkMode}
-                    onValueChange={setDarkMode}
-                    trackColor={{ false: "#e0e0e0", true: "#1a73e8" }}
-                    thumbColor={darkMode ? "#fff" : "#fff"}
-                  />
-                )}
-                {item.showArrow !== false &&
-                  item.id !== "notifications" &&
-                  item.id !== "dark_mode" && (
-                    <Ionicons name="chevron-forward" size={20} color="#ccc" />
-                  )}
-              </View>
+              {item.id === "notifications" ? (
+                <Switch
+                  value={notifications}
+                  onValueChange={setNotifications}
+                  trackColor={{ false: "#e0e0e0", true: "#1a73e8" }}
+                />
+              ) : item.id === "dark_mode" ? (
+                <Switch
+                  value={darkMode}
+                  onValueChange={setDarkMode}
+                  trackColor={{ false: "#e0e0e0", true: "#1a73e8" }}
+                />
+              ) : item.showArrow !== false ? (
+                <Ionicons name="chevron-forward" size={20} color="#ccc" />
+              ) : null}
             </TouchableOpacity>
           ))}
         </View>
 
-        {/* Logout Button */}
-        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-          <Ionicons name="log-out-outline" size={22} color="#F44336" />
-          <Text style={styles.logoutText}>Logout</Text>
-        </TouchableOpacity>
-
-        {/* App Version */}
-        <Text style={styles.versionText}>Version 1.0.0</Text>
+        <Modal
+          transparent
+          animationType="fade"
+          visible={showPhoneModal}
+          onRequestClose={() => setShowPhoneModal(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.editModal}>
+              <Text style={styles.editModalTitle}>Change Phone Number</Text>
+              <Text style={styles.currentPhone}>
+                Current number: {user?.phone}
+              </Text>
+              <Text style={styles.fieldLabel}>New phone number</Text>
+              <View style={styles.phoneInputRow}>
+                <Text style={styles.phonePrefix}>+91</Text>
+                <TextInput
+                  style={styles.phoneInput}
+                  value={phone}
+                  onChangeText={(value) =>
+                    setPhone(value.replace(/[^0-9]/g, "").slice(0, 10))
+                  }
+                  keyboardType="phone-pad"
+                  maxLength={10}
+                  placeholder="9876543210"
+                />
+              </View>
+              {phoneOtpSent && (
+                <>
+                  <Text style={styles.fieldLabel}>Verification code</Text>
+                  <TextInput
+                    style={styles.fieldInput}
+                    value={phoneOtp}
+                    onChangeText={(value) =>
+                      setPhoneOtp(value.replace(/[^0-9]/g, "").slice(0, 6))
+                    }
+                    keyboardType="number-pad"
+                    maxLength={6}
+                    placeholder="Enter 6-digit OTP"
+                  />
+                </>
+              )}
+              {phoneError ? (
+                <Text style={styles.validationText}>{phoneError}</Text>
+              ) : null}
+              <View style={styles.modalActions}>
+                <TouchableOpacity
+                  style={styles.cancelButton}
+                  onPress={() => setShowPhoneModal(false)}
+                >
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.saveButton,
+                    (phoneOtpSent
+                      ? phoneOtp.length !== 6
+                      : phone.length !== 10) && styles.saveButtonDisabled,
+                  ]}
+                  onPress={phoneOtpSent ? verifyPhoneOtp : handleSendPhoneOtp}
+                  disabled={
+                    phoneOtpSent ? phoneOtp.length !== 6 : phone.length !== 10
+                  }
+                >
+                  <Text style={styles.saveButtonText}>
+                    {phoneOtpSent ? "Verify OTP" : "Send OTP"}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </ScrollView>
     </SafeAreaView>
   );
@@ -258,115 +436,102 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#fff",
   },
-  editAvatarButton: {
-    position: "absolute",
-    bottom: 0,
-    right: 0,
-    backgroundColor: "#1a73e8",
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: "center",
+  cameraButton: {
     alignItems: "center",
-    borderWidth: 2,
+    backgroundColor: "#1a73e8",
     borderColor: "#fff",
+    borderRadius: 16,
+    borderWidth: 2,
+    bottom: -2,
+    height: 32,
+    justifyContent: "center",
+    position: "absolute",
+    right: -2,
+    width: 32,
   },
   userName: {
     fontSize: 20,
     fontWeight: "700",
     color: "#111",
-    marginBottom: 4,
   },
   userPhone: {
     fontSize: 14,
     color: "#666",
-    marginBottom: 8,
   },
-  accountBadge: {
-    backgroundColor: "#e8f0fe",
-    paddingHorizontal: 16,
+  profileDetailRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 7,
+  },
+  inlineNameInput: {
+    borderBottomColor: "#1a73e8",
+    borderBottomWidth: 1,
+    color: "#111",
+    fontSize: 20,
+    fontWeight: "700",
+    minWidth: 150,
+    paddingVertical: 2,
+  },
+  editButton: {
+    alignItems: "center",
+    backgroundColor: "#eff6ff",
+    borderColor: "#93c5fd",
+    borderRadius: 7,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 5,
+    paddingHorizontal: 10,
     paddingVertical: 6,
-    borderRadius: 20,
   },
-  accountBadgeText: {
-    fontSize: 13,
-    color: "#1a73e8",
-    fontWeight: "500",
-  },
-  // Menu Section
+  editButtonText: { color: "#1a73e8", fontSize: 13, fontWeight: "700" },
   menuSection: {
     backgroundColor: "#fff",
     borderRadius: 12,
     marginHorizontal: 16,
     marginBottom: 16,
     paddingVertical: 8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
   },
   menuSectionTitle: {
+    color: "#666",
     fontSize: 13,
     fontWeight: "600",
-    color: "#666",
-    textTransform: "uppercase",
     paddingHorizontal: 16,
     paddingVertical: 10,
-    letterSpacing: 0.5,
+    textTransform: "uppercase",
   },
   menuItem: {
-    flexDirection: "row",
     alignItems: "center",
+    borderBottomColor: "#f5f5f5",
+    borderBottomWidth: 1,
+    flexDirection: "row",
     justifyContent: "space-between",
     paddingHorizontal: 16,
     paddingVertical: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f5f5f5",
   },
-  menuItemLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
+  menuItemLast: {
+    borderBottomWidth: 0,
   },
+  menuItemLeft: { alignItems: "center", flexDirection: "row", gap: 12 },
   menuIcon: {
-    width: 36,
-    height: 36,
+    alignItems: "center",
     borderRadius: 18,
+    height: 36,
     justifyContent: "center",
-    alignItems: "center",
+    width: 36,
   },
-  menuItemTitle: {
-    fontSize: 15,
-    color: "#111",
-    fontWeight: "500",
-  },
-  menuItemRight: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  badge: {
-    backgroundColor: "#F44336",
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 12,
-  },
-  badgeText: {
-    color: "#fff",
-    fontSize: 10,
-    fontWeight: "600",
-  },
+  menuItemTitle: { color: "#111", fontSize: 15, fontWeight: "500" },
   // Logout Button
   logoutButton: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#fff",
-    borderRadius: 12,
-    marginHorizontal: 16,
-    paddingVertical: 16,
-    gap: 10,
+    borderRadius: 8,
+    marginTop: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 9,
+    gap: 7,
     borderWidth: 1,
     borderColor: "#FFCDD2",
     shadowColor: "#000",
@@ -376,15 +541,67 @@ const styles = StyleSheet.create({
     elevation: 1,
   },
   logoutText: {
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "600",
     color: "#F44336",
   },
-  // Version
-  versionText: {
-    textAlign: "center",
-    fontSize: 12,
-    color: "#bbb",
-    marginTop: 20,
+  modalOverlay: {
+    alignItems: "center",
+    backgroundColor: "rgba(0, 0, 0, 0.4)",
+    flex: 1,
+    justifyContent: "center",
+    padding: 20,
   },
+  editModal: {
+    backgroundColor: "#fff",
+    borderRadius: 8,
+    maxWidth: 420,
+    padding: 20,
+    width: "100%",
+  },
+  editModalTitle: { color: "#111", fontSize: 19, fontWeight: "700" },
+  currentPhone: { color: "#666", fontSize: 13, marginTop: 6 },
+  fieldLabel: {
+    color: "#555",
+    fontSize: 13,
+    fontWeight: "600",
+    marginBottom: 7,
+    marginTop: 16,
+  },
+  fieldInput: {
+    borderColor: "#d9dde3",
+    borderRadius: 8,
+    borderWidth: 1,
+    fontSize: 15,
+    height: 48,
+    paddingHorizontal: 12,
+  },
+  phoneInputRow: {
+    alignItems: "center",
+    borderColor: "#d9dde3",
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: "row",
+    height: 48,
+    paddingHorizontal: 12,
+  },
+  phonePrefix: { color: "#333", fontSize: 15, marginRight: 8 },
+  phoneInput: { flex: 1, fontSize: 15, height: "100%" },
+  validationText: { color: "#dc2626", fontSize: 12, marginTop: 5 },
+  modalActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    marginTop: 22,
+  },
+  cancelButton: { paddingHorizontal: 14, paddingVertical: 10 },
+  cancelButtonText: { color: "#555", fontSize: 14, fontWeight: "600" },
+  saveButton: {
+    backgroundColor: "#1a73e8",
+    borderRadius: 7,
+    marginLeft: 8,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+  },
+  saveButtonDisabled: { backgroundColor: "#a8c8f2" },
+  saveButtonText: { color: "#fff", fontSize: 14, fontWeight: "700" },
 });

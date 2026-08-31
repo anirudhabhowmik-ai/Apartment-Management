@@ -3,36 +3,40 @@ import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
-  FlatList,
-  Image,
-  Modal,
-  Platform,
-  Pressable,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    FlatList,
+    Image,
+    Modal,
+    Platform,
+    Pressable,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { useAccounts } from "../hooks/useAccounts";
+import { useAccountStore } from "../store/accountStore";
 import { Account } from "../types";
 
 export default function AccountSwitcher() {
   const router = useRouter();
   const { accounts, selectedAccount, selectAccount, editAccount } =
     useAccounts();
-  const [visible, setVisible] = useState(false);
+  const visible = useAccountStore((state) => state.isAccountSwitcherOpen);
+  const setAccountSwitcherOpen = useAccountStore(
+    (state) => state.setAccountSwitcherOpen,
+  );
   const [editingNameId, setEditingNameId] = useState<string | null>(null);
   const [tempName, setTempName] = useState("");
 
   const handleSelect = (account: Account) => {
     if (editingNameId) return;
     selectAccount(account.id);
-    setVisible(false);
+    setAccountSwitcherOpen(false);
   };
 
   const handleAddNew = () => {
-    setVisible(false);
+    setAccountSwitcherOpen(false);
     router.push("/(modals)/add-account");
   };
 
@@ -67,7 +71,10 @@ export default function AccountSwitcher() {
 
   return (
     <>
-      <TouchableOpacity style={styles.trigger} onPress={() => setVisible(true)}>
+      <TouchableOpacity
+        style={styles.trigger}
+        onPress={() => setAccountSwitcherOpen(true)}
+      >
         {selectedAccount?.photoUri ? (
           <Image
             source={{ uri: selectedAccount.photoUri }}
@@ -108,14 +115,14 @@ export default function AccountSwitcher() {
         animationType="fade"
         onRequestClose={() => {
           setEditingNameId(null);
-          setVisible(false);
+          setAccountSwitcherOpen(false);
         }}
       >
         <Pressable
           style={styles.overlay}
           onPress={() => {
             setEditingNameId(null);
-            setVisible(false);
+            setAccountSwitcherOpen(false);
           }}
         >
           <Pressable style={styles.sheet} onPress={(e) => e.stopPropagation()}>

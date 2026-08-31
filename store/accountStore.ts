@@ -4,12 +4,14 @@ import { Account } from "../types";
 interface AccountState {
   accounts: Account[];
   selectedAccountId: string | null;
+  isAccountSwitcherOpen: boolean;
   isLoading: boolean;
   setAccounts: (accounts: Account[]) => void;
   addAccount: (account: Account) => void;
   updateAccount: (id: string, updates: Partial<Account>) => void;
   removeAccount: (id: string) => void;
   selectAccount: (id: string) => void;
+  setAccountSwitcherOpen: (open: boolean) => void;
   setIsLoading: (loading: boolean) => void;
   getSelectedAccount: () => Account | null;
 }
@@ -17,6 +19,7 @@ interface AccountState {
 export const useAccountStore = create<AccountState>((set: any, get: any) => ({
   accounts: [],
   selectedAccountId: null,
+  isAccountSwitcherOpen: false,
   isLoading: false,
 
   setAccounts: (accounts: any) => {
@@ -54,6 +57,9 @@ export const useAccountStore = create<AccountState>((set: any, get: any) => ({
     }),
 
   selectAccount: (id: any) => set({ selectedAccountId: id }),
+
+  setAccountSwitcherOpen: (isAccountSwitcherOpen: boolean) =>
+    set({ isAccountSwitcherOpen }),
 
   setIsLoading: (isLoading: any) => set({ isLoading }),
 

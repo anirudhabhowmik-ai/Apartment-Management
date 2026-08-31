@@ -25,6 +25,11 @@ export type ModalRouteParams = {
     mode?: "edit";
   };
   "edit-expense": { accountId: string; paymentId: string };
+  "grant-access": {
+    accountId: string;
+    role: "admin" | "member_visibility";
+  };
+  "join-account": undefined;
 };
 
 export default function ModalsLayout() {
@@ -43,6 +48,8 @@ export default function ModalsLayout() {
       />
       <Stack.Screen name="mark-payment" options={{ title: "Mark as Paid" }} />
       <Stack.Screen name="edit-expense" options={{ title: "Edit Expenses" }} />
+      <Stack.Screen name="grant-access" options={{ title: "Grant Access" }} />
+      <Stack.Screen name="join-account" options={{ title: "Join Account" }} />
       <Stack.Screen
         name="switch-account"
         options={{ title: "Switch Property" }}

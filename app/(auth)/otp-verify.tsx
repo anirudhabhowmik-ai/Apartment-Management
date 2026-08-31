@@ -10,6 +10,7 @@ import {
     View,
 } from "react-native";
 import { sendOtp, verifyOtp } from "../../services/otpService";
+import { useAccessStore } from "../../store/accessStore";
 import { useAuthStore } from "../../store/useAuthStore";
 
 const OTP_LENGTH = 6;
@@ -77,10 +78,17 @@ export default function OtpVerifyScreen() {
     setLoading(false);
 
     if (result.success && result.userId) {
-      setUser({ id: result.userId, phone: `+91${pendingPhone}` });
+      const phone = `+91${pendingPhone}`;
+      const invitations = useAccessStore
+        .getState()
+        .getPendingGrantsByPhone(phone);
+      setUser({ id: result.userId, phone });
       setPendingPhone(null); // clear temp phone, no longer needed
-      // Navigate to account creation first - user must create their first account
-      router.replace("/(modals)/add-account");
+      router.replace(
+        invitations.length > 0
+          ? "/(modals)/join-account"
+          : "/(modals)/add-account",
+      );
     } else {
       setError(result.message || "Invalid OTP, please try again");
     }
