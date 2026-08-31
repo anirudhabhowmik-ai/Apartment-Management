@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
-import { useState } from "react";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import { useEffect, useState } from "react";
 import {
     Image,
     Modal,
@@ -69,6 +69,10 @@ const getTabIcon = (type: GroupType): keyof typeof Ionicons.glyphMap => {
 
 export default function PeopleScreen() {
   const router = useRouter();
+  const { tab, memberId } = useLocalSearchParams<{
+    tab?: GroupType;
+    memberId?: string;
+  }>();
   const { selectedAccountId, selectedAccount } = useAccounts();
   const { groups, createGroup } = useGroups(selectedAccountId);
   const { getMembersByGroup, updateMember } = useMemberStore();
@@ -87,6 +91,12 @@ export default function PeopleScreen() {
   const [showAdditionalAmount, setShowAdditionalAmount] = useState(false);
   const [additionalAmount, setAdditionalAmount] = useState("");
   const [additionalNote, setAdditionalNote] = useState("");
+
+  useEffect(() => {
+    if (tab === "apartment" || tab === "staff" || tab === "expense") {
+      setActiveTab(tab);
+    }
+  }, [tab]);
 
   const handleAdd = async (type: GroupType) => {
     const existingGroup = groups.find((group) => group.type === type);
@@ -185,6 +195,23 @@ export default function PeopleScreen() {
     setAdditionalAmount("");
     setAdditionalNote("");
   };
+
+  useEffect(() => {
+    if (!memberId || (tab !== "apartment" && tab !== "staff")) {
+      return;
+    }
+
+    const group = groups.find((currentGroup) => currentGroup.type === tab);
+    const member = group
+      ? getMembersByGroup(group.id).find(
+          (currentMember) => currentMember.id === memberId,
+        )
+      : undefined;
+
+    if (member) {
+      openPaymentModal(member);
+    }
+  }, [groups, getMembersByGroup, memberId, tab]);
 
   const markAsPaid = () => {
     if (!paymentMember) return;
@@ -330,21 +357,12 @@ export default function PeopleScreen() {
                       )}
                       {(isApartment || isStaff) &&
                         (member.paymentStatus === "paid" ? (
-                          <TouchableOpacity
+                          <View
                             style={[
                               styles.statusBadge,
                               styles.statusPaid,
                               styles.inlineStatusBadge,
                             ]}
-                            onPress={(event) => {
-                              event.stopPropagation();
-                              updateMember(member.id, {
-                                paymentStatus: "due",
-                                paidDate: undefined,
-                                additionalAmount: undefined,
-                                additionalNote: undefined,
-                              });
-                            }}
                           >
                             <Text
                               style={[
@@ -354,7 +372,7 @@ export default function PeopleScreen() {
                             >
                               Paid
                             </Text>
-                          </TouchableOpacity>
+                          </View>
                         ) : (
                           <View
                             style={[
@@ -433,10 +451,31 @@ export default function PeopleScreen() {
                   >
                     <Ionicons
                       name="checkmark-circle-outline"
-                      size={18}
+                      size={14}
                       color="#16803a"
                     />
                     <Text style={styles.markPaidButtonText}>Mark as Paid</Text>
+                  </TouchableOpacity>
+                ) : null}
+                {(isApartment || isStaff) && member.paymentStatus === "paid" ? (
+                  <TouchableOpacity
+                    style={styles.editPaymentButton}
+                    onPress={() =>
+                      router.push({
+                        pathname: "/(modals)/mark-payment",
+                        params: {
+                          accountId: selectedAccountId || "",
+                          memberId: member.id,
+                          type: isApartment ? "maintenance" : "salary",
+                          mode: "edit",
+                        },
+                      })
+                    }
+                  >
+                    <Ionicons name="create-outline" size={14} color="#1a73e8" />
+                    <Text style={styles.editPaymentButtonText}>
+                      Edit Payment Details
+                    </Text>
                   </TouchableOpacity>
                 ) : null}
               </View>
@@ -719,17 +758,44 @@ const styles = StyleSheet.create({
   statusPaidText: { color: "#16a34a" },
   statusDueText: { color: "#dc2626" },
   inlineStatusBadge: { marginRight: 0 },
+  editPaymentButton: {
+    alignItems: "center",
+    backgroundColor: "#eff6ff",
+    borderColor: "#93c5fd",
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 7,
+    justifyContent: "center",
+    alignSelf: "flex-start",
+    marginLeft: 60,
+    marginTop: -6,
+    marginBottom: 10,
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+  },
+  editPaymentButtonText: {
+    color: "#1a73e8",
+    fontSize: 10,
+    fontWeight: "700",
+  },
   markPaidButton: {
+    alignSelf: "flex-start",
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
     gap: 7,
-    borderTopWidth: 1,
-    borderTopColor: "#e2e8f0",
-    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: "#86d6a1",
+    borderRadius: 8,
+    marginLeft: 60,
+    marginTop: -6,
+    marginBottom: 10,
+    paddingHorizontal: 7,
+    paddingVertical: 4,
     backgroundColor: "#f0fdf4",
   },
-  markPaidButtonText: { color: "#16803a", fontSize: 13, fontWeight: "700" },
+  markPaidButtonText: { color: "#16803a", fontSize: 10, fontWeight: "700" },
   modalOverlay: {
     flex: 1,
     alignItems: "center",

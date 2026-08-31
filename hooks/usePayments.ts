@@ -67,18 +67,6 @@ async function fetchPayments(accountId: string): Promise<Payment[]> {
       flatNumber: "101",
       month: "2026-08",
     } as MaintenancePayment,
-    {
-      id: "p4",
-      accountId: accountId,
-      category: "rent",
-      amount: 15000,
-      dueDate: new Date(2026, 8, 5).toISOString(),
-      paidDate: new Date(2026, 8, 5).toISOString(),
-      status: "paid",
-      createdAt: new Date(2026, 8, 5).toISOString(),
-      updatedAt: new Date(2026, 8, 5).toISOString(),
-      month: "2026-08",
-    } as RentPayment,
   ];
 }
 

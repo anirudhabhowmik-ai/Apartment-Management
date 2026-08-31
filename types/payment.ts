@@ -1,3 +1,5 @@
+import { BillAttachment } from "./member";
+
 export type PaymentCategory =
   | "maintenance" // flat owner -> apartment
   | "rent" // individual home rent
@@ -17,6 +19,7 @@ export interface BasePayment {
   paidDate?: string;
   status: PaymentStatus;
   description?: string;
+  billAttachments?: BillAttachment[];
   createdAt: string;
   updatedAt: string;
 }
@@ -79,6 +82,7 @@ export interface AddPaymentInput {
   billNumber?: string;
   units?: number;
   provider?: string;
+  billAttachments?: BillAttachment[];
   // Salary specific
   presentDays?: number;
   baseSalary?: number;
@@ -105,6 +109,7 @@ export interface UpdatePaymentInput {
   billNumber?: string;
   units?: number;
   provider?: string;
+  billAttachments?: BillAttachment[];
   // Salary specific
   presentDays?: number;
   baseSalary?: number;

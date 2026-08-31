@@ -26,7 +26,7 @@ import {
 type FilterType = "all" | "income" | "expense" | "pending";
 
 // ✅ Define income and expense categories for filtering
-const INCOME_CATEGORIES: PaymentCategory[] = ["rent", "maintenance"];
+const INCOME_CATEGORIES: PaymentCategory[] = ["maintenance"];
 const EXPENSE_CATEGORIES: PaymentCategory[] = [
   "salary",
   "electricity",
@@ -39,7 +39,6 @@ function TransactionItem({ payment }: { payment: Payment }) {
   const getCategoryLabel = (category: string) => {
     const labels: Record<string, string> = {
       salary: "Salary",
-      rent: "Rent",
       maintenance: "Maintenance",
       electricity: "Electricity",
       water: "Water",
@@ -51,7 +50,6 @@ function TransactionItem({ payment }: { payment: Payment }) {
   const getIcon = (category: string): keyof typeof Ionicons.glyphMap => {
     const icons: Record<string, keyof typeof Ionicons.glyphMap> = {
       salary: "cash-outline",
-      rent: "home-outline",
       maintenance: "construct-outline",
       electricity: "flash-outline",
       water: "water-outline",
@@ -194,14 +192,14 @@ export default function FinanceScreen() {
     accounts,
     isLoading: accountsLoading,
   } = useAccounts();
-  const { payments, getPendingPayments, getMonthlySummary, isLoading } =
-    usePayments(selectedAccount?.id);
+  const { payments, getMonthlySummary, isLoading } = usePayments(
+    selectedAccount?.id,
+  );
 
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<FilterType>("all");
   const [filteredPayments, setFilteredPayments] = useState<Payment[]>([]);
   const [summary, setSummary] = useState<PaymentSummary | null>(null);
-  const [pendingBills, setPendingBills] = useState<Payment[]>([]);
   const [selectedMonth, setSelectedMonth] = useState(new Date());
 
   useEffect(() => {
@@ -211,8 +209,9 @@ export default function FinanceScreen() {
   }, [selectedAccount, payments, filter, selectedMonth]);
 
   const loadFinanceData = () => {
-    // Get all payments for the account
-    const accountPayments = payments || [];
+    const accountPayments = (payments || []).filter(
+      (payment) => payment.category !== "rent",
+    );
 
     // ✅ Apply filter - Type-safe
     let filtered: Payment[] = [];
@@ -248,10 +247,6 @@ export default function FinanceScreen() {
     if (monthlySummary) {
       setSummary(monthlySummary);
     }
-
-    // Get pending bills
-    const pending = getPendingPayments?.() || [];
-    setPendingBills(pending);
   };
 
   const onRefresh = async () => {
@@ -270,24 +265,37 @@ export default function FinanceScreen() {
     setSelectedMonth(newDate);
   };
 
-  const handleRecordPayment = () => {
-    router.push({
-      pathname: "/(modals)/record-payment",
-      params: {
-        accountId: selectedAccount?.id || "",
-      },
-    });
-  };
-
   const handlePaymentPress = (payment: Payment) => {
-    router.push({
-      pathname: "/(modals)/record-payment",
-      params: {
-        paymentId: payment.id,
-        accountId: selectedAccount?.id || "",
-        mode: "edit",
-      },
-    });
+    if (
+      (payment.category === "maintenance" || payment.category === "salary") &&
+      "memberId" in payment
+    ) {
+      router.push({
+        pathname: "/(modals)/mark-payment",
+        params: {
+          accountId: selectedAccount?.id || "",
+          paymentId: payment.id,
+          memberId: payment.memberId,
+          type: payment.category,
+          mode: "edit",
+        },
+      });
+      return;
+    }
+
+    if (
+      payment.category === "electricity" ||
+      payment.category === "water" ||
+      payment.category === "other"
+    ) {
+      router.push({
+        pathname: "/(modals)/edit-expense",
+        params: {
+          paymentId: payment.id,
+          accountId: selectedAccount?.id || "",
+        },
+      });
+    }
   };
 
   if (accountsLoading || isLoading) {
@@ -341,23 +349,29 @@ export default function FinanceScreen() {
       >
         {/* Month Selector */}
         <View style={styles.monthSelector}>
-          <TouchableOpacity
-            onPress={() => handleMonthChange("prev")}
-            style={styles.monthNavButton}
-          >
-            <Ionicons name="chevron-back" size={24} color="#333" />
-          </TouchableOpacity>
-          <Text style={styles.monthText}>
-            {selectedMonth.toLocaleString("default", {
-              month: "long",
-              year: "numeric",
-            })}
-          </Text>
-          <TouchableOpacity
-            onPress={() => handleMonthChange("next")}
-            style={styles.monthNavButton}
-          >
-            <Ionicons name="chevron-forward" size={24} color="#333" />
+          <View style={styles.monthNavigation}>
+            <TouchableOpacity
+              onPress={() => handleMonthChange("prev")}
+              style={styles.monthNavButton}
+            >
+              <Ionicons name="chevron-back" size={24} color="#333" />
+            </TouchableOpacity>
+            <Text style={styles.monthText}>
+              {selectedMonth.toLocaleString("default", {
+                month: "long",
+                year: "numeric",
+              })}
+            </Text>
+            <TouchableOpacity
+              onPress={() => handleMonthChange("next")}
+              style={styles.monthNavButton}
+            >
+              <Ionicons name="chevron-forward" size={24} color="#333" />
+            </TouchableOpacity>
+          </View>
+          <TouchableOpacity style={styles.reportButton}>
+            <Ionicons name="bar-chart" size={18} color="#1a73e8" />
+            <Text style={styles.reportButtonText}>Generate Report</Text>
           </TouchableOpacity>
         </View>
 
@@ -441,90 +455,6 @@ export default function FinanceScreen() {
             ))
           )}
         </View>
-
-        {/* Pending Bills Summary */}
-        {pendingBills.length > 0 && (
-          <View style={styles.pendingSection}>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>⚠️ Pending Bills</Text>
-              <Text style={styles.pendingCount}>
-                {pendingBills.length} bills
-              </Text>
-            </View>
-            {pendingBills.slice(0, 3).map((bill) => (
-              <TouchableOpacity
-                key={bill.id}
-                style={styles.pendingBill}
-                onPress={() => handlePaymentPress(bill)}
-              >
-                <View style={styles.pendingBillLeft}>
-                  <Ionicons
-                    name="receipt-outline"
-                    size={20}
-                    color={bill.status === "overdue" ? "#F44336" : "#FF9800"}
-                  />
-                  <View>
-                    <Text style={styles.pendingBillTitle}>{bill.category}</Text>
-                    <Text style={styles.pendingBillDue}>
-                      Due: {new Date(bill.dueDate).toLocaleDateString()}
-                    </Text>
-                  </View>
-                </View>
-                <View style={styles.pendingBillRight}>
-                  <Text style={styles.pendingBillAmount}>₹{bill.amount}</Text>
-                  <View
-                    style={[
-                      styles.pendingBillStatus,
-                      {
-                        backgroundColor:
-                          bill.status === "overdue" ? "#F4433620" : "#FF980020",
-                      },
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.pendingBillStatusText,
-                        {
-                          color:
-                            bill.status === "overdue" ? "#F44336" : "#FF9800",
-                        },
-                      ]}
-                    >
-                      {bill.status === "overdue" ? "Overdue" : "Pending"}
-                    </Text>
-                  </View>
-                </View>
-              </TouchableOpacity>
-            ))}
-            {pendingBills.length > 3 && (
-              <TouchableOpacity
-                style={styles.viewAllBills}
-                onPress={() => setFilter("pending")}
-              >
-                <Text style={styles.viewAllBillsText}>
-                  View all {pendingBills.length} pending bills
-                </Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        )}
-
-        {/* Action Buttons */}
-        <View style={styles.actionContainer}>
-          <TouchableOpacity
-            style={styles.actionButton}
-            onPress={handleRecordPayment}
-          >
-            <Ionicons name="add" size={20} color="#fff" />
-            <Text style={styles.actionButtonText}>Record Payment</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.actionButton, styles.actionButtonSecondary]}
-          >
-            <Ionicons name="bar-chart" size={20} color="#1a73e8" />
-            <Text style={styles.actionButtonTextSecondary}>Reports</Text>
-          </TouchableOpacity>
-        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -595,6 +525,11 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
+  monthNavigation: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexShrink: 1,
+  },
   monthNavButton: {
     padding: 8,
   },
@@ -602,6 +537,22 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     color: "#111",
+  },
+  reportButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginLeft: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: "#1a73e8",
+  },
+  reportButtonText: {
+    color: "#1a73e8",
+    fontSize: 12,
+    fontWeight: "600",
   },
   // Summary
   summaryGrid: {
@@ -763,100 +714,6 @@ const styles = StyleSheet.create({
   },
   statusText: {
     fontSize: 10,
-    fontWeight: "600",
-  },
-  // Pending Bills
-  pendingSection: {
-    marginBottom: 20,
-  },
-  pendingCount: {
-    fontSize: 13,
-    color: "#666",
-  },
-  pendingBill: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  pendingBillLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
-  },
-  pendingBillTitle: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#111",
-  },
-  pendingBillDue: {
-    fontSize: 12,
-    color: "#999",
-  },
-  pendingBillRight: {
-    alignItems: "flex-end",
-    gap: 4,
-  },
-  pendingBillAmount: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#111",
-  },
-  pendingBillStatus: {
-    paddingHorizontal: 10,
-    paddingVertical: 2,
-    borderRadius: 12,
-  },
-  pendingBillStatusText: {
-    fontSize: 11,
-    fontWeight: "600",
-  },
-  viewAllBills: {
-    padding: 12,
-    alignItems: "center",
-  },
-  viewAllBillsText: {
-    fontSize: 14,
-    color: "#1a73e8",
-    fontWeight: "500",
-  },
-  // Action Buttons
-  actionContainer: {
-    flexDirection: "row",
-    gap: 12,
-    marginTop: 8,
-  },
-  actionButton: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#1a73e8",
-    borderRadius: 12,
-    paddingVertical: 14,
-    gap: 8,
-  },
-  actionButtonSecondary: {
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: "#1a73e8",
-  },
-  actionButtonText: {
-    color: "#fff",
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  actionButtonTextSecondary: {
-    color: "#1a73e8",
-    fontSize: 15,
     fontWeight: "600",
   },
   emptyTransactions: {

@@ -17,12 +17,14 @@ export type ModalRouteParams = {
   };
   "edit-group": { groupId: string };
   "mark-attendance": { memberId: string; accountId: string };
-  "record-payment": {
+  "mark-payment": {
     accountId: string;
-    category?: string;
     paymentId?: string;
-    mode?: "edit" | "add";
+    memberId: string;
+    type: "maintenance" | "salary";
+    mode?: "edit";
   };
+  "edit-expense": { accountId: string; paymentId: string };
 };
 
 export default function ModalsLayout() {
@@ -39,10 +41,8 @@ export default function ModalsLayout() {
         name="mark-attendance"
         options={{ title: "Mark Attendance" }}
       />
-      <Stack.Screen
-        name="record-payment"
-        options={{ title: "Record Payment" }}
-      />
+      <Stack.Screen name="mark-payment" options={{ title: "Mark as Paid" }} />
+      <Stack.Screen name="edit-expense" options={{ title: "Edit Expenses" }} />
       <Stack.Screen
         name="switch-account"
         options={{ title: "Switch Property" }}

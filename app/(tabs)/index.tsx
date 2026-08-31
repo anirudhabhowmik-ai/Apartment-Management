@@ -2,14 +2,14 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  RefreshControl,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Pressable,
+    RefreshControl,
+    SafeAreaView,
+    ScrollView,
+    StyleSheet,
+    Text,
+    View,
 } from "react-native";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useGroups } from "../../hooks/useGroups";
@@ -23,26 +23,30 @@ interface QuickAction {
   title: string;
   icon: keyof typeof Ionicons.glyphMap;
   color: string;
-  route?: string;
-  params?: Record<string, any>;
+  tab: "apartment" | "staff" | "expense";
 }
 
-// ✅ Simplified Quick Actions - Only Add Staff and Add Expenses
 const QUICK_ACTIONS: QuickAction[] = [
   {
-    id: "add_staff",
-    title: "Add Staff",
-    icon: "person-add-outline",
-    color: "#4CAF50",
-    route: "/(modals)/add-member",
+    id: "apartments",
+    title: "Apartments",
+    icon: "business-outline",
+    color: "#1a73e8",
+    tab: "apartment",
   },
   {
-    id: "add_expense",
-    title: "Add Expense",
+    id: "staff",
+    title: "Staff",
+    icon: "people-outline",
+    color: "#4CAF50",
+    tab: "staff",
+  },
+  {
+    id: "expenses",
+    title: "Expenses",
     icon: "cash-outline",
     color: "#1a73e8",
-    route: "/(modals)/record-payment",
-    params: { category: "expense" },
+    tab: "expense",
   },
 ];
 
@@ -53,23 +57,11 @@ interface StatCardProps {
   icon: keyof typeof Ionicons.glyphMap;
   color: string;
   subtitle?: string;
-  onPress?: () => void;
 }
 
-function StatCard({
-  title,
-  value,
-  icon,
-  color,
-  subtitle,
-  onPress,
-}: StatCardProps) {
+function StatCard({ title, value, icon, color, subtitle }: StatCardProps) {
   return (
-    <TouchableOpacity
-      style={[styles.statCard, { borderLeftColor: color }]}
-      onPress={onPress}
-      activeOpacity={0.7}
-    >
+    <View style={[styles.statCard, { borderLeftColor: color }]}>
       <View style={styles.statHeader}>
         <View style={[styles.statIcon, { backgroundColor: color + "20" }]}>
           <Ionicons name={icon} size={20} color={color} />
@@ -78,7 +70,7 @@ function StatCard({
       </View>
       <Text style={styles.statTitle}>{title}</Text>
       {subtitle && <Text style={styles.statSubtitle}>{subtitle}</Text>}
-    </TouchableOpacity>
+    </View>
   );
 }
 
@@ -121,7 +113,7 @@ function StaffCard({
   };
 
   return (
-    <TouchableOpacity style={styles.staffCard} onPress={onPress}>
+    <Pressable style={styles.staffCard} onPress={onPress}>
       <View
         style={[
           styles.staffAvatar,
@@ -137,7 +129,7 @@ function StaffCard({
         <Text style={styles.staffRole}>{getRoleLabel(role)}</Text>
       </View>
       <Ionicons name="chevron-forward" size={20} color="#ccc" />
-    </TouchableOpacity>
+    </Pressable>
   );
 }
 
@@ -232,15 +224,10 @@ export default function HomeScreen() {
   };
 
   const handleQuickAction = (action: QuickAction) => {
-    if (action.route) {
-      router.push({
-        pathname: action.route as any,
-        params: {
-          ...action.params,
-          accountId: selectedAccount?.id || "",
-        },
-      });
-    }
+    router.push({
+      pathname: "/(tabs)/people",
+      params: { tab: action.tab },
+    });
   };
 
   const handleStaffPress = (staff: any) => {
@@ -251,20 +238,6 @@ export default function HomeScreen() {
         groupId: "",
       },
     });
-  };
-
-  const handleStatPress = (statType: string) => {
-    switch (statType) {
-      case "properties":
-        // Navigate to People tab to see apartments/tenants
-        router.push("/(tabs)/people");
-        break;
-      case "staff":
-        router.push("/(tabs)/people");
-        break;
-      default:
-        break;
-    }
   };
 
   if (accountsLoading) {
@@ -290,7 +263,7 @@ export default function HomeScreen() {
                 ? "Select a property to continue"
                 : "Create a property to get started"}
             </Text>
-            <TouchableOpacity
+            <Pressable
               style={styles.createPropertyButton}
               onPress={() =>
                 router.push(
@@ -304,14 +277,14 @@ export default function HomeScreen() {
               <Text style={styles.createPropertyText}>
                 {accounts.length > 0 ? "Select Property" : "Create Property"}
               </Text>
-            </TouchableOpacity>
+            </Pressable>
             {accounts.length > 0 && (
-              <TouchableOpacity
+              <Pressable
                 style={styles.switchPropertyButton}
                 onPress={() => router.push("/(modals)/switch-account")}
               >
                 <Text style={styles.switchPropertyText}>Switch Property</Text>
-              </TouchableOpacity>
+              </Pressable>
             )}
           </View>
         </ScrollView>
@@ -357,25 +330,28 @@ export default function HomeScreen() {
                 : "home-outline"
             }
             color="#1a73e8"
-            onPress={() => handleStatPress("properties")}
           />
           <StatCard
             title="Staff"
             value={stats.totalStaff}
             icon="people-outline"
             color="#4CAF50"
-            onPress={() => handleStatPress("staff")}
+          />
+          <StatCard
+            title="Expenses"
+            value={stats.monthlyExpense}
+            icon="cash-outline"
+            color="#F44336"
           />
         </View>
 
-        {/* ✅ Quick Actions - Only Add Staff and Add Expenses */}
         <View style={styles.quickActionsSection}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Quick Actions</Text>
           </View>
           <View style={styles.quickActionsGrid}>
             {QUICK_ACTIONS.map((action) => (
-              <TouchableOpacity
+              <Pressable
                 key={action.id}
                 style={styles.quickActionItem}
                 onPress={() => handleQuickAction(action)}
@@ -389,7 +365,7 @@ export default function HomeScreen() {
                   <Ionicons name={action.icon} size={28} color={action.color} />
                 </View>
                 <Text style={styles.quickActionTitle}>{action.title}</Text>
-              </TouchableOpacity>
+              </Pressable>
             ))}
           </View>
         </View>
@@ -398,9 +374,9 @@ export default function HomeScreen() {
         <View style={styles.financialSection}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Financial Summary</Text>
-            <TouchableOpacity onPress={() => router.push("/(tabs)/finance")}>
+            <Pressable onPress={() => router.push("/(tabs)/finance")}>
               <Text style={styles.seeAllText}>See All</Text>
-            </TouchableOpacity>
+            </Pressable>
           </View>
           <View style={styles.financialCards}>
             <View style={styles.financialCard}>
@@ -431,9 +407,9 @@ export default function HomeScreen() {
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>Recent Staff</Text>
-            <TouchableOpacity onPress={() => router.push("/(tabs)/people")}>
+            <Pressable onPress={() => router.push("/(tabs)/people")}>
               <Text style={styles.seeAllText}>View All</Text>
-            </TouchableOpacity>
+            </Pressable>
           </View>
           {recentStaff.length === 0 ? (
             <View style={styles.emptyState}>
@@ -508,9 +484,7 @@ const styles = StyleSheet.create({
     elevation: 2,
   },
   statHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
+    alignItems: "flex-start",
     marginBottom: 6,
   },
   statIcon: {
@@ -523,6 +497,8 @@ const styles = StyleSheet.create({
   statValue: {
     fontSize: 22,
     fontWeight: "700",
+    marginTop: 6,
+    maxWidth: "100%",
   },
   statTitle: {
     fontSize: 13,
