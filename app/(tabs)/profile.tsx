@@ -3,17 +3,18 @@ import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
-    Alert,
-    Image,
-    Modal,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Switch,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Alert,
+  Image,
+  Modal,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { useAccounts } from "../../hooks/useAccounts";
 import { sendOtp, verifyOtp } from "../../services/otpService";
@@ -100,7 +101,8 @@ export default function ProfileScreen() {
   };
 
   const openPhoneEditor = () => {
-    setPhone(user?.phone.replace(/^\+91/, "") || "");
+    // *** CHANGED: Set to empty string instead of pre-filling ***
+    setPhone("");
     setPhoneOtp("");
     setPhoneError("");
     setPhoneOtpSent(false);
@@ -227,9 +229,11 @@ export default function ProfileScreen() {
               <Ionicons name="camera-outline" size={16} color="#fff" />
             </TouchableOpacity>
           </View>
+
+          {/* Name with Edit button - positioned as a row */}
           <View style={styles.profileDetailRow}>
             {editingName ? (
-              <>
+              <View style={styles.nameEditContainer}>
                 <TextInput
                   style={styles.inlineNameInput}
                   value={propertyName}
@@ -238,15 +242,14 @@ export default function ProfileScreen() {
                   onSubmitEditing={savePropertyName}
                 />
                 <TouchableOpacity
-                  style={styles.editButton}
+                  style={styles.saveButtonSmall}
                   onPress={savePropertyName}
                 >
-                  <Ionicons name="checkmark" size={16} color="#1a73e8" />
-                  <Text style={styles.editButtonText}>Save</Text>
+                  <Ionicons name="checkmark" size={16} color="#fff" />
                 </TouchableOpacity>
-              </>
+              </View>
             ) : (
-              <>
+              <View style={styles.nameDisplayContainer}>
                 <Text style={styles.userName}>
                   {selectedAccount?.name || "Apartment"}
                 </Text>
@@ -254,12 +257,13 @@ export default function ProfileScreen() {
                   style={styles.editButton}
                   onPress={startEditingName}
                 >
-                  <Ionicons name="create-outline" size={16} color="#1a73e8" />
-                  <Text style={styles.editButtonText}>Edit</Text>
+                  <Ionicons name="create-outline" size={14} color="#1a73e8" />
                 </TouchableOpacity>
-              </>
+              </View>
             )}
           </View>
+
+          {/* Phone with Edit button - positioned as a row */}
           <View style={styles.profileDetailRow}>
             <Text style={styles.userPhone}>
               {user?.phone || "+91 9876543210"}
@@ -268,10 +272,10 @@ export default function ProfileScreen() {
               style={styles.editButton}
               onPress={openPhoneEditor}
             >
-              <Ionicons name="create-outline" size={16} color="#1a73e8" />
-              <Text style={styles.editButtonText}>Edit</Text>
+              <Ionicons name="create-outline" size={14} color="#1a73e8" />
             </TouchableOpacity>
           </View>
+
           <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
             <Ionicons name="log-out-outline" size={18} color="#F44336" />
             <Text style={styles.logoutText}>Logout</Text>
@@ -338,12 +342,14 @@ export default function ProfileScreen() {
                 <TextInput
                   style={styles.phoneInput}
                   value={phone}
-                  onChangeText={(value) =>
-                    setPhone(value.replace(/[^0-9]/g, "").slice(0, 10))
-                  }
-                  keyboardType="phone-pad"
+                  onChangeText={(value) => {
+                    const cleaned = value.replace(/[^0-9]/g, "");
+                    setPhone(cleaned.slice(0, 10));
+                  }}
+                  keyboardType="number-pad"
                   maxLength={10}
                   placeholder="9876543210"
+                  placeholderTextColor="#999"
                 />
               </View>
               {phoneOtpSent && (
@@ -352,12 +358,14 @@ export default function ProfileScreen() {
                   <TextInput
                     style={styles.fieldInput}
                     value={phoneOtp}
-                    onChangeText={(value) =>
-                      setPhoneOtp(value.replace(/[^0-9]/g, "").slice(0, 6))
-                    }
+                    onChangeText={(value) => {
+                      const cleaned = value.replace(/[^0-9]/g, "");
+                      setPhoneOtp(cleaned.slice(0, 6));
+                    }}
                     keyboardType="number-pad"
                     maxLength={6}
                     placeholder="Enter 6-digit OTP"
+                    placeholderTextColor="#999"
                   />
                 </>
               )}
@@ -461,8 +469,19 @@ const styles = StyleSheet.create({
   profileDetailRow: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 8,
+    justifyContent: "center",
     marginBottom: 7,
+    gap: 8,
+  },
+  nameDisplayContainer: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
+  },
+  nameEditContainer: {
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 8,
   },
   inlineNameInput: {
     borderBottomColor: "#1a73e8",
@@ -472,17 +491,26 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     minWidth: 150,
     paddingVertical: 2,
+    textAlign: "center",
+    ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as any) : {}),
   },
   editButton: {
     alignItems: "center",
     backgroundColor: "#eff6ff",
-    borderColor: "#93c5fd",
-    borderRadius: 7,
+    borderRadius: 12,
+    height: 28,
+    justifyContent: "center",
+    width: 28,
     borderWidth: 1,
-    flexDirection: "row",
-    gap: 5,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    borderColor: "#93c5fd",
+  },
+  saveButtonSmall: {
+    alignItems: "center",
+    backgroundColor: "#1a73e8",
+    borderRadius: 12,
+    height: 28,
+    justifyContent: "center",
+    width: 28,
   },
   editButtonText: { color: "#1a73e8", fontSize: 13, fontWeight: "700" },
   menuSection: {
@@ -575,6 +603,8 @@ const styles = StyleSheet.create({
     fontSize: 15,
     height: 48,
     paddingHorizontal: 12,
+    backgroundColor: "#fff",
+    ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as any) : {}),
   },
   phoneInputRow: {
     alignItems: "center",
@@ -584,9 +614,24 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     height: 48,
     paddingHorizontal: 12,
+    backgroundColor: "#fff",
   },
-  phonePrefix: { color: "#333", fontSize: 15, marginRight: 8 },
-  phoneInput: { flex: 1, fontSize: 15, height: "100%" },
+  phonePrefix: {
+    color: "#333",
+    fontSize: 15,
+    marginRight: 8,
+    fontWeight: "500",
+  },
+  phoneInput: {
+    flex: 1,
+    fontSize: 15,
+    height: "100%",
+    padding: 0,
+    margin: 0,
+    borderWidth: 0,
+    backgroundColor: "transparent",
+    ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as any) : {}),
+  },
   validationText: { color: "#dc2626", fontSize: 12, marginTop: 5 },
   modalActions: {
     flexDirection: "row",

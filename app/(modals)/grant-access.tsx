@@ -58,10 +58,12 @@ export default function GrantAccessScreen() {
       (member) => member.id === selectedMemberId,
     );
     const recipientName =
-      source === "existing" ? selectedMember?.name : name.trim();
+      source === "existing" ? (selectedMember?.name ?? "") : name.trim();
+
+    // *** FIXED: Added ?? "" to prevent 'undefined' error ***
     const recipientPhone =
       source === "existing"
-        ? selectedMember?.phone
+        ? (selectedMember?.phone ?? "")
         : `+91${phone.replace(/[^0-9]/g, "").slice(-10)}`;
 
     if (!recipientName || recipientPhone.length !== 13) {
@@ -303,6 +305,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     height: 48,
     paddingHorizontal: 12,
+    ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as any) : {}),
   },
   phoneInputRow: {
     alignItems: "center",
