@@ -6,6 +6,21 @@ export interface BillAttachment {
   mimeType?: string | null;
 }
 
+export interface MemberDetailsSnapshot {
+  effectiveMonth: string;
+  details: Partial<Member>;
+  changeSummary?: string;
+}
+
+export interface MonthlyPayment {
+  status: "paid" | "due";
+  paidDate?: string;
+  additionalAmount?: number;
+  additionalNote?: string;
+  deductionAmount?: number;
+  deductionNote?: string;
+}
+
 export interface BaseMember {
   id: string;
   groupId: string;
@@ -17,6 +32,10 @@ export interface BaseMember {
   paidDate?: string;
   additionalAmount?: number;
   additionalNote?: string;
+  deductionAmount?: number;
+  deductionNote?: string;
+  monthlyPayments?: Record<string, MonthlyPayment>;
+  detailsHistory?: MemberDetailsSnapshot[];
   createdAt: string;
   updatedAt: string;
 }

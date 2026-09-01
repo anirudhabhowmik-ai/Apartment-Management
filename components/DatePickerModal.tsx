@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Modal, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
 interface DatePickerModalProps {
@@ -8,7 +8,10 @@ interface DatePickerModalProps {
   onSelect: (date: string) => void;
 }
 
-const formatDate = (date: Date) => date.toISOString().slice(0, 10);
+const formatDate = (date: Date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(
+    date.getDate(),
+  ).padStart(2, "0")}`;
 
 export default function DatePickerModal({
   visible,
@@ -24,6 +27,21 @@ export default function DatePickerModal({
   const [yearStart, setYearStart] = useState(
     Math.floor(displayedMonth.getFullYear() / 12) * 12,
   );
+
+  useEffect(() => {
+    if (!visible) return;
+
+    const selectedDate = value ? new Date(`${value}T00:00:00`) : new Date();
+    const selectedMonth = new Date(
+      selectedDate.getFullYear(),
+      selectedDate.getMonth(),
+      1,
+    );
+    setDisplayedMonth(selectedMonth);
+    setYearStart(Math.floor(selectedMonth.getFullYear() / 12) * 12);
+    setShowYearPicker(false);
+  }, [visible, value]);
+
   const firstDay = new Date(
     displayedMonth.getFullYear(),
     displayedMonth.getMonth(),

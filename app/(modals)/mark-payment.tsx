@@ -12,15 +12,23 @@ import DatePickerModal from "../../components/DatePickerModal";
 import { usePayments } from "../../hooks/usePayments";
 import { useMemberStore } from "../../store/memberStore";
 
+const formatMonth = (month: string) =>
+  new Date(`${month}-01T00:00:00`).toLocaleString("default", {
+    month: "long",
+    year: "numeric",
+  });
+
 export default function MarkPaymentScreen() {
   const router = useRouter();
-  const { accountId, paymentId, memberId, type, mode } = useLocalSearchParams<{
-    accountId: string;
-    paymentId?: string;
-    memberId: string;
-    type: "maintenance" | "salary";
-    mode?: "edit";
-  }>();
+  const { accountId, paymentId, memberId, type, mode, month } =
+    useLocalSearchParams<{
+      accountId: string;
+      paymentId?: string;
+      memberId: string;
+      type: "maintenance" | "salary";
+      mode?: "edit";
+      month?: string;
+    }>();
   const member = useMemberStore((state) =>
     state.members.find((currentMember) => currentMember.id === memberId),
   );
@@ -33,20 +41,54 @@ export default function MarkPaymentScreen() {
   const [showAdditionalAmount, setShowAdditionalAmount] = useState(false);
   const [additionalAmount, setAdditionalAmount] = useState("");
   const [additionalNote, setAdditionalNote] = useState("");
+  const [showDeduction, setShowDeduction] = useState(false);
+  const [deductionAmount, setDeductionAmount] = useState("");
+  const [deductionNote, setDeductionNote] = useState("");
 
   const amount =
-    type === "maintenance" ? member?.maintenanceAmount : member?.monthlySalary;
+    type === "maintenance"
+      ? member && "maintenanceAmount" in member
+        ? member.maintenanceAmount
+        : 0
+      : member && "monthlySalary" in member
+        ? member.monthlySalary
+        : 0;
   const isEditing = mode === "edit";
+  const paymentMonth = month || new Date().toISOString().slice(0, 7);
+  const netPaidAmount =
+    (amount || 0) +
+    (showAdditionalAmount ? Number(additionalAmount) || 0 : 0) -
+    (showDeduction ? Number(deductionAmount) || 0 : 0);
 
   useEffect(() => {
     if (!member) return;
-    setPaidDate(member.paidDate || new Date().toISOString().slice(0, 10));
-    setAdditionalAmount(member.additionalAmount?.toString() || "");
-    setAdditionalNote(member.additionalNote || "");
+    const paymentForMonth =
+      member.monthlyPayments?.[paymentMonth] ||
+      (member.paidDate?.slice(0, 7) === paymentMonth
+        ? {
+            paidDate: member.paidDate,
+            additionalAmount: member.additionalAmount,
+            additionalNote: member.additionalNote,
+            deductionAmount: member.deductionAmount,
+            deductionNote: member.deductionNote,
+          }
+        : undefined);
+    setPaidDate(paymentForMonth?.paidDate || `${paymentMonth}-01`);
+    setAdditionalAmount(paymentForMonth?.additionalAmount?.toString() || "");
+    setAdditionalNote(paymentForMonth?.additionalNote || "");
     setShowAdditionalAmount(
-      Boolean(member.additionalAmount || member.additionalNote),
+      Boolean(
+        paymentForMonth?.additionalAmount || paymentForMonth?.additionalNote,
+      ),
     );
-  }, [member]);
+    setDeductionAmount(paymentForMonth?.deductionAmount?.toString() || "");
+    setDeductionNote(paymentForMonth?.deductionNote || "");
+    setShowDeduction(
+      Boolean(
+        paymentForMonth?.deductionAmount || paymentForMonth?.deductionNote,
+      ),
+    );
+  }, [member, paymentMonth]);
 
   const handleConfirm = async () => {
     if (!memberId) return;
@@ -70,6 +112,27 @@ export default function MarkPaymentScreen() {
       additionalNote: showAdditionalAmount
         ? additionalNote.trim() || undefined
         : undefined,
+      deductionAmount: showDeduction ? Number(deductionAmount) || 0 : 0,
+      deductionNote: showDeduction
+        ? deductionNote.trim() || undefined
+        : undefined,
+      monthlyPayments: {
+        ...member?.monthlyPayments,
+        [paymentMonth]: {
+          status: "paid",
+          paidDate,
+          additionalAmount: showAdditionalAmount
+            ? Number(additionalAmount) || 0
+            : 0,
+          additionalNote: showAdditionalAmount
+            ? additionalNote.trim() || undefined
+            : undefined,
+          deductionAmount: showDeduction ? Number(deductionAmount) || 0 : 0,
+          deductionNote: showDeduction
+            ? deductionNote.trim() || undefined
+            : undefined,
+        },
+      },
     });
     router.back();
   };
@@ -85,6 +148,12 @@ export default function MarkPaymentScreen() {
       paidDate: undefined,
       additionalAmount: undefined,
       additionalNote: undefined,
+      deductionAmount: undefined,
+      deductionNote: undefined,
+      monthlyPayments: {
+        ...member?.monthlyPayments,
+        [paymentMonth]: { status: "due" },
+      },
     });
     router.back();
   };
@@ -95,6 +164,10 @@ export default function MarkPaymentScreen() {
         options={{ title: isEditing ? "Edit Payment Details" : "Mark as Paid" }}
       />
       <Text style={styles.memberName}>{member?.name || "Member"}</Text>
+      <View style={styles.paymentForRow}>
+        <Text style={styles.paymentForLabel}>Paid for</Text>
+        <Text style={styles.paymentForMonth}>{formatMonth(paymentMonth)}</Text>
+      </View>
 
       <Text style={styles.label}>
         {type === "maintenance" ? "Maintenance Amount" : "Salary Amount"}
@@ -148,6 +221,50 @@ export default function MarkPaymentScreen() {
         </>
       )}
 
+      <TouchableOpacity
+        style={styles.additionalButton}
+        onPress={() => setShowDeduction((visible) => !visible)}
+      >
+        <Ionicons
+          name="remove-circle-outline"
+          size={18}
+          color={showDeduction ? "#dc2626" : "#1a73e8"}
+        />
+        <Text
+          style={[
+            styles.additionalButtonText,
+            showDeduction && styles.removeAdditionalButtonText,
+          ]}
+        >
+          {showDeduction ? "Remove deduction" : "Less deduction"}
+        </Text>
+      </TouchableOpacity>
+
+      {showDeduction && (
+        <>
+          <TextInput
+            style={styles.input}
+            placeholder="Deduction amount"
+            keyboardType="numeric"
+            value={deductionAmount}
+            onChangeText={(value) =>
+              setDeductionAmount(value.replace(/[^0-9]/g, ""))
+            }
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Note, e.g. advance or absence"
+            value={deductionNote}
+            onChangeText={setDeductionNote}
+          />
+        </>
+      )}
+
+      <View style={styles.netPaidRow}>
+        <Text style={styles.netPaidLabel}>Net Paid</Text>
+        <Text style={styles.amount}>₹{netPaidAmount}</Text>
+      </View>
+
       <Text style={styles.label}>Paid Date</Text>
       <TouchableOpacity
         style={styles.dateSelector}
@@ -189,6 +306,14 @@ export default function MarkPaymentScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#fff", padding: 20 },
   memberName: { color: "#555", fontSize: 14 },
+  paymentForRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 16,
+  },
+  paymentForLabel: { color: "#555", fontSize: 13, fontWeight: "600" },
+  paymentForMonth: { color: "#1a73e8", fontSize: 13, fontWeight: "700" },
   label: {
     color: "#555",
     fontSize: 13,
@@ -198,6 +323,13 @@ const styles = StyleSheet.create({
   },
   amountDisplay: { backgroundColor: "#f3f7fd", borderRadius: 10, padding: 14 },
   amount: { color: "#111", fontSize: 17, fontWeight: "700" },
+  netPaidRow: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 20,
+  },
+  netPaidLabel: { color: "#555", fontSize: 13, fontWeight: "600" },
   additionalButton: {
     alignItems: "center",
     flexDirection: "row",

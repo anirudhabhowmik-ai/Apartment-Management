@@ -204,8 +204,20 @@ export function useMembers(groupId: string | null) {
     async (input: AddMemberInput) => {
       try {
         const newMember = await createMemberApi(input);
-        addMember(newMember);
-        return newMember;
+        const memberWithHistory =
+          input.groupType === "apartment" || input.groupType === "staff"
+            ? {
+                ...newMember,
+                detailsHistory: [
+                  {
+                    effectiveMonth: newMember.createdAt.slice(0, 7),
+                    details: { ...newMember },
+                  },
+                ],
+              }
+            : newMember;
+        addMember(memberWithHistory);
+        return memberWithHistory;
       } catch (error) {
         console.error("Error adding member:", error);
         throw error;
@@ -219,8 +231,37 @@ export function useMembers(groupId: string | null) {
     async (id: string, input: UpdateMemberInput) => {
       try {
         const updatedData = await updateMemberApi(id, input);
+        const currentMember = getMembersByGroup(groupId || "").find(
+          (member) => member.id === id,
+        );
+        const isRecurringMember =
+          currentMember &&
+          ("maintenanceAmount" in currentMember ||
+            "monthlySalary" in currentMember);
+        const effectiveMonth = new Date().toISOString().slice(0, 7);
+        const changedFields = Object.entries(updatedData)
+          .filter(
+            ([field, value]) =>
+              field !== "updatedAt" &&
+              currentMember?.[field as keyof Member] !== value,
+          )
+          .map(([field]) => field);
+        const detailsHistory = isRecurringMember
+          ? [
+              ...(currentMember.detailsHistory || []).filter(
+                (snapshot) => snapshot.effectiveMonth !== effectiveMonth,
+              ),
+              {
+                effectiveMonth,
+                details: { ...currentMember, ...updatedData },
+                changeSummary: changedFields.length
+                  ? "Details updated"
+                  : undefined,
+              },
+            ]
+          : undefined;
         // Update the member in the store
-        updateMember(id, updatedData);
+        updateMember(id, { ...updatedData, detailsHistory });
         // Return the updated member
         const updatedMember = getMembersByGroup(groupId || "").find(
           (m) => m.id === id,
