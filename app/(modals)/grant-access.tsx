@@ -12,6 +12,8 @@ import {
 } from "react-native";
 import { useGroups } from "../../hooks/useGroups";
 import { useAccessStore } from "../../store/accessStore";
+import { useAccountStore } from "../../store/accountStore";
+import { useAuthStore } from "../../store/useAuthStore";
 import { useMemberStore } from "../../store/memberStore";
 import { ACCESS_ROLE_LABEL, AccountAccessRole } from "../../types/access";
 
@@ -19,10 +21,13 @@ type RecipientSource = "new" | "existing";
 
 export default function GrantAccessScreen() {
   const router = useRouter();
+  const currentUser = useAuthStore((state) => state.user);
   const { accountId, role } = useLocalSearchParams<{
     accountId: string;
     role: AccountAccessRole;
   }>();
+  const accounts = useAccountStore((state) => state.accounts);
+  const account = accounts.find((a) => a.id === accountId);
   const { groups } = useGroups(accountId);
   const members = useMemberStore((state) => state.members);
   const addGrant = useAccessStore((state) => state.addGrant);
@@ -78,6 +83,9 @@ export default function GrantAccessScreen() {
     addGrant({
       id: `access_${Date.now()}`,
       accountId,
+      accountName: account?.name || "Apartment",
+      invitedByPhone: currentUser?.phone || "+91 98765 43210",
+      invitedByName: currentUser?.name || "Secretary",
       role: role || "member_visibility",
       name: recipientName,
       phone: recipientPhone,

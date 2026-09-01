@@ -10,7 +10,6 @@ import {
 import { useAccessStore } from "../../store/accessStore";
 import { useAccountStore } from "../../store/accountStore";
 import { useAuthStore } from "../../store/useAuthStore";
-import { ACCESS_ROLE_LABEL } from "../../types/access";
 
 export default function JoinAccountScreen() {
   const router = useRouter();
@@ -58,11 +57,17 @@ export default function JoinAccountScreen() {
             </View>
             <View style={styles.content}>
               <Text style={styles.accountName}>
-                {account?.name || "Apartment"}
+                {invitation.accountName || account?.name || "Apartment Society"}
               </Text>
               <Text style={styles.role}>
-                {ACCESS_ROLE_LABEL[invitation.role]}
+                Invited in{" "}
+                {invitation.accountName || account?.name || "Apartment Society"}
               </Text>
+              {invitation.invitedByPhone && (
+                <Text style={styles.inviterPhone}>
+                  📞 Invited by: {invitation.invitedByPhone}
+                </Text>
+              )}
             </View>
             <TouchableOpacity
               style={styles.joinButton}
@@ -113,6 +118,12 @@ const styles = StyleSheet.create({
   content: { flex: 1 },
   accountName: { color: "#222", fontSize: 15, fontWeight: "700" },
   role: { color: "#1a73e8", fontSize: 12, fontWeight: "600", marginTop: 3 },
+  inviterPhone: {
+    color: "#475569",
+    fontSize: 11.5,
+    marginTop: 2,
+    fontWeight: "500",
+  },
   joinButton: {
     backgroundColor: "#1a73e8",
     borderRadius: 7,

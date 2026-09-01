@@ -3,6 +3,9 @@ export type AccountAccessRole = "admin" | "member_visibility";
 export interface AccountAccessGrant {
   id: string;
   accountId: string;
+  accountName?: string;
+  invitedByPhone?: string;
+  invitedByName?: string;
   role: AccountAccessRole;
   name: string;
   phone: string;

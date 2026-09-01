@@ -1,16 +1,15 @@
-import { useRouter } from "expo-router";
+import { Redirect, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
-    KeyboardAvoidingView,
-    Platform,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  KeyboardAvoidingView,
+  Platform,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { sendOtp, verifyOtp } from "../../services/otpService";
-import { useAccessStore } from "../../store/accessStore";
 import { useAuthStore } from "../../store/useAuthStore";
 
 const OTP_LENGTH = 6;
@@ -27,13 +26,6 @@ export default function OtpVerifyScreen() {
   const [error, setError] = useState("");
   const [resendTimer, setResendTimer] = useState(RESEND_SECONDS);
   const inputRefs = useRef<Array<TextInput | null>>([]);
-
-  // If someone lands here directly (refresh, no phone in memory), send them back
-  useEffect(() => {
-    if (!pendingPhone) {
-      router.replace("/(auth)/login");
-    }
-  }, [pendingPhone]);
 
   useEffect(() => {
     if (resendTimer <= 0) return;
@@ -79,16 +71,9 @@ export default function OtpVerifyScreen() {
 
     if (result.success && result.userId) {
       const phone = `+91${pendingPhone}`;
-      const invitations = useAccessStore
-        .getState()
-        .getPendingGrantsByPhone(phone);
       setUser({ id: result.userId, phone });
       setPendingPhone(null); // clear temp phone, no longer needed
-      router.replace(
-        invitations.length > 0
-          ? "/(modals)/join-account"
-          : "/(modals)/add-account",
-      );
+      router.replace("/(modals)/add-account");
     } else {
       setError(result.message || "Invalid OTP, please try again");
     }
@@ -102,7 +87,7 @@ export default function OtpVerifyScreen() {
   };
 
   if (!pendingPhone) {
-    return null; // redirecting via useEffect above
+    return <Redirect href="/(auth)/login" />;
   }
 
   return (
