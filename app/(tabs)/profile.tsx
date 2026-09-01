@@ -18,6 +18,7 @@ import {
 } from "react-native";
 import { useAccounts } from "../../hooks/useAccounts";
 import { sendOtp, verifyOtp } from "../../services/otpService";
+import { useAccessStore } from "../../store/accessStore";
 import { useAccountStore } from "../../store/accountStore";
 import { useAuthStore } from "../../store/useAuthStore";
 
@@ -37,6 +38,8 @@ export default function ProfileScreen() {
   const setAccountSwitcherOpen = useAccountStore(
     (state) => state.setAccountSwitcherOpen,
   );
+  const grants = useAccessStore((state) => state.grants);
+  const removeGrant = useAccessStore((state) => state.removeGrant);
   const [notifications, setNotifications] = useState(true);
   const [darkMode, setDarkMode] = useState(false);
   const [propertyName, setPropertyName] = useState("");
@@ -46,6 +49,20 @@ export default function ProfileScreen() {
   const [phoneOtp, setPhoneOtp] = useState("");
   const [phoneOtpSent, setPhoneOtpSent] = useState(false);
   const [phoneError, setPhoneError] = useState("");
+  const [invitationToDelete, setInvitationToDelete] = useState<string | null>(
+    null,
+  );
+
+  const accountGrants = grants.filter(
+    (grant) => grant.accountId === selectedAccount?.id,
+  );
+  const pendingInvitations = accountGrants.filter((grant) => !grant.acceptedAt);
+  const acceptedAdmins = accountGrants.filter(
+    (grant) => grant.acceptedAt && grant.role === "admin",
+  );
+  const visibleMembers = accountGrants.filter(
+    (grant) => grant.acceptedAt && grant.role === "member_visibility",
+  );
 
   const handleLogout = () => {
     Alert.alert("Logout", "Are you sure you want to logout?", [
@@ -70,6 +87,12 @@ export default function ProfileScreen() {
         { text: "Delete Account", style: "destructive" },
       ],
     );
+  };
+
+  const confirmDeleteInvitation = () => {
+    if (!invitationToDelete) return;
+    removeGrant(invitationToDelete);
+    setInvitationToDelete(null);
   };
 
   const handleChangePhoto = async () => {
@@ -337,6 +360,93 @@ export default function ProfileScreen() {
           );
         })}
 
+        <View style={styles.accessOverview}>
+          <Text style={styles.menuSectionTitle}>People With Access</Text>
+          {selectedAccount?.ownerId === user?.id && (
+            <View style={styles.accessRow}>
+              <View style={[styles.accessAvatar, styles.adminAvatar]}>
+                <Text style={styles.accessAvatarText}>
+                  {(user?.name || "You").charAt(0).toUpperCase()}
+                </Text>
+              </View>
+              <View style={styles.accessInfo}>
+                <Text style={styles.accessName}>You</Text>
+                <Text style={styles.accessPhone}>{user?.phone || ""}</Text>
+              </View>
+              <View style={[styles.accessBadge, styles.adminBadge]}>
+                <Text style={styles.adminBadgeText}>Admin</Text>
+              </View>
+            </View>
+          )}
+
+          {acceptedAdmins.length > 0 && (
+            <>
+              <Text style={styles.accessHeading}>Admins</Text>
+              {acceptedAdmins.map((grant) => (
+                <View key={grant.id} style={styles.accessRow}>
+                  <View style={[styles.accessAvatar, styles.adminAvatar]}>
+                    <Text style={styles.accessAvatarText}>
+                      {grant.name.charAt(0).toUpperCase()}
+                    </Text>
+                  </View>
+                  <View style={styles.accessInfo}>
+                    <Text style={styles.accessName}>{grant.name}</Text>
+                    <Text style={styles.accessPhone}>{grant.phone}</Text>
+                  </View>
+                  <View style={[styles.accessBadge, styles.adminBadge]}>
+                    <Text style={styles.adminBadgeText}>Admin</Text>
+                  </View>
+                </View>
+              ))}
+            </>
+          )}
+
+          {visibleMembers.length > 0 && (
+            <>
+              <Text style={styles.accessHeading}>Visible Members</Text>
+              {visibleMembers.map((grant) => (
+                <View key={grant.id} style={styles.accessRow}>
+                  <View style={[styles.accessAvatar, styles.memberAvatar]}>
+                    <Text style={styles.accessAvatarText}>
+                      {grant.name.charAt(0).toUpperCase()}
+                    </Text>
+                  </View>
+                  <View style={styles.accessInfo}>
+                    <Text style={styles.accessName}>{grant.name}</Text>
+                    <Text style={styles.accessPhone}>{grant.phone}</Text>
+                  </View>
+                  <View style={[styles.accessBadge, styles.memberBadge]}>
+                    <Text style={styles.memberBadgeText}>Visible</Text>
+                  </View>
+                </View>
+              ))}
+            </>
+          )}
+
+          {pendingInvitations.length > 0 && (
+            <>
+              <Text style={styles.accessHeading}>Pending Invitations</Text>
+              {pendingInvitations.map((grant) => (
+                <View key={grant.id} style={styles.accessRow}>
+                  <View style={[styles.accessAvatar, styles.pendingAvatar]}>
+                    <Ionicons name="time-outline" size={19} color="#d97706" />
+                  </View>
+                  <View style={styles.accessInfo}>
+                    <Text style={styles.accessName}>{grant.name}</Text>
+                    <Text style={styles.accessPhone}>{grant.phone}</Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.deleteInvitationButton}
+                    onPress={() => setInvitationToDelete(grant.id)}
+                  >
+                    <Ionicons name="trash-outline" size={18} color="#dc2626" />
+                  </TouchableOpacity>
+                </View>
+              ))}
+            </>
+          )}
+        </View>
+
         <Modal
           transparent
           animationType="fade"
@@ -407,6 +517,35 @@ export default function ProfileScreen() {
                   <Text style={styles.saveButtonText}>
                     {phoneOtpSent ? "Verify OTP" : "Send OTP"}
                   </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+        <Modal
+          transparent
+          animationType="fade"
+          visible={Boolean(invitationToDelete)}
+          onRequestClose={() => setInvitationToDelete(null)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.editModal}>
+              <Text style={styles.editModalTitle}>Delete Invitation?</Text>
+              <Text style={styles.currentPhone}>
+                This person will no longer be able to accept this invitation.
+              </Text>
+              <View style={styles.modalActions}>
+                <TouchableOpacity
+                  style={styles.cancelButton}
+                  onPress={() => setInvitationToDelete(null)}
+                >
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.deleteInvitationConfirmButton}
+                  onPress={confirmDeleteInvitation}
+                >
+                  <Text style={styles.deleteInvitationConfirmText}>Delete</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -562,6 +701,49 @@ const styles = StyleSheet.create({
     width: 36,
   },
   menuItemTitle: { color: "#111", fontSize: 15, fontWeight: "500" },
+  accessOverview: {
+    backgroundColor: "#fff",
+    borderRadius: 12,
+    marginBottom: 16,
+    marginHorizontal: 16,
+    paddingVertical: 8,
+  },
+  accessHeading: {
+    color: "#666",
+    fontSize: 12,
+    fontWeight: "700",
+    marginLeft: 16,
+    marginTop: 12,
+    textTransform: "uppercase",
+  },
+  accessRow: {
+    alignItems: "center",
+    borderBottomColor: "#f5f5f5",
+    borderBottomWidth: 1,
+    flexDirection: "row",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  accessAvatar: {
+    alignItems: "center",
+    borderRadius: 18,
+    height: 36,
+    justifyContent: "center",
+    width: 36,
+  },
+  adminAvatar: { backgroundColor: "#f3e8ff" },
+  memberAvatar: { backgroundColor: "#dcfce7" },
+  pendingAvatar: { backgroundColor: "#fef3c7" },
+  accessAvatarText: { color: "#333", fontSize: 14, fontWeight: "700" },
+  accessInfo: { flex: 1, marginLeft: 12 },
+  accessName: { color: "#111", fontSize: 14, fontWeight: "600" },
+  accessPhone: { color: "#777", fontSize: 12, marginTop: 2 },
+  accessBadge: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 },
+  adminBadge: { backgroundColor: "#f3e8ff" },
+  memberBadge: { backgroundColor: "#dcfce7" },
+  adminBadgeText: { color: "#7c3aed", fontSize: 11, fontWeight: "700" },
+  memberBadgeText: { color: "#16803a", fontSize: 11, fontWeight: "700" },
+  deleteInvitationButton: { padding: 8 },
   // Logout Button
   logoutButton: {
     flexDirection: "row",
@@ -662,4 +844,16 @@ const styles = StyleSheet.create({
   },
   saveButtonDisabled: { backgroundColor: "#a8c8f2" },
   saveButtonText: { color: "#fff", fontSize: 14, fontWeight: "700" },
+  deleteInvitationConfirmButton: {
+    backgroundColor: "#dc2626",
+    borderRadius: 7,
+    marginLeft: 8,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+  },
+  deleteInvitationConfirmText: {
+    color: "#fff",
+    fontSize: 14,
+    fontWeight: "700",
+  },
 });

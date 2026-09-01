@@ -7,6 +7,7 @@ interface AccessState {
   getGrantsByAccount: (accountId: string) => AccountAccessGrant[];
   getPendingGrantsByPhone: (phone: string) => AccountAccessGrant[];
   acceptGrant: (id: string) => void;
+  removeGrant: (id: string) => void;
 }
 
 export const useAccessStore = create<AccessState>((set, get) => ({
@@ -23,5 +24,9 @@ export const useAccessStore = create<AccessState>((set, get) => ({
           ? { ...grant, acceptedAt: new Date().toISOString() }
           : grant,
       ),
+    })),
+  removeGrant: (id) =>
+    set((state) => ({
+      grants: state.grants.filter((grant) => grant.id !== id),
     })),
 }));

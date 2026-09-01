@@ -1,3 +1,4 @@
+import { downloadFinanceReportPdf } from "@/services/financeReportPdf";
 import { Ionicons } from "@expo/vector-icons";
 import { File, Paths } from "expo-file-system";
 import * as Print from "expo-print";
@@ -5,33 +6,34 @@ import { useRouter } from "expo-router";
 import * as Sharing from "expo-sharing";
 import { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Modal,
-    Platform,
-    RefreshControl,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Modal,
+  Platform,
+  RefreshControl,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import * as XLSX from "xlsx";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useGroups } from "../../hooks/useGroups";
-import { downloadFinanceReportPdf } from "../../services/financeReportPdf";
+import { useFinanceBalanceStore } from "../../store/financeBalanceStore";
 import { useMemberStore } from "../../store/memberStore";
 import {
-    getPaymentCategoryColor,
-    getPaymentStatusColor,
-    PaymentCategory,
-    PaymentStatus,
+  getPaymentCategoryColor,
+  getPaymentStatusColor,
+  PaymentCategory,
+  PaymentStatus,
 } from "../../types/payment";
 import {
-    getPeopleSummary,
-    getPeopleTransactions,
-    PeopleTransaction,
+  getPeopleSummary,
+  getPeopleTransactions,
+  PeopleTransaction,
 } from "../../utils/peopleTransactions";
 
 // Quick filter options
@@ -144,7 +146,11 @@ function TransactionItem({ payment }: { payment: PeopleTransaction }) {
         <Text
           style={[
             styles.transactionAmount,
-            isIncome ? styles.incomeText : styles.expenseText,
+            payment.status === "due"
+              ? { color: statusColor }
+              : isIncome
+                ? styles.incomeText
+                : styles.expenseText,
           ]}
         >
           {isIncome ? "+" : "-"}₹{payment.amount}
@@ -222,6 +228,12 @@ export default function FinanceScreen() {
   } = useAccounts();
   const { groups } = useGroups(selectedAccount?.id || null);
   const members = useMemberStore((state) => state.members);
+  const openingBalances = useFinanceBalanceStore(
+    (state) => state.openingBalances,
+  );
+  const setOpeningBalance = useFinanceBalanceStore(
+    (state) => state.setOpeningBalance,
+  );
 
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<FilterType>("all");
@@ -235,6 +247,9 @@ export default function FinanceScreen() {
   });
   const [selectedMonth, setSelectedMonth] = useState(new Date());
   const [showReportOptions, setShowReportOptions] = useState(false);
+  const [showOpeningBalanceEditor, setShowOpeningBalanceEditor] =
+    useState(false);
+  const [openingBalanceInput, setOpeningBalanceInput] = useState("");
 
   const getSelectedMonthTransactions = () => {
     const accountGroupIds = new Set(groups.map((group) => group.id));
@@ -248,6 +263,47 @@ export default function FinanceScreen() {
       monthKey,
       transactions: getPeopleTransactions(accountMembers, monthKey),
     };
+  };
+
+  const getMonthKey = (date: Date) =>
+    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+  const accountGroupIds = new Set(groups.map((group) => group.id));
+  const accountMembers = members.filter((member) =>
+    accountGroupIds.has(member.groupId),
+  );
+  const selectedMonthKey = getMonthKey(selectedMonth);
+  const firstTrackedMonth = selectedAccount
+    ? selectedAccount.createdAt.slice(0, 7)
+    : selectedMonthKey;
+  const previousMonthNets: number[] = [];
+  const cursor = new Date(`${firstTrackedMonth}-01T00:00:00`);
+  while (getMonthKey(cursor) < selectedMonthKey) {
+    previousMonthNets.push(
+      getPeopleSummary(
+        getPeopleTransactions(accountMembers, getMonthKey(cursor)),
+      ).net,
+    );
+    cursor.setMonth(cursor.getMonth() + 1);
+  }
+  const initialOpeningBalance = selectedAccount
+    ? openingBalances[selectedAccount.id] || 0
+    : 0;
+  const carriedForwardBalance =
+    initialOpeningBalance +
+    previousMonthNets.reduce((total, monthNet) => total + monthNet, 0);
+  const totalSavings = carriedForwardBalance + summary.net;
+
+  const openOpeningBalanceEditor = () => {
+    setOpeningBalanceInput(
+      initialOpeningBalance ? initialOpeningBalance.toString() : "",
+    );
+    setShowOpeningBalanceEditor(true);
+  };
+
+  const saveOpeningBalance = () => {
+    if (!selectedAccount) return;
+    setOpeningBalance(selectedAccount.id, Number(openingBalanceInput) || 0);
+    setShowOpeningBalanceEditor(false);
   };
 
   useEffect(() => {
@@ -638,6 +694,44 @@ export default function FinanceScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
+        <View style={styles.balancePanel}>
+          <View>
+            <Text style={styles.balanceLabel}>Opening Balance</Text>
+            <Text style={styles.balanceAmount}>
+              ₹{carriedForwardBalance.toLocaleString()}
+            </Text>
+            <Text style={styles.balanceHint}>
+              Carried forward to{" "}
+              {selectedMonth.toLocaleString("default", {
+                month: "long",
+                year: "numeric",
+              })}
+            </Text>
+          </View>
+          <TouchableOpacity
+            accessibilityLabel="Edit opening balance"
+            style={styles.balanceEditButton}
+            onPress={openOpeningBalanceEditor}
+          >
+            <Ionicons name="create-outline" size={18} color="#1a73e8" />
+          </TouchableOpacity>
+          <View style={styles.totalSavingsDivider} />
+          <View>
+            <Text style={styles.balanceLabel}>Total Savings</Text>
+            <Text
+              style={[
+                styles.totalSavingsAmount,
+                totalSavings < 0 && styles.negativeSavings,
+              ]}
+            >
+              ₹{totalSavings.toLocaleString()}
+            </Text>
+            <Text style={styles.balanceHint}>
+              Opening + paid net for this month
+            </Text>
+          </View>
+        </View>
+
         {/* Month Selector */}
         <View style={styles.monthSelector}>
           <View style={styles.monthNavigation}>
@@ -783,6 +877,45 @@ export default function FinanceScreen() {
           </View>
         </View>
       </Modal>
+      <Modal
+        transparent
+        animationType="fade"
+        visible={showOpeningBalanceEditor}
+        onRequestClose={() => setShowOpeningBalanceEditor(false)}
+      >
+        <View style={styles.reportModalOverlay}>
+          <View style={styles.reportModal}>
+            <Text style={styles.reportModalTitle}>Set Opening Balance</Text>
+            <Text style={styles.reportModalSubtitle}>
+              Enter the balance you had before using AI Khata. Future months
+              carry it forward automatically.
+            </Text>
+            <TextInput
+              autoFocus
+              keyboardType="numeric"
+              placeholder="0"
+              style={styles.openingBalanceInput}
+              value={openingBalanceInput}
+              onChangeText={(value) =>
+                setOpeningBalanceInput(value.replace(/[^0-9]/g, ""))
+              }
+            />
+            <View style={styles.openingBalanceActions}>
+              <TouchableOpacity
+                onPress={() => setShowOpeningBalanceEditor(false)}
+              >
+                <Text style={styles.reportCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.saveOpeningBalanceButton}
+                onPress={saveOpeningBalance}
+              >
+                <Text style={styles.saveOpeningBalanceText}>Save Balance</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -915,6 +1048,61 @@ const styles = StyleSheet.create({
     marginTop: 18,
     textAlign: "right",
   },
+  balancePanel: {
+    alignItems: "center",
+    backgroundColor: "#fff",
+    borderColor: "#dbe7f8",
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: "row",
+    marginBottom: 16,
+    padding: 16,
+  },
+  balanceLabel: { color: "#555", fontSize: 13, fontWeight: "600" },
+  balanceAmount: {
+    color: "#1a73e8",
+    fontSize: 21,
+    fontWeight: "700",
+    marginTop: 5,
+  },
+  totalSavingsAmount: {
+    color: "#16803a",
+    fontSize: 21,
+    fontWeight: "700",
+    marginTop: 5,
+  },
+  negativeSavings: { color: "#dc2626" },
+  balanceHint: { color: "#777", fontSize: 11, marginTop: 4 },
+  balanceEditButton: { marginLeft: 10, padding: 8 },
+  totalSavingsDivider: {
+    backgroundColor: "#e5e7eb",
+    height: 48,
+    marginHorizontal: 16,
+    width: 1,
+  },
+  openingBalanceInput: {
+    borderColor: "#dbe3ee",
+    borderRadius: 8,
+    borderWidth: 1,
+    fontSize: 17,
+    height: 48,
+    marginTop: 18,
+    paddingHorizontal: 12,
+  },
+  openingBalanceActions: {
+    alignItems: "center",
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    marginTop: 16,
+  },
+  saveOpeningBalanceButton: {
+    backgroundColor: "#1a73e8",
+    borderRadius: 7,
+    marginLeft: 18,
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+  },
+  saveOpeningBalanceText: { color: "#fff", fontSize: 14, fontWeight: "700" },
   // Summary
   summaryGrid: {
     flexDirection: "row",

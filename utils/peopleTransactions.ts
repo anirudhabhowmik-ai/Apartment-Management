@@ -35,6 +35,8 @@ export const getPeopleTransactions = (
   month: string,
 ): PeopleTransaction[] =>
   members.flatMap<PeopleTransaction>((member) => {
+    if (member.createdAt.slice(0, 7) > month) return [];
+
     if ("maintenanceAmount" in member) {
       const payment = getPaymentForMonth(member, month);
       return [

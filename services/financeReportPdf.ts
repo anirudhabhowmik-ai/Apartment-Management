@@ -1,2 +1,2 @@
-export { downloadFinanceReportPdf } from "./financeReportPdf.native";
+export { downloadFinanceReportPdf } from "./financeReportPdf.web";
 
