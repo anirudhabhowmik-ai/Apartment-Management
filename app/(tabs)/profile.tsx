@@ -3,18 +3,18 @@ import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
-  Alert,
-  Image,
-  Modal,
-  Platform,
-  SafeAreaView,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    Alert,
+    Image,
+    Modal,
+    Platform,
+    SafeAreaView,
+    ScrollView,
+    StyleSheet,
+    Switch,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { useAccounts } from "../../hooks/useAccounts";
 import { sendOtp, verifyOtp } from "../../services/otpService";
@@ -156,7 +156,7 @@ export default function ProfileScreen() {
     },
     {
       id: "add_member",
-      title: "Add Member Visibility",
+      title: "Manage Member Visibility",
       icon: "person-add-outline",
       color: "#4CAF50",
       onPress: () =>
@@ -191,6 +191,12 @@ export default function ProfileScreen() {
       color: "#F44336",
       onPress: handleDeleteAccount,
     },
+  ];
+
+  const settingsSections = [
+    { title: "Account", itemIds: ["switch_account", "delete_account"] },
+    { title: "Access & Roles", itemIds: ["add_admin", "add_member"] },
+    { title: "Preferences", itemIds: ["notifications", "dark_mode"] },
   ];
 
   const getInitials = (name: string) => {
@@ -282,47 +288,54 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </View>
 
-        <View style={styles.menuSection}>
-          <Text style={styles.menuSectionTitle}>Account Settings</Text>
-          {menuItems.map((item, index) => (
-            <TouchableOpacity
-              key={item.id}
-              style={[
-                styles.menuItem,
-                index === menuItems.length - 1 && styles.menuItemLast,
-              ]}
-              onPress={item.onPress}
-              activeOpacity={0.7}
-            >
-              <View style={styles.menuItemLeft}>
-                <View
+        {settingsSections.map((section) => {
+          const items = menuItems.filter((item) =>
+            section.itemIds.includes(item.id),
+          );
+          return (
+            <View key={section.title} style={styles.menuSection}>
+              <Text style={styles.menuSectionTitle}>{section.title}</Text>
+              {items.map((item, index) => (
+                <TouchableOpacity
+                  key={item.id}
                   style={[
-                    styles.menuIcon,
-                    { backgroundColor: item.color + "15" },
+                    styles.menuItem,
+                    index === items.length - 1 && styles.menuItemLast,
                   ]}
+                  onPress={item.onPress}
+                  activeOpacity={0.7}
                 >
-                  <Ionicons name={item.icon} size={22} color={item.color} />
-                </View>
-                <Text style={styles.menuItemTitle}>{item.title}</Text>
-              </View>
-              {item.id === "notifications" ? (
-                <Switch
-                  value={notifications}
-                  onValueChange={setNotifications}
-                  trackColor={{ false: "#e0e0e0", true: "#1a73e8" }}
-                />
-              ) : item.id === "dark_mode" ? (
-                <Switch
-                  value={darkMode}
-                  onValueChange={setDarkMode}
-                  trackColor={{ false: "#e0e0e0", true: "#1a73e8" }}
-                />
-              ) : item.showArrow !== false ? (
-                <Ionicons name="chevron-forward" size={20} color="#ccc" />
-              ) : null}
-            </TouchableOpacity>
-          ))}
-        </View>
+                  <View style={styles.menuItemLeft}>
+                    <View
+                      style={[
+                        styles.menuIcon,
+                        { backgroundColor: item.color + "15" },
+                      ]}
+                    >
+                      <Ionicons name={item.icon} size={22} color={item.color} />
+                    </View>
+                    <Text style={styles.menuItemTitle}>{item.title}</Text>
+                  </View>
+                  {item.id === "notifications" ? (
+                    <Switch
+                      value={notifications}
+                      onValueChange={setNotifications}
+                      trackColor={{ false: "#e0e0e0", true: "#1a73e8" }}
+                    />
+                  ) : item.id === "dark_mode" ? (
+                    <Switch
+                      value={darkMode}
+                      onValueChange={setDarkMode}
+                      trackColor={{ false: "#e0e0e0", true: "#1a73e8" }}
+                    />
+                  ) : item.showArrow !== false ? (
+                    <Ionicons name="chevron-forward" size={20} color="#ccc" />
+                  ) : null}
+                </TouchableOpacity>
+              ))}
+            </View>
+          );
+        })}
 
         <Modal
           transparent

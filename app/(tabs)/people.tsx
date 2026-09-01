@@ -16,6 +16,7 @@ import DatePickerModal from "../../components/DatePickerModal";
 import MonthYearPickerModal from "../../components/MonthYearPickerModal";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useGroups } from "../../hooks/useGroups";
+import { useAttendanceStore } from "../../store/attendanceStore";
 import { useMemberStore } from "../../store/memberStore";
 import { GroupType } from "../../types";
 
@@ -101,6 +102,28 @@ const formatMonth = (month: string) =>
     year: "numeric",
   });
 
+const getCalculatedStaffSalary = (
+  salary: number,
+  month: string,
+  statuses: Record<string, string>,
+) => {
+  const daysInMonth = new Date(
+    Number(month.slice(0, 4)),
+    Number(month.slice(5, 7)),
+    0,
+  ).getDate();
+  const paidDays = Array.from(
+    { length: daysInMonth },
+    (_, index) => index + 1,
+  ).filter((day) => {
+    const date = `${month}-${String(day).padStart(2, "0")}`;
+    const defaultStatus =
+      new Date(`${date}T00:00:00`).getDay() % 6 === 0 ? "weekend" : "present";
+    return (statuses[date] || defaultStatus) !== "absent";
+  }).length;
+  return Math.round((salary / daysInMonth) * paidDays);
+};
+
 export default function PeopleScreen() {
   const router = useRouter();
   const { tab, memberId } = useLocalSearchParams<{
@@ -110,6 +133,7 @@ export default function PeopleScreen() {
   const { selectedAccountId, selectedAccount } = useAccounts();
   const { groups, createGroup } = useGroups(selectedAccountId);
   const { getMembersByGroup, updateMember } = useMemberStore();
+  const getAttendanceRecord = useAttendanceStore((state) => state.getRecord);
 
   const tabTypes: GroupType[] = ["apartment", "staff", "expense"];
   const [activeTab, setActiveTab] = useState<GroupType>("apartment");
@@ -226,7 +250,18 @@ export default function PeopleScreen() {
   const paymentAmount = paymentMember
     ? isApartment
       ? paymentMember.maintenanceAmount
-      : paymentMember.monthlySalary
+      : (() => {
+          const month = selectedMonth || new Date().toISOString().slice(0, 7);
+          const record = getAttendanceRecord(paymentMember.id, month);
+          return (
+            record?.payableSalary ??
+            getCalculatedStaffSalary(
+              paymentMember.monthlySalary,
+              month,
+              record?.statuses || {},
+            )
+          );
+        })()
     : 0;
   const netPaidAmount =
     paymentAmount +
@@ -380,7 +415,19 @@ export default function PeopleScreen() {
             {activeMembers.map((member: any) => {
               const basePaymentAmount = isApartment
                 ? member.maintenanceAmount || 0
-                : member.monthlySalary || 0;
+                : (() => {
+                    const month =
+                      selectedMonth || new Date().toISOString().slice(0, 7);
+                    const record = getAttendanceRecord(member.id, month);
+                    return (
+                      record?.payableSalary ??
+                      getCalculatedStaffSalary(
+                        member.monthlySalary || 0,
+                        month,
+                        record?.statuses || {},
+                      )
+                    );
+                  })();
               const monthlyPayment = getPaymentForMonth(member, selectedMonth);
               const statusPaymentAmount =
                 monthlyPayment.status === "paid"
@@ -529,49 +576,88 @@ export default function PeopleScreen() {
 
                     <Ionicons name="chevron-forward" size={18} color="#ccc" />
                   </TouchableOpacity>
-                  {(isApartment || isStaff) &&
-                  monthlyPayment.status !== "paid" ? (
-                    <TouchableOpacity
-                      style={styles.markPaidButton}
-                      onPress={() => openPaymentModal(member)}
+                  {(isApartment || isStaff) && (
+                    <View
+                      style={[
+                        styles.paymentActions,
+                        isStaff && styles.staffActions,
+                      ]}
                     >
-                      <Ionicons
-                        name="checkmark-circle-outline"
-                        size={14}
-                        color="#16803a"
-                      />
-                      <Text style={styles.markPaidButtonText}>
-                        Mark as Paid
-                      </Text>
-                    </TouchableOpacity>
-                  ) : null}
-                  {(isApartment || isStaff) &&
-                  monthlyPayment.status === "paid" ? (
-                    <TouchableOpacity
-                      style={styles.editPaymentButton}
-                      onPress={() =>
-                        router.push({
-                          pathname: "/(modals)/mark-payment",
-                          params: {
-                            accountId: selectedAccountId || "",
-                            memberId: member.id,
-                            type: isApartment ? "maintenance" : "salary",
-                            mode: "edit",
-                            month: selectedMonth || "",
-                          },
-                        })
-                      }
-                    >
-                      <Ionicons
-                        name="create-outline"
-                        size={14}
-                        color="#1a73e8"
-                      />
-                      <Text style={styles.editPaymentButtonText}>
-                        Edit Payment Details
-                      </Text>
-                    </TouchableOpacity>
-                  ) : null}
+                      {isStaff && (
+                        <TouchableOpacity
+                          style={[
+                            styles.attendanceButton,
+                            styles.rowActionButton,
+                          ]}
+                          onPress={() =>
+                            router.push({
+                              pathname: "/(modals)/mark-attendance",
+                              params: {
+                                accountId: selectedAccountId || "",
+                                memberId: member.id,
+                                month: selectedMonth || "",
+                              },
+                            })
+                          }
+                        >
+                          <Ionicons
+                            name="calendar-outline"
+                            size={14}
+                            color="#1a73e8"
+                          />
+                          <Text style={styles.attendanceButtonText}>
+                            Attendance
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+                      {monthlyPayment.status !== "paid" ? (
+                        <TouchableOpacity
+                          style={[
+                            styles.markPaidButton,
+                            isStaff && styles.rowActionButton,
+                          ]}
+                          onPress={() => openPaymentModal(member)}
+                        >
+                          <Ionicons
+                            name="checkmark-circle-outline"
+                            size={14}
+                            color="#16803a"
+                          />
+                          <Text style={styles.markPaidButtonText}>
+                            Mark as Paid
+                          </Text>
+                        </TouchableOpacity>
+                      ) : (
+                        <TouchableOpacity
+                          style={[
+                            styles.editPaymentButton,
+                            isStaff && styles.rowActionButton,
+                          ]}
+                          onPress={() =>
+                            router.push({
+                              pathname: "/(modals)/mark-payment",
+                              params: {
+                                accountId: selectedAccountId || "",
+                                memberId: member.id,
+                                type: isApartment ? "maintenance" : "salary",
+                                mode: "edit",
+                                month: selectedMonth || "",
+                              },
+                            })
+                          }
+                        >
+                          <Ionicons
+                            name="create-outline"
+                            size={14}
+                            color="#1a73e8"
+                          />
+                          <Text style={styles.editPaymentButtonText}>
+                            Edit Payment Details
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  )}
                   {(isApartment || isStaff) &&
                   member.detailsHistory?.some(
                     (snapshot: any) => snapshot.changeSummary,
@@ -964,6 +1050,30 @@ const styles = StyleSheet.create({
     backgroundColor: "#f0fdf4",
   },
   markPaidButtonText: { color: "#16803a", fontSize: 10, fontWeight: "700" },
+  paymentActions: { alignSelf: "flex-start" },
+  staffActions: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 10,
+    marginLeft: 60,
+    marginTop: -6,
+  },
+  rowActionButton: { marginBottom: 0, marginLeft: 0, marginTop: 0 },
+  attendanceButton: {
+    alignSelf: "flex-start",
+    alignItems: "center",
+    borderColor: "#9ec5fe",
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 6,
+    marginBottom: 8,
+    marginLeft: 60,
+    marginTop: -6,
+    paddingHorizontal: 7,
+    paddingVertical: 4,
+  },
+  attendanceButtonText: { color: "#1a73e8", fontSize: 10, fontWeight: "700" },
   modalOverlay: {
     flex: 1,
     alignItems: "center",

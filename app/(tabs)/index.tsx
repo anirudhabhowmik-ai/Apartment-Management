@@ -13,9 +13,11 @@ import {
 } from "react-native";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useGroups } from "../../hooks/useGroups";
-import { useMaintenance } from "../../hooks/useMaintenance";
-import { usePayments } from "../../hooks/usePayments";
 import { useMemberStore } from "../../store/memberStore";
+import {
+    getPeopleSummary,
+    getPeopleTransactions,
+} from "../../utils/peopleTransactions";
 
 // Quick Action Component
 interface QuickAction {
@@ -144,10 +146,7 @@ export default function HomeScreen() {
 
   // ✅ Only using groups if needed - removed unused staffGroups
   const { groups } = useGroups(selectedAccount?.id || null);
-  const { tasks } = useMaintenance(selectedAccount?.id);
-  const { payments, getPendingPayments, getMonthlySummary } = usePayments(
-    selectedAccount?.id,
-  );
+  const members = useMemberStore((state) => state.members);
 
   const [refreshing, setRefreshing] = useState(false);
   const [stats, setStats] = useState({
@@ -163,35 +162,33 @@ export default function HomeScreen() {
     if (selectedAccount) {
       loadDashboardData();
     }
-  }, [selectedAccount, payments, tasks, groups]);
+  }, [selectedAccount, groups, members]);
 
   const loadDashboardData = async () => {
     try {
-      // Get monthly summary
-      const monthlySummary = getMonthlySummary?.();
-
-      // Get apartment/tenant count from members in apartment group
-      const apartmentGroup = groups.find((g) => g.type === "apartment");
-      const { getMembersByGroup } = useMemberStore.getState();
-      const apartmentMembers = apartmentGroup
-        ? getMembersByGroup(apartmentGroup.id)
-        : [];
+      const accountGroupIds = new Set(groups.map((group) => group.id));
+      const accountMembers = members.filter((member) =>
+        accountGroupIds.has(member.groupId),
+      );
+      const apartmentMembers = accountMembers.filter(
+        (member) => "maintenanceAmount" in member,
+      );
       const apartmentCount = apartmentMembers.length;
-
-      // ✅ TODO: Get actual staff count from members
-      // For now using mock data
-      const mockStaff = [
-        { name: "Ramesh Singh", role: "security" },
-        { name: "Lakshmi Bai", role: "sweeper" },
-        { name: "Anita Devi", role: "maid" },
-        { name: "Suresh Kumar", role: "driver" },
-      ];
+      const staffMembers = accountMembers.filter(
+        (member) => "monthlySalary" in member,
+      );
+      const currentMonth = `${new Date().getFullYear()}-${String(
+        new Date().getMonth() + 1,
+      ).padStart(2, "0")}`;
+      const financialSummary = getPeopleSummary(
+        getPeopleTransactions(accountMembers, currentMonth),
+      );
 
       const nextStats = {
         totalProperties: apartmentCount,
-        totalStaff: mockStaff.length, // Will be replaced with actual data
-        monthlyIncome: monthlySummary?.totalIncome || 0,
-        monthlyExpense: monthlySummary?.totalExpense || 0,
+        totalStaff: staffMembers.length,
+        monthlyIncome: financialSummary.income,
+        monthlyExpense: financialSummary.expenses,
       };
 
       setStats((currentStats) =>
@@ -203,14 +200,14 @@ export default function HomeScreen() {
           : nextStats,
       );
       setRecentStaff((currentStaff) =>
-        currentStaff.length === mockStaff.length &&
+        currentStaff.length === staffMembers.length &&
         currentStaff.every(
           (staff, index) =>
-            staff.name === mockStaff[index].name &&
-            staff.role === mockStaff[index].role,
+            staff.name === staffMembers[index].name &&
+            staff.role === staffMembers[index].role,
         )
           ? currentStaff
-          : mockStaff,
+          : staffMembers,
       );
     } catch (error) {
       console.error("Error loading dashboard data:", error);
@@ -234,8 +231,9 @@ export default function HomeScreen() {
     router.push({
       pathname: "/(modals)/edit-member",
       params: {
-        memberId: staff.id || "",
-        groupId: "",
+        memberId: staff.id,
+        groupId: staff.groupId,
+        groupType: "staff",
       },
     });
   };

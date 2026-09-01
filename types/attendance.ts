@@ -1,4 +1,4 @@
-export type AttendanceStatus = "present" | "absent" | "half-day" | "leave";
+export type AttendanceStatus = "present" | "absent" | "holiday" | "weekend";
 
 export interface AttendanceEntry {
   id: string;
@@ -20,4 +20,5 @@ export interface MonthlyAttendanceSummary {
   halfDays: number;
   leaveDays: number;
   totalWorkingDays: number;
+  payableSalary?: number;
 }

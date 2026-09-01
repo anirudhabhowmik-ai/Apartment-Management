@@ -10,6 +10,7 @@ import {
 } from "react-native";
 import DatePickerModal from "../../components/DatePickerModal";
 import { usePayments } from "../../hooks/usePayments";
+import { useAttendanceStore } from "../../store/attendanceStore";
 import { useMemberStore } from "../../store/memberStore";
 
 const formatMonth = (month: string) =>
@@ -17,6 +18,28 @@ const formatMonth = (month: string) =>
     month: "long",
     year: "numeric",
   });
+
+const getCalculatedStaffSalary = (
+  salary: number,
+  month: string,
+  statuses: Record<string, string>,
+) => {
+  const daysInMonth = new Date(
+    Number(month.slice(0, 4)),
+    Number(month.slice(5, 7)),
+    0,
+  ).getDate();
+  const paidDays = Array.from(
+    { length: daysInMonth },
+    (_, index) => index + 1,
+  ).filter((day) => {
+    const date = `${month}-${String(day).padStart(2, "0")}`;
+    const defaultStatus =
+      new Date(`${date}T00:00:00`).getDay() % 6 === 0 ? "weekend" : "present";
+    return (statuses[date] || defaultStatus) !== "absent";
+  }).length;
+  return Math.round((salary / daysInMonth) * paidDays);
+};
 
 export default function MarkPaymentScreen() {
   const router = useRouter();
@@ -33,6 +56,7 @@ export default function MarkPaymentScreen() {
     state.members.find((currentMember) => currentMember.id === memberId),
   );
   const updateMember = useMemberStore((state) => state.updateMember);
+  const getAttendanceRecord = useAttendanceStore((state) => state.getRecord);
   const { editPayment, markAsPaid } = usePayments(accountId);
   const [paidDate, setPaidDate] = useState(
     new Date().toISOString().slice(0, 10),
@@ -45,16 +69,24 @@ export default function MarkPaymentScreen() {
   const [deductionAmount, setDeductionAmount] = useState("");
   const [deductionNote, setDeductionNote] = useState("");
 
+  const paymentMonth = month || new Date().toISOString().slice(0, 7);
+  const attendanceRecord = member
+    ? getAttendanceRecord(member.id, paymentMonth)
+    : undefined;
   const amount =
     type === "maintenance"
       ? member && "maintenanceAmount" in member
         ? member.maintenanceAmount
         : 0
       : member && "monthlySalary" in member
-        ? member.monthlySalary
+        ? (attendanceRecord?.payableSalary ??
+          getCalculatedStaffSalary(
+            member.monthlySalary,
+            paymentMonth,
+            attendanceRecord?.statuses || {},
+          ))
         : 0;
   const isEditing = mode === "edit";
-  const paymentMonth = month || new Date().toISOString().slice(0, 7);
   const netPaidAmount =
     (amount || 0) +
     (showAdditionalAmount ? Number(additionalAmount) || 0 : 0) -

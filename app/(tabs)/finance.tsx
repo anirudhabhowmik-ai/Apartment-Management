@@ -1,8 +1,14 @@
 import { Ionicons } from "@expo/vector-icons";
+import { File, Paths } from "expo-file-system";
+import * as Print from "expo-print";
 import { useRouter } from "expo-router";
+import * as Sharing from "expo-sharing";
 import { useEffect, useState } from "react";
 import {
     ActivityIndicator,
+    Alert,
+    Modal,
+    Platform,
     RefreshControl,
     SafeAreaView,
     ScrollView,
@@ -11,19 +17,41 @@ import {
     TouchableOpacity,
     View,
 } from "react-native";
+import * as XLSX from "xlsx";
 import { useAccounts } from "../../hooks/useAccounts";
-import { usePayments } from "../../hooks/usePayments";
+import { useGroups } from "../../hooks/useGroups";
+import { downloadFinanceReportPdf } from "../../services/financeReportPdf";
+import { useMemberStore } from "../../store/memberStore";
 import {
     getPaymentCategoryColor,
     getPaymentStatusColor,
-    Payment,
     PaymentCategory,
     PaymentStatus,
-    PaymentSummary,
 } from "../../types/payment";
+import {
+    getPeopleSummary,
+    getPeopleTransactions,
+    PeopleTransaction,
+} from "../../utils/peopleTransactions";
 
 // Quick filter options
 type FilterType = "all" | "income" | "expense" | "pending";
+
+const getCategoryLabel = (category: string) =>
+  ({
+    salary: "Salary",
+    maintenance: "Maintenance",
+    electricity: "Electricity",
+    water: "Water",
+    other: "Other",
+  })[category] || category;
+
+const escapeHtml = (value: string | number | undefined) =>
+  String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
 
 // ✅ Define income and expense categories for filtering
 const INCOME_CATEGORIES: PaymentCategory[] = ["maintenance"];
@@ -35,7 +63,7 @@ const EXPENSE_CATEGORIES: PaymentCategory[] = [
 ];
 
 // Transaction Item Component
-function TransactionItem({ payment }: { payment: Payment }) {
+function TransactionItem({ payment }: { payment: PeopleTransaction }) {
   const getCategoryLabel = (category: string) => {
     const labels: Record<string, string> = {
       salary: "Salary",
@@ -96,19 +124,19 @@ function TransactionItem({ payment }: { payment: Payment }) {
           {payment.description ||
             `Due: ${new Date(payment.dueDate).toLocaleDateString()}`}
         </Text>
-        {payment.category === "electricity" && "units" in payment && (
-          <Text style={styles.transactionMeta}>
-            ⚡ {payment.units} units • {payment.billNumber || "No bill number"}
-          </Text>
-        )}
         {payment.category === "salary" && "memberId" in payment && (
           <Text style={styles.transactionMeta}>
-            👤 Member ID: {payment.memberId}
+            👤{" "}
+            {payment.memberRole
+              ? payment.memberRole.charAt(0).toUpperCase() +
+                payment.memberRole.slice(1)
+              : "Staff"}
           </Text>
         )}
         {payment.category === "maintenance" && "flatNumber" in payment && (
           <Text style={styles.transactionMeta}>
-            🏠 Flat {payment.flatNumber}
+            🏠 {payment.wing ? `${payment.wing} Wing • ` : ""}Flat{" "}
+            {payment.flatNumber}
           </Text>
         )}
       </View>
@@ -192,61 +220,92 @@ export default function FinanceScreen() {
     accounts,
     isLoading: accountsLoading,
   } = useAccounts();
-  const { payments, getMonthlySummary, isLoading } = usePayments(
-    selectedAccount?.id,
-  );
+  const { groups } = useGroups(selectedAccount?.id || null);
+  const members = useMemberStore((state) => state.members);
 
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<FilterType>("all");
-  const [filteredPayments, setFilteredPayments] = useState<Payment[]>([]);
-  const [summary, setSummary] = useState<PaymentSummary | null>(null);
+  const [filteredPayments, setFilteredPayments] = useState<PeopleTransaction[]>(
+    [],
+  );
+  const [summary, setSummary] = useState({
+    totalIncome: 0,
+    totalExpense: 0,
+    net: 0,
+  });
   const [selectedMonth, setSelectedMonth] = useState(new Date());
+  const [showReportOptions, setShowReportOptions] = useState(false);
+
+  const getSelectedMonthTransactions = () => {
+    const accountGroupIds = new Set(groups.map((group) => group.id));
+    const accountMembers = members.filter((member) =>
+      accountGroupIds.has(member.groupId),
+    );
+    const monthKey = `${selectedMonth.getFullYear()}-${String(
+      selectedMonth.getMonth() + 1,
+    ).padStart(2, "0")}`;
+    return {
+      monthKey,
+      transactions: getPeopleTransactions(accountMembers, monthKey),
+    };
+  };
 
   useEffect(() => {
     if (selectedAccount) {
       loadFinanceData();
     }
-  }, [selectedAccount, payments, filter, selectedMonth]);
+  }, [selectedAccount, groups, members, filter, selectedMonth]);
 
   const loadFinanceData = () => {
-    const accountPayments = (payments || []).filter(
-      (payment) => payment.category !== "rent",
-    );
+    const { transactions: accountPayments } = getSelectedMonthTransactions();
 
     // ✅ Apply filter - Type-safe
-    let filtered: Payment[] = [];
+    let filtered: PeopleTransaction[] = [];
 
     switch (filter) {
       case "all":
         filtered = accountPayments;
         break;
       case "income":
-        filtered = accountPayments.filter((p: Payment) =>
-          INCOME_CATEGORIES.includes(p.category as PaymentCategory),
+        filtered = accountPayments.filter((p) =>
+          INCOME_CATEGORIES.includes(p.category),
         );
         break;
       case "expense":
-        filtered = accountPayments.filter((p: Payment) =>
-          EXPENSE_CATEGORIES.includes(p.category as PaymentCategory),
+        filtered = accountPayments.filter((p) =>
+          EXPENSE_CATEGORIES.includes(p.category),
         );
         break;
       case "pending":
         filtered = accountPayments.filter(
-          (p: Payment) => p.status === "due" || p.status === "overdue",
+          (p) => p.status === "due" || p.status === "overdue",
         );
         break;
       default:
         filtered = accountPayments;
     }
 
-    setFilteredPayments(filtered);
+    setFilteredPayments((currentPayments) =>
+      currentPayments.length === filtered.length &&
+      currentPayments.every(
+        (payment, index) => payment.id === filtered[index].id,
+      )
+        ? currentPayments
+        : filtered,
+    );
 
-    // Get summary
-    const monthStr = selectedMonth.toISOString().slice(0, 7);
-    const monthlySummary = getMonthlySummary?.(monthStr);
-    if (monthlySummary) {
-      setSummary(monthlySummary);
-    }
+    const peopleSummary = getPeopleSummary(accountPayments);
+    setSummary((currentSummary) =>
+      currentSummary.totalIncome === peopleSummary.income &&
+      currentSummary.totalExpense === peopleSummary.expenses &&
+      currentSummary.net === peopleSummary.net
+        ? currentSummary
+        : {
+            totalIncome: peopleSummary.income,
+            totalExpense: peopleSummary.expenses,
+            net: peopleSummary.net,
+          },
+    );
   };
 
   const onRefresh = async () => {
@@ -265,40 +324,272 @@ export default function FinanceScreen() {
     setSelectedMonth(newDate);
   };
 
-  const handlePaymentPress = (payment: Payment) => {
-    if (
-      (payment.category === "maintenance" || payment.category === "salary") &&
-      "memberId" in payment
-    ) {
-      router.push({
-        pathname: "/(modals)/mark-payment",
-        params: {
-          accountId: selectedAccount?.id || "",
-          paymentId: payment.id,
-          memberId: payment.memberId,
-          type: payment.category,
-          mode: "edit",
-        },
-      });
-      return;
-    }
+  const getReportData = () => {
+    const { monthKey, transactions } = getSelectedMonthTransactions();
+    const reportSummary = getPeopleSummary(transactions);
+    return { monthKey, reportSummary, transactions };
+  };
 
-    if (
-      payment.category === "electricity" ||
-      payment.category === "water" ||
-      payment.category === "other"
-    ) {
-      router.push({
-        pathname: "/(modals)/edit-expense",
-        params: {
-          paymentId: payment.id,
-          accountId: selectedAccount?.id || "",
-        },
+  const handleDownloadExcel = async () => {
+    const { monthKey, reportSummary, transactions } = getReportData();
+    const maintenance = transactions.filter(
+      (transaction) => transaction.category === "maintenance",
+    );
+    const staff = transactions.filter(
+      (transaction) => transaction.category === "salary",
+    );
+    const expenses = transactions.filter(
+      (transaction) =>
+        transaction.category !== "maintenance" &&
+        transaction.category !== "salary",
+    );
+    const workbook = XLSX.utils.book_new();
+    const worksheet = XLSX.utils.aoa_to_sheet([
+      ["AI Khata Finance Report"],
+      ["Property", selectedAccount?.name || ""],
+      ["Billing month", monthKey],
+      [],
+      ["Income", reportSummary.income],
+      ["Expenses", reportSummary.expenses],
+      ["Net", reportSummary.net],
+      [],
+      ["Maintenance"],
+      ["Wing", "Flat Number", "Owner Name", "Phone", "Amount", "Status"],
+      ...maintenance.map((transaction) => [
+        transaction.wing || "",
+        transaction.flatNumber || "",
+        transaction.memberName || "",
+        transaction.phone || "",
+        transaction.amount,
+        transaction.status.charAt(0).toUpperCase() +
+          transaction.status.slice(1),
+      ]),
+      [],
+      ["Staff"],
+      ["Staff Name", "Phone", "Role", "Paid Amount", "Status"],
+      ...staff.map((transaction) => [
+        transaction.memberName || transaction.description || "",
+        transaction.phone || "",
+        transaction.memberRole
+          ? transaction.memberRole.charAt(0).toUpperCase() +
+            transaction.memberRole.slice(1)
+          : "Staff",
+        transaction.amount,
+        transaction.status.charAt(0).toUpperCase() +
+          transaction.status.slice(1),
+      ]),
+      [],
+      ["Expenses"],
+      ["Expense", "Amount", "Due Date", "Status"],
+      ...expenses.map((transaction) => [
+        transaction.description || getCategoryLabel(transaction.category),
+        transaction.amount,
+        transaction.dueDate,
+        transaction.status.charAt(0).toUpperCase() +
+          transaction.status.slice(1),
+      ]),
+    ]);
+    worksheet["!merges"] = [
+      XLSX.utils.decode_range("A1:F1"),
+      XLSX.utils.decode_range("A9:F9"),
+      XLSX.utils.decode_range(
+        `A${12 + maintenance.length}:E${12 + maintenance.length}`,
+      ),
+      XLSX.utils.decode_range(
+        `A${15 + maintenance.length + staff.length}:D${15 + maintenance.length + staff.length}`,
+      ),
+    ];
+    worksheet["!cols"] = [
+      { wch: 18 },
+      { wch: 18 },
+      { wch: 24 },
+      { wch: 16 },
+      { wch: 16 },
+      { wch: 14 },
+    ];
+    XLSX.utils.book_append_sheet(workbook, worksheet, "Finance Report");
+    const data = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
+    const fileName = `ai-khata-finance-${monthKey}.xlsx`;
+
+    try {
+      if (Platform.OS === "web") {
+        const url = URL.createObjectURL(
+          new Blob([data], {
+            type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+          }),
+        );
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = fileName;
+        link.click();
+        URL.revokeObjectURL(url);
+        return;
+      }
+
+      const file = new File(Paths.cache, fileName);
+      file.create({ overwrite: true });
+      file.write(new Uint8Array(data));
+      await Sharing.shareAsync(file.uri, {
+        dialogTitle: `Excel report for ${monthKey}`,
+        mimeType:
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       });
+    } catch {
+      Alert.alert(
+        "Report unavailable",
+        "Unable to generate the Excel report. Please try again.",
+      );
     }
   };
 
-  if (accountsLoading || isLoading) {
+  const handleDownloadPdf = async () => {
+    const { monthKey, reportSummary, transactions } = getReportData();
+    try {
+      await downloadFinanceReportPdf({
+        propertyName: selectedAccount?.name || "Property",
+        month: monthKey,
+        income: reportSummary.income,
+        expenses: reportSummary.expenses,
+        net: reportSummary.net,
+        transactions,
+      });
+      setShowReportOptions(false);
+    } catch {
+      Alert.alert(
+        "Report unavailable",
+        "Unable to generate the PDF report. Please try again.",
+      );
+    }
+  };
+
+  const handleDownloadPdfLegacy = async () => {
+    const { monthKey, reportSummary, transactions } = getReportData();
+    const maintenance = transactions.filter(
+      (transaction) => transaction.category === "maintenance",
+    );
+    const staff = transactions.filter(
+      (transaction) => transaction.category === "salary",
+    );
+    const expenses = transactions.filter(
+      (transaction) =>
+        transaction.category !== "maintenance" &&
+        transaction.category !== "salary",
+    );
+    const maintenanceRows = transactions
+      .filter((transaction) => transaction.category === "maintenance")
+      .map(
+        (transaction) =>
+          `<tr><td>${escapeHtml(transaction.wing)}</td><td>${escapeHtml(transaction.flatNumber)}</td><td>${escapeHtml(transaction.memberName)}</td><td>${escapeHtml(transaction.phone)}</td><td>Rs. ${transaction.amount}</td><td>${escapeHtml(transaction.status)}</td></tr>`,
+      )
+      .join("");
+    const staffRows = transactions
+      .filter((transaction) => transaction.category === "salary")
+      .map(
+        (transaction) =>
+          `<tr><td>${escapeHtml(transaction.memberName)}</td><td>${escapeHtml(transaction.phone)}</td><td>${escapeHtml(transaction.memberRole)}</td><td>Rs. ${transaction.amount}</td><td>${escapeHtml(transaction.status)}</td></tr>`,
+      )
+      .join("");
+    const expenseRows = transactions
+      .filter(
+        (transaction) =>
+          transaction.category !== "maintenance" &&
+          transaction.category !== "salary",
+      )
+      .map(
+        (transaction) =>
+          `<tr><td>${escapeHtml(transaction.description || getCategoryLabel(transaction.category))}</td><td>Rs. ${transaction.amount}</td><td>${transaction.dueDate}</td><td>${escapeHtml(transaction.status)}</td></tr>`,
+      )
+      .join("");
+    const section = (title: string, headers: string[], rows: string) =>
+      `<h2>${title}</h2><table><thead><tr>${headers.map((header) => `<th>${header}</th>`).join("")}</tr></thead><tbody>${rows || `<tr><td colspan="${headers.length}">No entries</td></tr>`}</tbody></table>`;
+    const html = `<!DOCTYPE html><html><head><style>@page{margin:28px}body{color:#172033;font:12px Arial,sans-serif}h1{color:#1769e0;font-size:24px;margin:0 0 6px}h2{font-size:15px;margin:22px 0 8px}.meta{color:#526072;margin-bottom:20px}.summary{display:flex;gap:12px;margin-bottom:22px}.summary div{background:#f3f7fd;border-left:3px solid #1769e0;padding:10px;width:30%}.summary strong{display:block;font-size:16px;margin-top:4px}table{border-collapse:collapse;width:100%}th{background:#1769e0;color:#fff;text-align:left}td,th{border:1px solid #dbe3ee;padding:8px}tr:nth-child(even){background:#f8fafc}</style></head><body><h1>AI Khata Finance Report</h1><div class="meta">${escapeHtml(selectedAccount?.name)} | Billing month: ${monthKey}</div><div class="summary"><div>Income<strong>Rs. ${reportSummary.income}</strong></div><div>Expenses<strong>Rs. ${reportSummary.expenses}</strong></div><div>Net<strong>Rs. ${reportSummary.net}</strong></div></div>${section("Maintenance", ["Wing", "Flat Number", "Owner Name", "Phone", "Amount", "Status"], maintenanceRows)}${section("Staff", ["Staff Name", "Phone", "Role", "Paid Amount", "Status"], staffRows)}${section("Expenses", ["Expense", "Amount", "Due Date", "Status"], expenseRows)}</body></html>`;
+
+    try {
+      if (Platform.OS === "web") {
+        const jsPDF: any = null;
+        const autoTable: any = () => undefined;
+        const document = new jsPDF({
+          format: "a4",
+          orientation: "landscape",
+          unit: "pt",
+        });
+        document.setFontSize(20);
+        document.text("AI Khata Finance Report", 40, 42);
+        document.setFontSize(11);
+        document.text(
+          `${selectedAccount?.name || "Property"} | Billing month: ${monthKey}`,
+          40,
+          64,
+        );
+        document.text(
+          `Income: Rs. ${reportSummary.income}    Expenses: Rs. ${reportSummary.expenses}    Net: Rs. ${reportSummary.net}`,
+          40,
+          84,
+        );
+        autoTable(document, {
+          head: [["Maintenance", "", "", "", "", ""]],
+          body: [
+            ["Wing", "Flat Number", "Owner Name", "Phone", "Amount", "Status"],
+            ...maintenance.map((transaction) => [
+              transaction.wing || "",
+              transaction.flatNumber || "",
+              transaction.memberName || "",
+              transaction.phone || "",
+              `Rs. ${transaction.amount}`,
+              transaction.status,
+            ]),
+          ],
+          margin: { left: 40, right: 40, top: 102 },
+          styles: { fontSize: 9 },
+          headStyles: { fillColor: [23, 105, 224] },
+        });
+        autoTable(document, {
+          head: [["Staff", "", "", "", ""]],
+          body: [
+            ["Staff Name", "Phone", "Role", "Paid Amount", "Status"],
+            ...staff.map((transaction) => [
+              transaction.memberName || transaction.description || "",
+              transaction.phone || "",
+              transaction.memberRole || "Staff",
+              `Rs. ${transaction.amount}`,
+              transaction.status,
+            ]),
+          ],
+          margin: { left: 40, right: 40 },
+          startY: (document as any).lastAutoTable.finalY + 20,
+          styles: { fontSize: 9 },
+          headStyles: { fillColor: [22, 128, 58] },
+        });
+        autoTable(document, {
+          head: [["Expenses", "", "", ""]],
+          body: [
+            ["Expense", "Amount", "Due Date", "Status"],
+            ...expenses.map((transaction) => [
+              transaction.description || getCategoryLabel(transaction.category),
+              `Rs. ${transaction.amount}`,
+              transaction.dueDate,
+              transaction.status,
+            ]),
+          ],
+          margin: { left: 40, right: 40 },
+          startY: (document as any).lastAutoTable.finalY + 20,
+          styles: { fontSize: 9 },
+          headStyles: { fillColor: [220, 38, 38] },
+        });
+        document.save(`ai-khata-finance-${monthKey}.pdf`);
+      } else {
+        const { uri } = await Print.printToFileAsync({ html });
+        await Sharing.shareAsync(uri, { mimeType: "application/pdf" });
+      }
+    } catch {
+      Alert.alert(
+        "Report unavailable",
+        "Unable to generate the PDF report. Please try again.",
+      );
+    }
+  };
+
+  if (accountsLoading) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.loadingContainer}>
@@ -369,41 +660,42 @@ export default function FinanceScreen() {
               <Ionicons name="chevron-forward" size={24} color="#333" />
             </TouchableOpacity>
           </View>
-          <TouchableOpacity style={styles.reportButton}>
+          <TouchableOpacity
+            style={styles.reportButton}
+            onPress={() => setShowReportOptions(true)}
+          >
             <Ionicons name="bar-chart" size={18} color="#1a73e8" />
             <Text style={styles.reportButtonText}>Generate Report</Text>
           </TouchableOpacity>
         </View>
 
         {/* Summary Cards */}
-        {summary && (
-          <View style={styles.summaryGrid}>
-            <SummaryCard
-              title="Income"
-              amount={summary.totalIncome}
-              icon="trending-up"
-              color="#4CAF50"
-              trend={{ value: 12, positive: true }}
-            />
-            <SummaryCard
-              title="Expenses"
-              amount={summary.totalExpense}
-              icon="trending-down"
-              color="#F44336"
-              trend={{ value: 5, positive: false }}
-            />
-            <SummaryCard
-              title="Net"
-              amount={summary.net}
-              icon="calculator"
-              color={summary.net >= 0 ? "#1a73e8" : "#F44336"}
-              trend={{
-                value: summary.net >= 0 ? 8 : -8,
-                positive: summary.net >= 0,
-              }}
-            />
-          </View>
-        )}
+        <View style={styles.summaryGrid}>
+          <SummaryCard
+            title="Income"
+            amount={summary.totalIncome}
+            icon="trending-up"
+            color="#4CAF50"
+            trend={{ value: 12, positive: true }}
+          />
+          <SummaryCard
+            title="Expenses"
+            amount={summary.totalExpense}
+            icon="trending-down"
+            color="#F44336"
+            trend={{ value: 5, positive: false }}
+          />
+          <SummaryCard
+            title="Net"
+            amount={summary.net}
+            icon="calculator"
+            color={summary.net >= 0 ? "#1a73e8" : "#F44336"}
+            trend={{
+              value: summary.net >= 0 ? 8 : -8,
+              positive: summary.net >= 0,
+            }}
+          />
+        </View>
 
         {/* Filters */}
         <View style={styles.filterContainer}>
@@ -445,17 +737,52 @@ export default function FinanceScreen() {
             </View>
           ) : (
             filteredPayments.map((payment) => (
-              <TouchableOpacity
-                key={payment.id}
-                onPress={() => handlePaymentPress(payment)}
-                activeOpacity={0.7}
-              >
-                <TransactionItem payment={payment} />
-              </TouchableOpacity>
+              <TransactionItem key={payment.id} payment={payment} />
             ))
           )}
         </View>
       </ScrollView>
+      <Modal
+        transparent
+        animationType="fade"
+        visible={showReportOptions}
+        onRequestClose={() => setShowReportOptions(false)}
+      >
+        <View style={styles.reportModalOverlay}>
+          <View style={styles.reportModal}>
+            <Text style={styles.reportModalTitle}>Download Report</Text>
+            <Text style={styles.reportModalSubtitle}>
+              Choose a format for the selected month.
+            </Text>
+            <TouchableOpacity
+              style={styles.reportFormatButton}
+              onPress={() => {
+                setShowReportOptions(false);
+                handleDownloadExcel();
+              }}
+            >
+              <Ionicons name="grid-outline" size={20} color="#16803a" />
+              <Text style={styles.reportFormatText}>Download Excel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.reportFormatButton}
+              onPress={() => {
+                handleDownloadPdf();
+              }}
+            >
+              <Ionicons
+                name="document-text-outline"
+                size={20}
+                color="#dc2626"
+              />
+              <Text style={styles.reportFormatText}>Download PDF</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setShowReportOptions(false)}>
+              <Text style={styles.reportCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -553,6 +880,40 @@ const styles = StyleSheet.create({
     color: "#1a73e8",
     fontSize: 12,
     fontWeight: "600",
+  },
+  reportModalOverlay: {
+    alignItems: "center",
+    backgroundColor: "rgba(0, 0, 0, 0.4)",
+    flex: 1,
+    justifyContent: "center",
+    padding: 24,
+  },
+  reportModal: {
+    backgroundColor: "#fff",
+    borderRadius: 8,
+    maxWidth: 360,
+    padding: 20,
+    width: "100%",
+  },
+  reportModalTitle: { color: "#111", fontSize: 19, fontWeight: "700" },
+  reportModalSubtitle: { color: "#666", fontSize: 13, marginTop: 6 },
+  reportFormatButton: {
+    alignItems: "center",
+    borderColor: "#dbe3ee",
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 16,
+    padding: 14,
+  },
+  reportFormatText: { color: "#222", fontSize: 15, fontWeight: "600" },
+  reportCancelText: {
+    color: "#1a73e8",
+    fontSize: 14,
+    fontWeight: "600",
+    marginTop: 18,
+    textAlign: "right",
   },
   // Summary
   summaryGrid: {
