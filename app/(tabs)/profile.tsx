@@ -3,18 +3,18 @@ import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
-    Alert,
-    Image,
-    Modal,
-    Platform,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Switch,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Alert,
+  Image,
+  Modal,
+  Platform,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { useAccounts } from "../../hooks/useAccounts";
 import { sendOtp, verifyOtp } from "../../services/otpService";
@@ -363,7 +363,15 @@ export default function ProfileScreen() {
         <View style={styles.accessOverview}>
           <Text style={styles.menuSectionTitle}>People With Access</Text>
           {selectedAccount?.ownerId === user?.id && (
-            <View style={styles.accessRow}>
+            <View
+              style={[
+                styles.accessRow,
+                acceptedAdmins.length === 0 &&
+                  visibleMembers.length === 0 &&
+                  pendingInvitations.length === 0 &&
+                  styles.lastAccessRow,
+              ]}
+            >
               <View style={[styles.accessAvatar, styles.adminAvatar]}>
                 <Text style={styles.accessAvatarText}>
                   {(user?.name || "You").charAt(0).toUpperCase()}
@@ -426,8 +434,14 @@ export default function ProfileScreen() {
           {pendingInvitations.length > 0 && (
             <>
               <Text style={styles.accessHeading}>Pending Invitations</Text>
-              {pendingInvitations.map((grant) => (
-                <View key={grant.id} style={styles.accessRow}>
+              {pendingInvitations.map((grant, i) => (
+                <View
+                  key={grant.id}
+                  style={[
+                    styles.accessRow,
+                    i === pendingInvitations.length - 1 && styles.lastAccessRow,
+                  ]}
+                >
                   <View style={[styles.accessAvatar, styles.pendingAvatar]}>
                     <Ionicons name="time-outline" size={19} color="#d97706" />
                   </View>
@@ -723,6 +737,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     paddingHorizontal: 16,
     paddingVertical: 12,
+  },
+  lastAccessRow: {
+    borderBottomWidth: 0,
   },
   accessAvatar: {
     alignItems: "center",
