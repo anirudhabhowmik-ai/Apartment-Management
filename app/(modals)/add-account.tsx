@@ -6,7 +6,9 @@ import {
   ActivityIndicator,
   Image,
   KeyboardAvoidingView,
+  Modal,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -100,6 +102,7 @@ export default function AddAccountScreen() {
     (s) => s.getPendingGrantsByPhone,
   );
   const acceptGrant = useAccessStore((s) => s.acceptGrant);
+  const removeGrant = useAccessStore((s) => s.removeGrant);
 
   // Step 1 = Role / Type Selection, Step 2 = Name & Photo (for apartment/home creation)
   const [step, setStep] = useState<1 | 2>(1);
@@ -108,6 +111,7 @@ export default function AddAccountScreen() {
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [rejectingGrantId, setRejectingGrantId] = useState<string | null>(null);
 
   const pendingInvitations = useMemo(() => {
     return user?.phone ? getPendingGrantsByPhone(user.phone) : [];
@@ -513,13 +517,11 @@ export default function AddAccountScreen() {
                         : `Join ${displayAptName} as Staff to track your daily attendance, salary payouts and assigned duties.`;
 
                     return (
-                      <TouchableOpacity
+                      <View
                         key={option.id}
                         style={[styles.card, styles.cardJoin]}
-                        onPress={() => handleSelectOption(option)}
-                        activeOpacity={0.8}
                       >
-                        {/* Full width Card Header */}
+                        {/* Card Header */}
                         <View style={styles.cardHeader}>
                           <View
                             style={[
@@ -572,34 +574,46 @@ export default function AddAccountScreen() {
                               </View>
                             </View>
                           </View>
-
-                          <View
-                            style={[
-                              styles.directPill,
-                              { backgroundColor: option.iconBg },
-                            ]}
-                          >
-                            <Text
-                              style={[
-                                styles.directPillText,
-                                { color: option.iconColor },
-                              ]}
-                            >
-                              Direct Join
-                            </Text>
-                            <Ionicons
-                              name="flash"
-                              size={11}
-                              color={option.iconColor}
-                            />
-                          </View>
                         </View>
 
-                        {/* Full width Description */}
+                        {/* Description */}
                         <Text style={styles.cardDescription}>
                           {dynamicDescription}
                         </Text>
-                      </TouchableOpacity>
+
+                        {/* Action Buttons */}
+                        <View style={styles.inviteActionRow}>
+                          <TouchableOpacity
+                            style={styles.rejectButton}
+                            onPress={() => {
+                              // Use real grant ID if available, else use option.id as a sentinel
+                              setRejectingGrantId(
+                                matchingInvite?.id ?? option.id,
+                              );
+                            }}
+                            activeOpacity={0.7}
+                          >
+                            <Ionicons
+                              name="close-circle-outline"
+                              size={15}
+                              color="#dc2626"
+                            />
+                            <Text style={styles.rejectButtonText}>Reject</Text>
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            style={[
+                              styles.joinButton,
+                              { backgroundColor: option.iconColor },
+                            ]}
+                            onPress={() => handleSelectOption(option)}
+                            activeOpacity={0.8}
+                          >
+                            <Ionicons name="flash" size={13} color="#ffffff" />
+                            <Text style={styles.joinButtonText}>Join Now</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
                     );
                   },
                 )}
@@ -756,6 +770,67 @@ export default function AddAccountScreen() {
           </View>
         )}
       </ScrollView>
+
+      {/* ── Reject Invitation Confirmation Modal ── */}
+      <Modal
+        visible={rejectingGrantId !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setRejectingGrantId(null)}
+      >
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={() => setRejectingGrantId(null)}
+        >
+          <Pressable style={styles.modalCard} onPress={() => {}}>
+            {/* Icon */}
+            <View style={styles.modalIconCircle}>
+              <Ionicons name="close-circle" size={36} color="#dc2626" />
+            </View>
+
+            <Text style={styles.modalTitle}>Reject Invitation?</Text>
+            <Text style={styles.modalMessage}>
+              Are you sure you want to reject this invitation? You will no
+              longer be able to join this property using this invite.
+            </Text>
+
+            <View style={styles.modalButtonRow}>
+              {/* Cancel */}
+              <TouchableOpacity
+                style={styles.modalCancelButton}
+                onPress={() => setRejectingGrantId(null)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+
+              {/* Confirm Reject */}
+              <TouchableOpacity
+                style={styles.modalConfirmButton}
+                onPress={() => {
+                  if (rejectingGrantId) {
+                    // Only call removeGrant for real grant IDs (not sentinel option.id values)
+                    const realGrantIds = [
+                      "apartment",
+                      "home",
+                      "join_owner",
+                      "join_staff",
+                    ];
+                    if (!realGrantIds.includes(rejectingGrantId)) {
+                      removeGrant(rejectingGrantId);
+                    }
+                    setRejectingGrantId(null);
+                  }
+                }}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="trash-outline" size={14} color="#ffffff" />
+                <Text style={styles.modalConfirmText}>Yes, Reject</Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -1025,6 +1100,42 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     marginTop: 4,
   },
+  inviteActionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 12,
+    gap: 8,
+  },
+  rejectButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#fecaca",
+    backgroundColor: "#fff5f5",
+  },
+  rejectButtonText: {
+    fontSize: 12.5,
+    fontWeight: "600",
+    color: "#dc2626",
+  },
+  joinButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 16,
+    paddingVertical: 7,
+    borderRadius: 8,
+  },
+  joinButtonText: {
+    fontSize: 12.5,
+    fontWeight: "700",
+    color: "#ffffff",
+  },
   arrowCircle: {
     width: 28,
     height: 28,
@@ -1226,5 +1337,85 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
     color: "#334155",
+  },
+
+  // ── Reject Confirmation Modal ──
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 24,
+  },
+  modalCard: {
+    backgroundColor: "#ffffff",
+    borderRadius: 20,
+    padding: 24,
+    width: "100%",
+    alignItems: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
+    elevation: 10,
+  },
+  modalIconCircle: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: "#fff5f5",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: "#fecaca",
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#0f172a",
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  modalMessage: {
+    fontSize: 13.5,
+    color: "#64748b",
+    textAlign: "center",
+    lineHeight: 20,
+    marginBottom: 22,
+  },
+  modalButtonRow: {
+    flexDirection: "row",
+    gap: 10,
+    width: "100%",
+  },
+  modalCancelButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    backgroundColor: "#f8fafc",
+    alignItems: "center",
+  },
+  modalCancelText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#475569",
+  },
+  modalConfirmButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    borderRadius: 10,
+    backgroundColor: "#dc2626",
+    gap: 6,
+  },
+  modalConfirmText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#ffffff",
   },
 });

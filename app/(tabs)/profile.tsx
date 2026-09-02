@@ -6,7 +6,6 @@ import {
   Alert,
   Image,
   Modal,
-  Platform,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -81,10 +80,17 @@ export default function ProfileScreen() {
   const handleDeleteAccount = () => {
     Alert.alert(
       "Delete Account",
-      "Are you sure you want to delete your account?",
+      "Are you sure you want to delete your account? This action cannot be undone.",
       [
         { text: "Cancel", style: "cancel" },
-        { text: "Delete Account", style: "destructive" },
+        {
+          text: "Delete Account",
+          style: "destructive",
+          onPress: () => {
+            // Add your delete account logic here
+            Alert.alert("Account deleted successfully");
+          },
+        },
       ],
     );
   };
@@ -98,8 +104,17 @@ export default function ProfileScreen() {
   const handleChangePhoto = async () => {
     if (!selectedAccount) return;
 
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== "granted") {
+      Alert.alert(
+        "Permission needed",
+        "Please grant permission to access your photos.",
+      );
+      return;
+    }
+
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.7,
@@ -124,7 +139,6 @@ export default function ProfileScreen() {
   };
 
   const openPhoneEditor = () => {
-    // *** CHANGED: Set to empty string instead of pre-filling ***
     setPhone("");
     setPhoneOtp("");
     setPhoneError("");
@@ -178,9 +192,9 @@ export default function ProfileScreen() {
         }),
     },
     {
-      id: "add_member",
-      title: "Manage Member Visibility",
-      icon: "person-add-outline",
+      id: "manage_owner_visibility",
+      title: "Manage Apartment Owner Visibility",
+      icon: "home-outline",
       color: "#4CAF50",
       onPress: () =>
         router.push({
@@ -188,6 +202,22 @@ export default function ProfileScreen() {
           params: {
             accountId: selectedAccount?.id || "",
             role: "member_visibility",
+            memberType: "owner",
+          },
+        }),
+    },
+    {
+      id: "manage_staff_visibility",
+      title: "Manage Staff Visibility",
+      icon: "briefcase-outline",
+      color: "#0891b2",
+      onPress: () =>
+        router.push({
+          pathname: "/(modals)/grant-access",
+          params: {
+            accountId: selectedAccount?.id || "",
+            role: "member_visibility",
+            memberType: "staff",
           },
         }),
     },
@@ -218,7 +248,14 @@ export default function ProfileScreen() {
 
   const settingsSections = [
     { title: "Account", itemIds: ["switch_account", "delete_account"] },
-    { title: "Access & Roles", itemIds: ["add_admin", "add_member"] },
+    {
+      title: "Access & Roles",
+      itemIds: [
+        "add_admin",
+        "manage_owner_visibility",
+        "manage_staff_visibility",
+      ],
+    },
     { title: "Preferences", itemIds: ["notifications", "dark_mode"] },
   ];
 
@@ -259,7 +296,6 @@ export default function ProfileScreen() {
             </TouchableOpacity>
           </View>
 
-          {/* Name with Edit button - positioned as a row */}
           <View style={styles.profileDetailRow}>
             {editingName ? (
               <View style={styles.nameEditContainer}>
@@ -292,7 +328,6 @@ export default function ProfileScreen() {
             )}
           </View>
 
-          {/* Phone with Edit button - positioned as a row */}
           <View style={styles.profileDetailRow}>
             <Text style={styles.userPhone}>
               {user?.phone || "+91 9876543210"}
@@ -461,6 +496,7 @@ export default function ProfileScreen() {
           )}
         </View>
 
+        {/* Phone Edit Modal */}
         <Modal
           transparent
           animationType="fade"
@@ -471,7 +507,7 @@ export default function ProfileScreen() {
             <View style={styles.editModal}>
               <Text style={styles.editModalTitle}>Change Phone Number</Text>
               <Text style={styles.currentPhone}>
-                Current number: {user?.phone}
+                Current number: {user?.phone || "Not set"}
               </Text>
               <Text style={styles.fieldLabel}>New phone number</Text>
               <View style={styles.phoneInputRow}>
@@ -536,6 +572,8 @@ export default function ProfileScreen() {
             </View>
           </View>
         </Modal>
+
+        {/* Delete Invitation Confirmation Modal */}
         <Modal
           transparent
           animationType="fade"
@@ -578,7 +616,6 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingBottom: 40,
   },
-  // Profile Header
   profileHeader: {
     alignItems: "center",
     backgroundColor: "#fff",
@@ -633,244 +670,302 @@ const styles = StyleSheet.create({
     color: "#666",
   },
   profileDetailRow: {
-    alignItems: "center",
     flexDirection: "row",
+    alignItems: "center",
     justifyContent: "center",
-    marginBottom: 7,
-    gap: 8,
+    marginTop: 6,
   },
   nameDisplayContainer: {
-    alignItems: "center",
     flexDirection: "row",
-    gap: 8,
+    alignItems: "center",
   },
   nameEditContainer: {
-    alignItems: "center",
     flexDirection: "row",
-    gap: 8,
+    alignItems: "center",
   },
   inlineNameInput: {
-    borderBottomColor: "#1a73e8",
-    borderBottomWidth: 1,
-    color: "#111",
     fontSize: 20,
-    fontWeight: "700",
-    minWidth: 150,
-    paddingVertical: 2,
+    fontWeight: "600",
+    color: "#111",
+    borderBottomWidth: 2,
+    borderBottomColor: "#1a73e8",
+    paddingVertical: 4,
+    minWidth: 120,
     textAlign: "center",
-    ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as any) : {}),
   },
   editButton: {
-    alignItems: "center",
-    backgroundColor: "#eff6ff",
-    borderRadius: 12,
-    height: 28,
-    justifyContent: "center",
-    width: 28,
-    borderWidth: 1,
-    borderColor: "#93c5fd",
+    marginLeft: 8,
+    padding: 4,
   },
   saveButtonSmall: {
-    alignItems: "center",
     backgroundColor: "#1a73e8",
-    borderRadius: 12,
-    height: 28,
-    justifyContent: "center",
-    width: 28,
+    borderRadius: 20,
+    padding: 6,
+    marginLeft: 8,
   },
-  editButtonText: { color: "#1a73e8", fontSize: 13, fontWeight: "700" },
+  logoutButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 16,
+    paddingVertical: 8,
+    paddingHorizontal: 20,
+    borderRadius: 20,
+    backgroundColor: "#fee2e2",
+  },
+  logoutText: {
+    color: "#F44336",
+    fontWeight: "600",
+    marginLeft: 8,
+    fontSize: 14,
+  },
   menuSection: {
     backgroundColor: "#fff",
-    borderRadius: 12,
     marginHorizontal: 16,
-    marginBottom: 16,
-    paddingVertical: 8,
+    marginTop: 12,
+    borderRadius: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+    overflow: "hidden",
   },
   menuSectionTitle: {
-    color: "#666",
     fontSize: 13,
     fontWeight: "600",
+    color: "#666",
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingTop: 14,
+    paddingBottom: 6,
     textTransform: "uppercase",
+    letterSpacing: 0.5,
   },
   menuItem: {
-    alignItems: "center",
-    borderBottomColor: "#f5f5f5",
-    borderBottomWidth: 1,
     flexDirection: "row",
+    alignItems: "center",
     justifyContent: "space-between",
+    paddingVertical: 12,
     paddingHorizontal: 16,
-    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f5f5f5",
   },
   menuItemLast: {
     borderBottomWidth: 0,
   },
-  menuItemLeft: { alignItems: "center", flexDirection: "row", gap: 12 },
-  menuIcon: {
+  menuItemLeft: {
+    flexDirection: "row",
     alignItems: "center",
-    borderRadius: 18,
-    height: 36,
-    justifyContent: "center",
-    width: 36,
+    flex: 1,
   },
-  menuItemTitle: { color: "#111", fontSize: 15, fontWeight: "500" },
+  menuIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+  menuItemTitle: {
+    fontSize: 15,
+    color: "#222",
+    fontWeight: "500",
+  },
   accessOverview: {
     backgroundColor: "#fff",
-    borderRadius: 12,
-    marginBottom: 16,
     marginHorizontal: 16,
-    paddingVertical: 8,
-  },
-  accessHeading: {
-    color: "#666",
-    fontSize: 12,
-    fontWeight: "700",
-    marginLeft: 16,
     marginTop: 12,
-    textTransform: "uppercase",
-  },
-  accessRow: {
-    alignItems: "center",
-    borderBottomColor: "#f5f5f5",
-    borderBottomWidth: 1,
-    flexDirection: "row",
+    borderRadius: 12,
     paddingHorizontal: 16,
     paddingVertical: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
+  },
+  accessHeading: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#888",
+    marginTop: 12,
+    marginBottom: 6,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  accessRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f0f0",
   },
   lastAccessRow: {
     borderBottomWidth: 0,
   },
   accessAvatar: {
-    alignItems: "center",
-    borderRadius: 18,
-    height: 36,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     justifyContent: "center",
-    width: 36,
-  },
-  adminAvatar: { backgroundColor: "#f3e8ff" },
-  memberAvatar: { backgroundColor: "#dcfce7" },
-  pendingAvatar: { backgroundColor: "#fef3c7" },
-  accessAvatarText: { color: "#333", fontSize: 14, fontWeight: "700" },
-  accessInfo: { flex: 1, marginLeft: 12 },
-  accessName: { color: "#111", fontSize: 14, fontWeight: "600" },
-  accessPhone: { color: "#777", fontSize: 12, marginTop: 2 },
-  accessBadge: { borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4 },
-  adminBadge: { backgroundColor: "#f3e8ff" },
-  memberBadge: { backgroundColor: "#dcfce7" },
-  adminBadgeText: { color: "#7c3aed", fontSize: 11, fontWeight: "700" },
-  memberBadgeText: { color: "#16803a", fontSize: 11, fontWeight: "700" },
-  deleteInvitationButton: { padding: 8 },
-  // Logout Button
-  logoutButton: {
-    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#fff",
-    borderRadius: 8,
-    marginTop: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 9,
-    gap: 7,
-    borderWidth: 1,
-    borderColor: "#FFCDD2",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
+    marginRight: 12,
   },
-  logoutText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#F44336",
+  adminAvatar: {
+    backgroundColor: "#dbeafe",
   },
-  modalOverlay: {
-    alignItems: "center",
-    backgroundColor: "rgba(0, 0, 0, 0.4)",
+  memberAvatar: {
+    backgroundColor: "#dcfce7",
+  },
+  pendingAvatar: {
+    backgroundColor: "#fef3c7",
+  },
+  accessAvatarText: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#1a73e8",
+  },
+  accessInfo: {
     flex: 1,
-    justifyContent: "center",
-    padding: 20,
   },
-  editModal: {
-    backgroundColor: "#fff",
-    borderRadius: 8,
-    maxWidth: 420,
-    padding: 20,
-    width: "100%",
-  },
-  editModalTitle: { color: "#111", fontSize: 19, fontWeight: "700" },
-  currentPhone: { color: "#666", fontSize: 13, marginTop: 6 },
-  fieldLabel: {
-    color: "#555",
-    fontSize: 13,
+  accessName: {
+    fontSize: 15,
     fontWeight: "600",
-    marginBottom: 7,
-    marginTop: 16,
+    color: "#111",
   },
-  fieldInput: {
-    borderColor: "#d9dde3",
-    borderRadius: 8,
-    borderWidth: 1,
-    fontSize: 15,
-    height: 48,
-    paddingHorizontal: 12,
-    backgroundColor: "#fff",
-    ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as any) : {}),
+  accessPhone: {
+    fontSize: 12,
+    color: "#888",
+    marginTop: 1,
   },
-  phoneInputRow: {
-    alignItems: "center",
-    borderColor: "#d9dde3",
-    borderRadius: 8,
-    borderWidth: 1,
-    flexDirection: "row",
-    height: 48,
-    paddingHorizontal: 12,
-    backgroundColor: "#fff",
-  },
-  phonePrefix: {
-    color: "#333",
-    fontSize: 15,
-    marginRight: 8,
-    fontWeight: "500",
-  },
-  phoneInput: {
-    flex: 1,
-    fontSize: 15,
-    height: "100%",
-    padding: 0,
-    margin: 0,
-    borderWidth: 0,
-    backgroundColor: "transparent",
-    ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as any) : {}),
-  },
-  validationText: { color: "#dc2626", fontSize: 12, marginTop: 5 },
-  modalActions: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    marginTop: 22,
-  },
-  cancelButton: { paddingHorizontal: 14, paddingVertical: 10 },
-  cancelButtonText: { color: "#555", fontSize: 14, fontWeight: "600" },
-  saveButton: {
-    backgroundColor: "#1a73e8",
-    borderRadius: 7,
+  accessBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
     marginLeft: 8,
-    paddingHorizontal: 18,
-    paddingVertical: 10,
   },
-  saveButtonDisabled: { backgroundColor: "#a8c8f2" },
-  saveButtonText: { color: "#fff", fontSize: 14, fontWeight: "700" },
+  adminBadge: {
+    backgroundColor: "#dbeafe",
+  },
+  adminBadgeText: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: "#1a73e8",
+  },
+  memberBadge: {
+    backgroundColor: "#dcfce7",
+  },
+  memberBadgeText: {
+    fontSize: 10,
+    fontWeight: "600",
+    color: "#16a34a",
+  },
+  deleteInvitationButton: {
+    padding: 8,
+  },
   deleteInvitationConfirmButton: {
     backgroundColor: "#dc2626",
-    borderRadius: 7,
-    marginLeft: 8,
-    paddingHorizontal: 18,
-    paddingVertical: 10,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 8,
   },
   deleteInvitationConfirmText: {
     color: "#fff",
-    fontSize: 14,
+    fontWeight: "600",
+    fontSize: 16,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  editModal: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 24,
+    width: "90%",
+    maxWidth: 400,
+  },
+  editModalTitle: {
+    fontSize: 18,
     fontWeight: "700",
+    color: "#111",
+    marginBottom: 4,
+  },
+  currentPhone: {
+    fontSize: 14,
+    color: "#666",
+    marginBottom: 16,
+  },
+  fieldLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#333",
+    marginTop: 12,
+    marginBottom: 6,
+  },
+  phoneInputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#ddd",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+  },
+  phonePrefix: {
+    fontSize: 16,
+    fontWeight: "500",
+    color: "#333",
+    marginRight: 8,
+  },
+  phoneInput: {
+    flex: 1,
+    fontSize: 16,
+    paddingVertical: 12,
+    color: "#111",
+  },
+  fieldInput: {
+    borderWidth: 1,
+    borderColor: "#ddd",
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: "#111",
+  },
+  validationText: {
+    color: "#dc2626",
+    fontSize: 13,
+    marginTop: 8,
+  },
+  modalActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    marginTop: 20,
+    gap: 12,
+  },
+  cancelButton: {
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  cancelButtonText: {
+    color: "#666",
+    fontSize: 16,
+    fontWeight: "500",
+  },
+  saveButton: {
+    backgroundColor: "#1a73e8",
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  saveButtonDisabled: {
+    backgroundColor: "#ccc",
+  },
+  saveButtonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
   },
 });

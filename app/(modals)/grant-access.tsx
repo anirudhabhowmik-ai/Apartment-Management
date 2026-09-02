@@ -2,29 +2,31 @@ import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useMemo, useState } from "react";
 import {
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { useGroups } from "../../hooks/useGroups";
 import { useAccessStore } from "../../store/accessStore";
 import { useAccountStore } from "../../store/accountStore";
-import { useAuthStore } from "../../store/useAuthStore";
 import { useMemberStore } from "../../store/memberStore";
+import { useAuthStore } from "../../store/useAuthStore";
 import { ACCESS_ROLE_LABEL, AccountAccessRole } from "../../types/access";
 
 type RecipientSource = "new" | "existing";
+type MemberType = "owner" | "staff";
 
 export default function GrantAccessScreen() {
   const router = useRouter();
   const currentUser = useAuthStore((state) => state.user);
-  const { accountId, role } = useLocalSearchParams<{
+  const { accountId, role, memberType } = useLocalSearchParams<{
     accountId: string;
     role: AccountAccessRole;
+    memberType?: MemberType;
   }>();
   const accounts = useAccountStore((state) => state.accounts);
   const account = accounts.find((a) => a.id === accountId);
@@ -35,6 +37,7 @@ export default function GrantAccessScreen() {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [selectedMemberId, setSelectedMemberId] = useState("");
+  const [search, setSearch] = useState("");
   const [error, setError] = useState("");
 
   const eligibleMembers = useMemo(() => {
@@ -58,23 +61,65 @@ export default function GrantAccessScreen() {
     staffGroupIds.includes(member.groupId),
   );
 
+  // Search-filtered lists used only in the dedicated "visibility" flow
+  const searchLower = search.trim().toLowerCase();
+  const filteredOwners = useMemo(() => {
+    if (!searchLower) return apartmentOwners;
+    return apartmentOwners.filter((member) => {
+      const apt = ((member as any).apartmentNumber ?? "")
+        .toString()
+        .toLowerCase();
+      const wing = ((member as any).wing ?? "").toString().toLowerCase();
+      return (
+        member.name.toLowerCase().includes(searchLower) ||
+        member.phone.toLowerCase().includes(searchLower) ||
+        apt.includes(searchLower) ||
+        wing.includes(searchLower)
+      );
+    });
+  }, [apartmentOwners, searchLower]);
+
+  const filteredStaff = useMemo(() => {
+    if (!searchLower) return staffMembers;
+    return staffMembers.filter((member) => {
+      const role = ((member as any).role ?? "").toString().toLowerCase();
+      return (
+        member.name.toLowerCase().includes(searchLower) ||
+        member.phone.toLowerCase().includes(searchLower) ||
+        role.includes(searchLower)
+      );
+    });
+  }, [staffMembers, searchLower]);
+
+  const isVisibilityFlow = memberType === "owner" || memberType === "staff";
+  const visibilityTitle =
+    memberType === "owner"
+      ? "Apartment Owner Visibility"
+      : memberType === "staff"
+        ? "Staff Visibility"
+        : "";
+
   const handleSave = () => {
+    const useExisting = source === "existing" || isVisibilityFlow;
     const selectedMember = eligibleMembers.find(
       (member) => member.id === selectedMemberId,
     );
-    const recipientName =
-      source === "existing" ? (selectedMember?.name ?? "") : name.trim();
+    const recipientName = useExisting
+      ? (selectedMember?.name ?? "")
+      : name.trim();
 
-    // *** FIXED: Added ?? "" to prevent 'undefined' error ***
-    const recipientPhone =
-      source === "existing"
-        ? (selectedMember?.phone ?? "")
-        : `+91${phone.replace(/[^0-9]/g, "").slice(-10)}`;
+    const recipientPhone = useExisting
+      ? (selectedMember?.phone ?? "")
+      : `+91${phone.replace(/[^0-9]/g, "").slice(-10)}`;
 
     if (!recipientName || recipientPhone.length !== 13) {
       setError(
-        source === "existing"
-          ? "Select an apartment owner or staff member."
+        useExisting
+          ? isVisibilityFlow
+            ? memberType === "owner"
+              ? "Select an apartment owner."
+              : "Select a staff member."
+            : "Select an apartment owner or staff member."
           : "Enter a valid 10-digit phone number.",
       );
       return;
@@ -97,55 +142,144 @@ export default function GrantAccessScreen() {
 
   const title = ACCESS_ROLE_LABEL[role || "member_visibility"];
 
+  const renderMemberRow = (member: (typeof eligibleMembers)[number]) => {
+    const apt = (member as any).apartmentNumber as string | undefined;
+    const wing = (member as any).wing as string | undefined;
+    const staffRole = (member as any).role as string | undefined;
+
+    let meta = "";
+    if (memberType === "owner") {
+      const parts = [];
+      if (wing) parts.push(`Wing ${wing}`);
+      if (apt) parts.push(`Apt ${apt}`);
+      meta = parts.join(" · ");
+    } else if (memberType === "staff") {
+      meta = staffRole || "Staff";
+    }
+
+    return (
+      <TouchableOpacity
+        key={member.id}
+        style={[
+          styles.memberOption,
+          selectedMemberId === member.id && styles.memberOptionSelected,
+        ]}
+        onPress={() =>
+          setSelectedMemberId((currentId) =>
+            currentId === member.id ? "" : member.id,
+          )
+        }
+      >
+        <View style={styles.memberAvatar}>
+          <Text style={styles.memberAvatarText}>
+            {member.name.charAt(0).toUpperCase()}
+          </Text>
+        </View>
+        <View style={styles.memberInfo}>
+          <Text style={styles.memberName}>{member.name}</Text>
+          <Text style={styles.memberPhone}>{member.phone}</Text>
+          {meta ? <Text style={styles.memberMeta}>{meta}</Text> : null}
+        </View>
+        {selectedMemberId === member.id && (
+          <Ionicons name="checkmark-circle" size={20} color="#1a73e8" />
+        )}
+      </TouchableOpacity>
+    );
+  };
+
   return (
     <ScrollView contentContainerStyle={styles.container}>
-      <Text style={styles.intro}>Grant {title} access</Text>
-      <View style={styles.sourceControl}>
-        <TouchableOpacity
-          style={[
-            styles.sourceButton,
-            source === "new" && styles.sourceButtonActive,
-          ]}
-          onPress={() => setSource("new")}
-        >
-          <Ionicons
-            name="call-outline"
-            size={18}
-            color={source === "new" ? "#1a73e8" : "#666"}
-          />
-          <Text
-            style={[
-              styles.sourceText,
-              source === "new" && styles.sourceTextActive,
-            ]}
-          >
-            New phone number
-          </Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[
-            styles.sourceButton,
-            source === "existing" && styles.sourceButtonActive,
-          ]}
-          onPress={() => setSource("existing")}
-        >
-          <Ionicons
-            name="people-outline"
-            size={18}
-            color={source === "existing" ? "#1a73e8" : "#666"}
-          />
-          <Text
-            style={[
-              styles.sourceText,
-              source === "existing" && styles.sourceTextActive,
-            ]}
-          >
-            Owner or staff
-          </Text>
-        </TouchableOpacity>
-      </View>
+      <Text style={styles.intro}>
+        {isVisibilityFlow
+          ? `Manage ${visibilityTitle}`
+          : `Grant ${title} access`}
+      </Text>
 
-      {source === "new" ? (
+      {!isVisibilityFlow && (
+        <View style={styles.sourceControl}>
+          <TouchableOpacity
+            style={[
+              styles.sourceButton,
+              source === "new" && styles.sourceButtonActive,
+            ]}
+            onPress={() => setSource("new")}
+          >
+            <Ionicons
+              name="call-outline"
+              size={18}
+              color={source === "new" ? "#1a73e8" : "#666"}
+            />
+            <Text
+              style={[
+                styles.sourceText,
+                source === "new" && styles.sourceTextActive,
+              ]}
+            >
+              New phone number
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.sourceButton,
+              source === "existing" && styles.sourceButtonActive,
+            ]}
+            onPress={() => setSource("existing")}
+          >
+            <Ionicons
+              name="people-outline"
+              size={18}
+              color={source === "existing" ? "#1a73e8" : "#666"}
+            />
+            <Text
+              style={[
+                styles.sourceText,
+                source === "existing" && styles.sourceTextActive,
+              ]}
+            >
+              Owner or staff
+            </Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
+      {isVisibilityFlow ? (
+        <>
+          <View style={styles.searchRow}>
+            <Ionicons name="search-outline" size={18} color="#999" />
+            <TextInput
+              style={styles.searchInput}
+              value={search}
+              onChangeText={setSearch}
+              placeholder={
+                memberType === "owner"
+                  ? "Search by name, phone, apartment or wing"
+                  : "Search by name, phone or role"
+              }
+              placeholderTextColor="#999"
+            />
+          </View>
+
+          {memberType === "owner" ? (
+            filteredOwners.length === 0 ? (
+              <Text style={styles.emptyText}>
+                {apartmentOwners.length === 0
+                  ? "No apartment owners are available."
+                  : "No matching apartment owners found."}
+              </Text>
+            ) : (
+              filteredOwners.map(renderMemberRow)
+            )
+          ) : filteredStaff.length === 0 ? (
+            <Text style={styles.emptyText}>
+              {staffMembers.length === 0
+                ? "No staff members are available."
+                : "No matching staff members found."}
+            </Text>
+          ) : (
+            filteredStaff.map(renderMemberRow)
+          )}
+        </>
+      ) : source === "new" ? (
         <>
           <Text style={styles.label}>Name</Text>
           <TextInput
@@ -188,38 +322,7 @@ export default function GrantAccessScreen() {
                   No apartment owners are available.
                 </Text>
               ) : (
-                apartmentOwners.map((member) => (
-                  <TouchableOpacity
-                    key={member.id}
-                    style={[
-                      styles.memberOption,
-                      selectedMemberId === member.id &&
-                        styles.memberOptionSelected,
-                    ]}
-                    onPress={() =>
-                      setSelectedMemberId((currentId) =>
-                        currentId === member.id ? "" : member.id,
-                      )
-                    }
-                  >
-                    <View style={styles.memberAvatar}>
-                      <Text style={styles.memberAvatarText}>
-                        {member.name.charAt(0).toUpperCase()}
-                      </Text>
-                    </View>
-                    <View style={styles.memberInfo}>
-                      <Text style={styles.memberName}>{member.name}</Text>
-                      <Text style={styles.memberPhone}>{member.phone}</Text>
-                    </View>
-                    {selectedMemberId === member.id && (
-                      <Ionicons
-                        name="checkmark-circle"
-                        size={20}
-                        color="#1a73e8"
-                      />
-                    )}
-                  </TouchableOpacity>
-                ))
+                apartmentOwners.map(renderMemberRow)
               )}
 
               <Text style={styles.groupHeading}>Staff (optional)</Text>
@@ -228,38 +331,7 @@ export default function GrantAccessScreen() {
                   No staff members are available.
                 </Text>
               ) : (
-                staffMembers.map((member) => (
-                  <TouchableOpacity
-                    key={member.id}
-                    style={[
-                      styles.memberOption,
-                      selectedMemberId === member.id &&
-                        styles.memberOptionSelected,
-                    ]}
-                    onPress={() =>
-                      setSelectedMemberId((currentId) =>
-                        currentId === member.id ? "" : member.id,
-                      )
-                    }
-                  >
-                    <View style={styles.memberAvatar}>
-                      <Text style={styles.memberAvatarText}>
-                        {member.name.charAt(0).toUpperCase()}
-                      </Text>
-                    </View>
-                    <View style={styles.memberInfo}>
-                      <Text style={styles.memberName}>{member.name}</Text>
-                      <Text style={styles.memberPhone}>{member.phone}</Text>
-                    </View>
-                    {selectedMemberId === member.id && (
-                      <Ionicons
-                        name="checkmark-circle"
-                        size={20}
-                        color="#1a73e8"
-                      />
-                    )}
-                  </TouchableOpacity>
-                ))
+                staffMembers.map(renderMemberRow)
               )}
             </>
           )}
@@ -268,7 +340,11 @@ export default function GrantAccessScreen() {
 
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
-        <Text style={styles.saveText}>Grant {title} Access</Text>
+        <Text style={styles.saveText}>
+          {isVisibilityFlow
+            ? `Grant ${visibilityTitle} Access`
+            : `Grant ${title} Access`}
+        </Text>
       </TouchableOpacity>
     </ScrollView>
   );
@@ -332,6 +408,23 @@ const styles = StyleSheet.create({
     ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as any) : {}),
   },
   phoneHint: { color: "#dc2626", fontSize: 12, marginTop: 5 },
+  searchRow: {
+    alignItems: "center",
+    borderColor: "#d9dde3",
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: "row",
+    gap: 8,
+    height: 44,
+    marginBottom: 14,
+    paddingHorizontal: 12,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 14,
+    height: "100%",
+    ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as any) : {}),
+  },
   memberOption: {
     alignItems: "center",
     borderColor: "#e5e7eb",
@@ -355,6 +448,12 @@ const styles = StyleSheet.create({
   memberInfo: { flex: 1 },
   memberName: { color: "#222", fontSize: 14, fontWeight: "600" },
   memberPhone: { color: "#777", fontSize: 12, marginTop: 2 },
+  memberMeta: {
+    color: "#1a73e8",
+    fontSize: 12,
+    marginTop: 2,
+    fontWeight: "600",
+  },
   emptyText: { color: "#777", fontSize: 14, paddingVertical: 12 },
   error: { color: "#dc2626", fontSize: 13, marginTop: 14 },
   saveButton: {
