@@ -234,12 +234,10 @@ export default function AddAccountScreen() {
   const [showDummyInvites, setShowDummyInvites] = useState(true);
 
   const pendingInvitations = useMemo(() => {
-    // Get real invitations from the store
     const realInvitations = user?.phone
       ? getPendingGrantsByPhone(user.phone)
       : [];
 
-    // If no real invitations and dummy invites are enabled, return dummy invites
     if (realInvitations.length === 0 && showDummyInvites) {
       return DUMMY_INVITATIONS;
     }
@@ -248,7 +246,6 @@ export default function AddAccountScreen() {
   }, [user?.phone, getPendingGrantsByPhone, showDummyInvites]);
 
   const getInvitationApartmentName = (invitation: any) => {
-    // Check if it's a dummy invitation
     if (invitation.id?.startsWith("dummy_invite_")) {
       return invitation.accountName || "Apartment Society";
     }
@@ -296,19 +293,15 @@ export default function AddAccountScreen() {
     try {
       const isFirstAccount = accounts.length === 0;
 
-      // Check for matching grant in pending invitations
       const matchingGrant = pendingInvitations.find((g: any) => {
         if (roleType === "owner") {
           return g.role === "member_visibility";
         }
-        // For staff, check if role matches
         return g.role !== "admin" && g.role !== "member_visibility";
       });
 
       if (matchingGrant) {
-        // If it's a dummy invitation, simulate acceptance
         if (matchingGrant.id?.startsWith("dummy_invite_")) {
-          // Create a new account with the apartment name
           const aptName = getInvitationApartmentName(matchingGrant);
           const defaultName =
             roleType === "owner" ? `${aptName} - Owner` : `${aptName} - Staff`;
@@ -318,12 +311,9 @@ export default function AddAccountScreen() {
             const role = roleType === "owner" ? "member_visibility" : "admin";
             grantAccountRole(newAccount.id, role);
             selectAccount(newAccount.id);
-
-            // Remove dummy invites after accepting
             setShowDummyInvites(false);
           }
         } else {
-          // For real invitations, cast role to the correct type
           const role =
             matchingGrant.role === "admin" ? "admin" : "member_visibility";
           acceptGrant(matchingGrant.id);
@@ -370,7 +360,7 @@ export default function AddAccountScreen() {
     setShowPhotoOptions(true);
   };
 
-  // Handle taking photo with camera - Updated with ["images"]
+  // Handle taking photo with camera - Native crop with full drag, pinch, zoom
   const takePhoto = async () => {
     setShowPhotoOptions(false);
     const permission = await ImagePicker.requestCameraPermissionsAsync();
@@ -381,8 +371,8 @@ export default function AddAccountScreen() {
 
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: ["images"],
-      allowsEditing: true,
-      aspect: [1, 1],
+      allowsEditing: true, // Enables native crop with drag, pinch, zoom
+      aspect: [1, 1], // Square crop
       quality: 0.7,
     });
 
@@ -393,7 +383,7 @@ export default function AddAccountScreen() {
     }
   };
 
-  // Handle choosing photo from gallery - Updated with ["images"]
+  // Handle choosing photo from gallery - Native crop with full drag, pinch, zoom
   const choosePhoto = async () => {
     setShowPhotoOptions(false);
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -404,8 +394,8 @@ export default function AddAccountScreen() {
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
-      allowsEditing: true,
-      aspect: [1, 1],
+      allowsEditing: true, // Enables native crop with drag, pinch, zoom
+      aspect: [1, 1], // Square crop
       quality: 0.7,
     });
 
@@ -437,7 +427,6 @@ export default function AddAccountScreen() {
       return result.uri;
     } catch (error) {
       console.error("Error cropping image:", error);
-      // If cropping fails, return the original image
       return uri;
     }
   };
@@ -492,12 +481,9 @@ export default function AddAccountScreen() {
     accountId: string,
     role: any,
   ) => {
-    // Check if it's a dummy invitation
     if (grantId?.startsWith("dummy_invite_")) {
-      // Find the dummy invitation
       const dummyInvite = DUMMY_INVITATIONS.find((inv) => inv.id === grantId);
       if (dummyInvite) {
-        // Create a new account with the apartment name
         const aptName = dummyInvite.accountName || "Apartment Society";
         const isOwner = role === "member_visibility";
         const defaultName = isOwner
@@ -509,7 +495,6 @@ export default function AddAccountScreen() {
             const grantRole = role === "admin" ? "admin" : "member_visibility";
             grantAccountRole(newAccount.id, grantRole);
             selectAccount(newAccount.id);
-            // Remove dummy invites after accepting
             setShowDummyInvites(false);
             if (accounts.length === 0) {
               router.replace("/(tabs)");
@@ -522,7 +507,6 @@ export default function AddAccountScreen() {
       }
     }
 
-    // Real invitation - use the store
     const grantRole = role === "admin" ? "admin" : "member_visibility";
     acceptGrant(grantId);
     grantAccountRole(accountId, grantRole);
@@ -534,7 +518,6 @@ export default function AddAccountScreen() {
     }
   };
 
-  // Get unique apartment names from invitations
   const getUniqueApartments = () => {
     const apartmentMap = new Map();
     pendingInvitations.forEach((invitation: any) => {
@@ -749,7 +732,6 @@ export default function AddAccountScreen() {
                           const inviterPhone =
                             invitation.invitedByPhone || "Secretary";
 
-                          // Determine which option card to show based on role
                           let optionCard: SetupOption = {
                             id: "join_owner",
                             title: "Join as Apartment Owner",
@@ -779,7 +761,6 @@ export default function AddAccountScreen() {
                               category: "join",
                             };
                           } else {
-                            // Staff role - find matching option
                             const staffOption = STAFF_JOIN_OPTIONS.find((opt) =>
                               invitation.role
                                 ?.toLowerCase()
@@ -788,7 +769,6 @@ export default function AddAccountScreen() {
                             if (staffOption) {
                               optionCard = staffOption;
                             } else {
-                              // Default fallback
                               optionCard = {
                                 id: "join_staff_sweeper",
                                 title: "Join as Staff",
@@ -1185,7 +1165,6 @@ export default function AddAccountScreen() {
                     if (!realGrantIds.includes(rejectingGrantId)) {
                       removeGrant(rejectingGrantId);
                     }
-                    // Also remove dummy invitations
                     if (rejectingGrantId.startsWith("dummy_invite_")) {
                       setShowDummyInvites(false);
                     }
