@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "ai-khata",
-    "slug": "ai-khata",
+    "slug": "anirudhabhowmik",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -19,7 +19,8 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.anonymous.aikhata"
     },
     "web": {
       "output": "static",
@@ -38,11 +39,20 @@
             "backgroundColor": "#000000"
           }
         }
-      ]
+      ],
+      "expo-status-bar",
+      "expo-asset"
     ],
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "fcbcf0b3-e22c-4620-a25d-53e8fc0ec627"
+      }
+    },
+    "owner": "anirudhabhowmiks-team"
   }
 }

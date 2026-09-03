@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { useMemo, useState } from "react";
@@ -14,7 +15,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from "react-native";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useAccessStore } from "../../store/accessStore";
@@ -186,6 +187,7 @@ export default function AddAccountScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [rejectingGrantId, setRejectingGrantId] = useState<string | null>(null);
+  const [showPhotoOptions, setShowPhotoOptions] = useState(false);
 
   const pendingInvitations = useMemo(() => {
     return user?.phone ? getPendingGrantsByPhone(user.phone) : [];
@@ -283,7 +285,38 @@ export default function AddAccountScreen() {
     }
   };
 
-  const handlePickPhoto = async () => {
+  // Show photo selection options
+  const showPhotoSelectionOptions = () => {
+    setShowPhotoOptions(true);
+  };
+
+  // Handle taking photo with camera
+  const takePhoto = async () => {
+    setShowPhotoOptions(false);
+    const permission = await ImagePicker.requestCameraPermissionsAsync();
+    if (!permission.granted) {
+      setError("Permission to access camera is required");
+      return;
+    }
+
+    const result = await ImagePicker.launchCameraAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.7,
+    });
+
+    if (!result.canceled && result.assets[0]) {
+      const imageUri = result.assets[0].uri;
+      // Crop and resize the image
+      const croppedImage = await cropImage(imageUri);
+      setPhotoUri(croppedImage);
+    }
+  };
+
+  // Handle choosing photo from gallery
+  const choosePhoto = async () => {
+    setShowPhotoOptions(false);
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
       setError("Permission to access photos is required");
@@ -298,8 +331,41 @@ export default function AddAccountScreen() {
     });
 
     if (!result.canceled && result.assets[0]) {
-      setPhotoUri(result.assets[0].uri);
+      const imageUri = result.assets[0].uri;
+      // Crop and resize the image
+      const croppedImage = await cropImage(imageUri);
+      setPhotoUri(croppedImage);
     }
+  };
+
+  // Crop and resize image
+  const cropImage = async (uri: string): Promise<string> => {
+    try {
+      const result = await ImageManipulator.manipulateAsync(
+        uri,
+        [
+          {
+            resize: {
+              width: 500,
+              height: 500,
+            },
+          },
+        ],
+        {
+          compress: 0.8,
+          format: ImageManipulator.SaveFormat.JPEG,
+        },
+      );
+      return result.uri;
+    } catch (error) {
+      console.error("Error cropping image:", error);
+      // If cropping fails, return the original image
+      return uri;
+    }
+  };
+
+  const handlePickPhoto = async () => {
+    showPhotoSelectionOptions();
   };
 
   const handleCreate = async () => {
@@ -649,7 +715,7 @@ export default function AddAccountScreen() {
                   </View>
                 </View>
 
-                {/* Staff Join Cards - Redesigned */}
+                {/* Staff Join Cards */}
                 {STAFF_JOIN_OPTIONS.map((option) => {
                   const staffRoleId = option.id.replace("join_staff_", "");
                   const staffRole = STAFF_ROLES.find(
@@ -658,7 +724,6 @@ export default function AddAccountScreen() {
 
                   return (
                     <View key={option.id} style={styles.staffCard}>
-                      {/* Top Section with Icon and Title */}
                       <View style={styles.staffCardTop}>
                         <View
                           style={[
@@ -710,7 +775,6 @@ export default function AddAccountScreen() {
                         </View>
                       </View>
 
-                      {/* Role Badge and Permissions */}
                       <View style={styles.staffRoleInfo}>
                         <View
                           style={[
@@ -757,12 +821,10 @@ export default function AddAccountScreen() {
                         </View>
                       </View>
 
-                      {/* Description */}
                       <Text style={styles.staffCardDescription}>
                         {option.description}
                       </Text>
 
-                      {/* Action Buttons */}
                       <View style={styles.staffCardActions}>
                         <TouchableOpacity
                           style={styles.rejectButtonSmall}
@@ -950,6 +1012,68 @@ export default function AddAccountScreen() {
         )}
       </ScrollView>
 
+      {/* Photo Options Modal */}
+      <Modal
+        visible={showPhotoOptions}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowPhotoOptions(false)}
+      >
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={() => setShowPhotoOptions(false)}
+        >
+          <View style={styles.photoOptionsModal}>
+            <Text style={styles.photoOptionsTitle}>Upload Photo</Text>
+            <Text style={styles.photoOptionsSubtitle}>
+              Choose how you want to add a photo
+            </Text>
+
+            <TouchableOpacity
+              style={styles.photoOptionButton}
+              onPress={takePhoto}
+              activeOpacity={0.7}
+            >
+              <View style={styles.photoOptionIcon}>
+                <Ionicons name="camera" size={24} color="#1a73e8" />
+              </View>
+              <View style={styles.photoOptionTextContainer}>
+                <Text style={styles.photoOptionTitle}>Take Photo</Text>
+                <Text style={styles.photoOptionDescription}>
+                  Capture a photo using your camera
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#ccc" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.photoOptionButton}
+              onPress={choosePhoto}
+              activeOpacity={0.7}
+            >
+              <View style={styles.photoOptionIcon}>
+                <Ionicons name="images" size={24} color="#059669" />
+              </View>
+              <View style={styles.photoOptionTextContainer}>
+                <Text style={styles.photoOptionTitle}>Choose from Gallery</Text>
+                <Text style={styles.photoOptionDescription}>
+                  Select a photo from your device
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color="#ccc" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.photoOptionsCancel}
+              onPress={() => setShowPhotoOptions(false)}
+            >
+              <Text style={styles.photoOptionsCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </Pressable>
+      </Modal>
+
+      {/* Reject Modal */}
       <Modal
         visible={rejectingGrantId !== null}
         transparent
@@ -1316,8 +1440,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-
-  // Staff Card Styles - Redesigned
   staffCard: {
     backgroundColor: "#ffffff",
     borderRadius: 16,
@@ -1628,7 +1750,7 @@ const styles = StyleSheet.create({
     color: "#334155",
   },
 
-  // Reject Modal
+  // Photo Options Modal
   modalBackdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.45)",
@@ -1636,6 +1758,71 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 16,
   },
+  photoOptionsModal: {
+    backgroundColor: "#ffffff",
+    borderRadius: 20,
+    padding: 24,
+    width: "100%",
+    maxWidth: 400,
+  },
+  photoOptionsTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#0f172a",
+    marginBottom: 4,
+    textAlign: "center",
+  },
+  photoOptionsSubtitle: {
+    fontSize: 13,
+    color: "#64748b",
+    textAlign: "center",
+    marginBottom: 20,
+  },
+  photoOptionButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    backgroundColor: "#f8fafc",
+    borderRadius: 12,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+  },
+  photoOptionIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: "#eff6ff",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 14,
+  },
+  photoOptionTextContainer: {
+    flex: 1,
+  },
+  photoOptionTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#0f172a",
+  },
+  photoOptionDescription: {
+    fontSize: 12,
+    color: "#64748b",
+    marginTop: 1,
+  },
+  photoOptionsCancel: {
+    paddingVertical: 14,
+    alignItems: "center",
+    marginTop: 4,
+  },
+  photoOptionsCancelText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#dc2626",
+  },
+
+  // Reject Modal
   modalCard: {
     backgroundColor: "#ffffff",
     borderRadius: 20,
