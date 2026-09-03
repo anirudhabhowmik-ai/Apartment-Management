@@ -26,6 +26,7 @@ export default function TabsLayout() {
   const { tasks } = useMaintenance(selectedAccount?.id);
 
   const [showNotifications, setShowNotifications] = useState(false);
+
   const [dismissedNotificationIds, setDismissedNotificationIds] = useState<
     string[]
   >([]);
@@ -42,21 +43,26 @@ export default function TabsLayout() {
 
   const notificationCount = pendingPayments.length + pendingTasks.length;
 
-  const dismissNotification = (notificationId: string) =>
+  const dismissNotification = (notificationId: string) => {
     setDismissedNotificationIds((currentIds) => [
       ...currentIds,
       notificationId,
     ]);
+  };
 
   /*
-   * Android can have a bottom system navigation area.
+   * Bottom safe area:
    *
-   * We add the safe-area inset to the tab bar so the tabs
-   * don't sit underneath the Android Back/Home/Recents area.
+   * Android:
+   * Protects the tabs from Back/Home/Recents navigation area.
+   *
+   * iPhone:
+   * Protects the tabs from the Home Indicator area.
+   *
+   * We keep the actual tab content at 60px and only add
+   * the device inset underneath it.
    */
   const bottomInset = insets.bottom;
-
-  const tabBarHeight = 60 + bottomInset;
 
   return (
     <Tabs
@@ -114,6 +120,7 @@ export default function TabsLayout() {
                     </View>
                   ) : (
                     <ScrollView showsVerticalScrollIndicator={false}>
+                      {/* Payments */}
                       {pendingPayments.map((payment) => (
                         <View
                           key={`payment-${payment.id}`}
@@ -158,6 +165,7 @@ export default function TabsLayout() {
                         </View>
                       ))}
 
+                      {/* Maintenance Tasks */}
                       {pendingTasks.map((task) => (
                         <View
                           key={`task-${task.id}`}
@@ -217,21 +225,28 @@ export default function TabsLayout() {
         },
 
         /*
-         * IMPORTANT:
+         * IMPORTANT
          *
-         * The original height was 60.
-         * We now add the device's bottom safe-area inset.
+         * The tab bar has:
          *
-         * Example:
-         * Android navigation inset = 24
-         * Tab content height = 60
-         * Total tab bar height = 84
+         * 60px = actual tab buttons
+         * bottomInset = Android/iPhone system area
+         *
+         * This keeps the tab buttons above the system navigation area.
          */
         tabBarStyle: {
-          height: tabBarHeight,
-          paddingTop: 8,
-          paddingBottom: Math.max(insets.bottom, 8),
+          height: 60 + bottomInset,
+
+          paddingTop: 0,
+
+          /*
+           * The bottom inset is reserved for the system navigation area.
+           * The tab buttons themselves remain in the 60px area.
+           */
+          paddingBottom: bottomInset,
+
           backgroundColor: "#fff",
+
           borderTopWidth: 1,
           borderTopColor: "#f0f0f0",
 
@@ -246,8 +261,19 @@ export default function TabsLayout() {
           fontSize: 11,
           fontWeight: "500",
         },
+
+        /*
+         * Keeps the icon + label centered inside the 60px
+         * visible tab area instead of spreading them through
+         * the safe-area space.
+         */
+        tabBarItemStyle: {
+          height: 60,
+          justifyContent: "center",
+        },
       }}
     >
+      {/* HOME */}
       <Tabs.Screen
         name="index"
         options={{
@@ -262,6 +288,7 @@ export default function TabsLayout() {
         }}
       />
 
+      {/* CALENDAR */}
       <Tabs.Screen
         name="calendar"
         options={{
@@ -276,6 +303,7 @@ export default function TabsLayout() {
         }}
       />
 
+      {/* FINANCE */}
       <Tabs.Screen
         name="finance"
         options={{
@@ -290,6 +318,7 @@ export default function TabsLayout() {
         }}
       />
 
+      {/* PEOPLE */}
       <Tabs.Screen
         name="people"
         options={{
@@ -304,6 +333,7 @@ export default function TabsLayout() {
         }}
       />
 
+      {/* PROFILE */}
       <Tabs.Screen
         name="profile"
         options={{
@@ -344,13 +374,19 @@ const styles = StyleSheet.create({
     position: "absolute",
     top: -2,
     right: -6,
+
     backgroundColor: "#F44336",
+
     borderRadius: 10,
+
     minWidth: 18,
     height: 18,
+
     justifyContent: "center",
     alignItems: "center",
+
     paddingHorizontal: 4,
+
     borderWidth: 2,
     borderColor: "#fff",
   },
@@ -366,38 +402,53 @@ const styles = StyleSheet.create({
   },
 
   notificationPopover: {
-    backgroundColor: "#fff",
-    borderColor: "#e5e7eb",
-    borderRadius: 8,
-    borderWidth: 1,
-    elevation: 8,
-    maxHeight: 360,
     position: "absolute",
+
+    top: 52,
     right: 16,
+
+    width: 340,
+    maxHeight: 360,
+
+    backgroundColor: "#fff",
+
+    borderColor: "#e5e7eb",
+    borderWidth: 1,
+    borderRadius: 8,
+
+    elevation: 8,
+
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
     shadowOpacity: 0.15,
     shadowRadius: 12,
-    top: 52,
-    width: 340,
+
     zIndex: 20,
   },
 
   notificationItem: {
-    alignItems: "center",
-    borderBottomColor: "#eef0f3",
-    borderBottomWidth: 1,
     flexDirection: "row",
+    alignItems: "center",
+
     padding: 12,
+
+    borderBottomWidth: 1,
+    borderBottomColor: "#eef0f3",
   },
 
   notificationItemIcon: {
-    alignItems: "center",
-    borderRadius: 16,
-    height: 32,
-    justifyContent: "center",
-    marginRight: 10,
     width: 32,
+    height: 32,
+
+    borderRadius: 16,
+
+    alignItems: "center",
+    justifyContent: "center",
+
+    marginRight: 10,
   },
 
   paymentIcon: {

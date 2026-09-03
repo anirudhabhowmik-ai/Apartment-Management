@@ -30,6 +30,8 @@ type SetupOptionId =
   | "join_staff_sweeper"
   | "join_staff_security";
 
+type TabId = "create" | "invitations";
+
 interface SetupOption {
   id: SetupOptionId;
   title: string;
@@ -168,6 +170,46 @@ const STAFF_JOIN_OPTIONS: SetupOption[] = [
   },
 ];
 
+// Dummy invitations for testing
+const DUMMY_INVITATIONS: any[] = [
+  {
+    id: "dummy_invite_1",
+    accountId: "dummy_account_1",
+    accountName: "Green Valley Apartments",
+    invitedByPhone: "+91 9876543210",
+    invitedByName: "Ramesh Kumar",
+    role: "member_visibility",
+    name: "John Doe",
+    phone: "+91 9876543210",
+    createdAt: new Date().toISOString(),
+    acceptedAt: null,
+  },
+  {
+    id: "dummy_invite_2",
+    accountId: "dummy_account_2",
+    accountName: "Sunset Heights",
+    invitedByPhone: "+91 9876543211",
+    invitedByName: "Priya Sharma",
+    role: "sweeper",
+    name: "Rajesh",
+    phone: "+91 9876543211",
+    createdAt: new Date().toISOString(),
+    acceptedAt: null,
+  },
+  {
+    id: "dummy_invite_3",
+    accountId: "dummy_account_3",
+    accountName: "Lake View Society",
+    invitedByPhone: "+91 9876543212",
+    invitedByName: "Amit Singh",
+    role: "security",
+    name: "Vikram",
+    phone: "+91 9876543212",
+    createdAt: new Date().toISOString(),
+    acceptedAt: null,
+  },
+];
+
 export default function AddAccountScreen() {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
@@ -181,6 +223,7 @@ export default function AddAccountScreen() {
   const removeGrant = useAccessStore((s) => s.removeGrant);
 
   const [step, setStep] = useState<1 | 2>(1);
+  const [activeTab, setActiveTab] = useState<TabId>("create");
   const [selectedType, setSelectedType] = useState<AccountType | null>(null);
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [name, setName] = useState("");
@@ -188,22 +231,34 @@ export default function AddAccountScreen() {
   const [error, setError] = useState("");
   const [rejectingGrantId, setRejectingGrantId] = useState<string | null>(null);
   const [showPhotoOptions, setShowPhotoOptions] = useState(false);
+  const [showDummyInvites, setShowDummyInvites] = useState(true);
 
   const pendingInvitations = useMemo(() => {
-    return user?.phone ? getPendingGrantsByPhone(user.phone) : [];
-  }, [user?.phone, getPendingGrantsByPhone]);
+    // Get real invitations from the store
+    const realInvitations = user?.phone
+      ? getPendingGrantsByPhone(user.phone)
+      : [];
 
-  const getInvitationApartmentName = (invitation: {
-    accountId: string;
-    accountName?: string;
-  }) => {
+    // If no real invitations and dummy invites are enabled, return dummy invites
+    if (realInvitations.length === 0 && showDummyInvites) {
+      return DUMMY_INVITATIONS;
+    }
+
+    return realInvitations;
+  }, [user?.phone, getPendingGrantsByPhone, showDummyInvites]);
+
+  const getInvitationApartmentName = (invitation: any) => {
+    // Check if it's a dummy invitation
+    if (invitation.id?.startsWith("dummy_invite_")) {
+      return invitation.accountName || "Apartment Society";
+    }
     const account = accounts.find((a) => a.id === invitation.accountId);
     return account?.name || invitation.accountName || "Apartment Society";
   };
 
   const ownerInvite = useMemo(() => {
     return (
-      pendingInvitations.find((g) => g.role === "member_visibility") ||
+      pendingInvitations.find((g: any) => g.role === "member_visibility") ||
       pendingInvitations[0]
     );
   }, [pendingInvitations]);
@@ -211,7 +266,7 @@ export default function AddAccountScreen() {
   const staffInvite = useMemo(() => {
     return (
       pendingInvitations.find(
-        (g) => g.role !== "admin" && g.role !== "member_visibility",
+        (g: any) => g.role !== "admin" && g.role !== "member_visibility",
       ) || pendingInvitations[0]
     );
   }, [pendingInvitations]);
@@ -241,15 +296,40 @@ export default function AddAccountScreen() {
     try {
       const isFirstAccount = accounts.length === 0;
 
-      const matchingGrant =
-        pendingInvitations.find((g) =>
-          roleType === "owner" ? g.role === "member_visibility" : true,
-        ) || pendingInvitations[0];
+      // Check for matching grant in pending invitations
+      const matchingGrant = pendingInvitations.find((g: any) => {
+        if (roleType === "owner") {
+          return g.role === "member_visibility";
+        }
+        // For staff, check if role matches
+        return g.role !== "admin" && g.role !== "member_visibility";
+      });
 
       if (matchingGrant) {
-        acceptGrant(matchingGrant.id);
-        grantAccountRole(matchingGrant.accountId, matchingGrant.role);
-        selectAccount(matchingGrant.accountId);
+        // If it's a dummy invitation, simulate acceptance
+        if (matchingGrant.id?.startsWith("dummy_invite_")) {
+          // Create a new account with the apartment name
+          const aptName = getInvitationApartmentName(matchingGrant);
+          const defaultName =
+            roleType === "owner" ? `${aptName} - Owner` : `${aptName} - Staff`;
+
+          const newAccount = await createAccount("apartment", defaultName);
+          if (newAccount) {
+            const role = roleType === "owner" ? "member_visibility" : "admin";
+            grantAccountRole(newAccount.id, role);
+            selectAccount(newAccount.id);
+
+            // Remove dummy invites after accepting
+            setShowDummyInvites(false);
+          }
+        } else {
+          // For real invitations, cast role to the correct type
+          const role =
+            matchingGrant.role === "admin" ? "admin" : "member_visibility";
+          acceptGrant(matchingGrant.id);
+          grantAccountRole(matchingGrant.accountId, role);
+          selectAccount(matchingGrant.accountId);
+        }
       } else {
         let defaultName =
           roleType === "owner" ? "My Flat (Apartment)" : "Staff Workspace";
@@ -290,7 +370,7 @@ export default function AddAccountScreen() {
     setShowPhotoOptions(true);
   };
 
-  // Handle taking photo with camera
+  // Handle taking photo with camera - Updated with ["images"]
   const takePhoto = async () => {
     setShowPhotoOptions(false);
     const permission = await ImagePicker.requestCameraPermissionsAsync();
@@ -300,7 +380,7 @@ export default function AddAccountScreen() {
     }
 
     const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ["images"],
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.7,
@@ -313,7 +393,7 @@ export default function AddAccountScreen() {
     }
   };
 
-  // Handle choosing photo from gallery
+  // Handle choosing photo from gallery - Updated with ["images"]
   const choosePhoto = async () => {
     setShowPhotoOptions(false);
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -323,7 +403,7 @@ export default function AddAccountScreen() {
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: ["images"],
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.7,
@@ -412,8 +492,40 @@ export default function AddAccountScreen() {
     accountId: string,
     role: any,
   ) => {
+    // Check if it's a dummy invitation
+    if (grantId?.startsWith("dummy_invite_")) {
+      // Find the dummy invitation
+      const dummyInvite = DUMMY_INVITATIONS.find((inv) => inv.id === grantId);
+      if (dummyInvite) {
+        // Create a new account with the apartment name
+        const aptName = dummyInvite.accountName || "Apartment Society";
+        const isOwner = role === "member_visibility";
+        const defaultName = isOwner
+          ? `${aptName} - Owner`
+          : `${aptName} - Staff`;
+
+        createAccount("apartment", defaultName).then((newAccount) => {
+          if (newAccount) {
+            const grantRole = role === "admin" ? "admin" : "member_visibility";
+            grantAccountRole(newAccount.id, grantRole);
+            selectAccount(newAccount.id);
+            // Remove dummy invites after accepting
+            setShowDummyInvites(false);
+            if (accounts.length === 0) {
+              router.replace("/(tabs)");
+            } else {
+              router.back();
+            }
+          }
+        });
+        return;
+      }
+    }
+
+    // Real invitation - use the store
+    const grantRole = role === "admin" ? "admin" : "member_visibility";
     acceptGrant(grantId);
-    grantAccountRole(accountId, role);
+    grantAccountRole(accountId, grantRole);
     selectAccount(accountId);
     if (accounts.length === 0) {
       router.replace("/(tabs)");
@@ -421,6 +533,24 @@ export default function AddAccountScreen() {
       router.back();
     }
   };
+
+  // Get unique apartment names from invitations
+  const getUniqueApartments = () => {
+    const apartmentMap = new Map();
+    pendingInvitations.forEach((invitation: any) => {
+      const aptName = getInvitationApartmentName(invitation);
+      if (!apartmentMap.has(aptName)) {
+        apartmentMap.set(aptName, {
+          name: aptName,
+          invitations: [],
+        });
+      }
+      apartmentMap.get(aptName).invitations.push(invitation);
+    });
+    return Array.from(apartmentMap.values());
+  };
+
+  const uniqueApartments = getUniqueApartments();
 
   return (
     <KeyboardAvoidingView
@@ -443,6 +573,10 @@ export default function AddAccountScreen() {
 
         {step === 1 && (
           <View>
+            <View style={styles.progressTrack}>
+              <View style={[styles.progressFill, { width: "50%" }]} />
+            </View>
+
             <View style={styles.header}>
               <Text style={styles.stepBadge}>STEP 1 OF 2</Text>
               <Text style={styles.title}>Choose Setup Type</Text>
@@ -451,424 +585,350 @@ export default function AddAccountScreen() {
               </Text>
             </View>
 
-            {pendingInvitations.length > 0 && (
-              <View style={styles.inviteBanner}>
-                <View style={styles.inviteBannerHeader}>
-                  <View style={styles.inviteIconCircle}>
-                    <Ionicons name="mail-unread" size={20} color="#1a73e8" />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.inviteBannerTitle}>
-                      {pendingInvitations.length} Pending Invitation
-                      {pendingInvitations.length > 1 ? "s" : ""}
-                    </Text>
-                    <Text style={styles.inviteBannerSubtitle}>
-                      You have received invitation(s) to join
-                    </Text>
-                  </View>
-                </View>
+            <View style={styles.tabSwitcher}>
+              <TouchableOpacity
+                style={[
+                  styles.tabButton,
+                  activeTab === "create" && styles.tabButtonActiveBlue,
+                ]}
+                onPress={() => setActiveTab("create")}
+                activeOpacity={0.8}
+              >
+                <Ionicons
+                  name="add-circle"
+                  size={16}
+                  color={activeTab === "create" ? "#1a73e8" : "#94a3b8"}
+                />
+                <Text
+                  style={[
+                    styles.tabButtonText,
+                    activeTab === "create" && styles.tabButtonTextActiveBlue,
+                  ]}
+                >
+                  Create New
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.tabButton,
+                  activeTab === "invitations" && styles.tabButtonActivePurple,
+                ]}
+                onPress={() => setActiveTab("invitations")}
+                activeOpacity={0.8}
+              >
+                <Ionicons
+                  name="mail-open"
+                  size={16}
+                  color={activeTab === "invitations" ? "#7c3aed" : "#94a3b8"}
+                />
+                <Text
+                  style={[
+                    styles.tabButtonText,
+                    activeTab === "invitations" &&
+                      styles.tabButtonTextActivePurple,
+                  ]}
+                >
+                  Invitations
+                  {pendingInvitations.length > 0 && (
+                    <View style={styles.invitationBadge}>
+                      <Text style={styles.invitationBadgeText}>
+                        {pendingInvitations.length}
+                      </Text>
+                    </View>
+                  )}
+                </Text>
+              </TouchableOpacity>
+            </View>
 
-                {pendingInvitations.map((invitation) => {
-                  const aptName = getInvitationApartmentName(invitation);
-                  const isOwnerRole = invitation.role === "member_visibility";
-                  const isAdminRole = invitation.role === "admin";
-                  const inviterPhone = invitation.invitedByPhone || "Secretary";
-
-                  return (
-                    <View key={invitation.id} style={styles.inviteCard}>
-                      <View style={styles.inviteCardTop}>
-                        <View style={styles.aptIconContainer}>
-                          <Ionicons name="business" size={18} color="#1a73e8" />
-                        </View>
-                        <View style={{ flex: 1 }}>
-                          <Text style={styles.inviteApartmentName}>
-                            {aptName}
-                          </Text>
-                          <View style={styles.inviteMetaRow}>
-                            <View
-                              style={[
-                                styles.inviteRoleBadge,
-                                {
-                                  backgroundColor: isAdminRole
-                                    ? "#f3e8ff"
-                                    : isOwnerRole
-                                      ? "#eff6ff"
-                                      : "#fef3c7",
-                                },
-                              ]}
-                            >
-                              <Text
+            {activeTab === "create" && (
+              <View style={styles.section}>
+                <View style={styles.optionsList}>
+                  {SETUP_OPTIONS.filter((o) => o.category === "create").map(
+                    (option) => (
+                      <TouchableOpacity
+                        key={option.id}
+                        style={styles.card}
+                        onPress={() => handleSelectOption(option)}
+                        activeOpacity={0.8}
+                      >
+                        <View style={styles.cardHeader}>
+                          <View
+                            style={[
+                              styles.cardIconContainer,
+                              { backgroundColor: option.iconBg },
+                            ]}
+                          >
+                            <Ionicons
+                              name={option.icon}
+                              size={24}
+                              color={option.iconColor}
+                            />
+                          </View>
+                          <View style={styles.cardHeaderInfo}>
+                            <Text style={styles.cardTitle}>{option.title}</Text>
+                            <View style={styles.cardBadgeRow}>
+                              <View
                                 style={[
-                                  styles.inviteRoleBadgeText,
-                                  {
-                                    color: isAdminRole
-                                      ? "#7c3aed"
-                                      : isOwnerRole
-                                        ? "#1a73e8"
-                                        : "#d97706",
-                                  },
+                                  styles.cardBadge,
+                                  { backgroundColor: option.badgeBg },
                                 ]}
                               >
-                                {`Invited in ${aptName}`}
-                              </Text>
+                                <Text
+                                  style={[
+                                    styles.cardBadgeText,
+                                    { color: option.badgeColor },
+                                  ]}
+                                >
+                                  {option.badge}
+                                </Text>
+                              </View>
                             </View>
                           </View>
-
-                          <View style={styles.inviterDetailsRow}>
+                          <View style={styles.arrowCircle}>
                             <Ionicons
-                              name="call-outline"
-                              size={13}
+                              name="chevron-forward"
+                              size={16}
                               color="#1a73e8"
                             />
-                            <Text style={styles.inviterPhoneText}>
-                              Invited by:{" "}
-                              <Text style={styles.inviterPhoneBold}>
-                                {inviterPhone}
-                              </Text>
-                            </Text>
-                            {invitation.name ? (
-                              <Text style={styles.invitePersonText}>
-                                • For: {invitation.name}
-                              </Text>
-                            ) : null}
                           </View>
                         </View>
-                      </View>
 
-                      <TouchableOpacity
-                        style={styles.acceptButton}
-                        onPress={() =>
-                          handleAcceptInvite(
-                            invitation.id,
-                            invitation.accountId,
-                            invitation.role,
-                          )
-                        }
-                        activeOpacity={0.85}
-                      >
-                        <Text style={styles.acceptButtonText}>
-                          Accept & Join {aptName}
+                        <Text style={styles.cardDescription}>
+                          {option.description}
                         </Text>
-                        <Ionicons name="arrow-forward" size={14} color="#fff" />
                       </TouchableOpacity>
-                    </View>
-                  );
-                })}
+                    ),
+                  )}
+                </View>
               </View>
             )}
 
-            <View style={styles.section}>
-              <View style={styles.sectionHeader}>
-                <Ionicons name="add-circle" size={16} color="#1a73e8" />
-                <Text style={styles.sectionTitle}>CREATE A PROPERTY</Text>
-              </View>
-
-              <View style={styles.optionsList}>
-                {SETUP_OPTIONS.filter((o) => o.category === "create").map(
-                  (option) => (
-                    <TouchableOpacity
-                      key={option.id}
-                      style={styles.card}
-                      onPress={() => handleSelectOption(option)}
-                      activeOpacity={0.8}
-                    >
-                      <View style={styles.cardHeader}>
-                        <View
-                          style={[
-                            styles.cardIconContainer,
-                            { backgroundColor: option.iconBg },
-                          ]}
-                        >
-                          <Ionicons
-                            name={option.icon}
-                            size={24}
-                            color={option.iconColor}
-                          />
-                        </View>
-                        <View style={styles.cardHeaderInfo}>
-                          <Text style={styles.cardTitle}>{option.title}</Text>
-                          <View style={styles.cardBadgeRow}>
-                            <View
-                              style={[
-                                styles.cardBadge,
-                                { backgroundColor: option.badgeBg },
-                              ]}
-                            >
-                              <Text
-                                style={[
-                                  styles.cardBadgeText,
-                                  { color: option.badgeColor },
-                                ]}
-                              >
-                                {option.badge}
-                              </Text>
-                            </View>
-                          </View>
-                        </View>
-                        <View style={styles.arrowCircle}>
-                          <Ionicons
-                            name="chevron-forward"
-                            size={16}
-                            color="#1a73e8"
-                          />
-                        </View>
-                      </View>
-
-                      <Text style={styles.cardDescription}>
-                        {option.description}
-                      </Text>
-                    </TouchableOpacity>
-                  ),
-                )}
-              </View>
-            </View>
-
-            <View style={styles.section}>
-              <View style={styles.sectionHeader}>
-                <Ionicons name="mail-open" size={16} color="#7c3aed" />
-                <Text style={[styles.sectionTitle, { color: "#7c3aed" }]}>
-                  INVITATION TO AN EXISTING PROPERTY
-                </Text>
-              </View>
-
-              <View style={styles.optionsList}>
-                {/* Owner Join Card */}
-                <View style={[styles.card, styles.cardJoin]}>
-                  <View style={styles.cardHeader}>
-                    <View
-                      style={[
-                        styles.cardIconContainer,
-                        { backgroundColor: "#f3e8ff" },
-                      ]}
-                    >
-                      <Ionicons name="key" size={24} color="#7c3aed" />
+            {activeTab === "invitations" && (
+              <View style={styles.section}>
+                {pendingInvitations.length === 0 ? (
+                  <View style={styles.emptyStateContainer}>
+                    <View style={styles.emptyStateIcon}>
+                      <Ionicons
+                        name="mail-open-outline"
+                        size={48}
+                        color="#cbd5e1"
+                      />
                     </View>
-                    <View style={styles.cardHeaderInfo}>
-                      <Text style={styles.cardTitle}>
-                        Join as Apartment Owner
-                      </Text>
-                      <View style={styles.cardBadgeRow}>
-                        <View
-                          style={[
-                            styles.cardBadge,
-                            { backgroundColor: "#eff6ff" },
-                          ]}
-                        >
-                          <Text
-                            style={[styles.cardBadgeText, { color: "#1a73e8" }]}
-                          >
-                            {ownerInvite
-                              ? `Invited in ${getInvitationApartmentName(ownerInvite)}`
-                              : "Join via Invitation"}
+                    <Text style={styles.emptyStateTitle}>No Invitations</Text>
+                    <Text style={styles.emptyStateSubtitle}>
+                      You haven't received any invitations yet. Ask your society
+                      admin to send you an invitation.
+                    </Text>
+                  </View>
+                ) : (
+                  <View style={styles.invitationsContainer}>
+                    {uniqueApartments.map((apartment: any) => (
+                      <View key={apartment.name} style={styles.apartmentGroup}>
+                        <View style={styles.apartmentHeader}>
+                          <View style={styles.apartmentIconContainer}>
+                            <Ionicons
+                              name="business"
+                              size={20}
+                              color="#1a73e8"
+                            />
+                          </View>
+                          <Text style={styles.apartmentName}>
+                            {apartment.name}
                           </Text>
-                        </View>
-                        {ownerInvite && (
-                          <View style={styles.inviterPill}>
-                            <Ionicons name="call" size={10.5} color="#1a73e8" />
-                            <Text style={styles.inviterPillText}>
-                              Invited by:{" "}
-                              <Text style={styles.inviterPillBold}>
-                                {ownerInvite.invitedByPhone || "9666665656"}
-                              </Text>
+                          <View style={styles.invitationCountBadge}>
+                            <Text style={styles.invitationCountText}>
+                              {apartment.invitations.length}
                             </Text>
                           </View>
-                        )}
-                      </View>
-                    </View>
-                  </View>
-
-                  <Text style={styles.cardDescription}>
-                    {ownerInvite
-                      ? `Connect with ${getInvitationApartmentName(ownerInvite)} as Flat Owner to view monthly maintenance dues, payment receipts & society notices.`
-                      : "Connect with your society to check monthly dues, view receipts & building notices"}
-                  </Text>
-
-                  <View style={styles.inviteActionRow}>
-                    <TouchableOpacity
-                      style={styles.rejectButton}
-                      onPress={() => {
-                        setRejectingGrantId(ownerInvite?.id ?? "join_owner");
-                      }}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons
-                        name="close-circle-outline"
-                        size={15}
-                        color="#dc2626"
-                      />
-                      <Text style={styles.rejectButtonText}>Reject</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={[
-                        styles.joinButton,
-                        { backgroundColor: "#7c3aed" },
-                      ]}
-                      onPress={() => handleDirectJoin("owner")}
-                      activeOpacity={0.8}
-                    >
-                      <Ionicons name="flash" size={13} color="#ffffff" />
-                      <Text style={styles.joinButtonText}>Join Now</Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-
-                {/* Staff Join Cards */}
-                {STAFF_JOIN_OPTIONS.map((option) => {
-                  const staffRoleId = option.id.replace("join_staff_", "");
-                  const staffRole = STAFF_ROLES.find(
-                    (r) => r.id === staffRoleId,
-                  );
-
-                  return (
-                    <View key={option.id} style={styles.staffCard}>
-                      <View style={styles.staffCardTop}>
-                        <View
-                          style={[
-                            styles.staffCardIcon,
-                            { backgroundColor: option.iconBg },
-                          ]}
-                        >
-                          <Ionicons
-                            name={option.icon}
-                            size={28}
-                            color={option.iconColor}
-                          />
                         </View>
-                        <View style={styles.staffCardTitleSection}>
-                          <Text style={styles.staffCardTitle}>
-                            {option.title}
-                          </Text>
-                          <View style={styles.staffCardBadges}>
+
+                        {apartment.invitations.map((invitation: any) => {
+                          const isOwnerRole =
+                            invitation.role === "member_visibility";
+                          const isAdminRole = invitation.role === "admin";
+                          const inviterPhone =
+                            invitation.invitedByPhone || "Secretary";
+
+                          // Determine which option card to show based on role
+                          let optionCard: SetupOption = {
+                            id: "join_owner",
+                            title: "Join as Apartment Owner",
+                            badge: "Owner",
+                            badgeColor: "#7c3aed",
+                            badgeBg: "#f3e8ff",
+                            description:
+                              "Connect with this society to view monthly maintenance dues, payment receipts & society notices.",
+                            icon: "key",
+                            iconColor: "#7c3aed",
+                            iconBg: "#f3e8ff",
+                            category: "join",
+                          };
+
+                          if (isAdminRole || isOwnerRole) {
+                            optionCard = {
+                              id: "join_owner",
+                              title: "Join as Apartment Owner",
+                              badge: "Owner",
+                              badgeColor: "#7c3aed",
+                              badgeBg: "#f3e8ff",
+                              description:
+                                "Connect with this society to view monthly maintenance dues, payment receipts & society notices.",
+                              icon: "key",
+                              iconColor: "#7c3aed",
+                              iconBg: "#f3e8ff",
+                              category: "join",
+                            };
+                          } else {
+                            // Staff role - find matching option
+                            const staffOption = STAFF_JOIN_OPTIONS.find((opt) =>
+                              invitation.role
+                                ?.toLowerCase()
+                                .includes(opt.id.replace("join_staff_", "")),
+                            );
+                            if (staffOption) {
+                              optionCard = staffOption;
+                            } else {
+                              // Default fallback
+                              optionCard = {
+                                id: "join_staff_sweeper",
+                                title: "Join as Staff",
+                                badge: "Staff",
+                                badgeColor: "#d97706",
+                                badgeBg: "#fef3c7",
+                                description:
+                                  "Track your daily tasks, attendance, and monthly salary payouts",
+                                icon: "person",
+                                iconColor: "#d97706",
+                                iconBg: "#fef3c7",
+                                category: "join",
+                              };
+                            }
+                          }
+
+                          return (
                             <View
-                              style={[
-                                styles.staffCardBadge,
-                                { backgroundColor: "#eff6ff" },
-                              ]}
+                              key={invitation.id}
+                              style={styles.invitationCard}
                             >
-                              <Text
-                                style={[
-                                  styles.staffCardBadgeText,
-                                  { color: "#1a73e8" },
-                                ]}
-                              >
-                                {staffInvite
-                                  ? `Invited in ${getInvitationApartmentName(staffInvite)}`
-                                  : "Join via Invitation"}
-                              </Text>
-                            </View>
-                            {staffInvite && (
-                              <View style={styles.inviterPillSmall}>
-                                <Ionicons
-                                  name="call"
-                                  size={10}
-                                  color="#1a73e8"
-                                />
-                                <Text style={styles.inviterPillTextSmall}>
-                                  {staffInvite.invitedByPhone || "9666665656"}
-                                </Text>
+                              <View style={styles.invitationCardHeader}>
+                                <View
+                                  style={[
+                                    styles.invitationCardIcon,
+                                    {
+                                      backgroundColor: optionCard.iconBg,
+                                    },
+                                  ]}
+                                >
+                                  <Ionicons
+                                    name={optionCard.icon}
+                                    size={22}
+                                    color={optionCard.iconColor}
+                                  />
+                                </View>
+                                <View style={styles.invitationCardInfo}>
+                                  <Text style={styles.invitationCardTitle}>
+                                    {optionCard.title}
+                                  </Text>
+                                  <View style={styles.invitationBadgeRow}>
+                                    <View
+                                      style={[
+                                        styles.invitationRoleBadge,
+                                        {
+                                          backgroundColor: optionCard.badgeBg,
+                                        },
+                                      ]}
+                                    >
+                                      <Text
+                                        style={[
+                                          styles.invitationRoleBadgeText,
+                                          {
+                                            color: optionCard.badgeColor,
+                                          },
+                                        ]}
+                                      >
+                                        {optionCard.badge}
+                                      </Text>
+                                    </View>
+                                    <View style={styles.inviterPillSmall}>
+                                      <Ionicons
+                                        name="call"
+                                        size={10}
+                                        color="#1a73e8"
+                                      />
+                                      <Text style={styles.inviterPillTextSmall}>
+                                        Invited by: {inviterPhone}
+                                      </Text>
+                                    </View>
+                                  </View>
+                                </View>
                               </View>
-                            )}
-                          </View>
-                        </View>
-                      </View>
 
-                      <View style={styles.staffRoleInfo}>
-                        <View
-                          style={[
-                            styles.staffRoleBadge,
-                            { backgroundColor: option.badgeBg },
-                          ]}
-                        >
-                          <Ionicons
-                            name={staffRole?.icon || "person"}
-                            size={14}
-                            color={option.badgeColor}
-                          />
-                          <Text
-                            style={[
-                              styles.staffRoleBadgeText,
-                              { color: option.badgeColor },
-                            ]}
-                          >
-                            {option.badge}
-                          </Text>
-                        </View>
-                        <View style={styles.permissionsRow}>
-                          {staffRole?.permissions
-                            .slice(0, 2)
-                            .map((perm, idx) => (
-                              <View key={idx} style={styles.permissionChip}>
-                                <Ionicons
-                                  name="checkmark-circle"
-                                  size={12}
-                                  color="#059669"
-                                />
-                                <Text style={styles.permissionChipText}>
-                                  {perm.replace(/_/g, " ").toLowerCase()}
-                                </Text>
-                              </View>
-                            ))}
-                          {staffRole && staffRole.permissions.length > 2 && (
-                            <View style={styles.permissionChip}>
-                              <Text style={styles.permissionChipText}>
-                                +{staffRole.permissions.length - 2} more
+                              <Text style={styles.invitationCardDescription}>
+                                {optionCard.description}
                               </Text>
+
+                              <View style={styles.invitationActions}>
+                                <TouchableOpacity
+                                  style={styles.invitationRejectButton}
+                                  onPress={() =>
+                                    setRejectingGrantId(invitation.id)
+                                  }
+                                  activeOpacity={0.7}
+                                >
+                                  <Ionicons
+                                    name="close-outline"
+                                    size={16}
+                                    color="#dc2626"
+                                  />
+                                  <Text style={styles.invitationRejectText}>
+                                    Reject
+                                  </Text>
+                                </TouchableOpacity>
+
+                                <TouchableOpacity
+                                  style={[
+                                    styles.invitationAcceptButton,
+                                    {
+                                      backgroundColor: optionCard.iconColor,
+                                    },
+                                  ]}
+                                  onPress={() =>
+                                    handleAcceptInvite(
+                                      invitation.id,
+                                      invitation.accountId,
+                                      invitation.role,
+                                    )
+                                  }
+                                  activeOpacity={0.8}
+                                >
+                                  <Text style={styles.invitationAcceptText}>
+                                    Accept Invitation
+                                  </Text>
+                                  <Ionicons
+                                    name="arrow-forward"
+                                    size={14}
+                                    color="#ffffff"
+                                  />
+                                </TouchableOpacity>
+                              </View>
                             </View>
-                          )}
-                        </View>
+                          );
+                        })}
                       </View>
-
-                      <Text style={styles.staffCardDescription}>
-                        {option.description}
-                      </Text>
-
-                      <View style={styles.staffCardActions}>
-                        <TouchableOpacity
-                          style={styles.rejectButtonSmall}
-                          onPress={() => {
-                            setRejectingGrantId(staffInvite?.id ?? option.id);
-                          }}
-                          activeOpacity={0.7}
-                        >
-                          <Ionicons
-                            name="close-outline"
-                            size={16}
-                            color="#dc2626"
-                          />
-                          <Text style={styles.rejectButtonTextSmall}>
-                            Reject
-                          </Text>
-                        </TouchableOpacity>
-
-                        <TouchableOpacity
-                          style={[
-                            styles.joinButtonSmall,
-                            { backgroundColor: option.iconColor },
-                          ]}
-                          onPress={() => handleSelectOption(option)}
-                          activeOpacity={0.8}
-                        >
-                          <Text style={styles.joinButtonTextSmall}>
-                            Join Now
-                          </Text>
-                          <Ionicons
-                            name="arrow-forward"
-                            size={14}
-                            color="#ffffff"
-                          />
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  );
-                })}
+                    ))}
+                  </View>
+                )}
               </View>
-            </View>
+            )}
           </View>
         )}
 
         {step === 2 && (
           <View>
+            <View style={styles.progressTrack}>
+              <View style={[styles.progressFill, { width: "100%" }]} />
+            </View>
+
             <TouchableOpacity
               style={styles.backButton}
               onPress={() => {
@@ -892,120 +952,125 @@ export default function AddAccountScreen() {
               </Text>
             </View>
 
-            <View style={styles.photoSection}>
-              <TouchableOpacity
-                style={styles.photoCircle}
-                onPress={handlePickPhoto}
-                activeOpacity={0.8}
-              >
-                {photoUri ? (
-                  <Image source={{ uri: photoUri }} style={styles.photoImage} />
-                ) : (
-                  <View style={styles.photoPlaceholder}>
-                    <Ionicons
-                      name={
-                        selectedType === "apartment"
-                          ? "business-outline"
-                          : "home-outline"
-                      }
-                      size={36}
-                      color="#1a73e8"
+            <View style={styles.formCard}>
+              <View style={styles.photoSection}>
+                <TouchableOpacity
+                  style={styles.photoCircle}
+                  onPress={handlePickPhoto}
+                  activeOpacity={0.8}
+                >
+                  {photoUri ? (
+                    <Image
+                      source={{ uri: photoUri }}
+                      style={styles.photoImage}
                     />
-                    <View style={styles.cameraIconBadge}>
-                      <Ionicons name="camera" size={14} color="#fff" />
+                  ) : (
+                    <View style={styles.photoPlaceholder}>
+                      <Ionicons
+                        name={
+                          selectedType === "apartment"
+                            ? "business-outline"
+                            : "home-outline"
+                        }
+                        size={36}
+                        color="#1a73e8"
+                      />
+                      <View style={styles.cameraIconBadge}>
+                        <Ionicons name="camera" size={14} color="#fff" />
+                      </View>
                     </View>
-                  </View>
+                  )}
+                </TouchableOpacity>
+
+                <View style={styles.photoActionButtons}>
+                  <TouchableOpacity
+                    onPress={handlePickPhoto}
+                    style={styles.photoButton}
+                  >
+                    <Text style={styles.photoButtonText}>
+                      {photoUri ? "Change Photo" : "Add Photo (optional)"}
+                    </Text>
+                  </TouchableOpacity>
+                  {photoUri && (
+                    <TouchableOpacity
+                      onPress={() => setPhotoUri(null)}
+                      style={styles.removePhotoButton}
+                    >
+                      <Text style={styles.removePhotoText}>Remove</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>
+                  {selectedType === "apartment"
+                    ? "Apartment / Society Name"
+                    : "Home Name"}
+                </Text>
+                <View style={styles.inputWrapper}>
+                  <Ionicons
+                    name={
+                      selectedType === "apartment"
+                        ? "business-outline"
+                        : "home-outline"
+                    }
+                    size={20}
+                    color="#666"
+                    style={styles.inputIcon}
+                  />
+                  <TextInput
+                    style={styles.input}
+                    placeholder={
+                      selectedType === "apartment"
+                        ? "e.g. Green Valley Apartments"
+                        : "e.g. My Home - Rajarhat"
+                    }
+                    placeholderTextColor="#999"
+                    value={name}
+                    onChangeText={(val) => {
+                      setName(val);
+                      setError("");
+                    }}
+                    autoFocus
+                  />
+                  {name.length > 0 && (
+                    <TouchableOpacity
+                      onPress={() => setName("")}
+                      style={styles.clearInput}
+                    >
+                      <Ionicons name="close-circle" size={18} color="#aaa" />
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </View>
+
+              {error ? (
+                <View style={styles.errorContainer}>
+                  <Ionicons name="alert-circle" size={16} color="#e53935" />
+                  <Text style={styles.error}>{error}</Text>
+                </View>
+              ) : null}
+
+              <TouchableOpacity
+                style={[
+                  styles.submitButton,
+                  loading && styles.submitButtonDisabled,
+                ]}
+                onPress={handleCreate}
+                disabled={loading}
+                activeOpacity={0.85}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <>
+                    <Text style={styles.submitButtonText}>Create Account</Text>
+                    <Ionicons name="arrow-forward" size={18} color="#fff" />
+                  </>
                 )}
               </TouchableOpacity>
-
-              <View style={styles.photoActionButtons}>
-                <TouchableOpacity
-                  onPress={handlePickPhoto}
-                  style={styles.photoButton}
-                >
-                  <Text style={styles.photoButtonText}>
-                    {photoUri ? "Change Photo" : "Add Photo (optional)"}
-                  </Text>
-                </TouchableOpacity>
-                {photoUri && (
-                  <TouchableOpacity
-                    onPress={() => setPhotoUri(null)}
-                    style={styles.removePhotoButton}
-                  >
-                    <Text style={styles.removePhotoText}>Remove</Text>
-                  </TouchableOpacity>
-                )}
-              </View>
             </View>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>
-                {selectedType === "apartment"
-                  ? "Apartment / Society Name"
-                  : "Home Name"}
-              </Text>
-              <View style={styles.inputWrapper}>
-                <Ionicons
-                  name={
-                    selectedType === "apartment"
-                      ? "business-outline"
-                      : "home-outline"
-                  }
-                  size={20}
-                  color="#666"
-                  style={styles.inputIcon}
-                />
-                <TextInput
-                  style={styles.input}
-                  placeholder={
-                    selectedType === "apartment"
-                      ? "e.g. Green Valley Apartments"
-                      : "e.g. My Home - Rajarhat"
-                  }
-                  placeholderTextColor="#999"
-                  value={name}
-                  onChangeText={(val) => {
-                    setName(val);
-                    setError("");
-                  }}
-                  autoFocus
-                />
-                {name.length > 0 && (
-                  <TouchableOpacity
-                    onPress={() => setName("")}
-                    style={styles.clearInput}
-                  >
-                    <Ionicons name="close-circle" size={18} color="#aaa" />
-                  </TouchableOpacity>
-                )}
-              </View>
-            </View>
-
-            {error ? (
-              <View style={styles.errorContainer}>
-                <Ionicons name="alert-circle" size={16} color="#e53935" />
-                <Text style={styles.error}>{error}</Text>
-              </View>
-            ) : null}
-
-            <TouchableOpacity
-              style={[
-                styles.submitButton,
-                loading && styles.submitButtonDisabled,
-              ]}
-              onPress={handleCreate}
-              disabled={loading}
-              activeOpacity={0.85}
-            >
-              {loading ? (
-                <ActivityIndicator color="#fff" size="small" />
-              ) : (
-                <>
-                  <Text style={styles.submitButtonText}>Create Account</Text>
-                  <Ionicons name="arrow-forward" size={18} color="#fff" />
-                </>
-              )}
-            </TouchableOpacity>
           </View>
         )}
       </ScrollView>
@@ -1021,7 +1086,8 @@ export default function AddAccountScreen() {
           style={styles.modalBackdrop}
           onPress={() => setShowPhotoOptions(false)}
         >
-          <View style={styles.photoOptionsModal}>
+          <Pressable style={styles.photoOptionsModal} onPress={() => {}}>
+            <View style={styles.modalHandle} />
             <Text style={styles.photoOptionsTitle}>Upload Photo</Text>
             <Text style={styles.photoOptionsSubtitle}>
               Choose how you want to add a photo
@@ -1049,7 +1115,9 @@ export default function AddAccountScreen() {
               onPress={choosePhoto}
               activeOpacity={0.7}
             >
-              <View style={styles.photoOptionIcon}>
+              <View
+                style={[styles.photoOptionIcon, { backgroundColor: "#ecfdf5" }]}
+              >
                 <Ionicons name="images" size={24} color="#059669" />
               </View>
               <View style={styles.photoOptionTextContainer}>
@@ -1064,14 +1132,15 @@ export default function AddAccountScreen() {
             <TouchableOpacity
               style={styles.photoOptionsCancel}
               onPress={() => setShowPhotoOptions(false)}
+              activeOpacity={0.7}
             >
               <Text style={styles.photoOptionsCancelText}>Cancel</Text>
             </TouchableOpacity>
-          </View>
+          </Pressable>
         </Pressable>
       </Modal>
 
-      {/* Reject Modal */}
+      {/* Reject Modal - Centered */}
       <Modal
         visible={rejectingGrantId !== null}
         transparent
@@ -1079,10 +1148,10 @@ export default function AddAccountScreen() {
         onRequestClose={() => setRejectingGrantId(null)}
       >
         <Pressable
-          style={styles.modalBackdrop}
+          style={styles.modalBackdropCenter}
           onPress={() => setRejectingGrantId(null)}
         >
-          <Pressable style={styles.modalCard} onPress={() => {}}>
+          <Pressable style={styles.modalCardCenter} onPress={() => {}}>
             <View style={styles.modalIconCircle}>
               <Ionicons name="close-circle" size={36} color="#dc2626" />
             </View>
@@ -1116,6 +1185,10 @@ export default function AddAccountScreen() {
                     if (!realGrantIds.includes(rejectingGrantId)) {
                       removeGrant(rejectingGrantId);
                     }
+                    // Also remove dummy invitations
+                    if (rejectingGrantId.startsWith("dummy_invite_")) {
+                      setShowDummyInvites(false);
+                    }
                     setRejectingGrantId(null);
                   }
                 }}
@@ -1140,6 +1213,19 @@ const styles = StyleSheet.create({
   scrollContent: {
     padding: 16,
     paddingBottom: 40,
+  },
+  progressTrack: {
+    height: 4,
+    backgroundColor: "#e2e8f0",
+    borderRadius: 2,
+    marginBottom: 18,
+    marginTop: 2,
+    overflow: "hidden",
+  },
+  progressFill: {
+    height: "100%",
+    backgroundColor: "#1a73e8",
+    borderRadius: 2,
   },
   header: {
     marginBottom: 16,
@@ -1179,136 +1265,64 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#1a73e8",
   },
-  inviteBanner: {
-    backgroundColor: "#ffffff",
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 18,
-    borderWidth: 1.5,
-    borderColor: "#93c5fd",
-    shadowColor: "#1a73e8",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  inviteBannerHeader: {
+  tabSwitcher: {
     flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 10,
-    gap: 10,
-  },
-  inviteIconCircle: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#eff6ff",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  inviteBannerTitle: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: "#1e3a8a",
-  },
-  inviteBannerSubtitle: {
-    fontSize: 12,
-    color: "#64748b",
-  },
-  inviteCard: {
-    backgroundColor: "#f8fafc",
+    backgroundColor: "#eef1f6",
     borderRadius: 12,
-    padding: 12,
-    marginTop: 8,
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-  },
-  inviteCardTop: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10,
-    marginBottom: 10,
-  },
-  aptIconContainer: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    backgroundColor: "#eff6ff",
-    justifyContent: "center",
-    alignItems: "center",
-    marginTop: 2,
-  },
-  inviteApartmentName: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: "#0f172a",
-    lineHeight: 20,
-  },
-  inviteMetaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    flexWrap: "wrap",
-    gap: 6,
-    marginTop: 4,
-  },
-  inviteRoleBadge: {
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 5,
-  },
-  inviteRoleBadgeText: {
-    fontSize: 11,
-    fontWeight: "700",
-  },
-  inviterDetailsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    flexWrap: "wrap",
+    padding: 4,
+    marginBottom: 18,
     gap: 4,
-    marginTop: 5,
   },
-  inviterPhoneText: {
-    fontSize: 12,
-    color: "#475569",
-  },
-  inviterPhoneBold: {
-    fontWeight: "700",
-    color: "#1e40af",
-  },
-  invitePersonText: {
-    fontSize: 11.5,
-    color: "#64748b",
-  },
-  acceptButton: {
+  tabButton: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#1a73e8",
-    paddingVertical: 9,
-    paddingHorizontal: 14,
-    borderRadius: 8,
+    paddingVertical: 10,
+    borderRadius: 9,
     gap: 6,
   },
-  acceptButtonText: {
-    fontSize: 13,
+  tabButtonActiveBlue: {
+    backgroundColor: "#ffffff",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  tabButtonActivePurple: {
+    backgroundColor: "#ffffff",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  tabButtonText: {
+    fontSize: 13.5,
     fontWeight: "700",
+    color: "#94a3b8",
+  },
+  tabButtonTextActiveBlue: {
+    color: "#1a73e8",
+  },
+  tabButtonTextActivePurple: {
+    color: "#7c3aed",
+  },
+  invitationBadge: {
+    backgroundColor: "#ef4444",
+    borderRadius: 10,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    marginLeft: 4,
+  },
+  invitationBadgeText: {
     color: "#ffffff",
+    fontSize: 10,
+    fontWeight: "700",
   },
   section: {
     marginBottom: 20,
-  },
-  sectionHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginBottom: 8,
-    paddingHorizontal: 2,
-  },
-  sectionTitle: {
-    fontSize: 12,
-    fontWeight: "800",
-    letterSpacing: 0.8,
-    color: "#1a73e8",
   },
   optionsList: {
     gap: 10,
@@ -1324,9 +1338,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.04,
     shadowRadius: 4,
     elevation: 2,
-  },
-  cardJoin: {
-    borderColor: "#e2e8f0",
   },
   cardHeader: {
     flexDirection: "row",
@@ -1369,66 +1380,11 @@ const styles = StyleSheet.create({
     fontSize: 10.5,
     fontWeight: "700",
   },
-  inviterPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#f8fafc",
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 5,
-    gap: 4,
-  },
-  inviterPillText: {
-    fontSize: 10.5,
-    color: "#475569",
-  },
-  inviterPillBold: {
-    fontWeight: "700",
-    color: "#1e40af",
-  },
   cardDescription: {
     fontSize: 12.5,
     color: "#64748b",
     lineHeight: 17,
     marginTop: 4,
-  },
-  inviteActionRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginTop: 12,
-    gap: 8,
-  },
-  rejectButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: "#fecaca",
-    backgroundColor: "#fff5f5",
-  },
-  rejectButtonText: {
-    fontSize: 12.5,
-    fontWeight: "600",
-    color: "#dc2626",
-  },
-  joinButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 16,
-    paddingVertical: 7,
-    borderRadius: 8,
-  },
-  joinButtonText: {
-    fontSize: 12.5,
-    fontWeight: "700",
-    color: "#ffffff",
   },
   arrowCircle: {
     width: 28,
@@ -1438,7 +1394,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  staffCard: {
+
+  // Invitations Styles
+  invitationsContainer: {
+    gap: 16,
+  },
+  apartmentGroup: {
     backgroundColor: "#ffffff",
     borderRadius: 16,
     padding: 16,
@@ -1449,53 +1410,94 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.04,
     shadowRadius: 8,
     elevation: 2,
-    marginBottom: 10,
   },
-  staffCardTop: {
+  apartmentHeader: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
-    marginBottom: 10,
+    gap: 10,
+    marginBottom: 12,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f1f5f9",
   },
-  staffCardIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
+  apartmentIconContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: "#eff6ff",
     justifyContent: "center",
     alignItems: "center",
   },
-  staffCardTitleSection: {
-    flex: 1,
-  },
-  staffCardTitle: {
+  apartmentName: {
     fontSize: 16,
     fontWeight: "700",
     color: "#0f172a",
-    marginBottom: 4,
+    flex: 1,
   },
-  staffCardBadges: {
+  invitationCountBadge: {
+    backgroundColor: "#e2e8f0",
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+  },
+  invitationCountText: {
+    fontSize: 11,
+    fontWeight: "600",
+    color: "#475569",
+  },
+  invitationCard: {
+    backgroundColor: "#f8fafc",
+    borderRadius: 12,
+    padding: 14,
+    marginTop: 10,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+  },
+  invitationCardHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 8,
+  },
+  invitationCardIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  invitationCardInfo: {
+    flex: 1,
+  },
+  invitationCardTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#0f172a",
+  },
+  invitationBadgeRow: {
     flexDirection: "row",
     alignItems: "center",
     flexWrap: "wrap",
-    gap: 4,
+    gap: 6,
+    marginTop: 2,
   },
-  staffCardBadge: {
+  invitationRoleBadge: {
     paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: 12,
+    borderRadius: 6,
   },
-  staffCardBadgeText: {
+  invitationRoleBadgeText: {
     fontSize: 10,
     fontWeight: "600",
   },
   inviterPillSmall: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 3,
+    gap: 4,
     paddingHorizontal: 6,
     paddingVertical: 2,
-    backgroundColor: "#f8fafc",
-    borderRadius: 10,
+    backgroundColor: "#ffffff",
+    borderRadius: 6,
     borderWidth: 1,
     borderColor: "#e2e8f0",
   },
@@ -1504,60 +1506,19 @@ const styles = StyleSheet.create({
     color: "#475569",
     fontWeight: "500",
   },
-  staffRoleInfo: {
-    flexDirection: "row",
-    alignItems: "center",
-    flexWrap: "wrap",
-    gap: 8,
-    marginBottom: 8,
-  },
-  staffRoleBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-  },
-  staffRoleBadgeText: {
-    fontSize: 11,
-    fontWeight: "700",
-  },
-  permissionsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    flexWrap: "wrap",
-    gap: 4,
-  },
-  permissionChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 3,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    backgroundColor: "#f0fdf4",
-    borderRadius: 8,
-  },
-  permissionChipText: {
-    fontSize: 9,
-    color: "#059669",
-    fontWeight: "500",
-  },
-  staffCardDescription: {
+  invitationCardDescription: {
     fontSize: 12.5,
     color: "#64748b",
     lineHeight: 17,
     marginBottom: 12,
   },
-  staffCardActions: {
+  invitationActions: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 8,
   },
-  rejectButtonSmall: {
+  invitationRejectButton: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
@@ -1568,26 +1529,71 @@ const styles = StyleSheet.create({
     borderColor: "#fecaca",
     backgroundColor: "#fff5f5",
   },
-  rejectButtonTextSmall: {
+  invitationRejectText: {
     fontSize: 12,
     fontWeight: "600",
     color: "#dc2626",
   },
-  joinButtonSmall: {
+  invitationAcceptButton: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    paddingHorizontal: 18,
+    paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 8,
   },
-  joinButtonTextSmall: {
+  invitationAcceptText: {
     fontSize: 12,
     fontWeight: "700",
     color: "#ffffff",
   },
 
+  // Empty State
+  emptyStateContainer: {
+    alignItems: "center",
+    paddingVertical: 40,
+    paddingHorizontal: 20,
+    backgroundColor: "#ffffff",
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    borderStyle: "dashed",
+  },
+  emptyStateIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: "#f1f5f9",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  emptyStateTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#0f172a",
+    marginBottom: 4,
+  },
+  emptyStateSubtitle: {
+    fontSize: 13,
+    color: "#64748b",
+    textAlign: "center",
+    lineHeight: 18,
+  },
+
   // Step 2 Styles
+  formCard: {
+    backgroundColor: "#ffffff",
+    borderRadius: 18,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
+  },
   photoSection: {
     alignItems: "center",
     marginVertical: 14,
@@ -1752,16 +1758,25 @@ const styles = StyleSheet.create({
   modalBackdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.45)",
-    justifyContent: "center",
+    justifyContent: "flex-end",
     alignItems: "center",
-    paddingHorizontal: 16,
+  },
+  modalHandle: {
+    width: 40,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#e2e8f0",
+    alignSelf: "center",
+    marginBottom: 16,
   },
   photoOptionsModal: {
     backgroundColor: "#ffffff",
-    borderRadius: 20,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
     padding: 24,
+    paddingBottom: 32,
     width: "100%",
-    maxWidth: 400,
+    maxWidth: 480,
   },
   photoOptionsTitle: {
     fontSize: 20,
@@ -1782,7 +1797,7 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     paddingHorizontal: 16,
     backgroundColor: "#f8fafc",
-    borderRadius: 12,
+    borderRadius: 14,
     marginBottom: 10,
     borderWidth: 1,
     borderColor: "#e2e8f0",
@@ -1813,19 +1828,29 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     alignItems: "center",
     marginTop: 4,
+    backgroundColor: "#f8fafc",
+    borderRadius: 12,
   },
   photoOptionsCancelText: {
     fontSize: 15,
-    fontWeight: "600",
+    fontWeight: "700",
     color: "#dc2626",
   },
 
-  // Reject Modal
-  modalCard: {
+  // Reject Modal - Centered
+  modalBackdropCenter: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 24,
+  },
+  modalCardCenter: {
     backgroundColor: "#ffffff",
-    borderRadius: 20,
+    borderRadius: 22,
     padding: 24,
     width: "100%",
+    maxWidth: 400,
     alignItems: "center",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 6 },
@@ -1864,7 +1889,7 @@ const styles = StyleSheet.create({
   modalCancelButton: {
     flex: 1,
     paddingVertical: 12,
-    borderRadius: 10,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: "#e2e8f0",
     backgroundColor: "#f8fafc",
@@ -1881,7 +1906,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 12,
-    borderRadius: 10,
+    borderRadius: 12,
     backgroundColor: "#dc2626",
     gap: 6,
   },
