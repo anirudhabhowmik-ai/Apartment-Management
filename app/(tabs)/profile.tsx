@@ -244,6 +244,59 @@ export default function ProfileScreen() {
       color: "#F44336",
       onPress: handleDeleteAccount,
     },
+    {
+      id: "privacy_policy",
+      title: "Privacy Policy",
+      icon: "shield-checkmark-outline",
+      color: "#0891b2",
+      onPress: () =>
+        router.push({
+          pathname: "/(modals)/legal-page",
+          params: { title: "Privacy Policy", type: "privacy" },
+        }),
+    },
+    {
+      id: "terms_conditions",
+      title: "Terms & Conditions",
+      icon: "document-text-outline",
+      color: "#7c3aed",
+      onPress: () =>
+        router.push({
+          pathname: "/(modals)/legal-page",
+          params: { title: "Terms & Conditions", type: "terms" },
+        }),
+    },
+    {
+      id: "about_us",
+      title: "About Us",
+      icon: "information-circle-outline",
+      color: "#4CAF50",
+      onPress: () =>
+        router.push({
+          pathname: "/(modals)/legal-page",
+          params: { title: "About Us", type: "about" },
+        }),
+    },
+    {
+      id: "help_support",
+      title: "Help & Support",
+      icon: "help-circle-outline",
+      color: "#FF9800",
+      onPress: () =>
+        router.push({
+          pathname: "/(modals)/legal-page",
+          params: { title: "Help & Support", type: "support" },
+        }),
+    },
+    {
+      id: "rate_app",
+      title: "Rate the App",
+      icon: "star-outline",
+      color: "#f59e0b",
+      onPress: () => {
+        // wire up to Linking.openURL(storeUrl) later
+      },
+    },
   ];
 
   const settingsSections = [
@@ -253,6 +306,16 @@ export default function ProfileScreen() {
       itemIds: ["add_admin", "invite_member", "invite_staff"],
     },
     { title: "Preferences", itemIds: ["notifications", "dark_mode"] },
+    {
+      title: "Legal & Support",
+      itemIds: [
+        "privacy_policy",
+        "terms_conditions",
+        "about_us",
+        "help_support",
+        "rate_app",
+      ],
+    },
   ];
 
   const getInitials = (name: string) => {
@@ -491,6 +554,8 @@ export default function ProfileScreen() {
             </>
           )}
         </View>
+
+        <Text style={styles.versionText}>Version 1.0.0</Text>
 
         {/* Phone Edit Modal */}
         <Modal
@@ -963,5 +1028,11 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 16,
     fontWeight: "600",
+  },
+  versionText: {
+    textAlign: "center",
+    fontSize: 12,
+    color: "#999",
+    marginTop: 20,
   },
 });

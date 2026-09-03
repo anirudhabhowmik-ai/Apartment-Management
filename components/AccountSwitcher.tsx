@@ -3,16 +3,16 @@ import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
-    FlatList,
-    Image,
-    Modal,
-    Platform,
-    Pressable,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  FlatList,
+  Image,
+  Modal,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { useAccounts } from "../hooks/useAccounts";
 import { useAccountStore } from "../store/accountStore";
@@ -244,7 +244,7 @@ export default function AccountSwitcher() {
 
             <TouchableOpacity style={styles.addButton} onPress={handleAddNew}>
               <Ionicons name="add-circle-outline" size={20} color="#fff" />
-              <Text style={styles.addButtonText}>Add Apartment / Home</Text>
+              <Text style={styles.addButtonText}>Join With New Property</Text>
             </TouchableOpacity>
           </Pressable>
         </Pressable>
