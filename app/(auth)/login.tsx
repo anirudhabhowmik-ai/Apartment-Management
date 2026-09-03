@@ -1,11 +1,17 @@
 import { Ionicons } from "@expo/vector-icons";
-import * as Contacts from "expo-contacts";
+import {
+  Contact,
+  ContactField,
+  ContactsSortOrder,
+  requestPermissionsAsync,
+} from "expo-contacts";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
   Platform,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -15,6 +21,15 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { sendOtp } from "../../services/otpService";
 import { useAuthStore } from "../../store/useAuthStore";
+
+interface ContactData {
+  id: string;
+  name: string;
+  phoneNumbers: {
+    number: string;
+    label?: string;
+  }[];
+}
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -27,6 +42,14 @@ export default function LoginScreen() {
   const [error, setError] = useState("");
   const [isFocused, setIsFocused] = useState(false);
 
+  const [showContactPicker, setShowContactPicker] = useState(false);
+  const [contactsList, setContactsList] = useState<ContactData[]>([]);
+  const [contactSearch, setContactSearch] = useState("");
+
+  // ============================================================
+  // SEND OTP
+  // ============================================================
+
   const handleSendOtp = async () => {
     setError("");
 
@@ -37,17 +60,26 @@ export default function LoginScreen() {
 
     setLoading(true);
 
-    const result = await sendOtp(`+91${phone}`);
+    try {
+      const result = await sendOtp(`+91${phone}`);
 
-    setLoading(false);
-
-    if (result.success) {
-      setPendingPhone(phone);
-      router.push("/(auth)/otp-verify");
-    } else {
-      setError(result.message || "Something went wrong");
+      if (result.success) {
+        setPendingPhone(phone);
+        router.push("/(auth)/otp-verify");
+      } else {
+        setError(result.message || "Something went wrong");
+      }
+    } catch (error) {
+      console.error("OTP error:", error);
+      setError("Unable to send OTP. Please try again.");
+    } finally {
+      setLoading(false);
     }
   };
+
+  // ============================================================
+  // PICK CONTACT
+  // ============================================================
 
   const pickContact = async () => {
     if (Platform.OS === "web") {
@@ -56,19 +88,26 @@ export default function LoginScreen() {
         "Contact picker is only available on mobile devices. Please enter your phone number manually.",
         [{ text: "OK" }],
       );
+
       return;
     }
 
     try {
-      const { status } = await Contacts.requestPermissionsAsync();
+      // Request permission
+      const { status } = await requestPermissionsAsync();
 
       if (status !== "granted") {
         Alert.alert(
           "Permission Required",
           "We need access to your contacts to help you quickly add phone numbers.",
           [
-            { text: "Cancel", style: "cancel" },
-            { text: "Open Settings", onPress: () => {} },
+            {
+              text: "Cancel",
+              style: "cancel",
+            },
+            {
+              text: "OK",
+            },
           ],
         );
 
@@ -76,36 +115,272 @@ export default function LoginScreen() {
         return;
       }
 
-      const contact = await Contacts.presentContactPickerAsync();
+      // ========================================================
+      // CURRENT EXPO CONTACTS API
+      // ========================================================
 
-      if (contact && contact.phoneNumbers && contact.phoneNumbers.length > 0) {
-        let phoneNumber = contact.phoneNumbers[0].number || "";
+      const contacts = await Contact.getAllDetails(
+        [ContactField.FULL_NAME, ContactField.PHONES],
+        {
+          sortOrder: ContactsSortOrder.GivenName,
+        },
+      );
 
-        phoneNumber = phoneNumber
-          .replace(/[^0-9]/g, "")
-          .replace(/^91/, "")
-          .replace(/^0/, "");
-
-        if (phoneNumber.length > 10) {
-          phoneNumber = phoneNumber.slice(-10);
-        }
-
-        setPhone(phoneNumber);
-        setError("");
-      } else {
-        setError("Selected contact doesn't have a phone number");
+      if (contacts.length === 0) {
+        setError("No contacts found on your device");
+        return;
       }
+
+      // Convert Expo contacts into our own format
+      const mappedContacts: ContactData[] = contacts
+        .filter((contact) => contact.phones && contact.phones.length > 0)
+        .map((contact) => ({
+          id: contact.id,
+          name: contact.fullName || "Unknown",
+          phoneNumbers: contact.phones.map((phone) => ({
+            number: phone.number || "",
+            label: phone.label || undefined,
+          })),
+        }));
+
+      if (mappedContacts.length === 0) {
+        setError("No contacts with phone numbers found");
+        return;
+      }
+
+      // Reset search whenever picker opens
+      setContactSearch("");
+
+      setContactsList(mappedContacts);
+      setShowContactPicker(true);
+      setError("");
     } catch (error) {
-      console.error("Error picking contact:", error);
+      console.error("Error fetching contacts:", error);
 
-      if (
-        error instanceof Error &&
-        !error.message.toLowerCase().includes("cancelled")
-      ) {
-        setError("Failed to pick contact. Please try again.");
-      }
+      setError("Failed to fetch contacts. Please try again.");
     }
   };
+
+  // ============================================================
+  // FILTER CONTACTS
+  // ============================================================
+
+  const filteredContacts = contactsList.filter((contact) => {
+    const search = contactSearch.toLowerCase().trim();
+
+    // Show everything if search is empty
+    if (!search) {
+      return true;
+    }
+
+    // Search by contact name
+    const nameMatch = contact.name.toLowerCase().includes(search);
+
+    // Search by phone number
+    const phoneMatch = contact.phoneNumbers.some((phone) =>
+      phone.number.toLowerCase().includes(search),
+    );
+
+    return nameMatch || phoneMatch;
+  });
+
+  // ============================================================
+  // CLOSE CONTACT PICKER
+  // ============================================================
+
+  const closeContactPicker = () => {
+    setContactSearch("");
+    setShowContactPicker(false);
+  };
+
+  // ============================================================
+  // SELECT CONTACT
+  // ============================================================
+
+  const selectContact = (contact: ContactData) => {
+    if (contact && contact.phoneNumbers && contact.phoneNumbers.length > 0) {
+      let phoneNumber = contact.phoneNumbers[0].number || "";
+
+      // Remove spaces, +, -, brackets etc.
+      phoneNumber = phoneNumber.replace(/[^0-9]/g, "");
+
+      // Remove Indian country code
+      phoneNumber = phoneNumber.replace(/^91/, "");
+
+      // Remove leading zero
+      phoneNumber = phoneNumber.replace(/^0/, "");
+
+      // Keep last 10 digits
+      if (phoneNumber.length > 10) {
+        phoneNumber = phoneNumber.slice(-10);
+      }
+
+      // Validate
+      if (phoneNumber.length !== 10) {
+        setError(
+          "Selected contact does not have a valid 10-digit phone number",
+        );
+        return;
+      }
+
+      setPhone(phoneNumber);
+      setError("");
+
+      setContactSearch("");
+      setShowContactPicker(false);
+    } else {
+      setError("Selected contact doesn't have a phone number");
+    }
+  };
+
+  // ============================================================
+  // CONTACT PICKER MODAL
+  // ============================================================
+
+  const renderContactPickerModal = () => {
+    if (!showContactPicker) {
+      return null;
+    }
+
+    return (
+      <View style={styles.modalOverlay}>
+        <View
+          style={[
+            styles.modalContainer,
+            {
+              // Keep modal above Android navigation area
+              paddingBottom: 20 + insets.bottom,
+            },
+          ]}
+        >
+          {/* ==================================================
+              MODAL HEADER
+          ================================================== */}
+
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Select Contact</Text>
+
+            <TouchableOpacity
+              onPress={closeContactPicker}
+              style={styles.modalCloseButton}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="close" size={24} color="#333" />
+            </TouchableOpacity>
+          </View>
+
+          {/* ==================================================
+              SEARCH
+          ================================================== */}
+
+          <View style={styles.modalSearchContainer}>
+            <Ionicons name="search" size={20} color="#999" />
+
+            <TextInput
+              style={styles.modalSearchInput}
+              placeholder="Search contacts..."
+              placeholderTextColor="#999"
+              value={contactSearch}
+              onChangeText={setContactSearch}
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="search"
+            />
+
+            {/* CLEAR SEARCH BUTTON */}
+            {contactSearch.length > 0 && (
+              <TouchableOpacity
+                onPress={() => setContactSearch("")}
+                style={styles.clearSearchButton}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="close-circle" size={20} color="#999" />
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {/* ==================================================
+              CONTACT LIST
+          ================================================== */}
+
+          <ScrollView
+            style={styles.contactListContainer}
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+          >
+            {filteredContacts.length > 0 ? (
+              filteredContacts.map((contact) => (
+                <TouchableOpacity
+                  key={contact.id}
+                  style={styles.contactItem}
+                  onPress={() => selectContact(contact)}
+                  activeOpacity={0.7}
+                >
+                  {/* AVATAR */}
+                  <View style={styles.contactAvatar}>
+                    <Text style={styles.contactAvatarText}>
+                      {contact.name
+                        ? contact.name.charAt(0).toUpperCase()
+                        : "?"}
+                    </Text>
+                  </View>
+
+                  {/* CONTACT INFO */}
+                  <View style={styles.contactInfo}>
+                    <Text style={styles.contactName} numberOfLines={1}>
+                      {contact.name || "Unknown"}
+                    </Text>
+
+                    {contact.phoneNumbers &&
+                      contact.phoneNumbers.length > 0 && (
+                        <Text style={styles.contactPhone} numberOfLines={1}>
+                          {contact.phoneNumbers[0].number}
+                        </Text>
+                      )}
+                  </View>
+
+                  {/* ARROW */}
+                  <Ionicons name="chevron-forward" size={20} color="#ccc" />
+                </TouchableOpacity>
+              ))
+            ) : (
+              // ==================================================
+              // NO SEARCH RESULTS
+              // ==================================================
+
+              <View style={styles.noContactsContainer}>
+                <View style={styles.noContactsIcon}>
+                  <Ionicons name="search-outline" size={32} color="#999" />
+                </View>
+
+                <Text style={styles.noContactsTitle}>No contacts found</Text>
+
+                <Text style={styles.noContactsText}>
+                  Try searching with a different name or phone number.
+                </Text>
+              </View>
+            )}
+          </ScrollView>
+
+          {/* ==================================================
+              CANCEL BUTTON
+          ================================================== */}
+
+          <TouchableOpacity
+            style={styles.modalCancelButton}
+            onPress={closeContactPicker}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.modalCancelButtonText}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  };
+
+  // ============================================================
+  // SCREEN
+  // ============================================================
 
   return (
     <KeyboardAvoidingView
@@ -118,7 +393,10 @@ export default function LoginScreen() {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={0}
     >
-      {/* HEADER */}
+      {/* ======================================================
+          HEADER
+      ====================================================== */}
+
       <View style={styles.header}>
         <View style={styles.logoContainer}>
           <View style={styles.logoCircle}>
@@ -131,7 +409,10 @@ export default function LoginScreen() {
         <Text style={styles.subtitle}>Manage your properties effortlessly</Text>
       </View>
 
-      {/* LOGIN CARD */}
+      {/* ======================================================
+          LOGIN CARD
+      ====================================================== */}
+
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Welcome Back</Text>
 
@@ -144,12 +425,14 @@ export default function LoginScreen() {
           <Text style={styles.inputLabel}>Phone Number</Text>
 
           <View style={[styles.inputRow, isFocused && styles.inputRowFocused]}>
+            {/* COUNTRY CODE */}
             <View style={styles.countryCode}>
               <Text style={styles.prefix}>+91</Text>
 
               <View style={styles.divider} />
             </View>
 
+            {/* PHONE INPUT */}
             <TextInput
               style={styles.input}
               placeholder="Enter your phone number"
@@ -163,6 +446,7 @@ export default function LoginScreen() {
               returnKeyType="done"
             />
 
+            {/* CONTACT BUTTON */}
             <TouchableOpacity
               onPress={pickContact}
               style={styles.contactIcon}
@@ -172,6 +456,7 @@ export default function LoginScreen() {
             </TouchableOpacity>
           </View>
 
+          {/* ERROR */}
           {error ? <Text style={styles.error}>{error}</Text> : null}
         </View>
 
@@ -197,7 +482,10 @@ export default function LoginScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* FEATURES FOOTER */}
+      {/* ======================================================
+          FEATURES FOOTER
+      ====================================================== */}
+
       <View style={styles.footer}>
         <View style={styles.featureRow}>
           {/* PROPERTY */}
@@ -234,9 +522,16 @@ export default function LoginScreen() {
           </View>
         </View>
       </View>
+
+      {/* CONTACT PICKER */}
+      {renderContactPickerModal()}
     </KeyboardAvoidingView>
   );
 }
+
+// ================================================================
+// STYLES
+// ================================================================
 
 const styles = StyleSheet.create({
   container: {
@@ -244,7 +539,10 @@ const styles = StyleSheet.create({
     backgroundColor: "#f5f7fa",
   },
 
-  /* HEADER */
+  // ==============================================================
+  // HEADER
+  // ==============================================================
+
   header: {
     alignItems: "center",
     paddingTop: Platform.OS === "ios" ? 60 : 40,
@@ -307,7 +605,10 @@ const styles = StyleSheet.create({
     fontWeight: "400",
   },
 
-  /* LOGIN CARD */
+  // ==============================================================
+  // LOGIN CARD
+  // ==============================================================
+
   card: {
     marginHorizontal: 20,
     marginTop: 30,
@@ -357,7 +658,10 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
 
-  /* INPUT */
+  // ==============================================================
+  // INPUT
+  // ==============================================================
+
   inputWrapper: {
     marginBottom: 24,
   },
@@ -435,7 +739,10 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
 
-  /* BUTTON */
+  // ==============================================================
+  // BUTTON
+  // ==============================================================
+
   button: {
     backgroundColor: "#1a73e8",
     borderRadius: 12,
@@ -487,7 +794,10 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
 
-  /* FOOTER */
+  // ==============================================================
+  // FOOTER
+  // ==============================================================
+
   footer: {
     paddingHorizontal: 20,
     paddingBottom: 10,
@@ -552,5 +862,174 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     textAlign: "center",
     lineHeight: 15,
+  },
+
+  // ==============================================================
+  // CONTACT MODAL
+  // ==============================================================
+
+  modalOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "flex-end",
+  },
+
+  modalContainer: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    padding: 20,
+    maxHeight: "80%",
+  },
+
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1a1a1a",
+  },
+
+  modalCloseButton: {
+    padding: 4,
+  },
+
+  // ==============================================================
+  // SEARCH
+  // ==============================================================
+
+  modalSearchContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f5f5f5",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    marginBottom: 16,
+    minHeight: 46,
+  },
+
+  modalSearchInput: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    fontSize: 15,
+    color: "#1a1a1a",
+  },
+
+  clearSearchButton: {
+    padding: 4,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+
+  // ==============================================================
+  // CONTACT LIST
+  // ==============================================================
+
+  contactListContainer: {
+    maxHeight: 400,
+  },
+
+  contactItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f0f0",
+  },
+
+  contactAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#e8f0fe",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+
+  contactAvatarText: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#1a73e8",
+  },
+
+  contactInfo: {
+    flex: 1,
+    marginRight: 8,
+  },
+
+  contactName: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#1a1a1a",
+  },
+
+  contactPhone: {
+    fontSize: 13,
+    color: "#666",
+    marginTop: 2,
+  },
+
+  // ==============================================================
+  // NO CONTACTS
+  // ==============================================================
+
+  noContactsContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 40,
+    paddingHorizontal: 20,
+  },
+
+  noContactsIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "#f5f5f5",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+
+  noContactsTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#333",
+    marginBottom: 6,
+  },
+
+  noContactsText: {
+    fontSize: 13,
+    color: "#888",
+    textAlign: "center",
+    lineHeight: 19,
+  },
+
+  // ==============================================================
+  // CANCEL
+  // ==============================================================
+
+  modalCancelButton: {
+    marginTop: 16,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: "#f5f5f5",
+    alignItems: "center",
+  },
+
+  modalCancelButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#555",
   },
 });
