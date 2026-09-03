@@ -344,21 +344,23 @@ export default function GrantAccessScreen() {
 
       {isVisibilityFlow ? (
         <>
-          {/* Search bar - always visible in visibility flow */}
-          <View style={styles.searchRow}>
-            <Ionicons name="search-outline" size={18} color="#999" />
-            <TextInput
-              style={styles.searchInput}
-              value={search}
-              onChangeText={setSearch}
-              placeholder={
-                memberType === "owner"
-                  ? "Search by name, phone, apartment or wing"
-                  : "Search by name, phone or role"
-              }
-              placeholderTextColor="#999"
-            />
-          </View>
+          {/* Search bar - only visible if there are members or staff in visibility flow */}
+          {hasMembersOrStaff && (
+            <View style={styles.searchRow}>
+              <Ionicons name="search-outline" size={18} color="#999" />
+              <TextInput
+                style={styles.searchInput}
+                value={search}
+                onChangeText={setSearch}
+                placeholder={
+                  memberType === "owner"
+                    ? "Search by name, phone, apartment or wing"
+                    : "Search by name, phone or role"
+                }
+                placeholderTextColor="#999"
+              />
+            </View>
+          )}
 
           {memberType === "owner" ? (
             filteredMembers.length === 0 ? (
