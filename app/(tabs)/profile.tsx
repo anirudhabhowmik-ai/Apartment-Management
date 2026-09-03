@@ -6,7 +6,6 @@ import {
   Alert,
   Image,
   Modal,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Switch,
@@ -15,6 +14,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useAccounts } from "../../hooks/useAccounts";
 import { sendOtp, verifyOtp } from "../../services/otpService";
 import { useAccessStore } from "../../store/accessStore";

@@ -2,23 +2,29 @@ import { Ionicons } from "@expo/vector-icons";
 import { Tabs } from "expo-router";
 import { useState } from "react";
 import {
-    Modal,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+
 import AccountSwitcher from "../../components/AccountSwitcher";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useMaintenance } from "../../hooks/useMaintenance";
 import { usePayments } from "../../hooks/usePayments";
 
 export default function TabsLayout() {
+  const insets = useSafeAreaInsets();
+
   const { selectedAccount } = useAccounts();
   const { getPendingPayments } = usePayments(selectedAccount?.id);
   const { tasks } = useMaintenance(selectedAccount?.id);
+
   const [showNotifications, setShowNotifications] = useState(false);
   const [dismissedNotificationIds, setDismissedNotificationIds] = useState<
     string[]
@@ -27,11 +33,13 @@ export default function TabsLayout() {
   const pendingPayments = (getPendingPayments?.() || []).filter(
     (payment) => !dismissedNotificationIds.includes(`payment-${payment.id}`),
   );
+
   const pendingTasks = tasks.filter(
     (task) =>
       task.status === "pending" &&
       !dismissedNotificationIds.includes(`task-${task.id}`),
   );
+
   const notificationCount = pendingPayments.length + pendingTasks.length;
 
   const dismissNotification = (notificationId: string) =>
@@ -40,12 +48,24 @@ export default function TabsLayout() {
       notificationId,
     ]);
 
+  /*
+   * Android can have a bottom system navigation area.
+   *
+   * We add the safe-area inset to the tab bar so the tabs
+   * don't sit underneath the Android Back/Home/Recents area.
+   */
+  const bottomInset = insets.bottom;
+
+  const tabBarHeight = 60 + bottomInset;
+
   return (
     <Tabs
       screenOptions={{
         headerTitle: () => <AccountSwitcher />,
         headerTitleAlign: "left",
+
         tabBarActiveTintColor: "#1a73e8",
+
         headerRight: () => (
           <View style={styles.notificationMenu}>
             <TouchableOpacity
@@ -55,6 +75,7 @@ export default function TabsLayout() {
             >
               <View style={styles.notificationIconWrapper}>
                 <Ionicons name="notifications-outline" size={24} color="#333" />
+
                 {notificationCount > 0 && (
                   <View style={styles.notificationBadge}>
                     <Text style={styles.notificationCount}>
@@ -64,6 +85,7 @@ export default function TabsLayout() {
                 )}
               </View>
             </TouchableOpacity>
+
             <Modal
               transparent
               visible={showNotifications}
@@ -85,6 +107,7 @@ export default function TabsLayout() {
                         size={28}
                         color="#22a553"
                       />
+
                       <Text style={styles.emptyNotificationsText}>
                         You're all caught up
                       </Text>
@@ -108,6 +131,7 @@ export default function TabsLayout() {
                               color="#d97706"
                             />
                           </View>
+
                           <View style={styles.notificationContent}>
                             <Text
                               style={styles.notificationTitle}
@@ -116,11 +140,13 @@ export default function TabsLayout() {
                               {payment.description ||
                                 `${payment.category} payment`}
                             </Text>
+
                             <Text style={styles.notificationDetail}>
                               Due{" "}
                               {new Date(payment.dueDate).toLocaleDateString()}
                             </Text>
                           </View>
+
                           <TouchableOpacity
                             style={styles.dismissButton}
                             onPress={() =>
@@ -131,6 +157,7 @@ export default function TabsLayout() {
                           </TouchableOpacity>
                         </View>
                       ))}
+
                       {pendingTasks.map((task) => (
                         <View
                           key={`task-${task.id}`}
@@ -148,6 +175,7 @@ export default function TabsLayout() {
                               color="#1a73e8"
                             />
                           </View>
+
                           <View style={styles.notificationContent}>
                             <Text
                               style={styles.notificationTitle}
@@ -155,11 +183,13 @@ export default function TabsLayout() {
                             >
                               {task.title}
                             </Text>
+
                             <Text style={styles.notificationDetail}>
                               Scheduled{" "}
                               {new Date(task.date).toLocaleDateString()}
                             </Text>
                           </View>
+
                           <TouchableOpacity
                             style={styles.dismissButton}
                             onPress={() =>
@@ -177,6 +207,7 @@ export default function TabsLayout() {
             </Modal>
           </View>
         ),
+
         headerStyle: {
           backgroundColor: "#fff",
           elevation: 0,
@@ -184,14 +215,33 @@ export default function TabsLayout() {
           borderBottomWidth: 1,
           borderBottomColor: "#f0f0f0",
         },
+
+        /*
+         * IMPORTANT:
+         *
+         * The original height was 60.
+         * We now add the device's bottom safe-area inset.
+         *
+         * Example:
+         * Android navigation inset = 24
+         * Tab content height = 60
+         * Total tab bar height = 84
+         */
         tabBarStyle: {
-          paddingBottom: 8,
+          height: tabBarHeight,
           paddingTop: 8,
-          height: 60,
+          paddingBottom: Math.max(insets.bottom, 8),
           backgroundColor: "#fff",
           borderTopWidth: 1,
           borderTopColor: "#f0f0f0",
+
+          ...(Platform.OS === "android"
+            ? {
+                elevation: 8,
+              }
+            : {}),
         },
+
         tabBarLabelStyle: {
           fontSize: 11,
           fontWeight: "500",
@@ -211,6 +261,7 @@ export default function TabsLayout() {
           ),
         }}
       />
+
       <Tabs.Screen
         name="calendar"
         options={{
@@ -224,6 +275,7 @@ export default function TabsLayout() {
           ),
         }}
       />
+
       <Tabs.Screen
         name="finance"
         options={{
@@ -237,6 +289,7 @@ export default function TabsLayout() {
           ),
         }}
       />
+
       <Tabs.Screen
         name="people"
         options={{
@@ -250,6 +303,7 @@ export default function TabsLayout() {
           ),
         }}
       />
+
       <Tabs.Screen
         name="profile"
         options={{
@@ -272,10 +326,12 @@ const styles = StyleSheet.create({
     marginRight: 16,
     padding: 4,
   },
+
   notificationMenu: {
     position: "relative",
     zIndex: 10,
   },
+
   notificationIconWrapper: {
     position: "relative",
     width: 32,
@@ -283,6 +339,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+
   notificationBadge: {
     position: "absolute",
     top: -2,
@@ -297,14 +354,17 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "#fff",
   },
+
   notificationCount: {
     color: "#fff",
     fontSize: 9,
     fontWeight: "700",
   },
+
   notificationBackdrop: {
     flex: 1,
   },
+
   notificationPopover: {
     backgroundColor: "#fff",
     borderColor: "#e5e7eb",
@@ -322,6 +382,7 @@ const styles = StyleSheet.create({
     width: 340,
     zIndex: 20,
   },
+
   notificationItem: {
     alignItems: "center",
     borderBottomColor: "#eef0f3",
@@ -329,6 +390,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     padding: 12,
   },
+
   notificationItemIcon: {
     alignItems: "center",
     borderRadius: 16,
@@ -337,18 +399,41 @@ const styles = StyleSheet.create({
     marginRight: 10,
     width: 32,
   },
-  paymentIcon: { backgroundColor: "#fff3df" },
-  taskIcon: { backgroundColor: "#e8f0fe" },
-  notificationContent: { flex: 1 },
+
+  paymentIcon: {
+    backgroundColor: "#fff3df",
+  },
+
+  taskIcon: {
+    backgroundColor: "#e8f0fe",
+  },
+
+  notificationContent: {
+    flex: 1,
+  },
+
   notificationTitle: {
     color: "#222",
     fontSize: 13,
     fontWeight: "600",
     textTransform: "capitalize",
   },
-  notificationDetail: { color: "#777", fontSize: 11, marginTop: 2 },
-  dismissButton: { padding: 5 },
-  emptyNotifications: { alignItems: "center", padding: 28 },
+
+  notificationDetail: {
+    color: "#777",
+    fontSize: 11,
+    marginTop: 2,
+  },
+
+  dismissButton: {
+    padding: 5,
+  },
+
+  emptyNotifications: {
+    alignItems: "center",
+    padding: 28,
+  },
+
   emptyNotificationsText: {
     color: "#555",
     fontSize: 13,
