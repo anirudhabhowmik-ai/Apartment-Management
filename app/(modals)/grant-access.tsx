@@ -1,7 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
+import * as Contacts from "expo-contacts";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useMemo, useState } from "react";
 import {
+  Alert,
+  Linking,
   Platform,
   ScrollView,
   StyleSheet,
@@ -54,7 +57,7 @@ export default function GrantAccessScreen() {
   const staffGroupIds = groups
     .filter((group) => group.type === "staff")
     .map((group) => group.id);
-  const apartmentOwners = eligibleMembers.filter((member) =>
+  const apartmentMembers = eligibleMembers.filter((member) =>
     apartmentGroupIds.includes(member.groupId),
   );
   const staffMembers = eligibleMembers.filter((member) =>
@@ -63,9 +66,9 @@ export default function GrantAccessScreen() {
 
   // Search-filtered lists used only in the dedicated "visibility" flow
   const searchLower = search.trim().toLowerCase();
-  const filteredOwners = useMemo(() => {
-    if (!searchLower) return apartmentOwners;
-    return apartmentOwners.filter((member) => {
+  const filteredMembers = useMemo(() => {
+    if (!searchLower) return apartmentMembers;
+    return apartmentMembers.filter((member) => {
       const apt = ((member as any).apartmentNumber ?? "")
         .toString()
         .toLowerCase();
@@ -77,7 +80,7 @@ export default function GrantAccessScreen() {
         wing.includes(searchLower)
       );
     });
-  }, [apartmentOwners, searchLower]);
+  }, [apartmentMembers, searchLower]);
 
   const filteredStaff = useMemo(() => {
     if (!searchLower) return staffMembers;
@@ -94,10 +97,103 @@ export default function GrantAccessScreen() {
   const isVisibilityFlow = memberType === "owner" || memberType === "staff";
   const visibilityTitle =
     memberType === "owner"
-      ? "Apartment Owner Visibility"
+      ? "Member Visibility"
       : memberType === "staff"
         ? "Staff Visibility"
         : "";
+
+  // Contact picker function
+  const pickContact = async () => {
+    // Check if running on web
+    if (Platform.OS === "web") {
+      Alert.alert(
+        "Not Available",
+        "Contact picker is only available on mobile devices. Please enter the phone number manually.",
+        [{ text: "OK" }],
+      );
+      return;
+    }
+
+    try {
+      // Check if Contacts module is available
+      if (!Contacts) {
+        Alert.alert(
+          "Error",
+          "Contacts module is not available. Please try again.",
+          [{ text: "OK" }],
+        );
+        return;
+      }
+
+      // Request permission to access contacts
+      const { status } = await Contacts.requestPermissionsAsync();
+
+      if (status !== "granted") {
+        Alert.alert(
+          "Permission Required",
+          "We need access to your contacts to help you quickly add phone numbers.",
+          [
+            { text: "Cancel", style: "cancel" },
+            {
+              text: "Open Settings",
+              onPress: () => {
+                // For iOS, you can open settings
+                if (Platform.OS === "ios") {
+                  Linking.openURL("app-settings:");
+                }
+              },
+            },
+          ],
+        );
+        setError("Permission to access contacts is required");
+        return;
+      }
+
+      // Present the native contact picker
+      const contact = await Contacts.presentContactPickerAsync();
+
+      if (contact && contact.phoneNumbers && contact.phoneNumbers.length > 0) {
+        // Get the first phone number
+        let phoneNumber = contact.phoneNumbers[0].number || "";
+
+        // Clean the phone number: remove spaces, special characters, and country codes
+        phoneNumber = phoneNumber
+          .replace(/[^0-9]/g, "") // Remove all non-digits
+          .replace(/^91/, "") // Remove country code if present
+          .replace(/^0/, ""); // Remove leading zero if present
+
+        // Ensure it's 10 digits (or less if shorter)
+        if (phoneNumber.length > 10) {
+          phoneNumber = phoneNumber.slice(-10); // Take last 10 digits
+        }
+
+        setPhone(phoneNumber);
+        setError(""); // Clear any previous errors
+
+        // If name is empty, try to use contact name
+        if (!name.trim() && contact.name) {
+          setName(contact.name);
+        }
+      } else {
+        setError("Selected contact doesn't have a phone number");
+      }
+    } catch (error: any) {
+      console.error("Error picking contact:", error);
+
+      // User might have cancelled the picker
+      if (error.message && error.message.includes("cancelled")) {
+        // User cancelled, do nothing
+        return;
+      }
+
+      // Check for specific error types
+      if (error.message && error.message.includes("permission")) {
+        setError("Permission to access contacts is required");
+      } else {
+        setError("Failed to pick contact. Please try again.");
+      }
+    }
+  };
 
   const handleSave = () => {
     const useExisting = source === "existing" || isVisibilityFlow;
@@ -117,9 +213,9 @@ export default function GrantAccessScreen() {
         useExisting
           ? isVisibilityFlow
             ? memberType === "owner"
-              ? "Select an apartment owner."
+              ? "Select a member."
               : "Select a staff member."
-            : "Select an apartment owner or staff member."
+            : "Select a member or staff member."
           : "Enter a valid 10-digit phone number.",
       );
       return;
@@ -187,6 +283,10 @@ export default function GrantAccessScreen() {
     );
   };
 
+  // Check if there are any members or staff available
+  const hasMembersOrStaff =
+    apartmentMembers.length > 0 || staffMembers.length > 0;
+
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.intro}>
@@ -236,7 +336,7 @@ export default function GrantAccessScreen() {
                 source === "existing" && styles.sourceTextActive,
               ]}
             >
-              Owner or staff
+              Member or staff
             </Text>
           </TouchableOpacity>
         </View>
@@ -244,6 +344,7 @@ export default function GrantAccessScreen() {
 
       {isVisibilityFlow ? (
         <>
+          {/* Search bar - always visible in visibility flow */}
           <View style={styles.searchRow}>
             <Ionicons name="search-outline" size={18} color="#999" />
             <TextInput
@@ -260,14 +361,14 @@ export default function GrantAccessScreen() {
           </View>
 
           {memberType === "owner" ? (
-            filteredOwners.length === 0 ? (
+            filteredMembers.length === 0 ? (
               <Text style={styles.emptyText}>
-                {apartmentOwners.length === 0
-                  ? "No apartment owners are available."
-                  : "No matching apartment owners found."}
+                {apartmentMembers.length === 0
+                  ? "No members are available."
+                  : "No matching members found."}
               </Text>
             ) : (
-              filteredOwners.map(renderMemberRow)
+              filteredMembers.map(renderMemberRow)
             )
           ) : filteredStaff.length === 0 ? (
             <Text style={styles.emptyText}>
@@ -302,6 +403,13 @@ export default function GrantAccessScreen() {
               maxLength={10}
               placeholder="9876543210"
             />
+            <TouchableOpacity
+              onPress={pickContact}
+              style={styles.contactIcon}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="person-outline" size={22} color="#1a73e8" />
+            </TouchableOpacity>
           </View>
           {phone.length > 0 && phone.length !== 10 ? (
             <Text style={styles.phoneHint}>Enter all 10 digits</Text>
@@ -310,19 +418,35 @@ export default function GrantAccessScreen() {
       ) : (
         <>
           <Text style={styles.label}>Select a person</Text>
+
+          {/* Search bar - only visible if there are members or staff */}
+          {hasMembersOrStaff && (
+            <View style={styles.searchRow}>
+              <Ionicons name="search-outline" size={18} color="#999" />
+              <TextInput
+                style={styles.searchInput}
+                value={search}
+                onChangeText={setSearch}
+                placeholder="Search by name, phone or role"
+                placeholderTextColor="#999"
+              />
+            </View>
+          )}
+
           {eligibleMembers.length === 0 ? (
             <Text style={styles.emptyText}>
-              No apartment owners or staff are available.
+              No members or staff are available.
             </Text>
           ) : (
             <>
-              <Text style={styles.groupHeading}>Apartment Owners</Text>
-              {apartmentOwners.length === 0 ? (
-                <Text style={styles.emptyText}>
-                  No apartment owners are available.
-                </Text>
+              <Text style={styles.groupHeading}>Members</Text>
+              {apartmentMembers.length === 0 ? (
+                <Text style={styles.emptyText}>No members are available.</Text>
               ) : (
-                apartmentOwners.map(renderMemberRow)
+                // Apply search filter to members if search is active
+                (searchLower ? filteredMembers : apartmentMembers).map(
+                  renderMemberRow,
+                )
               )}
 
               <Text style={styles.groupHeading}>Staff (optional)</Text>
@@ -331,7 +455,10 @@ export default function GrantAccessScreen() {
                   No staff members are available.
                 </Text>
               ) : (
-                staffMembers.map(renderMemberRow)
+                // Apply search filter to staff if search is active
+                (searchLower ? filteredStaff : staffMembers).map(
+                  renderMemberRow,
+                )
               )}
             </>
           )}
@@ -406,6 +533,12 @@ const styles = StyleSheet.create({
     fontSize: 15,
     height: "100%",
     ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as any) : {}),
+  },
+  contactIcon: {
+    padding: 8,
+    marginLeft: 4,
+    justifyContent: "center",
+    alignItems: "center",
   },
   phoneHint: { color: "#dc2626", fontSize: 12, marginTop: 5 },
   searchRow: {

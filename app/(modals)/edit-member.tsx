@@ -1,20 +1,22 @@
 import { Ionicons } from "@expo/vector-icons";
+import * as Contacts from "expo-contacts";
 import * as ImagePicker from "expo-image-picker";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
-    Image,
-    KeyboardAvoidingView,
-    Linking,
-    Modal,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Switch,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Alert,
+  Image,
+  KeyboardAvoidingView,
+  Linking,
+  Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import DatePickerModal from "../../components/DatePickerModal";
 import { useMembers } from "../../hooks/useMembers";
@@ -57,12 +59,15 @@ export default function EditMemberScreen() {
   );
   const member = getMemberById(memberId);
 
-  const roleOptions =
-    groupType === "apartment"
-      ? FLAT_ROLES
-      : groupType === "staff"
-        ? SERVANT_ROLES
-        : EXPENSE_ROLES;
+  // Fix: Properly handle the groupType check
+  let roleOptions: RoleOption[] = [];
+  if (groupType === "apartment") {
+    roleOptions = FLAT_ROLES;
+  } else if (groupType === "staff") {
+    roleOptions = SERVANT_ROLES;
+  } else if (groupType === "expense") {
+    roleOptions = EXPENSE_ROLES;
+  }
 
   // Form state
   const [name, setName] = useState("");
@@ -140,13 +145,112 @@ export default function EditMemberScreen() {
   }, []);
 
   const handlePickPhoto = async () => {
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      setError("Permission to access photos is required");
+      return;
+    }
+
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.7,
     });
     if (!result.canceled && result.assets[0]) setPhotoUri(result.assets[0].uri);
+  };
+
+  // Contact picker function
+  const pickContact = async () => {
+    // Check if running on web
+    if (Platform.OS === "web") {
+      Alert.alert(
+        "Not Available",
+        "Contact picker is only available on mobile devices. Please enter the phone number manually.",
+        [{ text: "OK" }],
+      );
+      return;
+    }
+
+    try {
+      // Check if Contacts module is available
+      if (!Contacts) {
+        Alert.alert(
+          "Error",
+          "Contacts module is not available. Please try again.",
+          [{ text: "OK" }],
+        );
+        return;
+      }
+
+      // Request permission to access contacts
+      const { status } = await Contacts.requestPermissionsAsync();
+
+      if (status !== "granted") {
+        Alert.alert(
+          "Permission Required",
+          "We need access to your contacts to help you quickly add phone numbers.",
+          [
+            { text: "Cancel", style: "cancel" },
+            {
+              text: "Open Settings",
+              onPress: () => {
+                // For iOS, you can open settings
+                if (Platform.OS === "ios") {
+                  Linking.openURL("app-settings:");
+                }
+              },
+            },
+          ],
+        );
+        setError("Permission to access contacts is required");
+        return;
+      }
+
+      // Present the native contact picker
+      const contact = await Contacts.presentContactPickerAsync();
+
+      if (contact && contact.phoneNumbers && contact.phoneNumbers.length > 0) {
+        // Get the first phone number
+        let phoneNumber = contact.phoneNumbers[0].number || "";
+
+        // Clean the phone number: remove spaces, special characters, and country codes
+        phoneNumber = phoneNumber
+          .replace(/[^0-9]/g, "") // Remove all non-digits
+          .replace(/^91/, "") // Remove country code if present
+          .replace(/^0/, ""); // Remove leading zero if present
+
+        // Ensure it's 10 digits (or less if shorter)
+        if (phoneNumber.length > 10) {
+          phoneNumber = phoneNumber.slice(-10); // Take last 10 digits
+        }
+
+        setPhone(phoneNumber);
+        setError(""); // Clear any previous errors
+
+        // If name is empty, try to use contact name
+        if (!name.trim() && contact.name) {
+          setName(contact.name);
+        }
+      } else {
+        setError("Selected contact doesn't have a phone number");
+      }
+    } catch (error: any) {
+      console.error("Error picking contact:", error);
+
+      // User might have cancelled the picker
+      if (error.message && error.message.includes("cancelled")) {
+        // User cancelled, do nothing
+        return;
+      }
+
+      // Check for specific error types
+      if (error.message && error.message.includes("permission")) {
+        setError("Permission to access contacts is required");
+      } else {
+        setError("Failed to pick contact. Please try again.");
+      }
+    }
   };
 
   const handlePickBill = async () => {
@@ -346,15 +450,11 @@ export default function EditMemberScreen() {
                 fieldErrors.name && styles.inputLabelError,
               ]}
             >
-              {groupType === "expense" ? "Expense Name *" : "Full Name *"}
+              Full Name *
             </Text>
             <TextInput
               style={[styles.input, fieldErrors.name && styles.inputError]}
-              placeholder={
-                groupType === "expense"
-                  ? "e.g. Water bill, Lift repair"
-                  : "e.g. Ramesh Kumar"
-              }
+              placeholder="e.g. Ramesh Kumar"
               value={name}
               onChangeText={(text) => {
                 setName(text);
@@ -395,6 +495,13 @@ export default function EditMemberScreen() {
                   }
                 }}
               />
+              <TouchableOpacity
+                onPress={pickContact}
+                style={styles.contactIcon}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="person-outline" size={22} color="#1a73e8" />
+              </TouchableOpacity>
             </View>
             {fieldErrors.phone ? (
               <Text style={styles.fieldError}>{fieldErrors.phone}</Text>
@@ -912,11 +1019,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     fontSize: 15,
     backgroundColor: "#fff",
-    outlineWidth: 0,
-    outlineStyle: "none",
-    outlineColor: "transparent",
-    boxShadow: "none",
-  } as any,
+  },
   textArea: {
     height: 100,
     textAlignVertical: "top" as const,
@@ -930,21 +1033,19 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingHorizontal: 14,
     backgroundColor: "#fff",
-    outlineWidth: 0,
-    outlineStyle: "none",
-    outlineColor: "transparent",
-    boxShadow: "none",
-  } as any,
+  },
   prefix: { fontSize: 15, marginRight: 8, color: "#333" },
   phoneInput: {
     flex: 1,
     height: 50,
     fontSize: 15,
-    outlineWidth: 0,
-    outlineStyle: "none",
-    outlineColor: "transparent",
-    boxShadow: "none",
-  } as any,
+  },
+  contactIcon: {
+    padding: 8,
+    marginLeft: 4,
+    justifyContent: "center",
+    alignItems: "center",
+  },
   roleRow: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   roleChip: {
     borderWidth: 1.5,
@@ -1006,17 +1107,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    height: 48,
-    borderWidth: 1,
-    borderStyle: "dashed",
-    borderColor: "#1a73e8",
-    borderRadius: 8,
-  },
-  attachButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
     height: 44,
     borderWidth: 1,
     borderStyle: "dashed",
@@ -1025,16 +1115,6 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   attachButtonText: { color: "#1a73e8", fontWeight: "600" },
-  attachmentRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: "#d8e7fb",
-    borderRadius: 8,
-    backgroundColor: "#f5f9ff",
-  },
   attachmentList: {
     borderWidth: 1,
     borderColor: "#e2e9f4",

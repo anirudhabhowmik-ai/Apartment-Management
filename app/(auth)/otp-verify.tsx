@@ -14,9 +14,19 @@ import {
 import { sendOtp, verifyOtp } from "../../services/otpService";
 import { useAuthStore } from "../../store/useAuthStore";
 
-const { width } = Dimensions.get("window");
+const { width: screenWidth } = Dimensions.get("window");
 const OTP_LENGTH = 6;
 const RESEND_SECONDS = 30;
+
+// Calculate OTP box size based on screen width
+const getOtpBoxSize = () => {
+  const padding = 48; // padding from card (24 * 2)
+  const gap = 8; // gap between boxes
+  const totalGap = gap * (OTP_LENGTH - 1);
+  const availableWidth = screenWidth - padding - 40; // 40 for extra margin
+  const boxSize = Math.min(48, (availableWidth - totalGap) / OTP_LENGTH);
+  return { width: boxSize, height: boxSize * 1.2 };
+};
 
 export default function OtpVerifyScreen() {
   const router = useRouter();
@@ -30,12 +40,17 @@ export default function OtpVerifyScreen() {
   const [resendTimer, setResendTimer] = useState(RESEND_SECONDS);
   const [focusedIndex, setFocusedIndex] = useState<number | null>(null);
   const inputRefs = useRef<Array<TextInput | null>>([]);
+  const otpRef = useRef<string[]>(Array(OTP_LENGTH).fill(""));
+
+  const otpBoxSize = getOtpBoxSize();
 
   useEffect(() => {
-    // Auto-focus first input
-    if (inputRefs.current[0]) {
-      inputRefs.current[0]?.focus();
-    }
+    const timer = setTimeout(() => {
+      if (inputRefs.current[0]) {
+        inputRefs.current[0]?.focus();
+      }
+    }, 100);
+    return () => clearTimeout(timer);
   }, []);
 
   useEffect(() => {
@@ -51,21 +66,52 @@ export default function OtpVerifyScreen() {
     const newOtp = [...otp];
     newOtp[index] = digit;
     setOtp(newOtp);
+    otpRef.current = newOtp;
     setError("");
 
     if (digit && index < OTP_LENGTH - 1) {
       inputRefs.current[index + 1]?.focus();
     }
 
-    // Auto-submit when all digits are filled
     if (digit && index === OTP_LENGTH - 1 && newOtp.every((d) => d !== "")) {
-      setTimeout(() => handleVerify(), 300);
+      setTimeout(() => {
+        handleVerifyDirect(newOtp);
+      }, 300);
     }
   };
 
   const handleKeyPress = (e: any, index: number) => {
     if (e.nativeEvent.key === "Backspace" && !otp[index] && index > 0) {
       inputRefs.current[index - 1]?.focus();
+    }
+  };
+
+  const handleVerifyDirect = async (otpArray: string[]) => {
+    if (!pendingPhone) {
+      setError("Session expired. Please start again.");
+      return;
+    }
+
+    const code = otpArray.join("");
+    if (code.length !== OTP_LENGTH) {
+      setError("Please enter the complete OTP");
+      return;
+    }
+
+    setLoading(true);
+    const result = await verifyOtp(`+91${pendingPhone}`, code);
+    setLoading(false);
+
+    if (result.success && result.userId) {
+      const phone = `+91${pendingPhone}`;
+      setUser({ id: result.userId, phone });
+      setPendingPhone(null);
+      router.replace("/(modals)/add-account");
+    } else {
+      setError(result.message || "Invalid OTP, please try again");
+      setOtp(Array(OTP_LENGTH).fill(""));
+      otpRef.current = Array(OTP_LENGTH).fill("");
+      inputRefs.current[0]?.focus();
     }
   };
 
@@ -92,8 +138,8 @@ export default function OtpVerifyScreen() {
       router.replace("/(modals)/add-account");
     } else {
       setError(result.message || "Invalid OTP, please try again");
-      // Clear OTP on error
       setOtp(Array(OTP_LENGTH).fill(""));
+      otpRef.current = Array(OTP_LENGTH).fill("");
       inputRefs.current[0]?.focus();
     }
   };
@@ -102,6 +148,7 @@ export default function OtpVerifyScreen() {
     if (resendTimer > 0 || !pendingPhone) return;
     setResendTimer(RESEND_SECONDS);
     setOtp(Array(OTP_LENGTH).fill(""));
+    otpRef.current = Array(OTP_LENGTH).fill("");
     setError("");
     await sendOtp(`+91${pendingPhone}`);
     inputRefs.current[0]?.focus();
@@ -145,28 +192,31 @@ export default function OtpVerifyScreen() {
         <View style={styles.otpContainer}>
           <View style={styles.otpRow}>
             {otp.map((digit, index) => (
-              <View key={index} style={styles.otpBoxWrapper}>
-                <TextInput
-                  ref={(ref) => {
-                    inputRefs.current[index] = ref;
-                  }}
-                  style={[
-                    styles.otpBox,
-                    focusedIndex === index && styles.otpBoxFocused,
-                    digit && styles.otpBoxFilled,
-                    error && styles.otpBoxError,
-                  ]}
-                  keyboardType="number-pad"
-                  maxLength={1}
-                  value={digit}
-                  onChangeText={(text) => handleChange(text, index)}
-                  onKeyPress={(e) => handleKeyPress(e, index)}
-                  onFocus={() => setFocusedIndex(index)}
-                  onBlur={() => setFocusedIndex(null)}
-                  selectionColor="#1a73e8"
-                />
-                {index < OTP_LENGTH - 1 && <View style={styles.otpDivider} />}
-              </View>
+              <TextInput
+                key={index}
+                ref={(ref) => {
+                  inputRefs.current[index] = ref;
+                }}
+                style={[
+                  styles.otpBox,
+                  {
+                    width: otpBoxSize.width,
+                    height: otpBoxSize.height,
+                    fontSize: Math.min(22, otpBoxSize.width * 0.5),
+                  },
+                  focusedIndex === index && styles.otpBoxFocused,
+                  digit && styles.otpBoxFilled,
+                  error && styles.otpBoxError,
+                ]}
+                keyboardType="number-pad"
+                maxLength={1}
+                value={digit}
+                onChangeText={(text) => handleChange(text, index)}
+                onKeyPress={(e) => handleKeyPress(e, index)}
+                onFocus={() => setFocusedIndex(index)}
+                onBlur={() => setFocusedIndex(null)}
+                selectionColor="#1a73e8"
+              />
             ))}
           </View>
         </View>
@@ -337,25 +387,19 @@ const styles = StyleSheet.create({
   },
   otpContainer: {
     marginBottom: 24,
+    alignItems: "center",
   },
   otpRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
+    justifyContent: "center",
     alignItems: "center",
-  },
-  otpBoxWrapper: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
+    gap: 8,
   },
   otpBox: {
-    width: 44,
-    height: 56,
     borderWidth: 2,
     borderColor: "#e0e0e0",
     borderRadius: 12,
     textAlign: "center",
-    fontSize: 22,
     fontWeight: "600",
     color: "#1a1a1a",
     backgroundColor: "#fafafa",
@@ -383,9 +427,6 @@ const styles = StyleSheet.create({
   otpBoxError: {
     borderColor: "#e53935",
     backgroundColor: "#ffebee",
-  },
-  otpDivider: {
-    width: 8,
   },
   errorContainer: {
     flexDirection: "row",
@@ -447,6 +488,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginTop: 20,
     gap: 8,
+    flexWrap: "wrap",
   },
   resendLabel: {
     fontSize: 14,
@@ -474,6 +516,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     backgroundColor: "#fff",
     borderRadius: 16,
+    flexWrap: "wrap",
     ...Platform.select({
       ios: {
         shadowColor: "#000",

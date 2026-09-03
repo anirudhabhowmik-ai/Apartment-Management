@@ -1,8 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
+import * as Contacts from "expo-contacts";
 import * as ImagePicker from "expo-image-picker";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
 import {
+  Alert,
   Image,
   KeyboardAvoidingView,
   Linking,
@@ -110,6 +112,99 @@ export default function AddMemberScreen() {
 
     if (!result.canceled && result.assets[0]) {
       setPhotoUri(result.assets[0].uri);
+    }
+  };
+
+  // Contact picker function
+  const pickContact = async () => {
+    // Check if running on web
+    if (Platform.OS === "web") {
+      Alert.alert(
+        "Not Available",
+        "Contact picker is only available on mobile devices. Please enter the phone number manually.",
+        [{ text: "OK" }],
+      );
+      return;
+    }
+
+    try {
+      // Check if Contacts module is available
+      if (!Contacts) {
+        Alert.alert(
+          "Error",
+          "Contacts module is not available. Please try again.",
+          [{ text: "OK" }],
+        );
+        return;
+      }
+
+      // Request permission to access contacts
+      const { status } = await Contacts.requestPermissionsAsync();
+
+      if (status !== "granted") {
+        Alert.alert(
+          "Permission Required",
+          "We need access to your contacts to help you quickly add phone numbers.",
+          [
+            { text: "Cancel", style: "cancel" },
+            {
+              text: "Open Settings",
+              onPress: () => {
+                // For iOS, you can open settings
+                if (Platform.OS === "ios") {
+                  Linking.openURL("app-settings:");
+                }
+              },
+            },
+          ],
+        );
+        setError("Permission to access contacts is required");
+        return;
+      }
+
+      // Present the native contact picker
+      const contact = await Contacts.presentContactPickerAsync();
+
+      if (contact && contact.phoneNumbers && contact.phoneNumbers.length > 0) {
+        // Get the first phone number
+        let phoneNumber = contact.phoneNumbers[0].number || "";
+
+        // Clean the phone number: remove spaces, special characters, and country codes
+        phoneNumber = phoneNumber
+          .replace(/[^0-9]/g, "") // Remove all non-digits
+          .replace(/^91/, "") // Remove country code if present
+          .replace(/^0/, ""); // Remove leading zero if present
+
+        // Ensure it's 10 digits (or less if shorter)
+        if (phoneNumber.length > 10) {
+          phoneNumber = phoneNumber.slice(-10); // Take last 10 digits
+        }
+
+        setPhone(phoneNumber);
+        setError(""); // Clear any previous errors
+
+        // If name is empty, try to use contact name
+        if (!name.trim() && contact.name) {
+          setName(contact.name);
+        }
+      } else {
+        setError("Selected contact doesn't have a phone number");
+      }
+    } catch (error: any) {
+      console.error("Error picking contact:", error);
+
+      // User might have cancelled the picker
+      if (error.message && error.message.includes("cancelled")) {
+        // User cancelled, do nothing
+        return;
+      }
+
+      // Check for specific error types
+      if (error.message && error.message.includes("permission")) {
+        setError("Permission to access contacts is required");
+      } else {
+        setError("Failed to pick contact. Please try again.");
+      }
     }
   };
 
@@ -354,6 +449,13 @@ export default function AddMemberScreen() {
                   }
                 }}
               />
+              <TouchableOpacity
+                onPress={pickContact}
+                style={styles.contactIcon}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="person-outline" size={22} color="#1a73e8" />
+              </TouchableOpacity>
             </View>
             {fieldErrors.phone ? (
               <Text style={styles.fieldError}>{fieldErrors.phone}</Text>
@@ -843,6 +945,12 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 50,
     fontSize: 15,
+  },
+  contactIcon: {
+    padding: 8,
+    marginLeft: 4,
+    justifyContent: "center",
+    alignItems: "center",
   },
   roleRow: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   roleChip: {
