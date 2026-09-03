@@ -192,9 +192,9 @@ export default function ProfileScreen() {
         }),
     },
     {
-      id: "manage_owner_visibility",
-      title: "Manage Apartment Owner Visibility",
-      icon: "home-outline",
+      id: "invite_member",
+      title: "Invite Member",
+      icon: "person-add-outline",
       color: "#4CAF50",
       onPress: () =>
         router.push({
@@ -207,9 +207,9 @@ export default function ProfileScreen() {
         }),
     },
     {
-      id: "manage_staff_visibility",
-      title: "Manage Staff Visibility",
-      icon: "briefcase-outline",
+      id: "invite_staff",
+      title: "Invite Staff",
+      icon: "people-outline",
       color: "#0891b2",
       onPress: () =>
         router.push({
@@ -250,11 +250,7 @@ export default function ProfileScreen() {
     { title: "Account", itemIds: ["switch_account", "delete_account"] },
     {
       title: "Access & Roles",
-      itemIds: [
-        "add_admin",
-        "manage_owner_visibility",
-        "manage_staff_visibility",
-      ],
+      itemIds: ["add_admin", "invite_member", "invite_staff"],
     },
     { title: "Preferences", itemIds: ["notifications", "dark_mode"] },
   ];
@@ -446,7 +442,7 @@ export default function ProfileScreen() {
 
           {visibleMembers.length > 0 && (
             <>
-              <Text style={styles.accessHeading}>Visible Members</Text>
+              <Text style={styles.accessHeading}>Members</Text>
               {visibleMembers.map((grant) => (
                 <View key={grant.id} style={styles.accessRow}>
                   <View style={[styles.accessAvatar, styles.memberAvatar]}>
@@ -459,7 +455,7 @@ export default function ProfileScreen() {
                     <Text style={styles.accessPhone}>{grant.phone}</Text>
                   </View>
                   <View style={[styles.accessBadge, styles.memberBadge]}>
-                    <Text style={styles.memberBadgeText}>Visible</Text>
+                    <Text style={styles.memberBadgeText}>Member</Text>
                   </View>
                 </View>
               ))}

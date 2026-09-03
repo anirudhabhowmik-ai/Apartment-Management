@@ -2,21 +2,21 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Pressable,
-    RefreshControl,
-    SafeAreaView,
-    ScrollView,
-    StyleSheet,
-    Text,
-    View,
+  ActivityIndicator,
+  Pressable,
+  RefreshControl,
+  SafeAreaView,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
 } from "react-native";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useGroups } from "../../hooks/useGroups";
 import { useMemberStore } from "../../store/memberStore";
 import {
-    getPeopleSummary,
-    getPeopleTransactions,
+  getPeopleSummary,
+  getPeopleTransactions,
 } from "../../utils/peopleTransactions";
 
 // Quick Action Component
@@ -31,21 +31,21 @@ interface QuickAction {
 const QUICK_ACTIONS: QuickAction[] = [
   {
     id: "apartments",
-    title: "Apartments",
+    title: "Add Member",
     icon: "business-outline",
     color: "#1a73e8",
     tab: "apartment",
   },
   {
     id: "staff",
-    title: "Staff",
+    title: "Add Staff",
     icon: "people-outline",
     color: "#4CAF50",
     tab: "staff",
   },
   {
     id: "expenses",
-    title: "Expenses",
+    title: "Add Expenses",
     icon: "cash-outline",
     color: "#1a73e8",
     tab: "expense",
@@ -319,7 +319,7 @@ export default function HomeScreen() {
         <View style={styles.statsGrid}>
           <StatCard
             title={
-              selectedAccount?.type === "apartment" ? "Apartments" : "Tenants"
+              selectedAccount?.type === "apartment" ? "Members" : "Tenants"
             }
             value={stats.totalProperties}
             icon={

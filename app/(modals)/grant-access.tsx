@@ -95,12 +95,22 @@ export default function GrantAccessScreen() {
   }, [staffMembers, searchLower]);
 
   const isVisibilityFlow = memberType === "owner" || memberType === "staff";
+
+  // Updated visibility titles to be more user-friendly
   const visibilityTitle =
     memberType === "owner"
-      ? "Member Visibility"
+      ? "Invite Member"
       : memberType === "staff"
-        ? "Staff Visibility"
+        ? "Invite Staff"
         : "";
+
+  // Updated button text
+  const getButtonText = () => {
+    if (isVisibilityFlow) {
+      return memberType === "owner" ? "Send Invite" : "Send Invite";
+    }
+    return `Grant ${title} Access`;
+  };
 
   // Contact picker function
   const pickContact = async () => {
@@ -287,12 +297,30 @@ export default function GrantAccessScreen() {
   const hasMembersOrStaff =
     apartmentMembers.length > 0 || staffMembers.length > 0;
 
+  // Get the intro text based on the flow
+  const getIntroText = () => {
+    if (isVisibilityFlow) {
+      return memberType === "owner"
+        ? "Invite a member to your apartment"
+        : "Invite a staff member to your apartment";
+    }
+    return `Grant ${title} access`;
+  };
+
+  // Get the empty state text
+  const getEmptyStateText = () => {
+    if (isVisibilityFlow) {
+      return memberType === "owner"
+        ? "No members available to invite."
+        : "No staff members available to invite.";
+    }
+    return "No members or staff are available.";
+  };
+
   return (
     <ScrollView contentContainerStyle={styles.container}>
       <Text style={styles.intro}>
-        {isVisibilityFlow
-          ? `Manage ${visibilityTitle}`
-          : `Grant ${title} access`}
+        {isVisibilityFlow ? visibilityTitle : `Grant ${title} access`}
       </Text>
 
       {!isVisibilityFlow && (
@@ -436,9 +464,7 @@ export default function GrantAccessScreen() {
           )}
 
           {eligibleMembers.length === 0 ? (
-            <Text style={styles.emptyText}>
-              No members or staff are available.
-            </Text>
+            <Text style={styles.emptyText}>{getEmptyStateText()}</Text>
           ) : (
             <>
               <Text style={styles.groupHeading}>Members</Text>
@@ -470,9 +496,7 @@ export default function GrantAccessScreen() {
       {error ? <Text style={styles.error}>{error}</Text> : null}
       <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
         <Text style={styles.saveText}>
-          {isVisibilityFlow
-            ? `Grant ${visibilityTitle} Access`
-            : `Grant ${title} Access`}
+          {isVisibilityFlow ? "Send Invite" : `Grant ${title} Access`}
         </Text>
       </TouchableOpacity>
     </ScrollView>

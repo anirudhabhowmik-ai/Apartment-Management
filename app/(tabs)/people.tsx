@@ -25,7 +25,7 @@ const getTabLabel = (
   accountType?: "apartment" | "home",
 ): string => {
   if (type === "apartment") {
-    return accountType === "home" ? "Tenant" : "Apartment";
+    return accountType === "home" ? "Tenant" : "Member";
   }
   if (type === "staff") return "Staff";
   if (type === "expense") return "Expenses";
@@ -54,7 +54,7 @@ const getAddButtonLabel = (
   accountType?: "apartment" | "home",
 ): string => {
   if (type === "apartment") {
-    return accountType === "home" ? "Add Tenant" : "Add Owner";
+    return accountType === "home" ? "Add Tenant" : "Add Member";
   }
   if (type === "staff") return "Add Staff";
   if (type === "expense") return "Add Expense";
