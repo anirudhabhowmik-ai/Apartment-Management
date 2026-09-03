@@ -3,17 +3,17 @@ import * as ImagePicker from "expo-image-picker";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useState } from "react";
 import {
-    Image,
-    KeyboardAvoidingView,
-    Linking,
-    Platform,
-    ScrollView,
-    StyleSheet,
-    Switch,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Image,
+  KeyboardAvoidingView,
+  Linking,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import DatePickerModal from "../../components/DatePickerModal";
 import { useMembers } from "../../hooks/useMembers";
@@ -53,12 +53,15 @@ export default function AddMemberScreen() {
 
   const { addNewMember } = useMembers(groupId ?? null);
 
-  const roleOptions =
-    groupType === "apartment"
-      ? APARTMENT_ROLES
-      : groupType === "staff"
-        ? STAFF_ROLES
-        : EXPENSE_ROLES;
+  // Fix: Properly handle the groupType check
+  let roleOptions: RoleOption[] = [];
+  if (groupType === "apartment") {
+    roleOptions = APARTMENT_ROLES;
+  } else if (groupType === "staff") {
+    roleOptions = STAFF_ROLES;
+  } else if (groupType === "expense") {
+    roleOptions = EXPENSE_ROLES;
+  }
 
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [name, setName] = useState("");
@@ -195,9 +198,6 @@ export default function AddMemberScreen() {
         name: name.trim(),
         phone: groupType === "expense" ? "" : `+91${phone}`,
         role: groupType === "expense" ? "expense" : role,
-        // NOTE: photoUri is captured here but useMembers.ts's AddMemberInput
-        // needs a matching field added to actually persist it — let me know
-        // if you want that hook updated next.
         photoUri: photoUri ?? undefined,
         wing:
           groupType === "apartment" && wing.trim() ? wing.trim() : undefined,
@@ -309,15 +309,11 @@ export default function AddMemberScreen() {
                 fieldErrors.name && styles.inputLabelError,
               ]}
             >
-              {groupType === "expense" ? "Expense Name *" : "Full Name *"}
+              Full Name *
             </Text>
             <TextInput
               style={[styles.input, fieldErrors.name && styles.inputError]}
-              placeholder={
-                groupType === "expense"
-                  ? "e.g. Water bill, Lift repair"
-                  : "e.g. Ramesh Kumar"
-              }
+              placeholder="e.g. Ramesh Kumar"
               value={name}
               onChangeText={(text) => {
                 setName(text);
@@ -828,11 +824,7 @@ const styles = StyleSheet.create({
     height: 50,
     paddingHorizontal: 14,
     fontSize: 15,
-    outlineWidth: 0,
-    outlineStyle: "none",
-    outlineColor: "transparent",
-    boxShadow: "none",
-  } as any,
+  },
   textArea: {
     height: 90,
     textAlignVertical: "top",
@@ -845,21 +837,13 @@ const styles = StyleSheet.create({
     borderColor: "#e8e8e8",
     borderRadius: 10,
     paddingHorizontal: 14,
-    outlineWidth: 0,
-    outlineStyle: "none",
-    outlineColor: "transparent",
-    boxShadow: "none",
-  } as any,
+  },
   prefix: { fontSize: 15, marginRight: 8, color: "#333" },
   phoneInput: {
     flex: 1,
     height: 50,
     fontSize: 15,
-    outlineWidth: 0,
-    outlineStyle: "none",
-    outlineColor: "transparent",
-    boxShadow: "none",
-  } as any,
+  },
   roleRow: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   roleChip: {
     borderWidth: 1.5,
@@ -918,17 +902,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    height: 48,
-    borderWidth: 1,
-    borderStyle: "dashed",
-    borderColor: "#1a73e8",
-    borderRadius: 8,
-  },
-  attachButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
     height: 44,
     borderWidth: 1,
     borderStyle: "dashed",
@@ -937,16 +910,6 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   attachButtonText: { color: "#1a73e8", fontWeight: "600" },
-  attachmentRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: "#d8e7fb",
-    borderRadius: 8,
-    backgroundColor: "#f5f9ff",
-  },
   attachmentList: {
     borderWidth: 1,
     borderColor: "#e2e9f4",

@@ -1,6 +1,10 @@
+import { Ionicons } from "@expo/vector-icons";
+import * as Contacts from "expo-contacts";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
+  Alert,
+  Dimensions,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
@@ -11,6 +15,8 @@ import {
 } from "react-native";
 import { sendOtp } from "../../services/otpService";
 import { useAuthStore } from "../../store/useAuthStore";
+
+const { width } = Dimensions.get("window");
 
 export default function LoginScreen() {
   const router = useRouter();
@@ -34,10 +40,64 @@ export default function LoginScreen() {
     setLoading(false);
 
     if (result.success) {
-      setPendingPhone(phone); // stored in memory, never in the URL
+      setPendingPhone(phone);
       router.push("/(auth)/otp-verify");
     } else {
       setError(result.message || "Something went wrong");
+    }
+  };
+
+  const pickContact = async () => {
+    // Handle web platform
+    if (Platform.OS === "web") {
+      Alert.alert(
+        "Not Available",
+        "Contact picker is only available on mobile devices. Please enter your phone number manually.",
+        [{ text: "OK" }],
+      );
+      return;
+    }
+
+    try {
+      const { status } = await Contacts.requestPermissionsAsync();
+
+      if (status !== "granted") {
+        Alert.alert(
+          "Permission Required",
+          "We need access to your contacts to help you quickly add phone numbers.",
+          [
+            { text: "Cancel", style: "cancel" },
+            { text: "Open Settings", onPress: () => {} },
+          ],
+        );
+        setError("Permission to access contacts is required");
+        return;
+      }
+
+      const contact = await Contacts.presentContactPickerAsync();
+
+      if (contact && contact.phoneNumbers && contact.phoneNumbers.length > 0) {
+        let phoneNumber = contact.phoneNumbers[0].number || "";
+
+        phoneNumber = phoneNumber
+          .replace(/[^0-9]/g, "")
+          .replace(/^91/, "")
+          .replace(/^0/, "");
+
+        if (phoneNumber.length > 10) {
+          phoneNumber = phoneNumber.slice(-10);
+        }
+
+        setPhone(phoneNumber);
+        setError("");
+      } else {
+        setError("Selected contact doesn't have a phone number");
+      }
+    } catch (error) {
+      console.error("Error picking contact:", error);
+      if (error instanceof Error && !error.message.includes("cancelled")) {
+        setError("Failed to pick contact. Please try again.");
+      }
     }
   };
 
@@ -46,35 +106,88 @@ export default function LoginScreen() {
       style={styles.container}
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
-      <Text style={styles.title}>Welcome</Text>
-      <Text style={styles.subtitle}>Enter your phone number to continue</Text>
-
-      <View style={[styles.inputRow, isFocused && styles.inputRowFocused]}>
-        <Text style={styles.prefix}>+91</Text>
-        <TextInput
-          style={styles.input}
-          placeholder="9876543210"
-          placeholderTextColor="#999"
-          keyboardType="number-pad"
-          maxLength={10}
-          value={phone}
-          onChangeText={(text) => setPhone(text.replace(/[^0-9]/g, ""))}
-          onFocus={() => setIsFocused(true)}
-          onBlur={() => setIsFocused(false)}
-        />
+      <View style={styles.header}>
+        <View style={styles.logoContainer}>
+          <View style={styles.logoCircle}>
+            <Ionicons name="business-outline" size={40} color="#1a73e8" />
+          </View>
+        </View>
+        <Text style={styles.title}>Property Manager</Text>
+        <Text style={styles.subtitle}>Manage your properties effortlessly</Text>
       </View>
 
-      {error ? <Text style={styles.error}>{error}</Text> : null}
-
-      <TouchableOpacity
-        style={styles.button}
-        onPress={handleSendOtp}
-        disabled={loading}
-      >
-        <Text style={styles.buttonText}>
-          {loading ? "Sending..." : "Send OTP"}
+      <View style={styles.card}>
+        <Text style={styles.cardTitle}>Welcome Back</Text>
+        <Text style={styles.cardSubtitle}>
+          Sign in to manage your properties, tenants, and expenses
         </Text>
-      </TouchableOpacity>
+
+        <View style={styles.inputWrapper}>
+          <Text style={styles.inputLabel}>Phone Number</Text>
+          <View style={[styles.inputRow, isFocused && styles.inputRowFocused]}>
+            <View style={styles.countryCode}>
+              <Text style={styles.prefix}>+91</Text>
+              <View style={styles.divider} />
+            </View>
+            <TextInput
+              style={styles.input}
+              placeholder="Enter your phone number"
+              placeholderTextColor="#999"
+              keyboardType="number-pad"
+              maxLength={10}
+              value={phone}
+              onChangeText={(text) => setPhone(text.replace(/[^0-9]/g, ""))}
+              onFocus={() => setIsFocused(true)}
+              onBlur={() => setIsFocused(false)}
+            />
+            <TouchableOpacity
+              onPress={pickContact}
+              style={styles.contactIcon}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="person-outline" size={22} color="#1a73e8" />
+            </TouchableOpacity>
+          </View>
+          {error ? <Text style={styles.error}>{error}</Text> : null}
+        </View>
+
+        <TouchableOpacity
+          style={[styles.button, loading && styles.buttonDisabled]}
+          onPress={handleSendOtp}
+          disabled={loading}
+        >
+          <Text style={styles.buttonText}>
+            {loading ? "Sending..." : "Continue with OTP"}
+          </Text>
+          {!loading && (
+            <Ionicons
+              name="arrow-forward"
+              size={20}
+              color="#fff"
+              style={styles.buttonIcon}
+            />
+          )}
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.footer}>
+        <View style={styles.featureRow}>
+          <View style={styles.featureItem}>
+            <Ionicons name="home-outline" size={20} color="#1a73e8" />
+            <Text style={styles.featureText}>Manage Properties</Text>
+          </View>
+          <View style={styles.featureDot} />
+          <View style={styles.featureItem}>
+            <Ionicons name="people-outline" size={20} color="#1a73e8" />
+            <Text style={styles.featureText}>Tenant Management</Text>
+          </View>
+          <View style={styles.featureDot} />
+          <View style={styles.featureItem}>
+            <Ionicons name="cash-outline" size={20} color="#1a73e8" />
+            <Text style={styles.featureText}>Track Expenses</Text>
+          </View>
+        </View>
+      </View>
     </KeyboardAvoidingView>
   );
 }
@@ -82,39 +195,237 @@ export default function LoginScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: "#f5f7fa",
+  },
+  header: {
+    alignItems: "center",
+    paddingTop: Platform.OS === "ios" ? 60 : 40,
+    paddingBottom: 20,
+    backgroundColor: "#fff",
+    borderBottomLeftRadius: 30,
+    borderBottomRightRadius: 30,
+    ...Platform.select({
+      ios: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 10,
+      },
+      android: {
+        elevation: 4,
+      },
+      web: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 10,
+      },
+    }),
+  },
+  logoContainer: {
+    marginBottom: 12,
+  },
+  logoCircle: {
+    width: 70,
+    height: 70,
+    borderRadius: 35,
+    backgroundColor: "#e8f0fe",
     justifyContent: "center",
+    alignItems: "center",
+  },
+  title: {
+    fontSize: 28,
+    fontWeight: "700",
+    color: "#1a1a1a",
+    letterSpacing: -0.5,
+  },
+  subtitle: {
+    fontSize: 14,
+    color: "#666",
+    marginTop: 4,
+    fontWeight: "400",
+  },
+  card: {
+    flex: 1,
+    margin: 20,
+    marginTop: 30,
     padding: 24,
     backgroundColor: "#fff",
+    borderRadius: 20,
+    ...Platform.select({
+      ios: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.08,
+        shadowRadius: 20,
+      },
+      android: {
+        elevation: 8,
+      },
+      web: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.08,
+        shadowRadius: 20,
+      },
+    }),
   },
-  title: { fontSize: 28, fontWeight: "700", marginBottom: 8 },
-  subtitle: { fontSize: 15, color: "#666", marginBottom: 32 },
+  cardTitle: {
+    fontSize: 24,
+    fontWeight: "700",
+    color: "#1a1a1a",
+    marginBottom: 8,
+  },
+  cardSubtitle: {
+    fontSize: 14,
+    color: "#666",
+    marginBottom: 32,
+    lineHeight: 20,
+  },
+  inputWrapper: {
+    marginBottom: 24,
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#333",
+    marginBottom: 8,
+  },
   inputRow: {
     flexDirection: "row",
     alignItems: "center",
     borderWidth: 1.5,
-    borderColor: "#ddd",
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    marginBottom: 8,
+    borderColor: "#e0e0e0",
+    borderRadius: 12,
+    backgroundColor: "#fafafa",
+    height: 56,
+    overflow: "hidden",
   },
   inputRowFocused: {
     borderColor: "#1a73e8",
+    backgroundColor: "#fff",
   },
-  prefix: { fontSize: 16, marginRight: 8, color: "#333" },
+  countryCode: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingLeft: 14,
+    paddingRight: 10,
+  },
+  prefix: {
+    fontSize: 16,
+    color: "#333",
+    fontWeight: "600",
+  },
+  divider: {
+    width: 1.5,
+    height: 24,
+    backgroundColor: "#e0e0e0",
+    marginLeft: 10,
+  },
   input: {
     flex: 1,
-    height: 52,
+    height: 56,
     fontSize: 16,
+    color: "#1a1a1a",
+    paddingHorizontal: 12,
     ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as any) : {}),
   },
-  error: { color: "#e53935", marginBottom: 8, fontSize: 13 },
-  button: {
-    backgroundColor: "#1a73e8",
-    borderRadius: 10,
-    height: 52,
+  contactIcon: {
+    padding: 12,
     justifyContent: "center",
     alignItems: "center",
-    marginTop: 16,
+    backgroundColor: "#f0f6ff",
+    borderRadius: 8,
+    marginRight: 4,
   },
-  buttonText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  error: {
+    color: "#e53935",
+    marginTop: 8,
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  button: {
+    backgroundColor: "#1a73e8",
+    borderRadius: 12,
+    height: 56,
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    marginTop: 8,
+    ...Platform.select({
+      ios: {
+        shadowColor: "#1a73e8",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 12,
+      },
+      android: {
+        elevation: 6,
+      },
+      web: {
+        shadowColor: "#1a73e8",
+        shadowOffset: { width: 0, height: 4 },
+        shadowOpacity: 0.3,
+        shadowRadius: 12,
+      },
+    }),
+  },
+  buttonDisabled: {
+    backgroundColor: "#a0c4f0",
+    opacity: 0.7,
+  },
+  buttonText: {
+    color: "#fff",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  buttonIcon: {
+    marginLeft: 8,
+  },
+  footer: {
+    paddingHorizontal: 20,
+    paddingBottom: Platform.OS === "ios" ? 30 : 20,
+  },
+  featureRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 16,
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    ...Platform.select({
+      ios: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.04,
+        shadowRadius: 8,
+      },
+      android: {
+        elevation: 2,
+      },
+      web: {
+        shadowColor: "#000",
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.04,
+        shadowRadius: 8,
+      },
+    }),
+  },
+  featureItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  featureText: {
+    fontSize: 12,
+    color: "#555",
+    fontWeight: "500",
+  },
+  featureDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#d0d0d0",
+    marginHorizontal: 12,
+  },
 });
