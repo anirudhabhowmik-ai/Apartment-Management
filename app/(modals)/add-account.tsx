@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import * as ImageManipulator from "expo-image-manipulator";
+import { ImageEditor } from "expo-dynamic-image-crop";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { useMemo, useState } from "react";
@@ -15,7 +15,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useAccessStore } from "../../store/accessStore";
@@ -188,6 +188,8 @@ export default function AddAccountScreen() {
   const [error, setError] = useState("");
   const [rejectingGrantId, setRejectingGrantId] = useState<string | null>(null);
   const [showPhotoOptions, setShowPhotoOptions] = useState(false);
+  const [showImageEditor, setShowImageEditor] = useState(false);
+  const [tempImageUri, setTempImageUri] = useState<string | null>(null);
 
   const pendingInvitations = useMemo(() => {
     return user?.phone ? getPendingGrantsByPhone(user.phone) : [];
@@ -301,16 +303,14 @@ export default function AddAccountScreen() {
 
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
+      allowsEditing: false,
       quality: 0.7,
     });
 
     if (!result.canceled && result.assets[0]) {
       const imageUri = result.assets[0].uri;
-      // Crop and resize the image
-      const croppedImage = await cropImage(imageUri);
-      setPhotoUri(croppedImage);
+      setTempImageUri(imageUri);
+      setShowImageEditor(true);
     }
   };
 
@@ -325,43 +325,30 @@ export default function AddAccountScreen() {
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
+      allowsEditing: false,
       quality: 0.7,
     });
 
     if (!result.canceled && result.assets[0]) {
       const imageUri = result.assets[0].uri;
-      // Crop and resize the image
-      const croppedImage = await cropImage(imageUri);
-      setPhotoUri(croppedImage);
+      setTempImageUri(imageUri);
+      setShowImageEditor(true);
     }
   };
 
-  // Crop and resize image
-  const cropImage = async (uri: string): Promise<string> => {
-    try {
-      const result = await ImageManipulator.manipulateAsync(
-        uri,
-        [
-          {
-            resize: {
-              width: 500,
-              height: 500,
-            },
-          },
-        ],
-        {
-          compress: 0.8,
-          format: ImageManipulator.SaveFormat.JPEG,
-        },
-      );
-      return result.uri;
-    } catch (error) {
-      console.error("Error cropping image:", error);
-      // If cropping fails, return the original image
-      return uri;
+  // Handle image crop complete
+  const handleImageCropComplete = (croppedImageData: any) => {
+    setShowImageEditor(false);
+    if (croppedImageData && croppedImageData.uri) {
+      setPhotoUri(croppedImageData.uri);
     }
+    setTempImageUri(null);
+  };
+
+  // Handle image crop cancel
+  const handleImageCropCancel = () => {
+    setShowImageEditor(false);
+    setTempImageUri(null);
   };
 
   const handlePickPhoto = async () => {
@@ -1073,6 +1060,28 @@ export default function AddAccountScreen() {
         </Pressable>
       </Modal>
 
+      {/* Image Editor Modal */}
+      <ImageEditor
+        isVisible={showImageEditor}
+        imageUri={tempImageUri || ""}
+        onEditingComplete={handleImageCropComplete}
+        onEditingCancel={handleImageCropCancel}
+        dynamicCrop={true}
+        aspectRatio={1}
+        showButton={true}
+        doneText="Done"
+        cancelText="Cancel"
+        themeColor="#1a73e8"
+        backgroundColor="#000000"
+        cursorColor="#ffffff"
+        overlayColor="rgba(0,0,0,0.5)"
+        borderColor="#1a73e8"
+        borderSize={2}
+        cropSize={300}
+        buttonBackgroundColor="#1a73e8"
+        buttonTextColor="#ffffff"
+      />
+
       {/* Reject Modal */}
       <Modal
         visible={rejectingGrantId !== null}
@@ -1726,7 +1735,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   loadingOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: "rgba(255, 255, 255, 0.85)",
     zIndex: 999,
     justifyContent: "center",
