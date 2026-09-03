@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { ImageEditor } from "expo-dynamic-image-crop";
+import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { useMemo, useState } from "react";
@@ -188,8 +188,6 @@ export default function AddAccountScreen() {
   const [error, setError] = useState("");
   const [rejectingGrantId, setRejectingGrantId] = useState<string | null>(null);
   const [showPhotoOptions, setShowPhotoOptions] = useState(false);
-  const [showImageEditor, setShowImageEditor] = useState(false);
-  const [tempImageUri, setTempImageUri] = useState<string | null>(null);
 
   const pendingInvitations = useMemo(() => {
     return user?.phone ? getPendingGrantsByPhone(user.phone) : [];
@@ -303,14 +301,15 @@ export default function AddAccountScreen() {
 
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: false,
+      allowsEditing: true,
+      aspect: [1, 1],
       quality: 0.7,
     });
 
     if (!result.canceled && result.assets[0]) {
       const imageUri = result.assets[0].uri;
-      setTempImageUri(imageUri);
-      setShowImageEditor(true);
+      const croppedImage = await cropImage(imageUri);
+      setPhotoUri(croppedImage);
     }
   };
 
@@ -325,30 +324,42 @@ export default function AddAccountScreen() {
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: false,
+      allowsEditing: true,
+      aspect: [1, 1],
       quality: 0.7,
     });
 
     if (!result.canceled && result.assets[0]) {
       const imageUri = result.assets[0].uri;
-      setTempImageUri(imageUri);
-      setShowImageEditor(true);
+      const croppedImage = await cropImage(imageUri);
+      setPhotoUri(croppedImage);
     }
   };
 
-  // Handle image crop complete
-  const handleImageCropComplete = (croppedImageData: any) => {
-    setShowImageEditor(false);
-    if (croppedImageData && croppedImageData.uri) {
-      setPhotoUri(croppedImageData.uri);
+  // Crop and resize image
+  const cropImage = async (uri: string): Promise<string> => {
+    try {
+      const result = await ImageManipulator.manipulateAsync(
+        uri,
+        [
+          {
+            resize: {
+              width: 500,
+              height: 500,
+            },
+          },
+        ],
+        {
+          compress: 0.8,
+          format: ImageManipulator.SaveFormat.JPEG,
+        },
+      );
+      return result.uri;
+    } catch (error) {
+      console.error("Error cropping image:", error);
+      // If cropping fails, return the original image
+      return uri;
     }
-    setTempImageUri(null);
-  };
-
-  // Handle image crop cancel
-  const handleImageCropCancel = () => {
-    setShowImageEditor(false);
-    setTempImageUri(null);
   };
 
   const handlePickPhoto = async () => {
@@ -1059,28 +1070,6 @@ export default function AddAccountScreen() {
           </View>
         </Pressable>
       </Modal>
-
-      {/* Image Editor Modal */}
-      <ImageEditor
-        isVisible={showImageEditor}
-        imageUri={tempImageUri || ""}
-        onEditingComplete={handleImageCropComplete}
-        onEditingCancel={handleImageCropCancel}
-        dynamicCrop={true}
-        aspectRatio={1}
-        showButton={true}
-        doneText="Done"
-        cancelText="Cancel"
-        themeColor="#1a73e8"
-        backgroundColor="#000000"
-        cursorColor="#ffffff"
-        overlayColor="rgba(0,0,0,0.5)"
-        borderColor="#1a73e8"
-        borderSize={2}
-        cropSize={300}
-        buttonBackgroundColor="#1a73e8"
-        buttonTextColor="#ffffff"
-      />
 
       {/* Reject Modal */}
       <Modal
