@@ -61,7 +61,6 @@ const EXPENSE_ROLES: RoleOption[] = [
 
 export default function EditMemberScreen() {
   const router = useRouter();
-
   const insets = useSafeAreaInsets();
 
   const { memberId, groupId, groupType } = useLocalSearchParams<{
@@ -76,9 +75,9 @@ export default function EditMemberScreen() {
 
   const member = getMemberById(memberId);
 
-  // --------------------------------------------------
-  // Role options
-  // --------------------------------------------------
+  // ==================================================
+  // ROLE OPTIONS
+  // ==================================================
 
   let roleOptions: RoleOption[] = [];
 
@@ -90,9 +89,9 @@ export default function EditMemberScreen() {
     roleOptions = EXPENSE_ROLES;
   }
 
-  // --------------------------------------------------
-  // Form state
-  // --------------------------------------------------
+  // ==================================================
+  // FORM STATE
+  // ==================================================
 
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -103,7 +102,7 @@ export default function EditMemberScreen() {
 
   const [wing, setWing] = useState("");
   const [flatNumber, setFlatNumber] = useState("");
-  const [areaSqft, setAreaSqft] = useState<string>("");
+  const [areaSqft, setAreaSqft] = useState("");
   const [parkingAvailable, setParkingAvailable] = useState(false);
   const [maintenanceAmount, setMaintenanceAmount] = useState("");
 
@@ -125,23 +124,20 @@ export default function EditMemberScreen() {
 
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
 
-  // --------------------------------------------------
-  // Contact picker state
-  // --------------------------------------------------
+  // ==================================================
+  // CONTACT PICKER STATE
+  // ==================================================
 
   const [showContactPicker, setShowContactPicker] = useState(false);
-
   const [contactsList, setContactsList] = useState<ContactData[]>([]);
-
   const [contactSearch, setContactSearch] = useState("");
-
   const [loadingContacts, setLoadingContacts] = useState(false);
 
   const hasFieldErrors = Object.values(fieldErrors).some(Boolean);
 
-  // --------------------------------------------------
-  // Filter contacts
-  // --------------------------------------------------
+  // ==================================================
+  // FILTER CONTACTS
+  // ==================================================
 
   const filteredContacts = useMemo(() => {
     const search = contactSearch.toLowerCase().trim();
@@ -161,9 +157,9 @@ export default function EditMemberScreen() {
     });
   }, [contactsList, contactSearch]);
 
-  // --------------------------------------------------
-  // Load member data
-  // --------------------------------------------------
+  // ==================================================
+  // LOAD MEMBER
+  // ==================================================
 
   useEffect(() => {
     if (!member) return;
@@ -208,13 +204,9 @@ export default function EditMemberScreen() {
 
     if (groupType === "expense" && "amount" in member) {
       setExpenseAmount(member.amount?.toString() || "");
-
       setExpenseStatus(member.status || "paid");
-
       setReminderEnabled(member.reminderEnabled || false);
-
       setDueDate(member.dueDate || "");
-
       setExpenseDescription(member.description || "");
 
       setBillAttachments(
@@ -231,9 +223,9 @@ export default function EditMemberScreen() {
     }
   }, [member, groupType]);
 
-  // --------------------------------------------------
-  // Pick profile photo
-  // --------------------------------------------------
+  // ==================================================
+  // PICK PROFILE PHOTO
+  // ==================================================
 
   const handlePickPhoto = async () => {
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -255,9 +247,9 @@ export default function EditMemberScreen() {
     }
   };
 
-  // --------------------------------------------------
-  // Contact picker
-  // --------------------------------------------------
+  // ==================================================
+  // CONTACT PICKER
+  // ==================================================
 
   const pickContact = async () => {
     if (Platform.OS === "web") {
@@ -325,22 +317,19 @@ export default function EditMemberScreen() {
       }
 
       setContactSearch("");
-
       setContactsList(mappedContacts);
-
       setShowContactPicker(true);
     } catch (error) {
       console.error("Error fetching contacts:", error);
-
       setError("Failed to fetch contacts. Please try again.");
     } finally {
       setLoadingContacts(false);
     }
   };
 
-  // --------------------------------------------------
-  // Select contact
-  // --------------------------------------------------
+  // ==================================================
+  // SELECT CONTACT
+  // ==================================================
 
   const selectContact = (contact: ContactData) => {
     if (
@@ -355,9 +344,7 @@ export default function EditMemberScreen() {
     let phoneNumber = contact.phoneNumbers[0].number || "";
 
     phoneNumber = phoneNumber.replace(/[^0-9]/g, "");
-
     phoneNumber = phoneNumber.replace(/^91/, "");
-
     phoneNumber = phoneNumber.replace(/^0/, "");
 
     if (phoneNumber.length > 10) {
@@ -381,24 +368,22 @@ export default function EditMemberScreen() {
     }));
 
     setError("");
-
     setContactSearch("");
-
     setShowContactPicker(false);
   };
 
-  // --------------------------------------------------
-  // Close contact picker
-  // --------------------------------------------------
+  // ==================================================
+  // CLOSE CONTACT PICKER
+  // ==================================================
 
   const closeContactPicker = () => {
     setContactSearch("");
     setShowContactPicker(false);
   };
 
-  // --------------------------------------------------
-  // Pick bill attachments
-  // --------------------------------------------------
+  // ==================================================
+  // PICK BILL
+  // ==================================================
 
   const handlePickBill = async () => {
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -419,9 +404,9 @@ export default function EditMemberScreen() {
     }
   };
 
-  // --------------------------------------------------
-  // Update member
-  // --------------------------------------------------
+  // ==================================================
+  // UPDATE MEMBER
+  // ==================================================
 
   const handleUpdate = async () => {
     setError("");
@@ -501,7 +486,6 @@ export default function EditMemberScreen() {
         }
 
         updateData.parkingAvailable = parkingAvailable;
-
         updateData.maintenanceAmount = Number(maintenanceAmount);
       }
 
@@ -511,16 +495,13 @@ export default function EditMemberScreen() {
 
       if (groupType === "expense") {
         updateData.amount = Number(expenseAmount);
-
         updateData.status = expenseStatus;
 
         updateData.reminderEnabled =
           expenseStatus === "due" ? reminderEnabled : false;
 
         updateData.dueDate = dueDate || undefined;
-
         updateData.description = expenseDescription.trim() || undefined;
-
         updateData.billAttachments = billAttachments;
       }
 
@@ -534,9 +515,9 @@ export default function EditMemberScreen() {
     }
   };
 
-  // --------------------------------------------------
-  // Delete
-  // --------------------------------------------------
+  // ==================================================
+  // DELETE
+  // ==================================================
 
   const handleDelete = () => {
     setShowDeleteConfirmation(true);
@@ -545,9 +526,7 @@ export default function EditMemberScreen() {
   const confirmDelete = async () => {
     try {
       setLoading(true);
-
       setError("");
-
       setFieldErrors({});
 
       await deleteMember(memberId);
@@ -564,29 +543,38 @@ export default function EditMemberScreen() {
     }
   };
 
-  // --------------------------------------------------
-  // Member not found
-  // --------------------------------------------------
+  // ==================================================
+  // MEMBER NOT FOUND
+  // ==================================================
 
   if (!member) {
     return (
       <View style={styles.container}>
         <View style={styles.centerContent}>
-          <Ionicons name="person-outline" size={48} color="#ccc" />
+          <View style={styles.notFoundIcon}>
+            <Ionicons name="person-outline" size={34} color="#2563eb" />
+          </View>
 
-          <Text style={styles.errorText}>Member not found</Text>
+          <Text style={styles.notFoundTitle}>Member not found</Text>
 
-          <TouchableOpacity style={styles.button} onPress={() => router.back()}>
-            <Text style={styles.buttonText}>Go Back</Text>
+          <Text style={styles.notFoundSubtitle}>
+            This member may have already been removed.
+          </Text>
+
+          <TouchableOpacity
+            style={styles.backButton}
+            onPress={() => router.back()}
+          >
+            <Text style={styles.backButtonText}>Go Back</Text>
           </TouchableOpacity>
         </View>
       </View>
     );
   }
 
-  // --------------------------------------------------
-  // Main UI
-  // --------------------------------------------------
+  // ==================================================
+  // SCREEN
+  // ==================================================
 
   return (
     <KeyboardAvoidingView
@@ -596,7 +584,7 @@ export default function EditMemberScreen() {
     >
       <Stack.Screen
         options={{
-          title: groupType === "expense" ? "Edit Expenses" : "Edit Member",
+          title: groupType === "expense" ? "Edit Expense" : "Edit Member",
         }}
       />
 
@@ -606,97 +594,138 @@ export default function EditMemberScreen() {
         keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
         showsVerticalScrollIndicator={false}
       >
-        <View style={styles.header}>
-          <Text style={styles.title}>
-            {groupType === "expense" ? "Edit Expenses" : "Edit Member"}
-          </Text>
+        {/* ==================================================
+            TOP HEADER
+        ================================================== */}
 
-          <TouchableOpacity onPress={handleDelete} style={styles.deleteButton}>
-            <Ionicons name="trash-outline" size={24} color="#e53935" />
+        <View style={styles.topHeader}>
+          <View style={styles.headerLeft}>
+            <TouchableOpacity
+              style={styles.headerBackButton}
+              onPress={() => router.back()}
+            >
+              <Ionicons name="arrow-back" size={22} color="#111827" />
+            </TouchableOpacity>
+
+            <View>
+              <Text style={styles.headerTitle}>
+                {groupType === "expense" ? "Edit Expense" : "Edit Member"}
+              </Text>
+
+              <Text style={styles.headerSubtitle}>
+                Update information and save changes
+              </Text>
+            </View>
+          </View>
+
+          <TouchableOpacity
+            style={styles.headerDeleteButton}
+            onPress={handleDelete}
+          >
+            <Ionicons name="trash-outline" size={20} color="#dc2626" />
           </TouchableOpacity>
         </View>
 
-        {/* PHOTO */}
+        {/* ==================================================
+            PROFILE CARD
+        ================================================== */}
 
         {groupType !== "expense" ? (
-          <View style={styles.photoSection}>
+          <View style={styles.profileCard}>
             <TouchableOpacity
-              style={styles.photoCircle}
+              style={styles.profileAvatarWrapper}
               onPress={handlePickPhoto}
+              activeOpacity={0.8}
             >
               {photoUri ? (
-                <Image
-                  source={{
-                    uri: photoUri,
-                  }}
-                  style={styles.photoImage}
-                />
+                <Image source={{ uri: photoUri }} style={styles.profileImage} />
               ) : (
-                <Ionicons name="camera-outline" size={24} color="#888" />
+                <View style={styles.profilePlaceholder}>
+                  <Ionicons name="person" size={34} color="#2563eb" />
+                </View>
               )}
+
+              <View style={styles.cameraBadge}>
+                <Ionicons name="camera" size={14} color="#fff" />
+              </View>
             </TouchableOpacity>
 
-            <Text style={styles.photoLabel}>
-              {photoUri ? "Change Photo" : "Add Photo (optional)"}
-            </Text>
+            <View style={styles.profileInfo}>
+              <Text style={styles.profileName} numberOfLines={1}>
+                {name || "Member"}
+              </Text>
+
+              <Text style={styles.profileRole}>
+                {isCustomRole
+                  ? customRole || "Custom role"
+                  : roleOptions.find((item) => item.role === role)?.label ||
+                    "Member"}
+              </Text>
+
+              <TouchableOpacity onPress={handlePickPhoto} activeOpacity={0.7}>
+                <Text style={styles.changePhotoText}>
+                  {photoUri ? "Change profile photo" : "Add profile photo"}
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
         ) : null}
 
-        {/* MEMBER BASIC DETAILS */}
+        {/* ==================================================
+            PERSONAL DETAILS
+        ================================================== */}
 
         {groupType !== "expense" && (
-          <>
-            <Text
-              style={[
-                styles.inputLabel,
-                fieldErrors.name && styles.inputLabelError,
-              ]}
-            >
-              Full Name *
-            </Text>
-
-            <TextInput
-              style={[styles.input, fieldErrors.name && styles.inputError]}
-              placeholder="e.g. Ramesh Kumar"
-              value={name}
-              onChangeText={(text) => {
-                setName(text);
-
-                if (fieldErrors.name) {
-                  setFieldErrors({
-                    ...fieldErrors,
-                    name: "",
-                  });
-                }
-              }}
+          <View style={styles.card}>
+            <SectionHeader
+              icon="person-outline"
+              title="Personal Details"
+              subtitle="Basic contact information"
             />
 
-            {fieldErrors.name ? (
-              <Text style={styles.fieldError}>{fieldErrors.name}</Text>
-            ) : null}
+            <FieldLabel label="Full Name" required error={fieldErrors.name} />
 
-            {/* PHONE */}
+            <InputContainer icon="person-outline" error={!!fieldErrors.name}>
+              <TextInput
+                style={styles.input}
+                placeholder="Enter full name"
+                placeholderTextColor="#9ca3af"
+                value={name}
+                onChangeText={(text) => {
+                  setName(text);
 
-            <Text
-              style={[
-                styles.inputLabel,
-                fieldErrors.phone && styles.inputLabelError,
-              ]}
-            >
-              Phone Number *
-            </Text>
+                  if (fieldErrors.name) {
+                    setFieldErrors({
+                      ...fieldErrors,
+                      name: "",
+                    });
+                  }
+                }}
+              />
+            </InputContainer>
+
+            {fieldErrors.name ? <FieldError text={fieldErrors.name} /> : null}
+
+            <FieldLabel
+              label="Phone Number"
+              required
+              error={fieldErrors.phone}
+            />
 
             <View
               style={[
-                styles.phoneRow,
-                fieldErrors.phone && styles.phoneRowError,
+                styles.phoneContainer,
+                fieldErrors.phone && styles.errorBorder,
               ]}
             >
-              <Text style={styles.prefix}>+91</Text>
+              <View style={styles.countryCode}>
+                <Text style={styles.countryCodeText}>+91</Text>
+              </View>
 
               <TextInput
                 style={styles.phoneInput}
                 placeholder="9876543210"
+                placeholderTextColor="#9ca3af"
                 keyboardType="number-pad"
                 maxLength={10}
                 value={phone}
@@ -714,82 +743,104 @@ export default function EditMemberScreen() {
 
               <TouchableOpacity
                 onPress={pickContact}
-                style={styles.contactIcon}
+                style={styles.contactButton}
                 activeOpacity={0.7}
                 disabled={loadingContacts}
               >
                 <Ionicons
-                  name="person-outline"
-                  size={22}
-                  color={loadingContacts ? "#aaa" : "#1a73e8"}
+                  name="people-outline"
+                  size={20}
+                  color={loadingContacts ? "#9ca3af" : "#2563eb"}
                 />
               </TouchableOpacity>
             </View>
 
-            {fieldErrors.phone ? (
-              <Text style={styles.fieldError}>{fieldErrors.phone}</Text>
-            ) : null}
+            {fieldErrors.phone ? <FieldError text={fieldErrors.phone} /> : null}
+          </View>
+        )}
 
-            {/* ROLE */}
+        {/* ==================================================
+            ROLE
+        ================================================== */}
 
-            <Text
-              style={[
-                styles.inputLabel,
-                fieldErrors.role && styles.inputLabelError,
-              ]}
-            >
-              Role *
-            </Text>
+        {groupType !== "expense" && (
+          <View style={styles.card}>
+            <SectionHeader
+              icon="shield-checkmark-outline"
+              title="Role"
+              subtitle="Select the person's role"
+            />
 
-            <View style={styles.roleRow}>
-              {roleOptions.map((option) => (
-                <TouchableOpacity
-                  key={option.role}
-                  style={[
-                    styles.roleChip,
-                    role === option.role && styles.roleChipSelected,
-                  ]}
-                  onPress={() => {
-                    setRole(option.role);
+            <View style={styles.roleGrid}>
+              {roleOptions.map((option) => {
+                const selected = role === option.role && !isCustomRole;
 
-                    setIsCustomRole(false);
-
-                    setCustomRole("");
-
-                    if (fieldErrors.role) {
-                      setFieldErrors({
-                        ...fieldErrors,
-                        role: "",
-                      });
-                    }
-                  }}
-                >
-                  <Text
+                return (
+                  <TouchableOpacity
+                    key={option.role}
                     style={[
-                      styles.roleChipText,
-                      role === option.role && styles.roleChipTextSelected,
+                      styles.roleOption,
+                      selected && styles.roleOptionSelected,
                     ]}
+                    onPress={() => {
+                      setRole(option.role);
+                      setIsCustomRole(false);
+                      setCustomRole("");
+
+                      if (fieldErrors.role) {
+                        setFieldErrors({
+                          ...fieldErrors,
+                          role: "",
+                        });
+                      }
+                    }}
+                    activeOpacity={0.75}
                   >
-                    {option.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+                    <View
+                      style={[
+                        styles.roleRadio,
+                        selected && styles.roleRadioSelected,
+                      ]}
+                    >
+                      {selected ? <View style={styles.roleRadioDot} /> : null}
+                    </View>
+
+                    <Text
+                      style={[
+                        styles.roleOptionText,
+                        selected && styles.roleOptionTextSelected,
+                      ]}
+                    >
+                      {option.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
 
               <TouchableOpacity
                 style={[
-                  styles.roleChip,
-                  isCustomRole && styles.roleChipSelected,
+                  styles.roleOption,
+                  isCustomRole && styles.roleOptionSelected,
                 ]}
                 onPress={() => {
                   setIsCustomRole(true);
-
                   setRole(customRole.trim() || null);
                 }}
+                activeOpacity={0.75}
               >
+                <View
+                  style={[
+                    styles.roleRadio,
+                    isCustomRole && styles.roleRadioSelected,
+                  ]}
+                >
+                  {isCustomRole ? <View style={styles.roleRadioDot} /> : null}
+                </View>
+
                 <Text
                   style={[
-                    styles.roleChipText,
-                    isCustomRole && styles.roleChipTextSelected,
+                    styles.roleOptionText,
+                    isCustomRole && styles.roleOptionTextSelected,
                   ]}
                 >
                   Custom
@@ -798,308 +849,394 @@ export default function EditMemberScreen() {
             </View>
 
             {isCustomRole ? (
+              <View style={styles.customRoleWrapper}>
+                <InputContainer
+                  icon="create-outline"
+                  error={!!fieldErrors.role}
+                >
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Enter custom role"
+                    placeholderTextColor="#9ca3af"
+                    value={customRole}
+                    onChangeText={(text) => {
+                      setCustomRole(text);
+                      setRole(text.trim() || null);
+
+                      if (fieldErrors.role) {
+                        setFieldErrors({
+                          ...fieldErrors,
+                          role: "",
+                        });
+                      }
+                    }}
+                  />
+                </InputContainer>
+              </View>
+            ) : null}
+
+            {fieldErrors.role ? <FieldError text={fieldErrors.role} /> : null}
+          </View>
+        )}
+
+        {/* ==================================================
+            APARTMENT DETAILS
+        ================================================== */}
+
+        {groupType === "apartment" && (
+          <View style={styles.card}>
+            <SectionHeader
+              icon="home-outline"
+              title="Flat Details"
+              subtitle="Apartment and maintenance information"
+            />
+
+            <FieldLabel label="Wing / Section" optional />
+
+            <InputContainer icon="business-outline">
               <TextInput
-                style={[styles.input, styles.customRoleInput]}
-                placeholder="Enter custom role"
-                value={customRole}
+                style={styles.input}
+                placeholder="A Wing, B Wing, Tower 1"
+                placeholderTextColor="#9ca3af"
+                value={wing}
+                onChangeText={setWing}
+              />
+            </InputContainer>
+
+            <FieldLabel
+              label="Flat Number"
+              required
+              error={fieldErrors.flatNumber}
+            />
+
+            <InputContainer
+              icon="home-outline"
+              error={!!fieldErrors.flatNumber}
+            >
+              <TextInput
+                style={styles.input}
+                placeholder="A-204"
+                placeholderTextColor="#9ca3af"
+                value={flatNumber}
                 onChangeText={(text) => {
-                  setCustomRole(text);
+                  setFlatNumber(text);
 
-                  setRole(text.trim() || null);
-
-                  if (fieldErrors.role) {
+                  if (fieldErrors.flatNumber) {
                     setFieldErrors({
                       ...fieldErrors,
-                      role: "",
+                      flatNumber: "",
                     });
                   }
                 }}
               />
-            ) : null}
-
-            {fieldErrors.role ? (
-              <Text style={styles.fieldError}>{fieldErrors.role}</Text>
-            ) : null}
-          </>
-        )}
-
-        {/* APARTMENT */}
-
-        {groupType === "apartment" && (
-          <>
-            <Text style={styles.sectionLabel}>Flat Details</Text>
-
-            <Text style={styles.inputLabel}>Wing / Section — optional</Text>
-
-            <TextInput
-              style={styles.input}
-              placeholder="e.g. A Wing, B Wing, Tower 1"
-              value={wing}
-              onChangeText={setWing}
-            />
-
-            <Text
-              style={[
-                styles.inputLabel,
-                fieldErrors.flatNumber && styles.inputLabelError,
-              ]}
-            >
-              Flat Number *
-            </Text>
-
-            <TextInput
-              style={[
-                styles.input,
-                fieldErrors.flatNumber && styles.inputError,
-              ]}
-              placeholder="e.g. A-204"
-              value={flatNumber}
-              onChangeText={(text) => {
-                setFlatNumber(text);
-
-                if (fieldErrors.flatNumber) {
-                  setFieldErrors({
-                    ...fieldErrors,
-                    flatNumber: "",
-                  });
-                }
-              }}
-            />
+            </InputContainer>
 
             {fieldErrors.flatNumber ? (
-              <Text style={styles.fieldError}>{fieldErrors.flatNumber}</Text>
+              <FieldError text={fieldErrors.flatNumber} />
             ) : null}
 
-            <Text style={styles.inputLabel}>Area (sq. ft.) — optional</Text>
+            <FieldLabel label="Area" optional />
 
-            <TextInput
-              style={styles.input}
-              placeholder="e.g. 1200"
-              keyboardType="numeric"
-              value={areaSqft}
-              onChangeText={(text) => setAreaSqft(text.replace(/[^0-9]/g, ""))}
-            />
+            <InputContainer icon="resize-outline" suffix="sq. ft.">
+              <TextInput
+                style={styles.input}
+                placeholder="1200"
+                placeholderTextColor="#9ca3af"
+                keyboardType="numeric"
+                value={areaSqft}
+                onChangeText={(text) =>
+                  setAreaSqft(text.replace(/[^0-9]/g, ""))
+                }
+              />
+            </InputContainer>
 
-            <View style={styles.switchRow}>
-              <Text style={styles.inputLabel}>Parking Available</Text>
+            {/* PARKING */}
+
+            <View style={styles.settingRow}>
+              <View style={styles.settingIcon}>
+                <Ionicons name="car-outline" size={20} color="#2563eb" />
+              </View>
+
+              <View style={styles.settingTextContainer}>
+                <Text style={styles.settingTitle}>Parking Available</Text>
+
+                <Text style={styles.settingSubtitle}>
+                  Does this flat have parking?
+                </Text>
+              </View>
 
               <Switch
                 value={parkingAvailable}
                 onValueChange={setParkingAvailable}
                 trackColor={{
-                  false: "#767577",
-                  true: "#1a73e8",
+                  false: "#d1d5db",
+                  true: "#93c5fd",
                 }}
+                thumbColor={parkingAvailable ? "#2563eb" : "#f4f4f5"}
               />
             </View>
 
-            <Text
-              style={[
-                styles.inputLabel,
-                fieldErrors.maintenanceAmount && styles.inputLabelError,
-              ]}
-            >
-              Monthly Maintenance (₹) *
-            </Text>
-
-            <TextInput
-              style={[
-                styles.input,
-                fieldErrors.maintenanceAmount && styles.inputError,
-              ]}
-              placeholder="e.g. 2500"
-              keyboardType="numeric"
-              value={maintenanceAmount}
-              onChangeText={(text) => {
-                setMaintenanceAmount(text.replace(/[^0-9]/g, ""));
-
-                if (fieldErrors.maintenanceAmount) {
-                  setFieldErrors({
-                    ...fieldErrors,
-                    maintenanceAmount: "",
-                  });
-                }
-              }}
+            <FieldLabel
+              label="Monthly Maintenance"
+              required
+              error={fieldErrors.maintenanceAmount}
             />
+
+            <InputContainer
+              icon="wallet-outline"
+              error={!!fieldErrors.maintenanceAmount}
+              prefix="₹"
+            >
+              <TextInput
+                style={styles.input}
+                placeholder="2500"
+                placeholderTextColor="#9ca3af"
+                keyboardType="numeric"
+                value={maintenanceAmount}
+                onChangeText={(text) => {
+                  setMaintenanceAmount(text.replace(/[^0-9]/g, ""));
+
+                  if (fieldErrors.maintenanceAmount) {
+                    setFieldErrors({
+                      ...fieldErrors,
+                      maintenanceAmount: "",
+                    });
+                  }
+                }}
+              />
+            </InputContainer>
 
             {fieldErrors.maintenanceAmount ? (
-              <Text style={styles.fieldError}>
-                {fieldErrors.maintenanceAmount}
-              </Text>
+              <FieldError text={fieldErrors.maintenanceAmount} />
             ) : null}
-          </>
+          </View>
         )}
 
-        {/* STAFF */}
+        {/* ==================================================
+            STAFF DETAILS
+        ================================================== */}
 
         {groupType === "staff" && (
-          <>
-            <Text style={styles.sectionLabel}>Employment Details</Text>
-
-            <Text
-              style={[
-                styles.inputLabel,
-                fieldErrors.monthlySalary && styles.inputLabelError,
-              ]}
-            >
-              Monthly Salary (₹) *
-            </Text>
-
-            <TextInput
-              style={[
-                styles.input,
-                fieldErrors.monthlySalary && styles.inputError,
-              ]}
-              placeholder="e.g. 5000"
-              keyboardType="numeric"
-              value={monthlySalary}
-              onChangeText={(text) => {
-                setMonthlySalary(text.replace(/[^0-9]/g, ""));
-
-                if (fieldErrors.monthlySalary) {
-                  setFieldErrors({
-                    ...fieldErrors,
-                    monthlySalary: "",
-                  });
-                }
-              }}
+          <View style={styles.card}>
+            <SectionHeader
+              icon="briefcase-outline"
+              title="Employment Details"
+              subtitle="Salary and employment information"
             />
+
+            <FieldLabel
+              label="Monthly Salary"
+              required
+              error={fieldErrors.monthlySalary}
+            />
+
+            <InputContainer
+              icon="wallet-outline"
+              error={!!fieldErrors.monthlySalary}
+              prefix="₹"
+            >
+              <TextInput
+                style={styles.input}
+                placeholder="5000"
+                placeholderTextColor="#9ca3af"
+                keyboardType="numeric"
+                value={monthlySalary}
+                onChangeText={(text) => {
+                  setMonthlySalary(text.replace(/[^0-9]/g, ""));
+
+                  if (fieldErrors.monthlySalary) {
+                    setFieldErrors({
+                      ...fieldErrors,
+                      monthlySalary: "",
+                    });
+                  }
+                }}
+              />
+            </InputContainer>
 
             {fieldErrors.monthlySalary ? (
-              <Text style={styles.fieldError}>{fieldErrors.monthlySalary}</Text>
+              <FieldError text={fieldErrors.monthlySalary} />
             ) : null}
-          </>
+          </View>
         )}
 
-        {/* EXPENSE */}
+        {/* ==================================================
+            EXPENSE DETAILS
+        ================================================== */}
 
         {groupType === "expense" && (
-          <>
-            <Text style={styles.sectionLabel}>Expense Details</Text>
-
-            <Text
-              style={[
-                styles.inputLabel,
-                fieldErrors.name && styles.inputLabelError,
-              ]}
-            >
-              Expense Name *
-            </Text>
-
-            <TextInput
-              style={[styles.input, fieldErrors.name && styles.inputError]}
-              placeholder="e.g. Water bill, Lift repair"
-              value={name}
-              onChangeText={(text) => {
-                setName(text);
-
-                if (fieldErrors.name) {
-                  setFieldErrors({
-                    ...fieldErrors,
-                    name: "",
-                  });
-                }
-              }}
+          <View style={styles.card}>
+            <SectionHeader
+              icon="receipt-outline"
+              title="Expense Details"
+              subtitle="Update expense and payment information"
             />
 
-            {fieldErrors.name ? (
-              <Text style={styles.fieldError}>{fieldErrors.name}</Text>
-            ) : null}
-
-            <Text
-              style={[
-                styles.inputLabel,
-                fieldErrors.expenseAmount && styles.inputLabelError,
-              ]}
-            >
-              Amount (₹) *
-            </Text>
-
-            <TextInput
-              style={[
-                styles.input,
-                fieldErrors.expenseAmount && styles.inputError,
-              ]}
-              placeholder="e.g. 4200"
-              keyboardType="numeric"
-              value={expenseAmount}
-              onChangeText={(text) => {
-                setExpenseAmount(text.replace(/[^0-9]/g, ""));
-
-                if (fieldErrors.expenseAmount) {
-                  setFieldErrors({
-                    ...fieldErrors,
-                    expenseAmount: "",
-                  });
-                }
-              }}
+            <FieldLabel
+              label="Expense Name"
+              required
+              error={fieldErrors.name}
             />
+
+            <InputContainer
+              icon="document-text-outline"
+              error={!!fieldErrors.name}
+            >
+              <TextInput
+                style={styles.input}
+                placeholder="Water bill, Lift repair"
+                placeholderTextColor="#9ca3af"
+                value={name}
+                onChangeText={(text) => {
+                  setName(text);
+
+                  if (fieldErrors.name) {
+                    setFieldErrors({
+                      ...fieldErrors,
+                      name: "",
+                    });
+                  }
+                }}
+              />
+            </InputContainer>
+
+            {fieldErrors.name ? <FieldError text={fieldErrors.name} /> : null}
+
+            <FieldLabel
+              label="Amount"
+              required
+              error={fieldErrors.expenseAmount}
+            />
+
+            <InputContainer
+              icon="cash-outline"
+              error={!!fieldErrors.expenseAmount}
+              prefix="₹"
+            >
+              <TextInput
+                style={styles.input}
+                placeholder="4200"
+                placeholderTextColor="#9ca3af"
+                keyboardType="numeric"
+                value={expenseAmount}
+                onChangeText={(text) => {
+                  setExpenseAmount(text.replace(/[^0-9]/g, ""));
+
+                  if (fieldErrors.expenseAmount) {
+                    setFieldErrors({
+                      ...fieldErrors,
+                      expenseAmount: "",
+                    });
+                  }
+                }}
+              />
+            </InputContainer>
 
             {fieldErrors.expenseAmount ? (
-              <Text style={styles.fieldError}>{fieldErrors.expenseAmount}</Text>
+              <FieldError text={fieldErrors.expenseAmount} />
             ) : null}
 
             {/* PAYMENT STATUS */}
 
-            <Text style={styles.inputLabel}>Payment Status</Text>
+            <Text style={styles.fieldLabel}>Payment Status</Text>
 
-            <View style={styles.statusRow}>
+            <View style={styles.paymentStatusRow}>
               <TouchableOpacity
                 style={[
-                  styles.statusOption,
-                  expenseStatus === "paid" && styles.statusOptionPaid,
+                  styles.paymentStatusCard,
+                  expenseStatus === "paid" && styles.paymentStatusCardPaid,
                 ]}
                 onPress={() => {
                   setExpenseStatus("paid");
                   setReminderEnabled(false);
                 }}
+                activeOpacity={0.75}
               >
-                <Ionicons
-                  name="checkmark-circle-outline"
-                  size={18}
-                  color={expenseStatus === "paid" ? "#16803a" : "#666"}
-                />
-
-                <Text
+                <View
                   style={[
-                    styles.statusOptionText,
-                    expenseStatus === "paid" && styles.statusOptionTextPaid,
+                    styles.paymentIcon,
+                    expenseStatus === "paid" && styles.paymentIconPaid,
                   ]}
                 >
-                  Paid
-                </Text>
+                  <Ionicons
+                    name="checkmark"
+                    size={18}
+                    color={expenseStatus === "paid" ? "#15803d" : "#6b7280"}
+                  />
+                </View>
+
+                <View style={styles.paymentTextWrapper}>
+                  <Text
+                    style={[
+                      styles.paymentTitle,
+                      expenseStatus === "paid" && styles.paymentTitlePaid,
+                    ]}
+                  >
+                    Paid
+                  </Text>
+
+                  <Text style={styles.paymentSubtitle}>Payment completed</Text>
+                </View>
+
+                {expenseStatus === "paid" ? (
+                  <Ionicons name="checkmark-circle" size={20} color="#16a34a" />
+                ) : null}
               </TouchableOpacity>
 
               <TouchableOpacity
                 style={[
-                  styles.statusOption,
-                  expenseStatus === "due" && styles.statusOptionDue,
+                  styles.paymentStatusCard,
+                  expenseStatus === "due" && styles.paymentStatusCardDue,
                 ]}
                 onPress={() => setExpenseStatus("due")}
+                activeOpacity={0.75}
               >
-                <Ionicons
-                  name="time-outline"
-                  size={18}
-                  color={expenseStatus === "due" ? "#b45f00" : "#666"}
-                />
-
-                <Text
+                <View
                   style={[
-                    styles.statusOptionText,
-                    expenseStatus === "due" && styles.statusOptionTextDue,
+                    styles.paymentIcon,
+                    expenseStatus === "due" && styles.paymentIconDue,
                   ]}
                 >
-                  Due
-                </Text>
+                  <Ionicons
+                    name="time-outline"
+                    size={18}
+                    color={expenseStatus === "due" ? "#c2410c" : "#6b7280"}
+                  />
+                </View>
+
+                <View style={styles.paymentTextWrapper}>
+                  <Text
+                    style={[
+                      styles.paymentTitle,
+                      expenseStatus === "due" && styles.paymentTitleDue,
+                    ]}
+                  >
+                    Due
+                  </Text>
+
+                  <Text style={styles.paymentSubtitle}>Payment pending</Text>
+                </View>
+
+                {expenseStatus === "due" ? (
+                  <Ionicons name="checkmark-circle" size={20} color="#ea580c" />
+                ) : null}
               </TouchableOpacity>
             </View>
 
             {/* REMINDER */}
 
             {expenseStatus === "due" ? (
-              <View style={styles.reminderRow}>
-                <View>
-                  <Text style={styles.reminderTitle}>Set Reminder</Text>
+              <View style={styles.reminderCard}>
+                <View style={styles.reminderIcon}>
+                  <Ionicons
+                    name="notifications-outline"
+                    size={20}
+                    color="#c2410c"
+                  />
+                </View>
+
+                <View style={styles.reminderText}>
+                  <Text style={styles.reminderTitle}>Payment Reminder</Text>
 
                   <Text style={styles.reminderSubtitle}>
                     Get notified on the expense date
@@ -1110,40 +1247,63 @@ export default function EditMemberScreen() {
                   value={reminderEnabled}
                   onValueChange={setReminderEnabled}
                   trackColor={{
-                    false: "#c9c9c9",
-                    true: "#86b9f4",
+                    false: "#d1d5db",
+                    true: "#fdba74",
                   }}
+                  thumbColor={reminderEnabled ? "#ea580c" : "#f4f4f5"}
                 />
               </View>
             ) : null}
 
             {/* DATE */}
 
-            <Text style={styles.inputLabel}>Expense Date</Text>
+            <Text style={styles.fieldLabel}>Expense Date</Text>
 
             <TouchableOpacity
-              style={styles.dateInput}
+              style={styles.dateField}
               onPress={() => setShowDatePicker(true)}
+              activeOpacity={0.75}
             >
-              <Text style={dueDate ? styles.dateText : styles.datePlaceholder}>
-                {dueDate || "Select date"}
-              </Text>
+              <View style={styles.dateIcon}>
+                <Ionicons name="calendar-outline" size={20} color="#2563eb" />
+              </View>
 
-              <Ionicons name="calendar-outline" size={20} color="#1a73e8" />
+              <View style={styles.dateTextWrapper}>
+                <Text
+                  style={dueDate ? styles.dateValue : styles.datePlaceholder}
+                >
+                  {dueDate || "Select expense date"}
+                </Text>
+              </View>
+
+              <Ionicons name="chevron-forward" size={18} color="#9ca3af" />
             </TouchableOpacity>
 
             {/* ATTACHMENTS */}
 
-            <Text style={styles.inputLabel}>Bill Attachment (optional)</Text>
+            <Text style={styles.fieldLabel}>
+              Bill Attachments
+              <Text style={styles.optionalText}> • Optional</Text>
+            </Text>
 
-            {billAttachments.length ? (
+            {billAttachments.length > 0 ? (
               <View style={styles.attachmentList}>
                 {billAttachments.map((attachment, index) => (
                   <View
                     key={`${attachment.uri}-${index}`}
-                    style={styles.attachmentRow}
+                    style={[
+                      styles.attachmentRow,
+                      index === billAttachments.length - 1 &&
+                        styles.attachmentRowLast,
+                    ]}
                   >
-                    <Ionicons name="image-outline" size={20} color="#1a73e8" />
+                    <View style={styles.attachmentIcon}>
+                      <Ionicons
+                        name="document-outline"
+                        size={19}
+                        color="#2563eb"
+                      />
+                    </View>
 
                     <Text style={styles.attachmentName} numberOfLines={1}>
                       {attachment.name}
@@ -1153,15 +1313,14 @@ export default function EditMemberScreen() {
                       style={styles.attachmentAction}
                       onPress={() => Linking.openURL(attachment.uri)}
                     >
-                      <Ionicons
-                        name="download-outline"
-                        size={20}
-                        color="#1a73e8"
-                      />
+                      <Ionicons name="open-outline" size={19} color="#2563eb" />
                     </TouchableOpacity>
 
                     <TouchableOpacity
-                      style={styles.attachmentAction}
+                      style={[
+                        styles.attachmentAction,
+                        styles.attachmentDeleteAction,
+                      ]}
                       onPress={() =>
                         setBillAttachments((currentAttachments) =>
                           currentAttachments.filter(
@@ -1172,79 +1331,141 @@ export default function EditMemberScreen() {
                     >
                       <Ionicons
                         name="trash-outline"
-                        size={20}
-                        color="#e53935"
+                        size={19}
+                        color="#dc2626"
                       />
                     </TouchableOpacity>
                   </View>
                 ))}
               </View>
-            ) : null}
+            ) : (
+              <View style={styles.emptyAttachment}>
+                <View style={styles.emptyAttachmentIcon}>
+                  <Ionicons
+                    name="document-attach-outline"
+                    size={26}
+                    color="#2563eb"
+                  />
+                </View>
+
+                <Text style={styles.emptyAttachmentTitle}>
+                  No bill attached
+                </Text>
+
+                <Text style={styles.emptyAttachmentSubtitle}>
+                  Add an image of the bill for your records.
+                </Text>
+              </View>
+            )}
 
             <TouchableOpacity
               style={styles.attachButton}
               onPress={handlePickBill}
+              activeOpacity={0.75}
             >
-              <Ionicons name="attach-outline" size={20} color="#1a73e8" />
+              <Ionicons name="add" size={21} color="#2563eb" />
 
               <Text style={styles.attachButtonText}>
                 {billAttachments.length
-                  ? "Add more attachments"
-                  : "Add bill attachments"}
+                  ? "Add another bill"
+                  : "Add bill attachment"}
               </Text>
             </TouchableOpacity>
 
             {/* NOTE */}
 
-            <Text style={styles.inputLabel}>Note</Text>
+            <Text style={styles.fieldLabel}>Note</Text>
 
-            <TextInput
-              style={[styles.input, styles.textArea]}
-              placeholder="Water bill for this month"
-              value={expenseDescription}
-              onChangeText={setExpenseDescription}
-              multiline
-            />
-          </>
+            <View style={styles.noteContainer}>
+              <Ionicons
+                name="create-outline"
+                size={19}
+                color="#9ca3af"
+                style={styles.noteIcon}
+              />
+
+              <TextInput
+                style={styles.noteInput}
+                placeholder="Add a note about this expense..."
+                placeholderTextColor="#9ca3af"
+                value={expenseDescription}
+                onChangeText={setExpenseDescription}
+                multiline
+                textAlignVertical="top"
+              />
+            </View>
+          </View>
         )}
 
-        {/* ERROR */}
+        {/* ==================================================
+            ERROR
+        ================================================== */}
 
         {error && (error !== "Please fix all the errors" || hasFieldErrors) ? (
-          <Text style={styles.error}>{error}</Text>
+          <View style={styles.errorCard}>
+            <Ionicons name="alert-circle-outline" size={19} color="#dc2626" />
+
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
         ) : null}
 
-        {/* UPDATE */}
+        {/* ==================================================
+            UPDATE BUTTON
+        ================================================== */}
 
         <TouchableOpacity
-          style={[styles.button, loading && styles.buttonDisabled]}
+          style={[styles.updateButton, loading && styles.updateButtonDisabled]}
           onPress={handleUpdate}
           disabled={loading}
+          activeOpacity={0.8}
         >
-          <Text style={styles.buttonText}>
-            {loading ? "Updating..." : "Update Member"}
+          <Ionicons
+            name={loading ? "hourglass-outline" : "checkmark-circle-outline"}
+            size={21}
+            color="#fff"
+          />
+
+          <Text style={styles.updateButtonText}>
+            {loading
+              ? "Saving Changes..."
+              : groupType === "expense"
+                ? "Save Expense"
+                : "Save Changes"}
           </Text>
         </TouchableOpacity>
 
-        <View style={styles.bottomSpace} />
+        {/* ==================================================
+            DELETE
+        ================================================== */}
+
+        <TouchableOpacity
+          style={styles.deleteTextButton}
+          onPress={handleDelete}
+          disabled={loading}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="trash-outline" size={18} color="#dc2626" />
+
+          <Text style={styles.deleteTextButtonText}>
+            Delete {groupType === "expense" ? "Expense" : "Member"}
+          </Text>
+        </TouchableOpacity>
+
+        <View style={{ height: Math.max(40, insets.bottom + 20) }} />
       </ScrollView>
 
       {/* ==================================================
           CONTACT PICKER
-          ================================================== */}
+      ================================================== */}
 
       <Modal
         visible={showContactPicker}
-        transparent={true}
+        transparent
         animationType="slide"
         onRequestClose={closeContactPicker}
       >
-        {/* OUTSIDE AREA */}
-
         <TouchableWithoutFeedback onPress={closeContactPicker}>
           <View style={styles.contactModalOverlay}>
-            {/* MODAL CONTENT */}
-
             <TouchableWithoutFeedback
               onPress={(event) => event.stopPropagation()}
             >
@@ -1252,57 +1473,63 @@ export default function EditMemberScreen() {
                 style={[
                   styles.contactModal,
                   {
-                    paddingBottom: Math.max(insets.bottom - 12, 0),
+                    paddingBottom: Math.max(insets.bottom, 12),
                   },
                 ]}
               >
-                {/* HEADER */}
+                <View style={styles.contactModalHandle} />
 
                 <View style={styles.contactModalHeader}>
-                  <Text style={styles.contactModalTitle}>Select Contact</Text>
+                  <View>
+                    <Text style={styles.contactModalTitle}>Select Contact</Text>
+
+                    <Text style={styles.contactModalSubtitle}>
+                      Choose a contact to use their phone number
+                    </Text>
+                  </View>
 
                   <TouchableOpacity
                     onPress={closeContactPicker}
                     style={styles.contactCloseButton}
                     activeOpacity={0.7}
                   >
-                    <Ionicons name="close" size={24} color="#333" />
+                    <Ionicons name="close" size={22} color="#374151" />
                   </TouchableOpacity>
                 </View>
 
-                {/* SEARCH */}
-
                 <View style={styles.contactSearchContainer}>
-                  <Ionicons name="search" size={20} color="#999" />
+                  <Ionicons name="search-outline" size={20} color="#9ca3af" />
 
                   <TextInput
                     style={styles.contactSearchInput}
-                    placeholder="Search contacts..."
-                    placeholderTextColor="#999"
+                    placeholder="Search contacts"
+                    placeholderTextColor="#9ca3af"
                     value={contactSearch}
                     onChangeText={setContactSearch}
                     autoCapitalize="none"
                     autoCorrect={false}
                     returnKeyType="search"
-                    autoFocus={false}
                   />
 
-                  {contactSearch.length > 0 && (
+                  {contactSearch.length > 0 ? (
                     <TouchableOpacity
                       onPress={() => setContactSearch("")}
                       style={styles.clearSearchButton}
-                      activeOpacity={0.7}
                     >
-                      <Ionicons name="close-circle" size={20} color="#999" />
+                      <Ionicons name="close-circle" size={20} color="#9ca3af" />
                     </TouchableOpacity>
-                  )}
+                  ) : null}
                 </View>
-
-                {/* CONTACT LIST */}
 
                 {loadingContacts ? (
                   <View style={styles.contactLoading}>
-                    <Ionicons name="people-outline" size={40} color="#ccc" />
+                    <View style={styles.contactLoadingIcon}>
+                      <Ionicons
+                        name="people-outline"
+                        size={30}
+                        color="#2563eb"
+                      />
+                    </View>
 
                     <Text style={styles.contactLoadingText}>
                       Loading contacts...
@@ -1313,13 +1540,10 @@ export default function EditMemberScreen() {
                     <ScrollView
                       style={styles.contactListContainer}
                       contentContainerStyle={styles.contactListContent}
-                      showsVerticalScrollIndicator={true}
+                      showsVerticalScrollIndicator
                       keyboardShouldPersistTaps="handled"
-                      nestedScrollEnabled={true}
-                      scrollEnabled={true}
-                      bounces={true}
-                      alwaysBounceVertical={true}
-                      removeClippedSubviews={false}
+                      nestedScrollEnabled
+                      bounces
                     >
                       {filteredContacts.length > 0 ? (
                         filteredContacts.map((contact) => (
@@ -1329,8 +1553,6 @@ export default function EditMemberScreen() {
                             onPress={() => selectContact(contact)}
                             activeOpacity={0.7}
                           >
-                            {/* AVATAR */}
-
                             <View style={styles.contactAvatar}>
                               <Text style={styles.contactAvatarText}>
                                 {contact.name
@@ -1338,8 +1560,6 @@ export default function EditMemberScreen() {
                                   : "?"}
                               </Text>
                             </View>
-
-                            {/* DETAILS */}
 
                             <View style={styles.contactInfo}>
                               <Text
@@ -1349,21 +1569,20 @@ export default function EditMemberScreen() {
                                 {contact.name || "Unknown"}
                               </Text>
 
-                              {contact.phoneNumbers &&
-                                contact.phoneNumbers.length > 0 && (
-                                  <Text
-                                    style={styles.contactPhone}
-                                    numberOfLines={1}
-                                  >
-                                    {contact.phoneNumbers[0].number}
-                                  </Text>
-                                )}
+                              {contact.phoneNumbers?.length > 0 ? (
+                                <Text
+                                  style={styles.contactPhone}
+                                  numberOfLines={1}
+                                >
+                                  {contact.phoneNumbers[0].number}
+                                </Text>
+                              ) : null}
                             </View>
 
                             <Ionicons
                               name="chevron-forward"
-                              size={20}
-                              color="#ccc"
+                              size={19}
+                              color="#9ca3af"
                             />
                           </TouchableOpacity>
                         ))
@@ -1372,8 +1591,8 @@ export default function EditMemberScreen() {
                           <View style={styles.noContactsIcon}>
                             <Ionicons
                               name="search-outline"
-                              size={32}
-                              color="#999"
+                              size={30}
+                              color="#9ca3af"
                             />
                           </View>
 
@@ -1382,7 +1601,7 @@ export default function EditMemberScreen() {
                           </Text>
 
                           <Text style={styles.noContactsText}>
-                            Try searching with a different name or phone number.
+                            Try another name or phone number.
                           </Text>
                         </View>
                       )}
@@ -1390,19 +1609,13 @@ export default function EditMemberScreen() {
                   </View>
                 )}
 
-                {/* ==================================================
-                    CANCEL BUTTON
-                    ================================================== */}
-
-                <View style={styles.contactModalFooter}>
-                  <TouchableOpacity
-                    style={styles.contactCancelButton}
-                    onPress={closeContactPicker}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.contactCancelButtonText}>Cancel</Text>
-                  </TouchableOpacity>
-                </View>
+                <TouchableOpacity
+                  style={styles.contactCancelButton}
+                  onPress={closeContactPicker}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.contactCancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
               </View>
             </TouchableWithoutFeedback>
           </View>
@@ -1411,7 +1624,7 @@ export default function EditMemberScreen() {
 
       {/* ==================================================
           DATE PICKER
-          ================================================== */}
+      ================================================== */}
 
       <DatePickerModal
         visible={showDatePicker}
@@ -1422,7 +1635,7 @@ export default function EditMemberScreen() {
 
       {/* ==================================================
           DELETE CONFIRMATION
-          ================================================== */}
+      ================================================== */}
 
       <Modal
         transparent
@@ -1432,7 +1645,13 @@ export default function EditMemberScreen() {
       >
         <View style={styles.modalOverlay}>
           <View style={styles.confirmationModal}>
-            <Text style={styles.confirmationTitle}>Delete Member?</Text>
+            <View style={styles.deleteWarningIcon}>
+              <Ionicons name="trash-outline" size={25} color="#dc2626" />
+            </View>
+
+            <Text style={styles.confirmationTitle}>
+              Delete {groupType === "expense" ? "Expense" : "Member"}?
+            </Text>
 
             <Text style={styles.confirmationMessage}>
               Are you sure you want to delete {name}? This action cannot be
@@ -1456,6 +1675,8 @@ export default function EditMemberScreen() {
                 onPress={confirmDelete}
                 disabled={loading}
               >
+                <Ionicons name="trash-outline" size={17} color="#fff" />
+
                 <Text style={styles.confirmDeleteButtonText}>
                   {loading ? "Deleting..." : "Delete"}
                 </Text>
@@ -1469,377 +1690,944 @@ export default function EditMemberScreen() {
 }
 
 // ==================================================
+// REUSABLE UI COMPONENTS
+// ==================================================
+
+function SectionHeader({
+  icon,
+  title,
+  subtitle,
+}: {
+  icon: keyof typeof Ionicons.glyphMap;
+  title: string;
+  subtitle: string;
+}) {
+  return (
+    <View style={styles.sectionHeader}>
+      <View style={styles.sectionIcon}>
+        <Ionicons name={icon} size={20} color="#2563eb" />
+      </View>
+
+      <View style={styles.sectionHeaderText}>
+        <Text style={styles.sectionTitle}>{title}</Text>
+        <Text style={styles.sectionSubtitle}>{subtitle}</Text>
+      </View>
+    </View>
+  );
+}
+
+function FieldLabel({
+  label,
+  required,
+  optional,
+  error,
+}: {
+  label: string;
+  required?: boolean;
+  optional?: boolean;
+  error?: string;
+}) {
+  return (
+    <View style={styles.fieldLabelRow}>
+      <Text style={[styles.fieldLabel, error && styles.fieldLabelError]}>
+        {label}
+
+        {required ? <Text style={styles.requiredMark}> *</Text> : null}
+
+        {optional ? <Text style={styles.optionalText}> • Optional</Text> : null}
+      </Text>
+    </View>
+  );
+}
+
+function FieldError({ text }: { text: string }) {
+  return (
+    <View style={styles.fieldErrorRow}>
+      <Ionicons name="alert-circle-outline" size={14} color="#dc2626" />
+
+      <Text style={styles.fieldError}>{text}</Text>
+    </View>
+  );
+}
+
+function InputContainer({
+  children,
+  icon,
+  error,
+  prefix,
+  suffix,
+}: {
+  children: React.ReactNode;
+  icon: keyof typeof Ionicons.glyphMap;
+  error?: boolean;
+  prefix?: string;
+  suffix?: string;
+}) {
+  return (
+    <View style={[styles.inputContainer, error && styles.errorBorder]}>
+      <Ionicons
+        name={icon}
+        size={19}
+        color={error ? "#dc2626" : "#9ca3af"}
+        style={styles.inputIcon}
+      />
+
+      {prefix ? <Text style={styles.inputPrefix}>{prefix}</Text> : null}
+
+      {children}
+
+      {suffix ? <Text style={styles.inputSuffix}>{suffix}</Text> : null}
+    </View>
+  );
+}
+
+// ==================================================
 // STYLES
 // ==================================================
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: "#f6f8fc",
   },
+
+  scrollContent: {
+    paddingHorizontal: 18,
+    paddingTop: 8,
+    paddingBottom: 40,
+  },
+
+  // ==================================================
+  // NOT FOUND
+  // ==================================================
 
   centerContent: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    padding: 24,
-    gap: 16,
+    padding: 28,
   },
 
-  scrollContent: {
-    padding: 24,
-    paddingBottom: 40,
-  },
-
-  bottomSpace: {
-    height: 100,
-  },
-
-  header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
+  notFoundIcon: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    backgroundColor: "#eaf2ff",
+    justifyContent: "center",
     alignItems: "center",
-    marginBottom: 8,
+    marginBottom: 18,
   },
 
-  title: {
-    fontSize: 22,
+  notFoundTitle: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#111827",
+  },
+
+  notFoundSubtitle: {
+    fontSize: 14,
+    color: "#6b7280",
+    textAlign: "center",
+    marginTop: 7,
+    marginBottom: 22,
+  },
+
+  backButton: {
+    minWidth: 130,
+    height: 46,
+    borderRadius: 12,
+    backgroundColor: "#2563eb",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+
+  backButtonText: {
+    color: "#fff",
+    fontSize: 15,
     fontWeight: "700",
   },
 
-  photoSection: {
+  // ==================================================
+  // HEADER
+  // ==================================================
+
+  topHeader: {
+    minHeight: 68,
+    flexDirection: "row",
     alignItems: "center",
-    marginBottom: 8,
+    justifyContent: "space-between",
+    marginBottom: 12,
   },
 
-  photoCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: "#f0f0f0",
-    borderWidth: 1.5,
-    borderColor: "#ddd",
-    borderStyle: "dashed",
+  headerLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
+
+  headerBackButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: "#fff",
     justifyContent: "center",
     alignItems: "center",
-    overflow: "hidden",
+    marginRight: 11,
+    borderWidth: 1,
+    borderColor: "#e8edf5",
   },
 
-  photoImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+  headerTitle: {
+    fontSize: 21,
+    fontWeight: "800",
+    color: "#111827",
   },
 
-  photoLabel: {
+  headerSubtitle: {
     fontSize: 12,
-    color: "#1a73e8",
-    fontWeight: "600",
+    color: "#6b7280",
+    marginTop: 3,
+  },
+
+  headerDeleteButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: "#fff1f2",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#fee2e2",
+  },
+
+  // ==================================================
+  // PROFILE
+  // ==================================================
+
+  profileCard: {
+    backgroundColor: "#fff",
+    borderRadius: 18,
+    padding: 18,
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#e8edf5",
+    marginBottom: 14,
+  },
+
+  profileAvatarWrapper: {
+    width: 78,
+    height: 78,
+    position: "relative",
+  },
+
+  profileImage: {
+    width: 78,
+    height: 78,
+    borderRadius: 39,
+  },
+
+  profilePlaceholder: {
+    width: 78,
+    height: 78,
+    borderRadius: 39,
+    backgroundColor: "#eaf2ff",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#d7e6ff",
+  },
+
+  cameraBadge: {
+    position: "absolute",
+    right: -2,
+    bottom: -2,
+    width: 27,
+    height: 27,
+    borderRadius: 14,
+    backgroundColor: "#2563eb",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 3,
+    borderColor: "#fff",
+  },
+
+  profileInfo: {
+    flex: 1,
+    marginLeft: 16,
+  },
+
+  profileName: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#111827",
+  },
+
+  profileRole: {
+    fontSize: 13,
+    color: "#6b7280",
+    marginTop: 4,
+  },
+
+  changePhotoText: {
+    fontSize: 12,
+    color: "#2563eb",
+    fontWeight: "700",
     marginTop: 8,
   },
 
-  deleteButton: {
-    padding: 8,
+  // ==================================================
+  // CARDS
+  // ==================================================
+
+  card: {
+    backgroundColor: "#fff",
+    borderRadius: 18,
+    padding: 18,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: "#e8edf5",
   },
 
-  sectionLabel: {
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 19,
+  },
+
+  sectionIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: "#eaf2ff",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+
+  sectionHeaderText: {
+    flex: 1,
+    marginLeft: 11,
+  },
+
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#111827",
+  },
+
+  sectionSubtitle: {
+    fontSize: 12,
+    color: "#8a94a6",
+    marginTop: 3,
+  },
+
+  // ==================================================
+  // FIELDS
+  // ==================================================
+
+  fieldLabelRow: {
+    marginTop: 2,
+    marginBottom: 8,
+  },
+
+  fieldLabel: {
     fontSize: 13,
     fontWeight: "700",
-    color: "#1a73e8",
-    marginTop: 24,
-    marginBottom: 4,
-    textTransform: "uppercase",
+    color: "#374151",
   },
 
-  inputLabel: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#555",
-    marginBottom: 8,
-    marginTop: 16,
+  fieldLabelError: {
+    color: "#dc2626",
+  },
+
+  requiredMark: {
+    color: "#dc2626",
+  },
+
+  optionalText: {
+    color: "#9ca3af",
+    fontWeight: "500",
+  },
+
+  inputContainer: {
+    minHeight: 52,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    backgroundColor: "#fbfcfe",
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 13,
+    marginBottom: 15,
+  },
+
+  inputIcon: {
+    marginRight: 10,
   },
 
   input: {
-    borderWidth: 1,
-    borderColor: "#e8e8e8",
-    borderRadius: 10,
+    flex: 1,
     height: 50,
-    paddingHorizontal: 14,
     fontSize: 15,
-    backgroundColor: "#fff",
+    color: "#111827",
+    paddingVertical: 0,
   },
 
-  textArea: {
-    height: 100,
-    textAlignVertical: "top" as const,
-    paddingTop: 12,
+  inputPrefix: {
+    fontSize: 15,
+    color: "#374151",
+    fontWeight: "700",
+    marginRight: 5,
   },
 
-  phoneRow: {
+  inputSuffix: {
+    fontSize: 12,
+    color: "#6b7280",
+    fontWeight: "600",
+    marginLeft: 8,
+  },
+
+  errorBorder: {
+    borderColor: "#dc2626",
+    backgroundColor: "#fffafa",
+  },
+
+  fieldErrorRow: {
     flexDirection: "row",
     alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#e8e8e8",
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingRight: 4,
+    marginTop: -9,
+    marginBottom: 14,
   },
 
-  prefix: {
-    fontSize: 15,
-    marginRight: 8,
-    color: "#333",
+  fieldError: {
+    fontSize: 12,
+    color: "#dc2626",
+    marginLeft: 5,
+    fontWeight: "600",
+  },
+
+  // ==================================================
+  // PHONE
+  // ==================================================
+
+  phoneContainer: {
+    height: 52,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    backgroundColor: "#fbfcfe",
+    flexDirection: "row",
+    alignItems: "center",
+    paddingLeft: 13,
+    paddingRight: 7,
+    marginBottom: 15,
+  },
+
+  countryCode: {
+    paddingRight: 12,
+    borderRightWidth: 1,
+    borderRightColor: "#e5e7eb",
+  },
+
+  countryCodeText: {
+    fontSize: 14,
+    color: "#374151",
+    fontWeight: "700",
   },
 
   phoneInput: {
     flex: 1,
     height: 50,
+    paddingHorizontal: 12,
     fontSize: 15,
+    color: "#111827",
   },
 
-  // Same contact icon style as AddMemberScreen
-
-  contactIcon: {
-    padding: 10,
+  contactButton: {
+    width: 40,
+    height: 40,
     borderRadius: 10,
+    backgroundColor: "#eaf2ff",
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#f0f6ff",
-    marginLeft: 6,
   },
 
-  roleRow: {
+  // ==================================================
+  // ROLE
+  // ==================================================
+
+  roleGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 10,
+    gap: 9,
   },
 
-  roleChip: {
-    borderWidth: 1.5,
-    borderColor: "#e0e0e0",
-    borderRadius: 20,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
-  },
-
-  roleChipSelected: {
-    borderColor: "#1a73e8",
-    backgroundColor: "#f0f6ff",
-  },
-
-  roleChipText: {
-    fontSize: 13,
-    color: "#555",
-    fontWeight: "500",
-  },
-
-  roleChipTextSelected: {
-    color: "#1a73e8",
-    fontWeight: "700",
-  },
-
-  customRoleInput: {
-    marginTop: 10,
-  },
-
-  statusRow: {
-    flexDirection: "row",
-    gap: 10,
-  },
-
-  statusOption: {
-    flex: 1,
-    height: 46,
+  roleOption: {
+    minHeight: 47,
+    paddingHorizontal: 13,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    backgroundColor: "#fff",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
-    borderWidth: 1,
-    borderColor: "#dedede",
-    borderRadius: 8,
   },
 
-  statusOptionPaid: {
-    borderColor: "#4caf70",
-    backgroundColor: "#f0f9f2",
+  roleOptionSelected: {
+    borderColor: "#2563eb",
+    backgroundColor: "#eff6ff",
   },
 
-  statusOptionDue: {
-    borderColor: "#ed9b40",
-    backgroundColor: "#fff7ed",
+  roleRadio: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 1.5,
+    borderColor: "#cbd5e1",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 8,
   },
 
-  statusOptionText: {
-    color: "#555",
-    fontSize: 14,
+  roleRadioSelected: {
+    borderColor: "#2563eb",
+  },
+
+  roleRadioDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#2563eb",
+  },
+
+  roleOptionText: {
+    fontSize: 13,
+    color: "#4b5563",
     fontWeight: "600",
   },
 
-  statusOptionTextPaid: {
-    color: "#16803a",
+  roleOptionTextSelected: {
+    color: "#2563eb",
+    fontWeight: "800",
   },
 
-  statusOptionTextDue: {
-    color: "#b45f00",
+  customRoleWrapper: {
+    marginTop: 12,
   },
 
-  reminderRow: {
+  // ==================================================
+  // SETTINGS
+  // ==================================================
+
+  settingRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    padding: 12,
-    marginTop: 10,
-    borderRadius: 8,
+    paddingVertical: 13,
+    paddingHorizontal: 2,
+    marginTop: 1,
+    marginBottom: 14,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: "#eef2f7",
+  },
+
+  settingIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 11,
+    backgroundColor: "#eaf2ff",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+
+  settingTextContainer: {
+    flex: 1,
+    marginLeft: 11,
+  },
+
+  settingTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#1f2937",
+  },
+
+  settingSubtitle: {
+    fontSize: 11,
+    color: "#8a94a6",
+    marginTop: 3,
+  },
+
+  // ==================================================
+  // PAYMENT STATUS
+  // ==================================================
+
+  paymentStatusRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 14,
+  },
+
+  paymentStatusCard: {
+    flex: 1,
+    minHeight: 78,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    borderRadius: 13,
+    padding: 11,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  paymentStatusCardPaid: {
+    borderColor: "#86efac",
+    backgroundColor: "#f0fdf4",
+  },
+
+  paymentStatusCardDue: {
+    borderColor: "#fdba74",
     backgroundColor: "#fff7ed",
   },
 
-  reminderTitle: {
-    color: "#333",
-    fontSize: 14,
-    fontWeight: "600",
+  paymentIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: "#f3f4f6",
+    justifyContent: "center",
+    alignItems: "center",
   },
 
-  reminderSubtitle: {
-    color: "#777",
-    fontSize: 12,
+  paymentIconPaid: {
+    backgroundColor: "#dcfce7",
+  },
+
+  paymentIconDue: {
+    backgroundColor: "#ffedd5",
+  },
+
+  paymentTextWrapper: {
+    flex: 1,
+    marginLeft: 8,
+  },
+
+  paymentTitle: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#374151",
+  },
+
+  paymentTitlePaid: {
+    color: "#15803d",
+  },
+
+  paymentTitleDue: {
+    color: "#c2410c",
+  },
+
+  paymentSubtitle: {
+    fontSize: 10,
+    color: "#9ca3af",
     marginTop: 2,
   },
 
-  dateInput: {
-    height: 50,
+  // ==================================================
+  // REMINDER
+  // ==================================================
+
+  reminderCard: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    padding: 12,
+    borderRadius: 13,
+    backgroundColor: "#fff7ed",
     borderWidth: 1,
-    borderColor: "#e8e8e8",
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    backgroundColor: "#fff",
+    borderColor: "#fed7aa",
+    marginBottom: 15,
   },
 
-  dateText: {
-    color: "#333",
-    fontSize: 15,
-  },
-
-  datePlaceholder: {
-    color: "#999",
-    fontSize: 15,
-  },
-
-  attachButton: {
-    flexDirection: "row",
-    alignItems: "center",
+  reminderIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 11,
+    backgroundColor: "#ffedd5",
     justifyContent: "center",
-    gap: 8,
-    height: 44,
-    borderWidth: 1,
-    borderStyle: "dashed",
-    borderColor: "#7eaff0",
-    borderRadius: 8,
-    marginTop: 8,
+    alignItems: "center",
   },
 
-  attachButtonText: {
-    color: "#1a73e8",
+  reminderText: {
+    flex: 1,
+    marginLeft: 10,
+  },
+
+  reminderTitle: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#9a3412",
+  },
+
+  reminderSubtitle: {
+    fontSize: 11,
+    color: "#c2410c",
+    marginTop: 3,
+  },
+
+  // ==================================================
+  // DATE
+  // ==================================================
+
+  dateField: {
+    minHeight: 54,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    backgroundColor: "#fbfcfe",
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 11,
+    marginBottom: 15,
+  },
+
+  dateIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    backgroundColor: "#eaf2ff",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+
+  dateTextWrapper: {
+    flex: 1,
+    marginLeft: 11,
+  },
+
+  dateValue: {
+    fontSize: 14,
+    color: "#111827",
     fontWeight: "600",
   },
 
+  datePlaceholder: {
+    fontSize: 14,
+    color: "#9ca3af",
+  },
+
+  // ==================================================
+  // ATTACHMENTS
+  // ==================================================
+
   attachmentList: {
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: "#e2e9f4",
-    borderRadius: 8,
+    borderColor: "#e2e8f0",
     overflow: "hidden",
+    marginBottom: 10,
   },
 
   attachmentRow: {
+    minHeight: 58,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    backgroundColor: "#f8fbff",
+    paddingHorizontal: 10,
     borderBottomWidth: 1,
-    borderBottomColor: "#e2e9f4",
+    borderBottomColor: "#eef2f7",
+  },
+
+  attachmentRowLast: {
+    borderBottomWidth: 0,
+  },
+
+  attachmentIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: "#eaf2ff",
+    justifyContent: "center",
+    alignItems: "center",
   },
 
   attachmentName: {
     flex: 1,
-    color: "#333",
-    fontSize: 14,
+    fontSize: 13,
+    color: "#374151",
+    fontWeight: "600",
+    marginLeft: 9,
   },
 
   attachmentAction: {
-    padding: 4,
-  },
-
-  switchRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
+    width: 34,
+    height: 34,
+    justifyContent: "center",
     alignItems: "center",
-    marginTop: 16,
-    paddingVertical: 8,
+    borderRadius: 9,
+    backgroundColor: "#eff6ff",
+    marginLeft: 5,
   },
 
-  error: {
-    color: "#e53935",
-    marginTop: 16,
-    marginBottom: 8,
+  attachmentDeleteAction: {
+    backgroundColor: "#fff1f2",
+  },
+
+  emptyAttachment: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 20,
+    paddingHorizontal: 15,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: "#cbd5e1",
+    borderRadius: 13,
+    backgroundColor: "#fafcff",
+    marginBottom: 10,
+  },
+
+  emptyAttachmentIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 14,
+    backgroundColor: "#eaf2ff",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 9,
+  },
+
+  emptyAttachmentTitle: {
     fontSize: 13,
+    fontWeight: "700",
+    color: "#374151",
+  },
+
+  emptyAttachmentSubtitle: {
+    fontSize: 11,
+    color: "#9ca3af",
     textAlign: "center",
-    backgroundColor: "#ffebee",
-    padding: 12,
-    borderRadius: 8,
-    fontWeight: "500",
-  },
-
-  fieldError: {
-    color: "#e53935",
-    fontSize: 12,
     marginTop: 4,
-    marginBottom: 8,
-    fontWeight: "500",
   },
 
-  inputLabelError: {
-    color: "#e53935",
+  attachButton: {
+    height: 46,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#bfdbfe",
+    backgroundColor: "#eff6ff",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 15,
   },
 
-  inputError: {
-    borderColor: "#e53935",
-    borderWidth: 1.5,
+  attachButtonText: {
+    fontSize: 13,
+    color: "#2563eb",
+    fontWeight: "800",
+    marginLeft: 6,
   },
 
-  phoneRowError: {
-    borderColor: "#e53935",
-    borderWidth: 1.5,
+  // ==================================================
+  // NOTE
+  // ==================================================
+
+  noteContainer: {
+    minHeight: 105,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    borderRadius: 12,
+    backgroundColor: "#fbfcfe",
+    flexDirection: "row",
+    alignItems: "flex-start",
+    padding: 12,
+  },
+
+  noteIcon: {
+    marginTop: 2,
+    marginRight: 9,
+  },
+
+  noteInput: {
+    flex: 1,
+    minHeight: 80,
+    fontSize: 14,
+    color: "#111827",
+    padding: 0,
+  },
+
+  // ==================================================
+  // ERROR
+  // ==================================================
+
+  errorCard: {
+    minHeight: 48,
+    borderRadius: 12,
+    backgroundColor: "#fef2f2",
+    borderWidth: 1,
+    borderColor: "#fecaca",
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 13,
+    marginBottom: 12,
   },
 
   errorText: {
-    fontSize: 16,
-    color: "#e53935",
-    marginBottom: 16,
-    textAlign: "center",
+    flex: 1,
+    fontSize: 13,
+    color: "#b91c1c",
+    fontWeight: "600",
+    marginLeft: 8,
+    lineHeight: 18,
   },
 
-  button: {
-    backgroundColor: "#1a73e8",
-    borderRadius: 10,
-    height: 52,
+  // ==================================================
+  // UPDATE
+  // ==================================================
+
+  updateButton: {
+    height: 54,
+    borderRadius: 14,
+    backgroundColor: "#2563eb",
+    flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
-    marginTop: 28,
-    width: "100%",
+    marginTop: 3,
+    shadowColor: "#2563eb",
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    elevation: 3,
+  },
+
+  updateButtonDisabled: {
+    backgroundColor: "#93c5fd",
+    shadowOpacity: 0,
+  },
+
+  updateButtonText: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "800",
+    marginLeft: 8,
+  },
+
+  deleteTextButton: {
+    height: 48,
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    marginTop: 7,
+  },
+
+  deleteTextButtonText: {
+    color: "#dc2626",
+    fontSize: 13,
+    fontWeight: "700",
+    marginLeft: 6,
   },
 
   buttonDisabled: {
-    backgroundColor: "#a0c4f0",
-  },
-
-  buttonText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "600",
+    opacity: 0.6,
   },
 
   // ==================================================
@@ -1848,65 +2636,84 @@ const styles = StyleSheet.create({
 
   contactModalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    backgroundColor: "rgba(15, 23, 42, 0.52)",
     justifyContent: "flex-end",
   },
 
   contactModal: {
     backgroundColor: "#fff",
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    maxHeight: "85%",
-    minHeight: "40%",
+    borderTopLeftRadius: 25,
+    borderTopRightRadius: 25,
+    paddingHorizontal: 18,
+    paddingTop: 10,
+    maxHeight: "88%",
+    minHeight: "45%",
+  },
+
+  contactModalHandle: {
+    width: 42,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#d1d5db",
+    alignSelf: "center",
+    marginBottom: 17,
   },
 
   contactModalHeader: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
+    justifyContent: "space-between",
     marginBottom: 16,
   },
 
   contactModalTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#1a1a1a",
+    fontSize: 19,
+    fontWeight: "800",
+    color: "#111827",
+  },
+
+  contactModalSubtitle: {
+    fontSize: 11,
+    color: "#8a94a6",
+    marginTop: 3,
   },
 
   contactCloseButton: {
-    padding: 4,
+    width: 38,
+    height: 38,
+    borderRadius: 11,
+    backgroundColor: "#f3f4f6",
+    justifyContent: "center",
+    alignItems: "center",
   },
 
   contactSearchContainer: {
+    minHeight: 48,
+    borderRadius: 12,
+    backgroundColor: "#f4f6f9",
+    borderWidth: 1,
+    borderColor: "#e5e7eb",
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#f5f5f5",
-    borderRadius: 10,
     paddingHorizontal: 12,
-    marginBottom: 16,
-    minHeight: 46,
+    marginBottom: 12,
   },
 
   contactSearchInput: {
     flex: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 8,
-    fontSize: 15,
-    color: "#1a1a1a",
+    height: 46,
+    fontSize: 14,
+    color: "#111827",
+    paddingHorizontal: 9,
   },
 
   clearSearchButton: {
-    padding: 4,
-    justifyContent: "center",
-    alignItems: "center",
+    padding: 3,
   },
 
   contactListWrapper: {
     flex: 1,
     minHeight: 200,
-    maxHeight: 400,
   },
 
   contactListContainer: {
@@ -1918,44 +2725,44 @@ const styles = StyleSheet.create({
   },
 
   contactItem: {
+    minHeight: 64,
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 12,
+    paddingVertical: 8,
     borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
+    borderBottomColor: "#f0f2f5",
   },
 
   contactAvatar: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: "#e8f0fe",
+    backgroundColor: "#eaf2ff",
     justifyContent: "center",
     alignItems: "center",
-    marginRight: 12,
   },
 
   contactAvatarText: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#1a73e8",
+    fontSize: 17,
+    fontWeight: "800",
+    color: "#2563eb",
   },
 
   contactInfo: {
     flex: 1,
-    marginRight: 8,
+    marginHorizontal: 11,
   },
 
   contactName: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#1a1a1a",
+    fontSize: 14,
+    color: "#1f2937",
+    fontWeight: "700",
   },
 
   contactPhone: {
-    fontSize: 13,
-    color: "#666",
-    marginTop: 2,
+    fontSize: 12,
+    color: "#8a94a6",
+    marginTop: 3,
   },
 
   contactLoading: {
@@ -1965,62 +2772,65 @@ const styles = StyleSheet.create({
     padding: 30,
   },
 
+  contactLoadingIcon: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    backgroundColor: "#eaf2ff",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+
   contactLoadingText: {
-    fontSize: 15,
-    color: "#777",
-    marginTop: 12,
+    fontSize: 14,
+    color: "#6b7280",
+    marginTop: 11,
+    fontWeight: "600",
   },
 
   noContactsContainer: {
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 40,
+    paddingVertical: 45,
     paddingHorizontal: 20,
   },
 
   noContactsIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: "#f5f5f5",
-    alignItems: "center",
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    backgroundColor: "#f3f4f6",
     justifyContent: "center",
+    alignItems: "center",
     marginBottom: 12,
   },
 
   noContactsTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#333",
-    marginBottom: 6,
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#374151",
   },
 
   noContactsText: {
-    fontSize: 13,
-    color: "#888",
+    fontSize: 12,
+    color: "#9ca3af",
     textAlign: "center",
-    lineHeight: 19,
-  },
-
-  // THIS WAS MISSING
-
-  contactModalFooter: {
-    paddingTop: 12,
-    paddingBottom: 0,
+    marginTop: 5,
   },
 
   contactCancelButton: {
     height: 48,
-    borderRadius: 10,
-    backgroundColor: "#f5f5f5",
-    alignItems: "center",
+    borderRadius: 12,
+    backgroundColor: "#f3f4f6",
     justifyContent: "center",
+    alignItems: "center",
+    marginTop: 10,
   },
 
   contactCancelButtonText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#555",
+    fontSize: 14,
+    color: "#374151",
+    fontWeight: "800",
   },
 
   // ==================================================
@@ -2031,63 +2841,78 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "rgba(0, 0, 0, 0.4)",
-    padding: 24,
+    backgroundColor: "rgba(15, 23, 42, 0.52)",
+    padding: 22,
   },
 
   confirmationModal: {
     width: "100%",
-    maxWidth: 360,
+    maxWidth: 380,
     backgroundColor: "#fff",
-    borderRadius: 8,
-    padding: 24,
+    borderRadius: 20,
+    padding: 22,
+  },
+
+  deleteWarningIcon: {
+    width: 52,
+    height: 52,
+    borderRadius: 16,
+    backgroundColor: "#fef2f2",
+    justifyContent: "center",
+    alignItems: "center",
+    marginBottom: 15,
   },
 
   confirmationTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#222",
+    fontSize: 19,
+    fontWeight: "800",
+    color: "#111827",
   },
 
   confirmationMessage: {
-    fontSize: 14,
-    color: "#555",
+    fontSize: 13,
+    color: "#6b7280",
     lineHeight: 20,
-    marginTop: 12,
+    marginTop: 9,
   },
 
   confirmationActions: {
     flexDirection: "row",
     justifyContent: "flex-end",
-    gap: 12,
-    marginTop: 24,
+    alignItems: "center",
+    gap: 10,
+    marginTop: 23,
   },
 
   cancelButton: {
-    minWidth: 88,
-    height: 42,
+    minWidth: 90,
+    height: 44,
     justifyContent: "center",
     alignItems: "center",
+    borderRadius: 11,
+    backgroundColor: "#f3f4f6",
   },
 
   cancelButtonText: {
-    color: "#555",
-    fontSize: 14,
-    fontWeight: "600",
+    color: "#374151",
+    fontSize: 13,
+    fontWeight: "700",
   },
 
   confirmDeleteButton: {
-    minWidth: 88,
-    height: 42,
+    minWidth: 105,
+    height: 44,
+    flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#e53935",
-    borderRadius: 6,
+    backgroundColor: "#dc2626",
+    borderRadius: 11,
   },
 
   confirmDeleteButtonText: {
     color: "#fff",
-    fontSize: 14,
-    fontWeight: "600",
+    fontSize: 13,
+    fontWeight: "800",
+    marginLeft: 6,
   },
-});
+}) as any;

@@ -21,6 +21,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+
 import DatePickerModal from "../../components/DatePickerModal";
 import { useMembers } from "../../hooks/useMembers";
 import { GroupType } from "../../types/group";
@@ -29,6 +30,7 @@ import { BillAttachment, MemberRole } from "../../types/member";
 interface RoleOption {
   role: MemberRole;
   label: string;
+  icon: keyof typeof Ionicons.glyphMap;
 }
 
 interface ContactData {
@@ -40,23 +42,71 @@ interface ContactData {
   }[];
 }
 
+const BLUE = "#2563EB";
+const BLUE_LIGHT = "#EFF6FF";
+const TEXT = "#111827";
+const TEXT_SECONDARY = "#6B7280";
+const BORDER = "#E5E7EB";
+const BACKGROUND = "#F8FAFC";
+const RED = "#DC2626";
+
 const APARTMENT_ROLES: RoleOption[] = [
-  { role: "owner", label: "Owner" },
-  { role: "secretary", label: "Secretary" },
-  { role: "tenant", label: "Tenant" },
+  {
+    role: "owner",
+    label: "Owner",
+    icon: "home-outline",
+  },
+  {
+    role: "secretary",
+    label: "Secretary",
+    icon: "shield-checkmark-outline",
+  },
+  {
+    role: "tenant",
+    label: "Tenant",
+    icon: "person-outline",
+  },
 ];
 
 const STAFF_ROLES: RoleOption[] = [
-  { role: "sweeper", label: "Sweeper" },
-  { role: "security", label: "Security" },
-  { role: "maintenance", label: "Maintenance" },
+  {
+    role: "sweeper",
+    label: "Sweeper",
+    icon: "sparkles-outline",
+  },
+  {
+    role: "security",
+    label: "Security",
+    icon: "shield-outline",
+  },
+  {
+    role: "maintenance",
+    label: "Maintenance",
+    icon: "construct-outline",
+  },
 ];
 
 const EXPENSE_ROLES: RoleOption[] = [
-  { role: "electricity", label: "Electricity" },
-  { role: "water", label: "Water" },
-  { role: "maintenance", label: "Maintenance" },
-  { role: "other", label: "Other" },
+  {
+    role: "electricity",
+    label: "Electricity",
+    icon: "flash-outline",
+  },
+  {
+    role: "water",
+    label: "Water",
+    icon: "water-outline",
+  },
+  {
+    role: "maintenance",
+    label: "Maintenance",
+    icon: "construct-outline",
+  },
+  {
+    role: "other",
+    label: "Other",
+    icon: "ellipsis-horizontal-circle-outline",
+  },
 ];
 
 export default function AddMemberScreen() {
@@ -101,7 +151,7 @@ export default function AddMemberScreen() {
 
   const [wing, setWing] = useState("");
   const [flatNumber, setFlatNumber] = useState("");
-  const [areaSqft, setAreaSqft] = useState<string>("");
+  const [areaSqft, setAreaSqft] = useState("");
   const [parkingAvailable, setParkingAvailable] = useState(false);
   const [maintenanceAmount, setMaintenanceAmount] = useState("");
 
@@ -124,7 +174,7 @@ export default function AddMemberScreen() {
   const [showDatePicker, setShowDatePicker] = useState(false);
 
   // ============================================================
-  // CONTACT PICKER STATE
+  // CONTACT PICKER
   // ============================================================
 
   const [showContactPicker, setShowContactPicker] = useState(false);
@@ -142,40 +192,96 @@ export default function AddMemberScreen() {
   const hasFieldErrors = Object.values(fieldErrors).some(Boolean);
 
   // ============================================================
+  // HELPERS
+  // ============================================================
+
+  const clearFieldError = (field: string) => {
+    if (fieldErrors[field]) {
+      setFieldErrors((current) => ({
+        ...current,
+        [field]: "",
+      }));
+    }
+  };
+
+  const getGroupTypeLabel = (type: GroupType): string => {
+    switch (type) {
+      case "apartment":
+        return "Apartment";
+      case "staff":
+        return "Staff";
+      case "expense":
+        return "Expense";
+      default:
+        return "Member";
+    }
+  };
+
+  const getButtonText = (type: GroupType): string => {
+    switch (type) {
+      case "apartment":
+        return "Add Apartment";
+      case "staff":
+        return "Add Staff";
+      case "expense":
+        return "Add Expense";
+      default:
+        return "Add Member";
+    }
+  };
+
+  const getHeaderTitle = () => {
+    if (groupType === "expense") {
+      return "Add Expense";
+    }
+
+    if (groupType === "staff") {
+      return "Add Staff";
+    }
+
+    return "Add Apartment";
+  };
+
+  // ============================================================
   // PICK PHOTO
   // ============================================================
 
   const handlePickPhoto = async () => {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    try {
+      const permission =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
 
-    if (!permission.granted) {
-      setError("Permission to access photos is required");
-      return;
-    }
+      if (!permission.granted) {
+        setError("Permission to access photos is required");
+        return;
+      }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.7,
-    });
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.7,
+      });
 
-    if (!result.canceled && result.assets[0]) {
-      setPhotoUri(result.assets[0].uri);
+      if (!result.canceled && result.assets[0]) {
+        setPhotoUri(result.assets[0].uri);
+        setError("");
+      }
+    } catch (e) {
+      console.error("Photo picker error:", e);
+      setError("Unable to select photo. Please try again.");
     }
   };
 
   // ============================================================
   // PICK CONTACT
-  // Same working approach as Login screen
   // ============================================================
 
   const pickContact = async () => {
     if (Platform.OS === "web") {
       Alert.alert(
         "Not Available",
-        "Contact picker is only available on mobile devices. Please enter the phone number manually.",
-        [{ text: "OK" }],
+        "Contact picker is only available on mobile devices.",
       );
       return;
     }
@@ -186,7 +292,7 @@ export default function AddMemberScreen() {
       if (status !== "granted") {
         Alert.alert(
           "Permission Required",
-          "We need access to your contacts to help you quickly add phone numbers.",
+          "Allow contact access to quickly select a phone number.",
           [
             {
               text: "Cancel",
@@ -220,9 +326,9 @@ export default function AddMemberScreen() {
           id: contact.id || `contact-${Math.random()}`,
           name: contact.fullName || "Unknown",
           phoneNumbers:
-            contact.phones?.map((phone) => ({
-              number: phone.number || "",
-              label: phone.label || undefined,
+            contact.phones?.map((item) => ({
+              number: item.number || "",
+              label: item.label || undefined,
             })) || [],
         }));
 
@@ -235,8 +341,8 @@ export default function AddMemberScreen() {
       setContactsList(mappedContacts);
       setShowContactPicker(true);
       setError("");
-    } catch (error) {
-      console.error("Error fetching contacts:", error);
+    } catch (e) {
+      console.error("Error fetching contacts:", e);
       setError("Failed to fetch contacts. Please try again.");
     }
   };
@@ -254,8 +360,8 @@ export default function AddMemberScreen() {
 
     const nameMatch = contact.name.toLowerCase().includes(search);
 
-    const phoneMatch = contact.phoneNumbers.some((phone) =>
-      phone.number.toLowerCase().includes(search),
+    const phoneMatch = contact.phoneNumbers.some((item) =>
+      item.number.toLowerCase().includes(search),
     );
 
     return nameMatch || phoneMatch;
@@ -275,49 +381,43 @@ export default function AddMemberScreen() {
   // ============================================================
 
   const selectContact = (contact: ContactData) => {
-    if (contact && contact.phoneNumbers && contact.phoneNumbers.length > 0) {
-      let phoneNumber = contact.phoneNumbers[0].number || "";
-
-      // Remove spaces, +, -, brackets etc.
-      phoneNumber = phoneNumber.replace(/[^0-9]/g, "");
-
-      // Remove Indian country code
-      phoneNumber = phoneNumber.replace(/^91/, "");
-
-      // Remove leading zero
-      phoneNumber = phoneNumber.replace(/^0/, "");
-
-      // Keep last 10 digits
-      if (phoneNumber.length > 10) {
-        phoneNumber = phoneNumber.slice(-10);
-      }
-
-      // Validate
-      if (phoneNumber.length !== 10) {
-        setError(
-          "Selected contact does not have a valid 10-digit phone number",
-        );
-        return;
-      }
-
-      setPhone(phoneNumber);
-      setError("");
-
-      // Use contact name only if name field is empty
-      if (!name.trim() && contact.name) {
-        setName(contact.name);
-      }
-
-      setContactSearch("");
-      setShowContactPicker(false);
-    } else {
+    if (!contact.phoneNumbers || contact.phoneNumbers.length === 0) {
       setError("Selected contact doesn't have a phone number");
+      return;
     }
+
+    let phoneNumber = contact.phoneNumbers[0].number || "";
+
+    phoneNumber = phoneNumber.replace(/[^0-9]/g, "");
+
+    phoneNumber = phoneNumber.replace(/^91/, "");
+
+    phoneNumber = phoneNumber.replace(/^0/, "");
+
+    if (phoneNumber.length > 10) {
+      phoneNumber = phoneNumber.slice(-10);
+    }
+
+    if (phoneNumber.length !== 10) {
+      setError("Selected contact does not have a valid 10-digit phone number");
+      return;
+    }
+
+    setPhone(phoneNumber);
+    clearFieldError("phone");
+    setError("");
+
+    if (!name.trim() && contact.name) {
+      setName(contact.name);
+      clearFieldError("name");
+    }
+
+    setContactSearch("");
+    setShowContactPicker(false);
   };
 
   // ============================================================
-  // CONTACT PICKER MODAL
-  // FIXED: Uses native React Native Modal
+  // CONTACT MODAL
   // ============================================================
 
   const renderContactPickerModal = () => {
@@ -328,50 +428,58 @@ export default function AddMemberScreen() {
     return (
       <Modal
         visible={showContactPicker}
-        transparent={true}
+        transparent
         animationType="slide"
         onRequestClose={closeContactPicker}
       >
         <TouchableWithoutFeedback onPress={closeContactPicker}>
           <View style={styles.modalOverlay}>
-            <TouchableWithoutFeedback
-              onPress={(event) => event.stopPropagation()}
-            >
+            <TouchableWithoutFeedback>
               <View
                 style={[
                   styles.modalContainer,
                   {
-                    paddingBottom: Math.max(insets.bottom - 12, 0),
+                    paddingBottom: Math.max(insets.bottom, 16),
                   },
                 ]}
               >
-                {/* MODAL HEADER */}
+                {/* MODAL HANDLE */}
+
+                <View style={styles.modalHandle} />
+
+                {/* HEADER */}
+
                 <View style={styles.modalHeader}>
-                  <Text style={styles.modalTitle}>Select Contact</Text>
+                  <View>
+                    <Text style={styles.modalTitle}>Select Contact</Text>
+                    <Text style={styles.modalSubtitle}>
+                      Choose a contact to fill the phone number
+                    </Text>
+                  </View>
 
                   <TouchableOpacity
                     onPress={closeContactPicker}
                     style={styles.modalCloseButton}
                     activeOpacity={0.7}
                   >
-                    <Ionicons name="close" size={24} color="#333" />
+                    <Ionicons name="close" size={22} color={TEXT} />
                   </TouchableOpacity>
                 </View>
 
                 {/* SEARCH */}
+
                 <View style={styles.modalSearchContainer}>
-                  <Ionicons name="search" size={20} color="#999" />
+                  <Ionicons name="search-outline" size={20} color="#94A3B8" />
 
                   <TextInput
                     style={styles.modalSearchInput}
-                    placeholder="Search contacts..."
-                    placeholderTextColor="#999"
+                    placeholder="Search name or phone"
+                    placeholderTextColor="#94A3B8"
                     value={contactSearch}
                     onChangeText={setContactSearch}
                     autoCapitalize="none"
                     autoCorrect={false}
                     returnKeyType="search"
-                    autoFocus={false}
                   />
 
                   {contactSearch.length > 0 && (
@@ -380,23 +488,27 @@ export default function AddMemberScreen() {
                       style={styles.clearSearchButton}
                       activeOpacity={0.7}
                     >
-                      <Ionicons name="close-circle" size={20} color="#999" />
+                      <Ionicons name="close-circle" size={19} color="#94A3B8" />
                     </TouchableOpacity>
                   )}
                 </View>
 
+                {/* RESULT COUNT */}
+
+                <Text style={styles.resultCount}>
+                  {filteredContacts.length}{" "}
+                  {filteredContacts.length === 1 ? "contact" : "contacts"}
+                </Text>
+
                 {/* CONTACT LIST */}
+
                 <View style={styles.contactListWrapper}>
                   <ScrollView
                     style={styles.contactListContainer}
                     contentContainerStyle={styles.contactListContent}
-                    showsVerticalScrollIndicator={true}
+                    showsVerticalScrollIndicator={false}
                     keyboardShouldPersistTaps="handled"
-                    nestedScrollEnabled={true}
-                    scrollEnabled={true}
-                    bounces={true}
-                    alwaysBounceVertical={true}
-                    removeClippedSubviews={false}
+                    nestedScrollEnabled
                   >
                     {filteredContacts.length > 0 ? (
                       filteredContacts.map((contact) => (
@@ -406,7 +518,6 @@ export default function AddMemberScreen() {
                           onPress={() => selectContact(contact)}
                           activeOpacity={0.7}
                         >
-                          {/* AVATAR */}
                           <View style={styles.contactAvatar}>
                             <Text style={styles.contactAvatarText}>
                               {contact.name
@@ -415,28 +526,28 @@ export default function AddMemberScreen() {
                             </Text>
                           </View>
 
-                          {/* CONTACT INFO */}
                           <View style={styles.contactInfo}>
                             <Text style={styles.contactName} numberOfLines={1}>
                               {contact.name || "Unknown"}
                             </Text>
 
-                            {contact.phoneNumbers &&
-                              contact.phoneNumbers.length > 0 && (
-                                <Text
-                                  style={styles.contactPhone}
-                                  numberOfLines={1}
-                                >
-                                  {contact.phoneNumbers[0].number}
-                                </Text>
-                              )}
+                            {contact.phoneNumbers.length > 0 && (
+                              <Text
+                                style={styles.contactPhone}
+                                numberOfLines={1}
+                              >
+                                {contact.phoneNumbers[0].number}
+                              </Text>
+                            )}
                           </View>
 
-                          <Ionicons
-                            name="chevron-forward"
-                            size={20}
-                            color="#ccc"
-                          />
+                          <View style={styles.contactSelectIcon}>
+                            <Ionicons
+                              name="chevron-forward"
+                              size={18}
+                              color="#94A3B8"
+                            />
+                          </View>
                         </TouchableOpacity>
                       ))
                     ) : (
@@ -444,8 +555,8 @@ export default function AddMemberScreen() {
                         <View style={styles.noContactsIcon}>
                           <Ionicons
                             name="search-outline"
-                            size={32}
-                            color="#999"
+                            size={30}
+                            color="#94A3B8"
                           />
                         </View>
 
@@ -454,7 +565,7 @@ export default function AddMemberScreen() {
                         </Text>
 
                         <Text style={styles.noContactsText}>
-                          Try searching with a different name or phone number.
+                          Try a different name or phone number.
                         </Text>
                       </View>
                     )}
@@ -462,15 +573,14 @@ export default function AddMemberScreen() {
                 </View>
 
                 {/* CANCEL */}
-                <View style={styles.modalFooter}>
-                  <TouchableOpacity
-                    style={styles.modalCancelButton}
-                    onPress={closeContactPicker}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={styles.modalCancelButtonText}>Cancel</Text>
-                  </TouchableOpacity>
-                </View>
+
+                <TouchableOpacity
+                  style={styles.modalCancelButton}
+                  onPress={closeContactPicker}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.modalCancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
               </View>
             </TouchableWithoutFeedback>
           </View>
@@ -484,26 +594,31 @@ export default function AddMemberScreen() {
   // ============================================================
 
   const handlePickBill = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      allowsMultipleSelection: true,
-      quality: 0.8,
-    });
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsMultipleSelection: true,
+        quality: 0.8,
+      });
 
-    if (!result.canceled) {
-      setBillAttachments((currentAttachments) => [
-        ...currentAttachments,
-        ...result.assets.map((asset) => ({
-          uri: asset.uri,
-          name: asset.fileName || "Bill image",
-          mimeType: asset.mimeType,
-        })),
-      ]);
+      if (!result.canceled) {
+        setBillAttachments((currentAttachments) => [
+          ...currentAttachments,
+          ...result.assets.map((asset) => ({
+            uri: asset.uri,
+            name: asset.fileName || "Bill image",
+            mimeType: asset.mimeType,
+          })),
+        ]);
+      }
+    } catch (e) {
+      console.error("Bill picker error:", e);
+      setError("Unable to select bill attachment.");
     }
   };
 
   // ============================================================
-  // ADD MEMBER / EXPENSE
+  // HANDLE ADD
   // ============================================================
 
   const handleAdd = async () => {
@@ -517,7 +632,7 @@ export default function AddMemberScreen() {
 
     if (groupType !== "expense") {
       if (!phone || phone.length === 0) {
-        errors.phone = "Phone number is missing";
+        errors.phone = "Phone number is required";
       } else if (phone.length !== 10) {
         errors.phone = "Phone number must be 10 digits";
       }
@@ -535,7 +650,7 @@ export default function AddMemberScreen() {
       if (!maintenanceAmount.trim()) {
         errors.maintenanceAmount = "Maintenance amount is required";
       } else if (isNaN(Number(maintenanceAmount))) {
-        errors.maintenanceAmount = "Maintenance amount must be a number";
+        errors.maintenanceAmount = "Enter a valid amount";
       }
     }
 
@@ -543,7 +658,7 @@ export default function AddMemberScreen() {
       if (!monthlySalary.trim()) {
         errors.monthlySalary = "Monthly salary is required";
       } else if (isNaN(Number(monthlySalary))) {
-        errors.monthlySalary = "Monthly salary must be a number";
+        errors.monthlySalary = "Enter a valid salary";
       }
     }
 
@@ -551,7 +666,7 @@ export default function AddMemberScreen() {
       if (!expenseAmount.trim()) {
         errors.expenseAmount = "Expense amount is required";
       } else if (isNaN(Number(expenseAmount))) {
-        errors.expenseAmount = "Expense amount must be a number";
+        errors.expenseAmount = "Enter a valid amount";
       }
     }
 
@@ -561,7 +676,7 @@ export default function AddMemberScreen() {
 
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
-      setError("Please fix all the errors");
+      setError("Please fix the highlighted fields");
       return;
     }
 
@@ -615,51 +730,110 @@ export default function AddMemberScreen() {
 
       router.back();
     } catch (e: any) {
-      setError(e.message || "Failed to add member. Please try again.");
+      setError(
+        e?.message ||
+          `Failed to add ${getGroupTypeLabel(groupType).toLowerCase()}. Please try again.`,
+      );
     } finally {
       setLoading(false);
     }
   };
 
   // ============================================================
-  // GROUP TYPE LABEL
+  // INPUT COMPONENT
   // ============================================================
 
-  const getGroupTypeLabel = (type: GroupType): string => {
-    switch (type) {
-      case "apartment":
-        return "Apartment";
+  const renderInput = ({
+    label,
+    value,
+    onChangeText,
+    placeholder,
+    icon,
+    errorKey,
+    keyboardType = "default",
+    optional = false,
+    maxLength,
+  }: {
+    label: string;
+    value: string;
+    onChangeText: (text: string) => void;
+    placeholder: string;
+    icon: keyof typeof Ionicons.glyphMap;
+    errorKey?: string;
+    keyboardType?: "default" | "numeric" | "number-pad";
+    optional?: boolean;
+    maxLength?: number;
+  }) => {
+    const inputError = errorKey ? fieldErrors[errorKey] : "";
 
-      case "staff":
-        return "Staff";
+    return (
+      <View style={styles.fieldContainer}>
+        <View style={styles.labelRow}>
+          <Text
+            style={[
+              styles.inputLabel,
+              inputError ? styles.inputLabelError : undefined,
+            ]}
+          >
+            {label}
+          </Text>
 
-      case "expense":
-        return "Expense";
+          {optional && <Text style={styles.optionalText}>Optional</Text>}
+        </View>
 
-      default:
-        return "Member";
-    }
+        <View
+          style={[
+            styles.inputContainer,
+            inputError ? styles.inputContainerError : undefined,
+          ]}
+        >
+          <Ionicons
+            name={icon}
+            size={20}
+            color={inputError ? RED : "#94A3B8"}
+          />
+
+          <TextInput
+            style={styles.textInput}
+            placeholder={placeholder}
+            placeholderTextColor="#A1AAB8"
+            value={value}
+            onChangeText={onChangeText}
+            keyboardType={keyboardType}
+            maxLength={maxLength}
+          />
+        </View>
+
+        {inputError ? (
+          <Text style={styles.fieldError}>{inputError}</Text>
+        ) : null}
+      </View>
+    );
   };
 
   // ============================================================
-  // BUTTON TEXT
+  // SECTION HEADER
   // ============================================================
 
-  const getButtonText = (type: GroupType): string => {
-    switch (type) {
-      case "apartment":
-        return "Add Apartment Owner";
+  const renderSectionHeader = (
+    icon: keyof typeof Ionicons.glyphMap,
+    title: string,
+    subtitle?: string,
+  ) => (
+    <View style={styles.sectionHeader}>
+      <View style={styles.sectionIcon}>
+        <Ionicons name={icon} size={20} color={BLUE} />
+      </View>
 
-      case "staff":
-        return "Add Staff";
+      <View style={styles.sectionHeaderText}>
+        <Text style={styles.sectionTitle}>{title}</Text>
 
-      case "expense":
-        return "Add Expense";
-
-      default:
-        return "Add Member";
-    }
-  };
+        {subtitle ? (
+          <Text style={styles.sectionSubtitle}>{subtitle}</Text>
+        ) : null}
+      </View>
+    </View>
+  );
 
   // ============================================================
   // RENDER
@@ -672,51 +846,100 @@ export default function AddMemberScreen() {
     >
       <Stack.Screen
         options={{
-          title: groupType === "expense" ? "Add Expenses" : "Add Member",
+          title: getHeaderTitle(),
+          headerBackTitle: "Back",
         }}
       />
 
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+      >
         {/* ======================================================
-            MEMBER TITLE
+            PAGE HEADER
         ====================================================== */}
 
-        {groupType !== "expense" && (
-          <>
-            <Text style={styles.title}>
-              Add {getGroupTypeLabel(groupType)} Member
-            </Text>
+        <View style={styles.pageHeader}>
+          <View style={styles.pageHeaderIcon}>
+            <Ionicons
+              name={
+                groupType === "expense"
+                  ? "receipt-outline"
+                  : groupType === "staff"
+                    ? "people-outline"
+                    : "home-outline"
+              }
+              size={28}
+              color={BLUE}
+            />
+          </View>
 
-            <Text style={styles.subtitle}>
-              {groupType === "apartment"
-                ? "Add a new apartment owner"
+          <View style={styles.pageHeaderText}>
+            <Text style={styles.pageTitle}>
+              {groupType === "expense"
+                ? "New Expense"
                 : groupType === "staff"
-                  ? "Add a new staff member"
-                  : ""}
+                  ? "New Staff Member"
+                  : "New Apartment Member"}
             </Text>
-          </>
-        )}
+
+            <Text style={styles.pageSubtitle}>
+              {groupType === "expense"
+                ? "Record a society expense"
+                : groupType === "staff"
+                  ? "Add staff information"
+                  : "Add resident and apartment details"}
+            </Text>
+          </View>
+        </View>
 
         {/* ======================================================
-            PHOTO
+            MEMBER PHOTO
         ====================================================== */}
 
         {groupType !== "expense" && (
-          <View style={styles.photoSection}>
+          <View style={styles.photoCard}>
             <TouchableOpacity
-              style={styles.photoCircle}
+              style={styles.photoButton}
               onPress={handlePickPhoto}
+              activeOpacity={0.8}
             >
               {photoUri ? (
                 <Image source={{ uri: photoUri }} style={styles.photoImage} />
               ) : (
-                <Ionicons name="camera-outline" size={24} color="#888" />
+                <>
+                  <Ionicons name="camera-outline" size={28} color={BLUE} />
+
+                  <View style={styles.photoPlus}>
+                    <Ionicons name="add" size={12} color="#fff" />
+                  </View>
+                </>
               )}
             </TouchableOpacity>
 
-            <Text style={styles.photoLabel}>
-              {photoUri ? "Change Photo" : "Add Photo (optional)"}
-            </Text>
+            <View style={styles.photoTextContainer}>
+              <Text style={styles.photoTitle}>
+                {photoUri ? "Profile photo added" : "Add profile photo"}
+              </Text>
+
+              <Text style={styles.photoSubtitle}>
+                {photoUri
+                  ? "Tap the photo to change it"
+                  : "Optional • Helps identify members"}
+              </Text>
+            </View>
+
+            {photoUri && (
+              <TouchableOpacity
+                onPress={() => setPhotoUri(null)}
+                style={styles.removePhotoButton}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="trash-outline" size={19} color={RED} />
+              </TouchableOpacity>
+            )}
           </View>
         )}
 
@@ -725,177 +948,210 @@ export default function AddMemberScreen() {
         ====================================================== */}
 
         {groupType !== "expense" && (
-          <>
-            {/* NAME */}
-            <Text
-              style={[
-                styles.inputLabel,
-                fieldErrors.name && styles.inputLabelError,
-              ]}
-            >
-              Full Name *
-            </Text>
+          <View style={styles.card}>
+            {renderSectionHeader(
+              "person-circle-outline",
+              "Basic Information",
+              "Enter the member's contact details",
+            )}
 
-            <TextInput
-              style={[styles.input, fieldErrors.name && styles.inputError]}
-              placeholder="e.g. Ramesh Kumar"
-              value={name}
-              onChangeText={(text) => {
+            {renderInput({
+              label: "Full Name",
+              value: name,
+              onChangeText: (text) => {
                 setName(text);
-
-                if (fieldErrors.name) {
-                  setFieldErrors({
-                    ...fieldErrors,
-                    name: "",
-                  });
-                }
-              }}
-            />
-
-            {fieldErrors.name ? (
-              <Text style={styles.fieldError}>{fieldErrors.name}</Text>
-            ) : null}
+                clearFieldError("name");
+              },
+              placeholder: "e.g. Ramesh Kumar",
+              icon: "person-outline",
+              errorKey: "name",
+            })}
 
             {/* PHONE */}
-            <Text
-              style={[
-                styles.inputLabel,
-                fieldErrors.phone && styles.inputLabelError,
-              ]}
-            >
-              Phone Number *
-            </Text>
 
-            <View
-              style={[
-                styles.phoneRow,
-                fieldErrors.phone && styles.phoneRowError,
-              ]}
-            >
-              <Text style={styles.prefix}>+91</Text>
-
-              <TextInput
-                style={styles.phoneInput}
-                placeholder="9876543210"
-                keyboardType="number-pad"
-                maxLength={10}
-                value={phone}
-                onChangeText={(text) => {
-                  setPhone(text.replace(/[^0-9]/g, ""));
-
-                  if (fieldErrors.phone) {
-                    setFieldErrors({
-                      ...fieldErrors,
-                      phone: "",
-                    });
-                  }
-                }}
-              />
-
-              {/* CONTACT BUTTON */}
-              <TouchableOpacity
-                onPress={pickContact}
-                style={styles.contactIcon}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="person-outline" size={22} color="#1a73e8" />
-              </TouchableOpacity>
-            </View>
-
-            {fieldErrors.phone ? (
-              <Text style={styles.fieldError}>{fieldErrors.phone}</Text>
-            ) : null}
-
-            {/* ROLE */}
-            <Text
-              style={[
-                styles.inputLabel,
-                fieldErrors.role && styles.inputLabelError,
-              ]}
-            >
-              Role *
-            </Text>
-
-            <View style={styles.roleRow}>
-              {roleOptions.map((option) => (
-                <TouchableOpacity
-                  key={option.role}
-                  style={[
-                    styles.roleChip,
-                    role === option.role && styles.roleChipSelected,
-                  ]}
-                  onPress={() => {
-                    setRole(option.role);
-                    setIsCustomRole(false);
-                    setCustomRole("");
-
-                    if (fieldErrors.role) {
-                      setFieldErrors({
-                        ...fieldErrors,
-                        role: "",
-                      });
-                    }
-                  }}
-                >
-                  <Text
-                    style={[
-                      styles.roleChipText,
-                      role === option.role && styles.roleChipTextSelected,
-                    ]}
-                  >
-                    {option.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-
-              <TouchableOpacity
-                style={[
-                  styles.roleChip,
-                  isCustomRole && styles.roleChipSelected,
-                ]}
-                onPress={() => {
-                  setIsCustomRole(true);
-                  setRole(
-                    customRole.trim()
-                      ? (customRole.trim() as MemberRole)
-                      : null,
-                  );
-                }}
-              >
+            <View style={styles.fieldContainer}>
+              <View style={styles.labelRow}>
                 <Text
                   style={[
-                    styles.roleChipText,
-                    isCustomRole && styles.roleChipTextSelected,
+                    styles.inputLabel,
+                    fieldErrors.phone ? styles.inputLabelError : undefined,
                   ]}
                 >
-                  Custom
+                  Phone Number
                 </Text>
-              </TouchableOpacity>
+              </View>
+
+              <View
+                style={[
+                  styles.inputContainer,
+                  fieldErrors.phone ? styles.inputContainerError : undefined,
+                ]}
+              >
+                <View style={styles.countryCode}>
+                  <Text style={styles.countryCodeText}>+91</Text>
+                </View>
+
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="9876543210"
+                  placeholderTextColor="#A1AAB8"
+                  keyboardType="number-pad"
+                  maxLength={10}
+                  value={phone}
+                  onChangeText={(text) => {
+                    setPhone(text.replace(/[^0-9]/g, ""));
+                    clearFieldError("phone");
+                  }}
+                />
+
+                <TouchableOpacity
+                  onPress={pickContact}
+                  style={styles.contactButton}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="people-outline" size={20} color={BLUE} />
+                </TouchableOpacity>
+              </View>
+
+              {fieldErrors.phone ? (
+                <Text style={styles.fieldError}>{fieldErrors.phone}</Text>
+              ) : (
+                <Text style={styles.helperText}>
+                  You can select a number from your contacts
+                </Text>
+              )}
             </View>
 
-            {isCustomRole ? (
-              <TextInput
-                style={[styles.input, styles.customRoleInput]}
-                placeholder="Enter custom role"
-                value={customRole}
-                onChangeText={(text) => {
-                  setCustomRole(text);
-                  setRole(text.trim() ? (text.trim() as MemberRole) : null);
+            {/* ROLE */}
 
-                  if (fieldErrors.role) {
-                    setFieldErrors({
-                      ...fieldErrors,
-                      role: "",
-                    });
-                  }
-                }}
-              />
-            ) : null}
+            <View style={styles.fieldContainer}>
+              <View style={styles.labelRow}>
+                <Text
+                  style={[
+                    styles.inputLabel,
+                    fieldErrors.role ? styles.inputLabelError : undefined,
+                  ]}
+                >
+                  Role
+                </Text>
+              </View>
 
-            {fieldErrors.role ? (
-              <Text style={styles.fieldError}>{fieldErrors.role}</Text>
-            ) : null}
-          </>
+              <View style={styles.roleGrid}>
+                {roleOptions.map((option) => {
+                  const selected = !isCustomRole && role === option.role;
+
+                  return (
+                    <TouchableOpacity
+                      key={option.role}
+                      style={[
+                        styles.roleCard,
+                        selected && styles.roleCardSelected,
+                      ]}
+                      onPress={() => {
+                        setRole(option.role);
+                        setIsCustomRole(false);
+                        setCustomRole("");
+                        clearFieldError("role");
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      <View
+                        style={[
+                          styles.roleIcon,
+                          selected && styles.roleIconSelected,
+                        ]}
+                      >
+                        <Ionicons
+                          name={option.icon}
+                          size={19}
+                          color={selected ? "#fff" : BLUE}
+                        />
+                      </View>
+
+                      <Text
+                        style={[
+                          styles.roleText,
+                          selected && styles.roleTextSelected,
+                        ]}
+                      >
+                        {option.label}
+                      </Text>
+
+                      {selected && (
+                        <View style={styles.roleCheck}>
+                          <Ionicons name="checkmark" size={13} color="#fff" />
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+
+                <TouchableOpacity
+                  style={[
+                    styles.roleCard,
+                    isCustomRole && styles.roleCardSelected,
+                  ]}
+                  onPress={() => {
+                    setIsCustomRole(true);
+                    setRole(
+                      customRole.trim()
+                        ? (customRole.trim() as MemberRole)
+                        : null,
+                    );
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <View
+                    style={[
+                      styles.roleIcon,
+                      isCustomRole && styles.roleIconSelected,
+                    ]}
+                  >
+                    <Ionicons
+                      name="create-outline"
+                      size={19}
+                      color={isCustomRole ? "#fff" : BLUE}
+                    />
+                  </View>
+
+                  <Text
+                    style={[
+                      styles.roleText,
+                      isCustomRole && styles.roleTextSelected,
+                    ]}
+                  >
+                    Custom
+                  </Text>
+
+                  {isCustomRole && (
+                    <View style={styles.roleCheck}>
+                      <Ionicons name="checkmark" size={13} color="#fff" />
+                    </View>
+                  )}
+                </TouchableOpacity>
+              </View>
+
+              {isCustomRole && (
+                <View style={styles.customRoleWrapper}>
+                  <TextInput
+                    style={styles.customRoleInput}
+                    placeholder="Enter custom role"
+                    placeholderTextColor="#A1AAB8"
+                    value={customRole}
+                    onChangeText={(text) => {
+                      setCustomRole(text);
+                      setRole(text.trim() ? (text.trim() as MemberRole) : null);
+                      clearFieldError("role");
+                    }}
+                  />
+                </View>
+              )}
+
+              {fieldErrors.role ? (
+                <Text style={styles.fieldError}>{fieldErrors.role}</Text>
+              ) : null}
+            </View>
+          </View>
         )}
 
         {/* ======================================================
@@ -903,104 +1159,89 @@ export default function AddMemberScreen() {
         ====================================================== */}
 
         {groupType === "apartment" && (
-          <>
-            <Text style={styles.sectionLabel}>Apartment Details</Text>
+          <View style={styles.card}>
+            {renderSectionHeader(
+              "home-outline",
+              "Apartment Details",
+              "Add unit and maintenance information",
+            )}
 
-            <Text style={styles.inputLabel}>Wing / Section — optional</Text>
+            {renderInput({
+              label: "Wing / Section",
+              value: wing,
+              onChangeText: setWing,
+              placeholder: "e.g. A Wing or Tower 1",
+              icon: "business-outline",
+              optional: true,
+            })}
 
-            <TextInput
-              style={styles.input}
-              placeholder="e.g. A Wing, B Wing, Tower 1"
-              value={wing}
-              onChangeText={setWing}
-            />
-
-            <Text
-              style={[
-                styles.inputLabel,
-                fieldErrors.flatNumber && styles.inputLabelError,
-              ]}
-            >
-              Apartment Number *
-            </Text>
-
-            <TextInput
-              style={[
-                styles.input,
-                fieldErrors.flatNumber && styles.inputError,
-              ]}
-              placeholder="e.g. A-204"
-              value={flatNumber}
-              onChangeText={(text) => {
+            {renderInput({
+              label: "Apartment Number",
+              value: flatNumber,
+              onChangeText: (text) => {
                 setFlatNumber(text);
+                clearFieldError("flatNumber");
+              },
+              placeholder: "e.g. A-204",
+              icon: "keypad-outline",
+              errorKey: "flatNumber",
+            })}
 
-                if (fieldErrors.flatNumber) {
-                  setFieldErrors({
-                    ...fieldErrors,
-                    flatNumber: "",
-                  });
-                }
-              }}
-            />
+            {renderInput({
+              label: "Area",
+              value: areaSqft,
+              onChangeText: (text) => setAreaSqft(text.replace(/[^0-9]/g, "")),
+              placeholder: "e.g. 1200",
+              icon: "resize-outline",
+              keyboardType: "numeric",
+              optional: true,
+            })}
 
-            {fieldErrors.flatNumber ? (
-              <Text style={styles.fieldError}>{fieldErrors.flatNumber}</Text>
-            ) : null}
+            {/* PARKING */}
 
-            <Text style={styles.inputLabel}>Area (sq. ft.) — optional</Text>
+            <View style={styles.settingRow}>
+              <View style={styles.settingIcon}>
+                <Ionicons name="car-outline" size={21} color={BLUE} />
+              </View>
 
-            <TextInput
-              style={styles.input}
-              placeholder="e.g. 1200"
-              keyboardType="numeric"
-              value={areaSqft}
-              onChangeText={(text) => setAreaSqft(text.replace(/[^0-9]/g, ""))}
-            />
+              <View style={styles.settingText}>
+                <Text style={styles.settingTitle}>Parking Available</Text>
 
-            <View style={styles.switchRow}>
-              <Text style={styles.inputLabel}>Parking Available</Text>
+                <Text style={styles.settingSubtitle}>
+                  Does this apartment have parking?
+                </Text>
+              </View>
 
               <Switch
                 value={parkingAvailable}
                 onValueChange={setParkingAvailable}
+                trackColor={{
+                  false: "#CBD5E1",
+                  true: "#93C5FD",
+                }}
+                thumbColor={
+                  Platform.OS === "android"
+                    ? parkingAvailable
+                      ? BLUE
+                      : "#F8FAFC"
+                    : undefined
+                }
               />
             </View>
 
-            <Text
-              style={[
-                styles.inputLabel,
-                fieldErrors.maintenanceAmount && styles.inputLabelError,
-              ]}
-            >
-              Monthly Maintenance (₹) *
-            </Text>
-
-            <TextInput
-              style={[
-                styles.input,
-                fieldErrors.maintenanceAmount && styles.inputError,
-              ]}
-              placeholder="e.g. 2500"
-              keyboardType="numeric"
-              value={maintenanceAmount}
-              onChangeText={(text) => {
+            {renderInput({
+              label: "Monthly Maintenance",
+              value: maintenanceAmount,
+              onChangeText: (text) => {
                 setMaintenanceAmount(text.replace(/[^0-9]/g, ""));
-
-                if (fieldErrors.maintenanceAmount) {
-                  setFieldErrors({
-                    ...fieldErrors,
-                    maintenanceAmount: "",
-                  });
-                }
-              }}
-            />
-
-            {fieldErrors.maintenanceAmount ? (
-              <Text style={styles.fieldError}>
-                {fieldErrors.maintenanceAmount}
-              </Text>
-            ) : null}
-          </>
+                clearFieldError("maintenanceAmount");
+              },
+              placeholder: "e.g. 2500",
+              icon: "cash-outline",
+              keyboardType: "numeric",
+              errorKey: "maintenanceAmount",
+            })}
+          </View>
         )}
 
         {/* ======================================================
@@ -1008,42 +1249,26 @@ export default function AddMemberScreen() {
         ====================================================== */}
 
         {groupType === "staff" && (
-          <>
-            <Text style={styles.sectionLabel}>Staff Details</Text>
+          <View style={styles.card}>
+            {renderSectionHeader(
+              "briefcase-outline",
+              "Staff Details",
+              "Set the monthly salary",
+            )}
 
-            <Text
-              style={[
-                styles.inputLabel,
-                fieldErrors.monthlySalary && styles.inputLabelError,
-              ]}
-            >
-              Monthly Salary (₹) *
-            </Text>
-
-            <TextInput
-              style={[
-                styles.input,
-                fieldErrors.monthlySalary && styles.inputError,
-              ]}
-              placeholder="e.g. 5000"
-              keyboardType="numeric"
-              value={monthlySalary}
-              onChangeText={(text) => {
+            {renderInput({
+              label: "Monthly Salary",
+              value: monthlySalary,
+              onChangeText: (text) => {
                 setMonthlySalary(text.replace(/[^0-9]/g, ""));
-
-                if (fieldErrors.monthlySalary) {
-                  setFieldErrors({
-                    ...fieldErrors,
-                    monthlySalary: "",
-                  });
-                }
-              }}
-            />
-
-            {fieldErrors.monthlySalary ? (
-              <Text style={styles.fieldError}>{fieldErrors.monthlySalary}</Text>
-            ) : null}
-          </>
+                clearFieldError("monthlySalary");
+              },
+              placeholder: "e.g. 5000",
+              icon: "cash-outline",
+              keyboardType: "numeric",
+              errorKey: "monthlySalary",
+            })}
+          </View>
         )}
 
         {/* ======================================================
@@ -1051,135 +1276,141 @@ export default function AddMemberScreen() {
         ====================================================== */}
 
         {groupType === "expense" && (
-          <>
-            <Text style={styles.sectionLabel}>Expense Details</Text>
+          <View style={styles.card}>
+            {renderSectionHeader(
+              "receipt-outline",
+              "Expense Details",
+              "Record the expense and payment information",
+            )}
 
-            {/* EXPENSE NAME */}
-            <Text
-              style={[
-                styles.inputLabel,
-                fieldErrors.name && styles.inputLabelError,
-              ]}
-            >
-              Expense Name *
-            </Text>
-
-            <TextInput
-              style={[styles.input, fieldErrors.name && styles.inputError]}
-              placeholder="e.g. Water bill, Lift repair"
-              value={name}
-              onChangeText={(text) => {
+            {renderInput({
+              label: "Expense Name",
+              value: name,
+              onChangeText: (text) => {
                 setName(text);
+                clearFieldError("name");
+              },
+              placeholder: "e.g. Water bill, Lift repair",
+              icon: "document-text-outline",
+              errorKey: "name",
+            })}
 
-                if (fieldErrors.name) {
-                  setFieldErrors({
-                    ...fieldErrors,
-                    name: "",
-                  });
-                }
-              }}
-            />
-
-            {fieldErrors.name ? (
-              <Text style={styles.fieldError}>{fieldErrors.name}</Text>
-            ) : null}
-
-            {/* AMOUNT */}
-            <Text
-              style={[
-                styles.inputLabel,
-                fieldErrors.expenseAmount && styles.inputLabelError,
-              ]}
-            >
-              Amount (₹) *
-            </Text>
-
-            <TextInput
-              style={[
-                styles.input,
-                fieldErrors.expenseAmount && styles.inputError,
-              ]}
-              placeholder="e.g. 4200"
-              keyboardType="numeric"
-              value={expenseAmount}
-              onChangeText={(text) => {
+            {renderInput({
+              label: "Amount",
+              value: expenseAmount,
+              onChangeText: (text) => {
                 setExpenseAmount(text.replace(/[^0-9]/g, ""));
-
-                if (fieldErrors.expenseAmount) {
-                  setFieldErrors({
-                    ...fieldErrors,
-                    expenseAmount: "",
-                  });
-                }
-              }}
-            />
-
-            {fieldErrors.expenseAmount ? (
-              <Text style={styles.fieldError}>{fieldErrors.expenseAmount}</Text>
-            ) : null}
+                clearFieldError("expenseAmount");
+              },
+              placeholder: "e.g. 4200",
+              icon: "cash-outline",
+              keyboardType: "numeric",
+              errorKey: "expenseAmount",
+            })}
 
             {/* PAYMENT STATUS */}
-            <Text style={styles.inputLabel}>Payment Status</Text>
 
-            <View style={styles.statusRow}>
-              <TouchableOpacity
-                style={[
-                  styles.statusOption,
-                  expenseStatus === "paid" && styles.statusOptionPaid,
-                ]}
-                onPress={() => {
-                  setExpenseStatus("paid");
-                  setReminderEnabled(false);
-                }}
-              >
-                <Ionicons
-                  name="checkmark-circle-outline"
-                  size={18}
-                  color={expenseStatus === "paid" ? "#16803a" : "#666"}
-                />
+            <View style={styles.fieldContainer}>
+              <Text style={styles.inputLabel}>Payment Status</Text>
 
-                <Text
+              <View style={styles.paymentStatusRow}>
+                <TouchableOpacity
                   style={[
-                    styles.statusOptionText,
-                    expenseStatus === "paid" && styles.statusOptionTextPaid,
+                    styles.paymentStatus,
+                    expenseStatus === "paid" && styles.paymentStatusPaid,
                   ]}
+                  onPress={() => {
+                    setExpenseStatus("paid");
+                    setReminderEnabled(false);
+                  }}
+                  activeOpacity={0.8}
                 >
-                  Paid
-                </Text>
-              </TouchableOpacity>
+                  <View
+                    style={[
+                      styles.paymentStatusIcon,
+                      expenseStatus === "paid" && styles.paymentStatusIconPaid,
+                    ]}
+                  >
+                    <Ionicons
+                      name="checkmark"
+                      size={17}
+                      color={expenseStatus === "paid" ? "#fff" : "#64748B"}
+                    />
+                  </View>
 
-              <TouchableOpacity
-                style={[
-                  styles.statusOption,
-                  expenseStatus === "due" && styles.statusOptionDue,
-                ]}
-                onPress={() => setExpenseStatus("due")}
-              >
-                <Ionicons
-                  name="time-outline"
-                  size={18}
-                  color={expenseStatus === "due" ? "#b45f00" : "#666"}
-                />
+                  <View>
+                    <Text
+                      style={[
+                        styles.paymentStatusTitle,
+                        expenseStatus === "paid" &&
+                          styles.paymentStatusTitlePaid,
+                      ]}
+                    >
+                      Paid
+                    </Text>
 
-                <Text
+                    <Text style={styles.paymentStatusSubtitle}>
+                      Already paid
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+
+                <TouchableOpacity
                   style={[
-                    styles.statusOptionText,
-                    expenseStatus === "due" && styles.statusOptionTextDue,
+                    styles.paymentStatus,
+                    expenseStatus === "due" && styles.paymentStatusDue,
                   ]}
+                  onPress={() => setExpenseStatus("due")}
+                  activeOpacity={0.8}
                 >
-                  Due
-                </Text>
-              </TouchableOpacity>
+                  <View
+                    style={[
+                      styles.paymentStatusIcon,
+                      expenseStatus === "due" && styles.paymentStatusIconDue,
+                    ]}
+                  >
+                    <Ionicons
+                      name="time-outline"
+                      size={17}
+                      color={expenseStatus === "due" ? "#fff" : "#64748B"}
+                    />
+                  </View>
+
+                  <View>
+                    <Text
+                      style={[
+                        styles.paymentStatusTitle,
+                        expenseStatus === "due" && styles.paymentStatusTitleDue,
+                      ]}
+                    >
+                      Due
+                    </Text>
+
+                    <Text style={styles.paymentStatusSubtitle}>
+                      Payment pending
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
             </View>
 
             {/* REMINDER */}
-            {expenseStatus === "due" ? (
-              <View style={styles.reminderRow}>
-                <View>
+
+            {expenseStatus === "due" && (
+              <View style={styles.reminderCard}>
+                <View style={styles.reminderIcon}>
+                  <Ionicons
+                    name="notifications-outline"
+                    size={20}
+                    color="#D97706"
+                  />
+                </View>
+
+                <View style={styles.reminderText}>
                   <Text style={styles.reminderTitle}>Set Reminder</Text>
 
                   <Text style={styles.reminderSubtitle}>
-                    Get notified on the expense date
+                    Get notified about this due expense
                   </Text>
                 </View>
 
@@ -1187,125 +1418,207 @@ export default function AddMemberScreen() {
                   value={reminderEnabled}
                   onValueChange={setReminderEnabled}
                   trackColor={{
-                    false: "#c9c9c9",
-                    true: "#86b9f4",
+                    false: "#CBD5E1",
+                    true: "#FCD34D",
                   }}
+                  thumbColor={
+                    Platform.OS === "android"
+                      ? reminderEnabled
+                        ? "#D97706"
+                        : "#F8FAFC"
+                      : undefined
+                  }
                 />
               </View>
-            ) : null}
+            )}
 
             {/* DATE */}
-            <Text style={styles.inputLabel}>Expense Date</Text>
 
-            <TouchableOpacity
-              style={styles.dateInput}
-              onPress={() => setShowDatePicker(true)}
-            >
-              <Text style={dueDate ? styles.dateText : styles.datePlaceholder}>
-                {dueDate || "Select date"}
-              </Text>
-
-              <Ionicons name="calendar-outline" size={20} color="#1a73e8" />
-            </TouchableOpacity>
-
-            {/* ATTACHMENT */}
-            <Text style={styles.inputLabel}>Bill Attachment (optional)</Text>
-
-            {billAttachments.length ? (
-              <View style={styles.attachmentList}>
-                {billAttachments.map((attachment, index) => (
-                  <View
-                    key={`${attachment.uri}-${index}`}
-                    style={styles.attachmentRow}
-                  >
-                    <Ionicons name="image-outline" size={20} color="#1a73e8" />
-
-                    <Text style={styles.attachmentName} numberOfLines={1}>
-                      {attachment.name}
-                    </Text>
-
-                    <TouchableOpacity
-                      style={styles.attachmentAction}
-                      onPress={() => Linking.openURL(attachment.uri)}
-                    >
-                      <Ionicons
-                        name="download-outline"
-                        size={20}
-                        color="#1a73e8"
-                      />
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={styles.attachmentAction}
-                      onPress={() =>
-                        setBillAttachments((currentAttachments) =>
-                          currentAttachments.filter(
-                            (_, attachmentIndex) => attachmentIndex !== index,
-                          ),
-                        )
-                      }
-                    >
-                      <Ionicons
-                        name="trash-outline"
-                        size={20}
-                        color="#e53935"
-                      />
-                    </TouchableOpacity>
-                  </View>
-                ))}
+            <View style={styles.fieldContainer}>
+              <View style={styles.labelRow}>
+                <Text style={styles.inputLabel}>Expense Date</Text>
               </View>
-            ) : null}
 
-            <TouchableOpacity
-              style={styles.attachButton}
-              onPress={handlePickBill}
-            >
-              <Ionicons name="attach-outline" size={20} color="#1a73e8" />
+              <TouchableOpacity
+                style={styles.dateInput}
+                onPress={() => setShowDatePicker(true)}
+                activeOpacity={0.8}
+              >
+                <View style={styles.dateLeft}>
+                  <View style={styles.dateIcon}>
+                    <Ionicons name="calendar-outline" size={19} color={BLUE} />
+                  </View>
 
-              <Text style={styles.attachButtonText}>
-                {billAttachments.length
-                  ? "Add more attachments"
-                  : "Add bill attachments"}
-              </Text>
-            </TouchableOpacity>
+                  <Text style={styles.dateText}>
+                    {dueDate || "Select date"}
+                  </Text>
+                </View>
+
+                <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+              </TouchableOpacity>
+            </View>
+
+            {/* ATTACHMENTS */}
+
+            <View style={styles.fieldContainer}>
+              <View style={styles.labelRow}>
+                <Text style={styles.inputLabel}>Bill Attachment</Text>
+
+                <Text style={styles.optionalText}>Optional</Text>
+              </View>
+
+              {billAttachments.length > 0 && (
+                <View style={styles.attachmentList}>
+                  {billAttachments.map((attachment, index) => (
+                    <View
+                      key={`${attachment.uri}-${index}`}
+                      style={styles.attachmentRow}
+                    >
+                      <View style={styles.attachmentIcon}>
+                        <Ionicons name="image-outline" size={20} color={BLUE} />
+                      </View>
+
+                      <Text style={styles.attachmentName} numberOfLines={1}>
+                        {attachment.name}
+                      </Text>
+
+                      <TouchableOpacity
+                        style={styles.attachmentAction}
+                        onPress={() => Linking.openURL(attachment.uri)}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="eye-outline" size={19} color={BLUE} />
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={styles.attachmentAction}
+                        onPress={() =>
+                          setBillAttachments((currentAttachments) =>
+                            currentAttachments.filter(
+                              (_, attachmentIndex) => attachmentIndex !== index,
+                            ),
+                          )
+                        }
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="trash-outline" size={19} color={RED} />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+                </View>
+              )}
+
+              <TouchableOpacity
+                style={styles.attachButton}
+                onPress={handlePickBill}
+                activeOpacity={0.8}
+              >
+                <View style={styles.attachButtonIcon}>
+                  <Ionicons name="add" size={20} color={BLUE} />
+                </View>
+
+                <View style={styles.attachButtonTextContainer}>
+                  <Text style={styles.attachButtonTitle}>
+                    {billAttachments.length > 0
+                      ? "Add another bill"
+                      : "Attach bill or receipt"}
+                  </Text>
+
+                  <Text style={styles.attachButtonSubtitle}>
+                    Select one or more images
+                  </Text>
+                </View>
+
+                <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+              </TouchableOpacity>
+            </View>
 
             {/* NOTE */}
-            <Text style={styles.inputLabel}>Note (optional)</Text>
 
-            <TextInput
-              style={[styles.input, styles.textArea]}
-              placeholder="Electricity bill for April"
-              value={expenseDescription}
-              onChangeText={setExpenseDescription}
-              multiline
-            />
-          </>
+            <View style={styles.fieldContainer}>
+              <View style={styles.labelRow}>
+                <Text style={styles.inputLabel}>Note</Text>
+
+                <Text style={styles.optionalText}>Optional</Text>
+              </View>
+
+              <View style={styles.textAreaContainer}>
+                <Ionicons
+                  name="create-outline"
+                  size={19}
+                  color="#94A3B8"
+                  style={styles.textAreaIcon}
+                />
+
+                <TextInput
+                  style={styles.textArea}
+                  placeholder="Add any additional information..."
+                  placeholderTextColor="#A1AAB8"
+                  value={expenseDescription}
+                  onChangeText={setExpenseDescription}
+                  multiline
+                  textAlignVertical="top"
+                />
+              </View>
+            </View>
+          </View>
         )}
 
         {/* ======================================================
             ERROR
         ====================================================== */}
 
-        {error && (error !== "Please fix all the errors" || hasFieldErrors) ? (
-          <Text style={styles.error}>{error}</Text>
+        {error &&
+        (error !== "Please fix the highlighted fields" || hasFieldErrors) ? (
+          <View style={styles.errorCard}>
+            <View style={styles.errorIcon}>
+              <Ionicons name="alert-circle" size={19} color={RED} />
+            </View>
+
+            <Text style={styles.errorText}>{error}</Text>
+          </View>
         ) : null}
 
         {/* ======================================================
-            ADD BUTTON
+            SAVE BUTTON
         ====================================================== */}
 
         <TouchableOpacity
-          style={styles.button}
+          style={[styles.button, loading && styles.buttonDisabled]}
           onPress={handleAdd}
           disabled={loading}
+          activeOpacity={0.85}
         >
-          <Text style={styles.buttonText}>
-            {loading ? "Adding..." : getButtonText(groupType)}
-          </Text>
+          {loading ? (
+            <>
+              <Text style={styles.buttonText}>Saving...</Text>
+            </>
+          ) : (
+            <>
+              <Ionicons
+                name={
+                  groupType === "expense"
+                    ? "receipt-outline"
+                    : "checkmark-circle-outline"
+                }
+                size={21}
+                color="#fff"
+              />
+
+              <Text style={styles.buttonText}>{getButtonText(groupType)}</Text>
+            </>
+          )}
         </TouchableOpacity>
+
+        <Text style={styles.bottomHint}>
+          Your information will be saved securely in your society records.
+        </Text>
       </ScrollView>
 
-      {/* DATE PICKER */}
+      {/* ======================================================
+          DATE PICKER
+      ====================================================== */}
+
       <DatePickerModal
         visible={showDatePicker}
         value={dueDate}
@@ -1313,7 +1626,10 @@ export default function AddMemberScreen() {
         onSelect={setDueDate}
       />
 
-      {/* CONTACT PICKER */}
+      {/* ======================================================
+          CONTACT PICKER
+      ====================================================== */}
+
       {renderContactPickerModal()}
     </KeyboardAvoidingView>
   );
@@ -1326,407 +1642,819 @@ export default function AddMemberScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#fff",
+    backgroundColor: BACKGROUND,
+  },
+
+  scrollView: {
+    flex: 1,
   },
 
   scrollContent: {
-    padding: 24,
-    paddingBottom: 60,
+    paddingHorizontal: 16,
+    paddingTop: 18,
+    paddingBottom: 50,
   },
 
-  title: {
+  // ============================================================
+  // PAGE HEADER
+  // ============================================================
+
+  pageHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 18,
+  },
+
+  pageHeaderIcon: {
+    width: 54,
+    height: 54,
+    borderRadius: 16,
+    backgroundColor: BLUE_LIGHT,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 13,
+  },
+
+  pageHeaderText: {
+    flex: 1,
+  },
+
+  pageTitle: {
     fontSize: 22,
     fontWeight: "700",
-    marginBottom: 8,
-    marginTop: 12,
+    color: TEXT,
+    letterSpacing: -0.3,
   },
 
-  subtitle: {
-    fontSize: 14,
-    color: "#666",
-    marginBottom: 16,
+  pageSubtitle: {
+    fontSize: 13,
+    color: TEXT_SECONDARY,
+    marginTop: 4,
+    lineHeight: 18,
   },
 
-  photoSection: {
+  // ============================================================
+  // PHOTO
+  // ============================================================
+
+  photoCard: {
+    backgroundColor: "#fff",
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: BORDER,
+    padding: 14,
+    flexDirection: "row",
     alignItems: "center",
-    marginBottom: 8,
+    marginBottom: 14,
   },
 
-  photoCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: "#f0f0f0",
-    borderWidth: 1.5,
-    borderColor: "#ddd",
-    borderStyle: "dashed",
+  photoButton: {
+    width: 66,
+    height: 66,
+    borderRadius: 20,
+    backgroundColor: BLUE_LIGHT,
     justifyContent: "center",
     alignItems: "center",
     overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "#DBEAFE",
   },
 
   photoImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 66,
+    height: 66,
   },
 
-  photoLabel: {
-    fontSize: 12,
-    color: "#1a73e8",
-    fontWeight: "600",
-    marginTop: 8,
+  photoPlus: {
+    position: "absolute",
+    right: 2,
+    bottom: 2,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: BLUE,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 2,
+    borderColor: "#fff",
   },
 
-  sectionLabel: {
-    fontSize: 13,
+  photoTextContainer: {
+    flex: 1,
+    marginLeft: 14,
+  },
+
+  photoTitle: {
+    fontSize: 15,
     fontWeight: "700",
-    color: "#1a73e8",
-    marginTop: 24,
+    color: TEXT,
+  },
+
+  photoSubtitle: {
+    fontSize: 12,
+    color: TEXT_SECONDARY,
+    marginTop: 4,
+    lineHeight: 17,
+  },
+
+  removePhotoButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: "#FEF2F2",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+
+  // ============================================================
+  // CARD
+  // ============================================================
+
+  card: {
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: BORDER,
+    padding: 16,
+    marginBottom: 14,
+  },
+
+  // ============================================================
+  // SECTION HEADER
+  // ============================================================
+
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
     marginBottom: 4,
-    textTransform: "uppercase",
+  },
+
+  sectionIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: BLUE_LIGHT,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 11,
+  },
+
+  sectionHeaderText: {
+    flex: 1,
+  },
+
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: TEXT,
+  },
+
+  sectionSubtitle: {
+    fontSize: 12,
+    color: TEXT_SECONDARY,
+    marginTop: 3,
+  },
+
+  // ============================================================
+  // INPUTS
+  // ============================================================
+
+  fieldContainer: {
+    marginTop: 18,
+  },
+
+  labelRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
   },
 
   inputLabel: {
     fontSize: 13,
     fontWeight: "600",
-    color: "#555",
-    marginBottom: 8,
-    marginTop: 16,
+    color: "#374151",
   },
 
   inputLabelError: {
-    color: "#e53935",
+    color: RED,
   },
 
-  input: {
+  optionalText: {
+    fontSize: 11,
+    color: "#94A3B8",
+    fontWeight: "500",
+  },
+
+  inputContainer: {
+    minHeight: 52,
     borderWidth: 1,
-    borderColor: "#e8e8e8",
-    borderRadius: 10,
-    height: 50,
-    paddingHorizontal: 14,
-    fontSize: 15,
-  },
-
-  inputError: {
-    borderColor: "#e53935",
-    borderWidth: 1.5,
-  },
-
-  textArea: {
-    height: 90,
-    textAlignVertical: "top",
-    paddingTop: 12,
-  },
-
-  phoneRow: {
+    borderColor: BORDER,
+    borderRadius: 13,
+    backgroundColor: "#fff",
     flexDirection: "row",
     alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#e8e8e8",
-    borderRadius: 10,
-    paddingHorizontal: 14,
-    paddingRight: 4,
+    paddingLeft: 14,
+    paddingRight: 6,
   },
 
-  phoneRowError: {
-    borderColor: "#e53935",
-    borderWidth: 1.5,
+  inputContainerError: {
+    borderColor: "#FCA5A5",
+    backgroundColor: "#FFF7F7",
   },
 
-  prefix: {
-    fontSize: 15,
-    marginRight: 8,
-    color: "#333",
-  },
-
-  phoneInput: {
+  textInput: {
     flex: 1,
-    height: 50,
+    minHeight: 50,
     fontSize: 15,
+    color: TEXT,
+    paddingHorizontal: 10,
   },
 
-  contactIcon: {
-    padding: 10,
-    borderRadius: 10,
+  countryCode: {
+    paddingRight: 10,
+    borderRightWidth: 1,
+    borderRightColor: BORDER,
+  },
+
+  countryCodeText: {
+    fontSize: 14,
+    color: "#475569",
+    fontWeight: "600",
+  },
+
+  contactButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 11,
+    backgroundColor: BLUE_LIGHT,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#f0f6ff",
-    marginLeft: 6,
   },
 
-  roleRow: {
+  helperText: {
+    fontSize: 11,
+    color: "#94A3B8",
+    marginTop: 6,
+  },
+
+  fieldError: {
+    fontSize: 11,
+    color: RED,
+    marginTop: 6,
+    fontWeight: "500",
+  },
+
+  // ============================================================
+  // ROLE
+  // ============================================================
+
+  roleGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 10,
   },
 
-  roleChip: {
-    borderWidth: 1.5,
-    borderColor: "#e0e0e0",
-    borderRadius: 20,
-    paddingVertical: 8,
-    paddingHorizontal: 16,
+  roleCard: {
+    width: "47.5%",
+    minHeight: 62,
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 14,
+    backgroundColor: "#fff",
+    paddingHorizontal: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    position: "relative",
   },
 
-  roleChipSelected: {
-    borderColor: "#1a73e8",
-    backgroundColor: "#f0f6ff",
+  roleCardSelected: {
+    borderColor: BLUE,
+    backgroundColor: BLUE_LIGHT,
   },
 
-  roleChipText: {
+  roleIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 11,
+    backgroundColor: BLUE_LIGHT,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 9,
+  },
+
+  roleIconSelected: {
+    backgroundColor: BLUE,
+  },
+
+  roleText: {
+    flex: 1,
     fontSize: 13,
-    color: "#555",
-    fontWeight: "500",
+    fontWeight: "600",
+    color: "#475569",
   },
 
-  roleChipTextSelected: {
-    color: "#1a73e8",
+  roleTextSelected: {
+    color: BLUE,
     fontWeight: "700",
   },
 
-  customRoleInput: {
-    marginTop: 10,
-  },
-
-  statusRow: {
-    flexDirection: "row",
-    gap: 10,
-  },
-
-  statusOption: {
-    flex: 1,
-    height: 46,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    borderWidth: 1,
-    borderColor: "#dedede",
-    borderRadius: 8,
-  },
-
-  statusOptionPaid: {
-    borderColor: "#4caf70",
-    backgroundColor: "#f0f9f2",
-  },
-
-  statusOptionDue: {
-    borderColor: "#ed9b40",
-    backgroundColor: "#fff7ed",
-  },
-
-  statusOptionText: {
-    color: "#555",
-    fontSize: 14,
-    fontWeight: "600",
-  },
-
-  statusOptionTextPaid: {
-    color: "#16803a",
-  },
-
-  statusOptionTextDue: {
-    color: "#b45f00",
-  },
-
-  reminderRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    padding: 12,
-    marginTop: 10,
-    borderRadius: 8,
-    backgroundColor: "#fff7ed",
-  },
-
-  reminderTitle: {
-    color: "#333",
-    fontSize: 14,
-    fontWeight: "600",
-  },
-
-  reminderSubtitle: {
-    color: "#777",
-    fontSize: 12,
-    marginTop: 2,
-  },
-
-  dateInput: {
-    height: 50,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    borderWidth: 1,
-    borderColor: "#e8e8e8",
+  roleCheck: {
+    position: "absolute",
+    right: 7,
+    top: 7,
+    width: 19,
+    height: 19,
     borderRadius: 10,
+    backgroundColor: BLUE,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+
+  customRoleWrapper: {
+    marginTop: 10,
+  },
+
+  customRoleInput: {
+    height: 50,
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 13,
     paddingHorizontal: 14,
+    fontSize: 15,
+    color: TEXT,
     backgroundColor: "#fff",
   },
 
-  dateText: {
-    color: "#333",
-    fontSize: 15,
-  },
+  // ============================================================
+  // SETTINGS
+  // ============================================================
 
-  datePlaceholder: {
-    color: "#999",
-    fontSize: 15,
-  },
-
-  attachButton: {
+  settingRow: {
+    minHeight: 66,
+    borderRadius: 14,
+    backgroundColor: "#F8FAFC",
+    paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    height: 44,
-    borderWidth: 1,
-    borderStyle: "dashed",
-    borderColor: "#7eaff0",
-    borderRadius: 8,
-    marginTop: 8,
+    marginTop: 18,
   },
 
-  attachButtonText: {
-    color: "#1a73e8",
-    fontWeight: "600",
+  settingIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 11,
+    backgroundColor: BLUE_LIGHT,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 10,
   },
+
+  settingText: {
+    flex: 1,
+  },
+
+  settingTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: TEXT,
+  },
+
+  settingSubtitle: {
+    fontSize: 11,
+    color: TEXT_SECONDARY,
+    marginTop: 3,
+  },
+
+  // ============================================================
+  // PAYMENT STATUS
+  // ============================================================
+
+  paymentStatusRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+
+  paymentStatus: {
+    flex: 1,
+    minHeight: 68,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: BORDER,
+    paddingHorizontal: 10,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  paymentStatusPaid: {
+    borderColor: "#86EFAC",
+    backgroundColor: "#F0FDF4",
+  },
+
+  paymentStatusDue: {
+    borderColor: "#FCD34D",
+    backgroundColor: "#FFFBEB",
+  },
+
+  paymentStatusIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: "#F1F5F9",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 8,
+  },
+
+  paymentStatusIconPaid: {
+    backgroundColor: "#16A34A",
+  },
+
+  paymentStatusIconDue: {
+    backgroundColor: "#D97706",
+  },
+
+  paymentStatusTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#475569",
+  },
+
+  paymentStatusTitlePaid: {
+    color: "#15803D",
+  },
+
+  paymentStatusTitleDue: {
+    color: "#B45309",
+  },
+
+  paymentStatusSubtitle: {
+    fontSize: 10,
+    color: "#94A3B8",
+    marginTop: 2,
+  },
+
+  // ============================================================
+  // REMINDER
+  // ============================================================
+
+  reminderCard: {
+    minHeight: 68,
+    backgroundColor: "#FFFBEB",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#FDE68A",
+    marginTop: 12,
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  reminderIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 11,
+    backgroundColor: "#FEF3C7",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 10,
+  },
+
+  reminderText: {
+    flex: 1,
+  },
+
+  reminderTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#92400E",
+  },
+
+  reminderSubtitle: {
+    fontSize: 11,
+    color: "#A16207",
+    marginTop: 3,
+  },
+
+  // ============================================================
+  // DATE
+  // ============================================================
+
+  dateInput: {
+    minHeight: 52,
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 13,
+    paddingHorizontal: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#fff",
+  },
+
+  dateLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  dateIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: BLUE_LIGHT,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 10,
+  },
+
+  dateText: {
+    fontSize: 14,
+    color: TEXT,
+    fontWeight: "500",
+  },
+
+  // ============================================================
+  // ATTACHMENTS
+  // ============================================================
 
   attachmentList: {
     borderWidth: 1,
-    borderColor: "#e2e9f4",
-    borderRadius: 8,
+    borderColor: "#DBEAFE",
+    borderRadius: 14,
     overflow: "hidden",
+    marginBottom: 10,
   },
 
   attachmentRow: {
+    minHeight: 58,
+    paddingHorizontal: 10,
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    backgroundColor: "#f8fbff",
+    backgroundColor: "#F8FBFF",
     borderBottomWidth: 1,
-    borderBottomColor: "#e2e9f4",
+    borderBottomColor: "#E0ECFF",
+  },
+
+  attachmentIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: BLUE_LIGHT,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 9,
   },
 
   attachmentName: {
     flex: 1,
-    color: "#333",
-    fontSize: 14,
+    fontSize: 13,
+    color: TEXT,
+    fontWeight: "500",
   },
 
   attachmentAction: {
-    padding: 4,
-  },
-
-  switchRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginTop: 16,
-  },
-
-  error: {
-    color: "#e53935",
-    marginTop: 16,
-    marginBottom: 8,
-    fontSize: 13,
-    textAlign: "center",
-    backgroundColor: "#ffebee",
-    padding: 12,
-    borderRadius: 8,
-    fontWeight: "500",
-  },
-
-  fieldError: {
-    color: "#e53935",
-    fontSize: 12,
-    marginTop: 4,
-    marginBottom: 8,
-    fontWeight: "500",
-  },
-
-  button: {
-    backgroundColor: "#1a73e8",
-    borderRadius: 10,
-    height: 52,
+    width: 36,
+    height: 36,
     justifyContent: "center",
     alignItems: "center",
-    marginTop: 28,
+  },
+
+  attachButton: {
+    minHeight: 66,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: "#93C5FD",
+    borderRadius: 14,
+    paddingHorizontal: 11,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F8FBFF",
+  },
+
+  attachButtonIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 11,
+    backgroundColor: BLUE_LIGHT,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 10,
+  },
+
+  attachButtonTextContainer: {
+    flex: 1,
+  },
+
+  attachButtonTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: BLUE,
+  },
+
+  attachButtonSubtitle: {
+    fontSize: 10,
+    color: "#64748B",
+    marginTop: 3,
+  },
+
+  // ============================================================
+  // TEXT AREA
+  // ============================================================
+
+  textAreaContainer: {
+    minHeight: 100,
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 13,
+    backgroundColor: "#fff",
+    flexDirection: "row",
+    paddingHorizontal: 12,
+    paddingTop: 13,
+  },
+
+  textAreaIcon: {
+    marginTop: 2,
+  },
+
+  textArea: {
+    flex: 1,
+    minHeight: 85,
+    paddingHorizontal: 10,
+    paddingTop: 0,
+    fontSize: 14,
+    color: TEXT,
+    lineHeight: 20,
+  },
+
+  // ============================================================
+  // ERROR
+  // ============================================================
+
+  errorCard: {
+    minHeight: 50,
+    borderRadius: 13,
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1,
+    borderColor: "#FECACA",
+    paddingHorizontal: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+
+  errorIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: "#FEE2E2",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 9,
+  },
+
+  errorText: {
+    flex: 1,
+    fontSize: 12,
+    color: "#B91C1C",
+    fontWeight: "500",
+  },
+
+  // ============================================================
+  // BUTTON
+  // ============================================================
+
+  button: {
+    minHeight: 54,
+    borderRadius: 15,
+    backgroundColor: BLUE,
+    justifyContent: "center",
+    alignItems: "center",
+    flexDirection: "row",
+    gap: 9,
+    marginTop: 18,
+    shadowColor: BLUE,
+    shadowOffset: {
+      width: 0,
+      height: 5,
+    },
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    elevation: 4,
+  },
+
+  buttonDisabled: {
+    opacity: 0.65,
   },
 
   buttonText: {
     color: "#fff",
-    fontSize: 16,
-    fontWeight: "600",
+    fontSize: 15,
+    fontWeight: "700",
   },
 
-  // ==============================================================
+  bottomHint: {
+    fontSize: 10,
+    color: "#94A3B8",
+    textAlign: "center",
+    marginTop: 11,
+    lineHeight: 15,
+    paddingHorizontal: 20,
+  },
+
+  // ============================================================
   // CONTACT MODAL
-  // ==============================================================
+  // ============================================================
 
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    backgroundColor: "rgba(15, 23, 42, 0.48)",
     justifyContent: "flex-end",
   },
 
   modalContainer: {
     backgroundColor: "#fff",
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    maxHeight: "85%",
-    minHeight: "40%",
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    paddingHorizontal: 18,
+    paddingTop: 10,
+    maxHeight: "88%",
+    minHeight: "55%",
+  },
+
+  modalHandle: {
+    width: 42,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#CBD5E1",
+    alignSelf: "center",
+    marginBottom: 18,
   },
 
   modalHeader: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 16,
+    justifyContent: "space-between",
+    marginBottom: 15,
   },
 
   modalTitle: {
-    fontSize: 18,
+    fontSize: 19,
     fontWeight: "700",
-    color: "#1a1a1a",
+    color: TEXT,
+  },
+
+  modalSubtitle: {
+    fontSize: 11,
+    color: TEXT_SECONDARY,
+    marginTop: 3,
   },
 
   modalCloseButton: {
-    padding: 4,
-  },
-
-  modalSearchContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#f5f5f5",
-    borderRadius: 10,
-    paddingHorizontal: 12,
-    marginBottom: 16,
-    minHeight: 46,
-  },
-
-  modalSearchInput: {
-    flex: 1,
-    paddingVertical: 10,
-    paddingHorizontal: 8,
-    fontSize: 15,
-    color: "#1a1a1a",
-  },
-
-  clearSearchButton: {
-    padding: 4,
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: "#F1F5F9",
     justifyContent: "center",
     alignItems: "center",
   },
 
+  modalSearchContainer: {
+    minHeight: 48,
+    borderRadius: 13,
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: BORDER,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+  },
+
+  modalSearchInput: {
+    flex: 1,
+    minHeight: 46,
+    paddingHorizontal: 9,
+    fontSize: 14,
+    color: TEXT,
+  },
+
+  clearSearchButton: {
+    width: 30,
+    height: 30,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+
+  resultCount: {
+    fontSize: 11,
+    color: "#94A3B8",
+    marginTop: 12,
+    marginBottom: 5,
+    fontWeight: "500",
+  },
+
   contactListWrapper: {
     flex: 1,
-    minHeight: 200,
-    maxHeight: 400,
+    minHeight: 220,
   },
 
   contactListContainer: {
@@ -1738,27 +2466,27 @@ const styles = StyleSheet.create({
   },
 
   contactItem: {
+    minHeight: 68,
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: "#f0f0f0",
+    borderBottomColor: "#F1F5F9",
   },
 
   contactAvatar: {
     width: 44,
     height: 44,
-    borderRadius: 22,
-    backgroundColor: "#e8f0fe",
+    borderRadius: 14,
+    backgroundColor: BLUE_LIGHT,
     justifyContent: "center",
     alignItems: "center",
-    marginRight: 12,
+    marginRight: 11,
   },
 
   contactAvatarText: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: "#1a73e8",
+    fontSize: 17,
+    fontWeight: "700",
+    color: BLUE,
   },
 
   contactInfo: {
@@ -1767,64 +2495,67 @@ const styles = StyleSheet.create({
   },
 
   contactName: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "600",
-    color: "#1a1a1a",
+    color: TEXT,
   },
 
   contactPhone: {
-    fontSize: 13,
-    color: "#666",
-    marginTop: 2,
+    fontSize: 12,
+    color: TEXT_SECONDARY,
+    marginTop: 4,
+  },
+
+  contactSelectIcon: {
+    width: 30,
+    height: 30,
+    justifyContent: "center",
+    alignItems: "center",
   },
 
   noContactsContainer: {
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 40,
-    paddingHorizontal: 20,
+    paddingVertical: 55,
+    paddingHorizontal: 30,
   },
 
   noContactsIcon: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: "#f5f5f5",
-    alignItems: "center",
+    width: 66,
+    height: 66,
+    borderRadius: 22,
+    backgroundColor: "#F1F5F9",
     justifyContent: "center",
-    marginBottom: 12,
+    alignItems: "center",
+    marginBottom: 13,
   },
 
   noContactsTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#333",
-    marginBottom: 6,
+    fontSize: 15,
+    fontWeight: "700",
+    color: TEXT,
   },
 
   noContactsText: {
-    fontSize: 13,
-    color: "#888",
+    fontSize: 12,
+    color: "#94A3B8",
     textAlign: "center",
-    lineHeight: 19,
-  },
-
-  modalFooter: {
-    paddingTop: 12,
-    paddingBottom: 0,
+    marginTop: 5,
+    lineHeight: 18,
   },
 
   modalCancelButton: {
-    height: 48,
-    borderRadius: 10,
-    backgroundColor: "#f5f5f5",
-    alignItems: "center",
+    height: 50,
+    borderRadius: 14,
+    backgroundColor: "#F1F5F9",
     justifyContent: "center",
+    alignItems: "center",
+    marginTop: 10,
   },
 
   modalCancelButtonText: {
-    fontSize: 16,
-    fontWeight: "600",
-    color: "#555",
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#475569",
   },
 });
