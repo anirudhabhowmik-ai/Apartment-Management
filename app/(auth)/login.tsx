@@ -10,12 +10,14 @@ import { useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -234,7 +236,7 @@ export default function LoginScreen() {
   };
 
   // ============================================================
-  // CONTACT PICKER MODAL
+  // CONTACT PICKER MODAL - Fixed with no extra bottom space
   // ============================================================
 
   const renderContactPickerModal = () => {
@@ -243,138 +245,150 @@ export default function LoginScreen() {
     }
 
     return (
-      <View style={styles.modalOverlay}>
-        <View
-          style={[
-            styles.modalContainer,
-            {
-              // Keep modal above Android navigation area
-              paddingBottom: 20 + insets.bottom,
-            },
-          ]}
-        >
-          {/* ==================================================
-              MODAL HEADER
-          ================================================== */}
+      <Modal
+        visible={showContactPicker}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={closeContactPicker}
+      >
+        <TouchableWithoutFeedback onPress={closeContactPicker}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
+              <View style={styles.modalContainer}>
+                {/* MODAL HEADER */}
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>Select Contact</Text>
 
-          <View style={styles.modalHeader}>
-            <Text style={styles.modalTitle}>Select Contact</Text>
-
-            <TouchableOpacity
-              onPress={closeContactPicker}
-              style={styles.modalCloseButton}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="close" size={24} color="#333" />
-            </TouchableOpacity>
-          </View>
-
-          {/* ==================================================
-              SEARCH
-          ================================================== */}
-
-          <View style={styles.modalSearchContainer}>
-            <Ionicons name="search" size={20} color="#999" />
-
-            <TextInput
-              style={styles.modalSearchInput}
-              placeholder="Search contacts..."
-              placeholderTextColor="#999"
-              value={contactSearch}
-              onChangeText={setContactSearch}
-              autoCapitalize="none"
-              autoCorrect={false}
-              returnKeyType="search"
-            />
-
-            {/* CLEAR SEARCH BUTTON */}
-            {contactSearch.length > 0 && (
-              <TouchableOpacity
-                onPress={() => setContactSearch("")}
-                style={styles.clearSearchButton}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="close-circle" size={20} color="#999" />
-              </TouchableOpacity>
-            )}
-          </View>
-
-          {/* ==================================================
-              CONTACT LIST
-          ================================================== */}
-
-          <ScrollView
-            style={styles.contactListContainer}
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-          >
-            {filteredContacts.length > 0 ? (
-              filteredContacts.map((contact) => (
-                <TouchableOpacity
-                  key={contact.id}
-                  style={styles.contactItem}
-                  onPress={() => selectContact(contact)}
-                  activeOpacity={0.7}
-                >
-                  {/* AVATAR */}
-                  <View style={styles.contactAvatar}>
-                    <Text style={styles.contactAvatarText}>
-                      {contact.name
-                        ? contact.name.charAt(0).toUpperCase()
-                        : "?"}
-                    </Text>
-                  </View>
-
-                  {/* CONTACT INFO */}
-                  <View style={styles.contactInfo}>
-                    <Text style={styles.contactName} numberOfLines={1}>
-                      {contact.name || "Unknown"}
-                    </Text>
-
-                    {contact.phoneNumbers &&
-                      contact.phoneNumbers.length > 0 && (
-                        <Text style={styles.contactPhone} numberOfLines={1}>
-                          {contact.phoneNumbers[0].number}
-                        </Text>
-                      )}
-                  </View>
-
-                  {/* ARROW */}
-                  <Ionicons name="chevron-forward" size={20} color="#ccc" />
-                </TouchableOpacity>
-              ))
-            ) : (
-              // ==================================================
-              // NO SEARCH RESULTS
-              // ==================================================
-
-              <View style={styles.noContactsContainer}>
-                <View style={styles.noContactsIcon}>
-                  <Ionicons name="search-outline" size={32} color="#999" />
+                  <TouchableOpacity
+                    onPress={closeContactPicker}
+                    style={styles.modalCloseButton}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="close" size={24} color="#333" />
+                  </TouchableOpacity>
                 </View>
 
-                <Text style={styles.noContactsTitle}>No contacts found</Text>
+                {/* SEARCH */}
+                <View style={styles.modalSearchContainer}>
+                  <Ionicons name="search" size={20} color="#999" />
 
-                <Text style={styles.noContactsText}>
-                  Try searching with a different name or phone number.
-                </Text>
+                  <TextInput
+                    style={styles.modalSearchInput}
+                    placeholder="Search contacts..."
+                    placeholderTextColor="#999"
+                    value={contactSearch}
+                    onChangeText={setContactSearch}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    returnKeyType="search"
+                    autoFocus={false}
+                  />
+
+                  {/* CLEAR SEARCH BUTTON */}
+                  {contactSearch.length > 0 && (
+                    <TouchableOpacity
+                      onPress={() => setContactSearch("")}
+                      style={styles.clearSearchButton}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="close-circle" size={20} color="#999" />
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                {/* CONTACT LIST - Fixed with proper scrolling */}
+                <View style={styles.contactListWrapper}>
+                  <ScrollView
+                    style={styles.contactListContainer}
+                    contentContainerStyle={styles.contactListContent}
+                    showsVerticalScrollIndicator={true}
+                    keyboardShouldPersistTaps="handled"
+                    nestedScrollEnabled={true}
+                    scrollEnabled={true}
+                    bounces={true}
+                    alwaysBounceVertical={true}
+                    removeClippedSubviews={false}
+                  >
+                    {filteredContacts.length > 0 ? (
+                      filteredContacts.map((contact) => (
+                        <TouchableOpacity
+                          key={contact.id}
+                          style={styles.contactItem}
+                          onPress={() => selectContact(contact)}
+                          activeOpacity={0.7}
+                        >
+                          {/* AVATAR */}
+                          <View style={styles.contactAvatar}>
+                            <Text style={styles.contactAvatarText}>
+                              {contact.name
+                                ? contact.name.charAt(0).toUpperCase()
+                                : "?"}
+                            </Text>
+                          </View>
+
+                          {/* CONTACT INFO */}
+                          <View style={styles.contactInfo}>
+                            <Text style={styles.contactName} numberOfLines={1}>
+                              {contact.name || "Unknown"}
+                            </Text>
+
+                            {contact.phoneNumbers &&
+                              contact.phoneNumbers.length > 0 && (
+                                <Text
+                                  style={styles.contactPhone}
+                                  numberOfLines={1}
+                                >
+                                  {contact.phoneNumbers[0].number}
+                                </Text>
+                              )}
+                          </View>
+
+                          {/* ARROW */}
+                          <Ionicons
+                            name="chevron-forward"
+                            size={20}
+                            color="#ccc"
+                          />
+                        </TouchableOpacity>
+                      ))
+                    ) : (
+                      // NO SEARCH RESULTS
+                      <View style={styles.noContactsContainer}>
+                        <View style={styles.noContactsIcon}>
+                          <Ionicons
+                            name="search-outline"
+                            size={32}
+                            color="#999"
+                          />
+                        </View>
+
+                        <Text style={styles.noContactsTitle}>
+                          No contacts found
+                        </Text>
+
+                        <Text style={styles.noContactsText}>
+                          Try searching with a different name or phone number.
+                        </Text>
+                      </View>
+                    )}
+                  </ScrollView>
+                </View>
+
+                {/* CANCEL BUTTON */}
+                <View style={styles.modalFooter}>
+                  <TouchableOpacity
+                    style={styles.modalCancelButton}
+                    onPress={closeContactPicker}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.modalCancelButtonText}>Cancel</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
-            )}
-          </ScrollView>
-
-          {/* ==================================================
-              CANCEL BUTTON
-          ================================================== */}
-
-          <TouchableOpacity
-            style={styles.modalCancelButton}
-            onPress={closeContactPicker}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.modalCancelButtonText}>Cancel</Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
     );
   };
 
@@ -393,10 +407,7 @@ export default function LoginScreen() {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={0}
     >
-      {/* ======================================================
-          HEADER
-      ====================================================== */}
-
+      {/* HEADER */}
       <View style={styles.header}>
         <View style={styles.logoContainer}>
           <View style={styles.logoCircle}>
@@ -409,10 +420,7 @@ export default function LoginScreen() {
         <Text style={styles.subtitle}>Manage your properties effortlessly</Text>
       </View>
 
-      {/* ======================================================
-          LOGIN CARD
-      ====================================================== */}
-
+      {/* LOGIN CARD */}
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Welcome Back</Text>
 
@@ -482,10 +490,7 @@ export default function LoginScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* ======================================================
-          FEATURES FOOTER
-      ====================================================== */}
-
+      {/* FEATURES FOOTER */}
       <View style={styles.footer}>
         <View style={styles.featureRow}>
           {/* PROPERTY */}
@@ -865,15 +870,11 @@ const styles = StyleSheet.create({
   },
 
   // ==============================================================
-  // CONTACT MODAL
+  // CONTACT MODAL - Fixed with no extra bottom space
   // ==============================================================
 
   modalOverlay: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+    flex: 1,
     backgroundColor: "rgba(0, 0, 0, 0.5)",
     justifyContent: "flex-end",
   },
@@ -882,8 +883,10 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    padding: 20,
-    maxHeight: "80%",
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    maxHeight: "85%",
+    minHeight: "40%",
   },
 
   modalHeader: {
@@ -903,10 +906,7 @@ const styles = StyleSheet.create({
     padding: 4,
   },
 
-  // ==============================================================
   // SEARCH
-  // ==============================================================
-
   modalSearchContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -931,12 +931,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
 
-  // ==============================================================
-  // CONTACT LIST
-  // ==============================================================
+  // CONTACT LIST WRAPPER
+  contactListWrapper: {
+    flex: 1,
+    minHeight: 200,
+    maxHeight: 400,
+  },
 
   contactListContainer: {
-    maxHeight: 400,
+    flex: 1,
+  },
+
+  contactListContent: {
+    paddingBottom: 8,
   },
 
   contactItem: {
@@ -980,10 +987,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
-  // ==============================================================
   // NO CONTACTS
-  // ==============================================================
-
   noContactsContainer: {
     alignItems: "center",
     justifyContent: "center",
@@ -1015,12 +1019,14 @@ const styles = StyleSheet.create({
     lineHeight: 19,
   },
 
-  // ==============================================================
-  // CANCEL
-  // ==============================================================
+  // MODAL FOOTER
+  modalFooter: {
+    paddingTop: 16,
+    paddingBottom: 20,
+  },
 
+  // CANCEL
   modalCancelButton: {
-    marginTop: 16,
     paddingVertical: 14,
     borderRadius: 12,
     backgroundColor: "#f5f5f5",

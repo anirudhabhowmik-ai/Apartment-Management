@@ -1,17 +1,26 @@
 import { Ionicons } from "@expo/vector-icons";
+import {
+  Contact,
+  ContactField,
+  ContactsSortOrder,
+  requestPermissionsAsync,
+} from "expo-contacts";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Alert,
   Image,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Switch,
   Text,
   TextInput,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -30,6 +39,15 @@ interface MenuItem {
   showArrow?: boolean;
 }
 
+interface ContactData {
+  id: string;
+  name: string;
+  phoneNumbers: {
+    number: string;
+    label?: string;
+  }[];
+}
+
 export default function ProfileScreen() {
   const router = useRouter();
   const { user, logout, setUser } = useAuthStore();
@@ -45,12 +63,24 @@ export default function ProfileScreen() {
   const [phone, setPhone] = useState("");
   const [editingName, setEditingName] = useState(false);
   const [showPhoneModal, setShowPhoneModal] = useState(false);
-  const [phoneOtp, setPhoneOtp] = useState("");
+  const [phoneOtp, setPhoneOtp] = useState(["", "", "", "", "", ""]);
   const [phoneOtpSent, setPhoneOtpSent] = useState(false);
   const [phoneError, setPhoneError] = useState("");
   const [invitationToDelete, setInvitationToDelete] = useState<string | null>(
     null,
   );
+  const [otpMessage, setOtpMessage] = useState("");
+  const [timer, setTimer] = useState(30);
+  const [isTimerActive, setIsTimerActive] = useState(false);
+
+  // OTP input refs
+  const otpInputs = useRef<(TextInput | null)[]>([]);
+  const timerInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // Contact picker states
+  const [showContactPicker, setShowContactPicker] = useState(false);
+  const [contactsList, setContactsList] = useState<ContactData[]>([]);
+  const [contactSearch, setContactSearch] = useState("");
 
   const accountGrants = grants.filter(
     (grant) => grant.accountId === selectedAccount?.id,
@@ -62,6 +92,28 @@ export default function ProfileScreen() {
   const visibleMembers = accountGrants.filter(
     (grant) => grant.acceptedAt && grant.role === "member_visibility",
   );
+
+  // Timer effect
+  useEffect(() => {
+    if (isTimerActive && timer > 0) {
+      timerInterval.current = setInterval(() => {
+        setTimer((prev) => prev - 1);
+      }, 1000);
+    } else if (timer === 0) {
+      setIsTimerActive(false);
+      if (timerInterval.current) {
+        clearInterval(timerInterval.current);
+        timerInterval.current = null;
+      }
+    }
+
+    return () => {
+      if (timerInterval.current) {
+        clearInterval(timerInterval.current);
+        timerInterval.current = null;
+      }
+    };
+  }, [isTimerActive, timer]);
 
   const handleLogout = () => {
     Alert.alert("Logout", "Are you sure you want to logout?", [
@@ -87,7 +139,6 @@ export default function ProfileScreen() {
           text: "Delete Account",
           style: "destructive",
           onPress: () => {
-            // Add your delete account logic here
             Alert.alert("Account deleted successfully");
           },
         },
@@ -140,9 +191,12 @@ export default function ProfileScreen() {
 
   const openPhoneEditor = () => {
     setPhone("");
-    setPhoneOtp("");
+    setPhoneOtp(["", "", "", "", "", ""]);
     setPhoneError("");
     setPhoneOtpSent(false);
+    setOtpMessage("");
+    setTimer(30);
+    setIsTimerActive(false);
     setShowPhoneModal(true);
   };
 
@@ -151,17 +205,54 @@ export default function ProfileScreen() {
       setPhoneError("Enter a valid 10-digit phone number");
       return;
     }
+    setPhoneError("");
     const result = await sendOtp(`+91${phone}`);
     if (result.success) {
       setPhoneOtpSent(true);
+      setOtpMessage(`OTP sent to +91${phone}`);
       setPhoneError("");
+      setTimer(30);
+      setIsTimerActive(true);
+      // Focus on first OTP input after a short delay
+      setTimeout(() => {
+        if (otpInputs.current[0]) {
+          otpInputs.current[0]?.focus();
+        }
+      }, 300);
     } else {
       setPhoneError(result.message || "Unable to send OTP");
     }
   };
 
+  const handleResendOtp = async () => {
+    if (phone.length !== 10) {
+      setPhoneError("Enter a valid 10-digit phone number");
+      return;
+    }
+    setPhoneError("");
+    const result = await sendOtp(`+91${phone}`);
+    if (result.success) {
+      setOtpMessage(`OTP resent to +91${phone}`);
+      setPhoneError("");
+      setTimer(30);
+      setIsTimerActive(true);
+      setTimeout(() => {
+        if (otpInputs.current[0]) {
+          otpInputs.current[0]?.focus();
+        }
+      }, 300);
+    } else {
+      setPhoneError(result.message || "Unable to resend OTP");
+    }
+  };
+
   const verifyPhoneOtp = async () => {
-    const result = await verifyOtp(`+91${phone}`, phoneOtp);
+    const otpString = phoneOtp.join("");
+    if (otpString.length !== 6) {
+      setPhoneError("Please enter complete 6-digit OTP");
+      return;
+    }
+    const result = await verifyOtp(`+91${phone}`, otpString);
     if (!result.success) {
       setPhoneError(result.message || "Invalid OTP");
       return;
@@ -170,6 +261,322 @@ export default function ProfileScreen() {
       setUser({ ...user, phone: `+91${phone}` });
     }
     setShowPhoneModal(false);
+    setPhoneOtp(["", "", "", "", "", ""]);
+    setPhoneOtpSent(false);
+    setOtpMessage("");
+    setTimer(30);
+    setIsTimerActive(false);
+  };
+
+  const closePhoneModal = () => {
+    setShowPhoneModal(false);
+    setPhone("");
+    setPhoneOtp(["", "", "", "", "", ""]);
+    setPhoneError("");
+    setPhoneOtpSent(false);
+    setOtpMessage("");
+    setTimer(30);
+    setIsTimerActive(false);
+    if (timerInterval.current) {
+      clearInterval(timerInterval.current);
+      timerInterval.current = null;
+    }
+  };
+
+  // Handle OTP input change
+  const handleOtpChange = (text: string, index: number) => {
+    const newOtp = [...phoneOtp];
+    newOtp[index] = text;
+    setPhoneOtp(newOtp);
+
+    // Auto-advance to next input
+    if (text.length === 1 && index < 5) {
+      if (otpInputs.current[index + 1]) {
+        otpInputs.current[index + 1]?.focus();
+      }
+    }
+  };
+
+  // Handle OTP key press (backspace)
+  const handleOtpKeyPress = (e: any, index: number) => {
+    if (e.nativeEvent.key === "Backspace" && index > 0 && !phoneOtp[index]) {
+      if (otpInputs.current[index - 1]) {
+        otpInputs.current[index - 1]?.focus();
+      }
+    }
+  };
+
+  // ============================================================
+  // PICK CONTACT
+  // ============================================================
+
+  const pickContact = async () => {
+    if (Platform.OS === "web") {
+      Alert.alert(
+        "Not Available",
+        "Contact picker is only available on mobile devices. Please enter your phone number manually.",
+        [{ text: "OK" }],
+      );
+      return;
+    }
+
+    try {
+      const { status } = await requestPermissionsAsync();
+
+      if (status !== "granted") {
+        Alert.alert(
+          "Permission Required",
+          "We need access to your contacts to help you quickly add phone numbers.",
+          [
+            {
+              text: "Cancel",
+              style: "cancel",
+            },
+            {
+              text: "OK",
+            },
+          ],
+        );
+        setPhoneError("Permission to access contacts is required");
+        return;
+      }
+
+      const contacts = await Contact.getAllDetails(
+        [ContactField.FULL_NAME, ContactField.PHONES],
+        {
+          sortOrder: ContactsSortOrder.GivenName,
+        },
+      );
+
+      if (contacts.length === 0) {
+        setPhoneError("No contacts found on your device");
+        return;
+      }
+
+      const mappedContacts: ContactData[] = contacts
+        .filter((contact) => contact.phones && contact.phones.length > 0)
+        .map((contact) => ({
+          id: contact.id,
+          name: contact.fullName || "Unknown",
+          phoneNumbers: contact.phones.map((phone) => ({
+            number: phone.number || "",
+            label: phone.label || undefined,
+          })),
+        }));
+
+      if (mappedContacts.length === 0) {
+        setPhoneError("No contacts with phone numbers found");
+        return;
+      }
+
+      setContactSearch("");
+      setContactsList(mappedContacts);
+      setShowContactPicker(true);
+      setPhoneError("");
+    } catch (error) {
+      console.error("Error fetching contacts:", error);
+      setPhoneError("Failed to fetch contacts. Please try again.");
+    }
+  };
+
+  // ============================================================
+  // FILTER CONTACTS
+  // ============================================================
+
+  const filteredContacts = contactsList.filter((contact) => {
+    const search = contactSearch.toLowerCase().trim();
+
+    if (!search) {
+      return true;
+    }
+
+    const nameMatch = contact.name.toLowerCase().includes(search);
+    const phoneMatch = contact.phoneNumbers.some((phone) =>
+      phone.number.toLowerCase().includes(search),
+    );
+
+    return nameMatch || phoneMatch;
+  });
+
+  // ============================================================
+  // CLOSE CONTACT PICKER
+  // ============================================================
+
+  const closeContactPicker = () => {
+    setContactSearch("");
+    setShowContactPicker(false);
+  };
+
+  // ============================================================
+  // SELECT CONTACT
+  // ============================================================
+
+  const selectContact = (contact: ContactData) => {
+    if (contact && contact.phoneNumbers && contact.phoneNumbers.length > 0) {
+      let phoneNumber = contact.phoneNumbers[0].number || "";
+
+      phoneNumber = phoneNumber.replace(/[^0-9]/g, "");
+      phoneNumber = phoneNumber.replace(/^91/, "");
+      phoneNumber = phoneNumber.replace(/^0/, "");
+
+      if (phoneNumber.length > 10) {
+        phoneNumber = phoneNumber.slice(-10);
+      }
+
+      if (phoneNumber.length !== 10) {
+        setPhoneError(
+          "Selected contact does not have a valid 10-digit phone number",
+        );
+        return;
+      }
+
+      setPhone(phoneNumber);
+      setPhoneError("");
+      setContactSearch("");
+      setShowContactPicker(false);
+    } else {
+      setPhoneError("Selected contact doesn't have a phone number");
+    }
+  };
+
+  // ============================================================
+  // CONTACT PICKER MODAL
+  // ============================================================
+
+  const renderContactPickerModal = () => {
+    if (!showContactPicker) {
+      return null;
+    }
+
+    return (
+      <Modal
+        visible={showContactPicker}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={closeContactPicker}
+      >
+        <TouchableWithoutFeedback onPress={closeContactPicker}>
+          <View style={styles.contactModalOverlay}>
+            <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
+              <View style={styles.contactModalContainer}>
+                <View style={styles.contactModalHeader}>
+                  <Text style={styles.contactModalTitle}>Select Contact</Text>
+                  <TouchableOpacity
+                    onPress={closeContactPicker}
+                    style={styles.contactModalCloseButton}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="close" size={24} color="#333" />
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.contactModalSearchContainer}>
+                  <Ionicons name="search" size={20} color="#999" />
+                  <TextInput
+                    style={styles.contactModalSearchInput}
+                    placeholder="Search contacts..."
+                    placeholderTextColor="#999"
+                    value={contactSearch}
+                    onChangeText={setContactSearch}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    returnKeyType="search"
+                    autoFocus={false}
+                  />
+                  {contactSearch.length > 0 && (
+                    <TouchableOpacity
+                      onPress={() => setContactSearch("")}
+                      style={styles.contactClearSearchButton}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="close-circle" size={20} color="#999" />
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                <View style={styles.contactListWrapper}>
+                  <ScrollView
+                    style={styles.contactListContainer}
+                    contentContainerStyle={styles.contactListContent}
+                    showsVerticalScrollIndicator={true}
+                    keyboardShouldPersistTaps="handled"
+                    nestedScrollEnabled={true}
+                    scrollEnabled={true}
+                    bounces={true}
+                    alwaysBounceVertical={true}
+                    removeClippedSubviews={false}
+                  >
+                    {filteredContacts.length > 0 ? (
+                      filteredContacts.map((contact) => (
+                        <TouchableOpacity
+                          key={contact.id}
+                          style={styles.contactItem}
+                          onPress={() => selectContact(contact)}
+                          activeOpacity={0.7}
+                        >
+                          <View style={styles.contactAvatar}>
+                            <Text style={styles.contactAvatarText}>
+                              {contact.name
+                                ? contact.name.charAt(0).toUpperCase()
+                                : "?"}
+                            </Text>
+                          </View>
+                          <View style={styles.contactInfo}>
+                            <Text style={styles.contactName} numberOfLines={1}>
+                              {contact.name || "Unknown"}
+                            </Text>
+                            {contact.phoneNumbers &&
+                              contact.phoneNumbers.length > 0 && (
+                                <Text
+                                  style={styles.contactPhone}
+                                  numberOfLines={1}
+                                >
+                                  {contact.phoneNumbers[0].number}
+                                </Text>
+                              )}
+                          </View>
+                          <Ionicons
+                            name="chevron-forward"
+                            size={20}
+                            color="#ccc"
+                          />
+                        </TouchableOpacity>
+                      ))
+                    ) : (
+                      <View style={styles.noContactsContainer}>
+                        <View style={styles.noContactsIcon}>
+                          <Ionicons
+                            name="search-outline"
+                            size={32}
+                            color="#999"
+                          />
+                        </View>
+                        <Text style={styles.noContactsTitle}>
+                          No contacts found
+                        </Text>
+                        <Text style={styles.noContactsText}>
+                          Try searching with a different name or phone number.
+                        </Text>
+                      </View>
+                    )}
+                  </ScrollView>
+                </View>
+
+                <TouchableOpacity
+                  style={styles.contactModalCancelButton}
+                  onPress={closeContactPicker}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.contactModalCancelButtonText}>
+                    Cancel
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+    );
   };
 
   const menuItems: MenuItem[] = [
@@ -293,9 +700,7 @@ export default function ProfileScreen() {
       title: "Rate the App",
       icon: "star-outline",
       color: "#f59e0b",
-      onPress: () => {
-        // wire up to Linking.openURL(storeUrl) later
-      },
+      onPress: () => {},
     },
   ];
 
@@ -325,6 +730,197 @@ export default function ProfileScreen() {
       .join("")
       .toUpperCase()
       .slice(0, 2);
+  };
+
+  // Render phone modal with OTP boxes
+  const renderPhoneModal = () => {
+    if (!showPhoneModal) return null;
+
+    return (
+      <Modal
+        transparent
+        animationType="fade"
+        visible={showPhoneModal}
+        onRequestClose={closePhoneModal}
+      >
+        <TouchableWithoutFeedback onPress={closePhoneModal}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
+              <KeyboardAvoidingView
+                behavior={Platform.OS === "ios" ? "padding" : "height"}
+                style={styles.keyboardView}
+              >
+                <View style={styles.editModal}>
+                  <Text style={styles.editModalTitle}>Change Phone Number</Text>
+
+                  {!phoneOtpSent ? (
+                    // Phone number input - Don't show current number
+                    <>
+                      <Text style={styles.fieldLabel}>New phone number</Text>
+                      <View style={styles.phoneInputRow}>
+                        <Text style={styles.phonePrefix}>+91</Text>
+                        <TextInput
+                          style={styles.phoneInput}
+                          value={phone}
+                          onChangeText={(value) => {
+                            const cleaned = value.replace(/[^0-9]/g, "");
+                            setPhone(cleaned.slice(0, 10));
+                          }}
+                          keyboardType="number-pad"
+                          maxLength={10}
+                          placeholder="9876543210"
+                          placeholderTextColor="#999"
+                          autoFocus={false}
+                        />
+                        <TouchableOpacity
+                          onPress={pickContact}
+                          style={styles.phoneContactButton}
+                          activeOpacity={0.7}
+                        >
+                          <Ionicons
+                            name="person-outline"
+                            size={22}
+                            color="#1a73e8"
+                          />
+                        </TouchableOpacity>
+                      </View>
+                    </>
+                  ) : (
+                    // OTP verification
+                    <>
+                      <View style={styles.otpMessageContainer}>
+                        <Ionicons
+                          name="checkmark-circle"
+                          size={20}
+                          color="#16a34a"
+                        />
+                        <Text style={styles.otpMessageText}>{otpMessage}</Text>
+                      </View>
+                      <Text style={styles.fieldLabel}>
+                        Enter verification code
+                      </Text>
+                      <View style={styles.otpContainer}>
+                        {[0, 1, 2, 3, 4, 5].map((index) => (
+                          <TextInput
+                            key={index}
+                            ref={(ref) => {
+                              otpInputs.current[index] = ref;
+                            }}
+                            style={[
+                              styles.otpInput,
+                              phoneOtp[index] && styles.otpInputFilled,
+                            ]}
+                            value={phoneOtp[index]}
+                            onChangeText={(text) =>
+                              handleOtpChange(text, index)
+                            }
+                            onKeyPress={(e) => handleOtpKeyPress(e, index)}
+                            keyboardType="number-pad"
+                            maxLength={1}
+                            selectionColor="#1a73e8"
+                          />
+                        ))}
+                      </View>
+                      <View style={styles.timerContainer}>
+                        {isTimerActive ? (
+                          <Text style={styles.timerText}>
+                            Resend OTP in {timer}s
+                          </Text>
+                        ) : (
+                          <TouchableOpacity
+                            onPress={handleResendOtp}
+                            style={styles.resendOtpButton}
+                          >
+                            <Text style={styles.resendOtpText}>Resend OTP</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    </>
+                  )}
+
+                  {phoneError ? (
+                    <Text style={styles.validationText}>{phoneError}</Text>
+                  ) : null}
+
+                  <View style={styles.modalActions}>
+                    <TouchableOpacity
+                      style={styles.cancelButton}
+                      onPress={closePhoneModal}
+                    >
+                      <Text style={styles.cancelButtonText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.saveButton,
+                        !phoneOtpSent
+                          ? phone.length !== 10 && styles.saveButtonDisabled
+                          : phoneOtp.join("").length !== 6 &&
+                            styles.saveButtonDisabled,
+                      ]}
+                      onPress={
+                        phoneOtpSent ? verifyPhoneOtp : handleSendPhoneOtp
+                      }
+                      disabled={
+                        !phoneOtpSent
+                          ? phone.length !== 10
+                          : phoneOtp.join("").length !== 6
+                      }
+                    >
+                      <Text style={styles.saveButtonText}>
+                        {phoneOtpSent ? "Verify OTP" : "Send OTP"}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </KeyboardAvoidingView>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+    );
+  };
+
+  // Render delete invitation modal
+  const renderDeleteInvitationModal = () => {
+    if (!invitationToDelete) return null;
+
+    return (
+      <Modal
+        transparent
+        animationType="fade"
+        visible={Boolean(invitationToDelete)}
+        onRequestClose={() => setInvitationToDelete(null)}
+      >
+        <TouchableWithoutFeedback onPress={() => setInvitationToDelete(null)}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
+              <View style={styles.editModal}>
+                <Text style={styles.editModalTitle}>Delete Invitation?</Text>
+                <Text style={styles.currentPhone}>
+                  This person will no longer be able to accept this invitation.
+                </Text>
+                <View style={styles.modalActions}>
+                  <TouchableOpacity
+                    style={styles.cancelButton}
+                    onPress={() => setInvitationToDelete(null)}
+                  >
+                    <Text style={styles.cancelButtonText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.deleteInvitationConfirmButton}
+                    onPress={confirmDeleteInvitation}
+                  >
+                    <Text style={styles.deleteInvitationConfirmText}>
+                      Delete
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+    );
   };
 
   return (
@@ -558,112 +1154,13 @@ export default function ProfileScreen() {
         <Text style={styles.versionText}>Version 1.0.0</Text>
 
         {/* Phone Edit Modal */}
-        <Modal
-          transparent
-          animationType="fade"
-          visible={showPhoneModal}
-          onRequestClose={() => setShowPhoneModal(false)}
-        >
-          <View style={styles.modalOverlay}>
-            <View style={styles.editModal}>
-              <Text style={styles.editModalTitle}>Change Phone Number</Text>
-              <Text style={styles.currentPhone}>
-                Current number: {user?.phone || "Not set"}
-              </Text>
-              <Text style={styles.fieldLabel}>New phone number</Text>
-              <View style={styles.phoneInputRow}>
-                <Text style={styles.phonePrefix}>+91</Text>
-                <TextInput
-                  style={styles.phoneInput}
-                  value={phone}
-                  onChangeText={(value) => {
-                    const cleaned = value.replace(/[^0-9]/g, "");
-                    setPhone(cleaned.slice(0, 10));
-                  }}
-                  keyboardType="number-pad"
-                  maxLength={10}
-                  placeholder="9876543210"
-                  placeholderTextColor="#999"
-                />
-              </View>
-              {phoneOtpSent && (
-                <>
-                  <Text style={styles.fieldLabel}>Verification code</Text>
-                  <TextInput
-                    style={styles.fieldInput}
-                    value={phoneOtp}
-                    onChangeText={(value) => {
-                      const cleaned = value.replace(/[^0-9]/g, "");
-                      setPhoneOtp(cleaned.slice(0, 6));
-                    }}
-                    keyboardType="number-pad"
-                    maxLength={6}
-                    placeholder="Enter 6-digit OTP"
-                    placeholderTextColor="#999"
-                  />
-                </>
-              )}
-              {phoneError ? (
-                <Text style={styles.validationText}>{phoneError}</Text>
-              ) : null}
-              <View style={styles.modalActions}>
-                <TouchableOpacity
-                  style={styles.cancelButton}
-                  onPress={() => setShowPhoneModal(false)}
-                >
-                  <Text style={styles.cancelButtonText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    styles.saveButton,
-                    (phoneOtpSent
-                      ? phoneOtp.length !== 6
-                      : phone.length !== 10) && styles.saveButtonDisabled,
-                  ]}
-                  onPress={phoneOtpSent ? verifyPhoneOtp : handleSendPhoneOtp}
-                  disabled={
-                    phoneOtpSent ? phoneOtp.length !== 6 : phone.length !== 10
-                  }
-                >
-                  <Text style={styles.saveButtonText}>
-                    {phoneOtpSent ? "Verify OTP" : "Send OTP"}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
+        {renderPhoneModal()}
 
         {/* Delete Invitation Confirmation Modal */}
-        <Modal
-          transparent
-          animationType="fade"
-          visible={Boolean(invitationToDelete)}
-          onRequestClose={() => setInvitationToDelete(null)}
-        >
-          <View style={styles.modalOverlay}>
-            <View style={styles.editModal}>
-              <Text style={styles.editModalTitle}>Delete Invitation?</Text>
-              <Text style={styles.currentPhone}>
-                This person will no longer be able to accept this invitation.
-              </Text>
-              <View style={styles.modalActions}>
-                <TouchableOpacity
-                  style={styles.cancelButton}
-                  onPress={() => setInvitationToDelete(null)}
-                >
-                  <Text style={styles.cancelButtonText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.deleteInvitationConfirmButton}
-                  onPress={confirmDeleteInvitation}
-                >
-                  <Text style={styles.deleteInvitationConfirmText}>Delete</Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-          </View>
-        </Modal>
+        {renderDeleteInvitationModal()}
+
+        {/* Contact Picker Modal */}
+        {renderContactPickerModal()}
       </ScrollView>
     </SafeAreaView>
   );
@@ -940,6 +1437,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+  keyboardView: {
+    width: "100%",
+    alignItems: "center",
+  },
   editModal: {
     backgroundColor: "#fff",
     borderRadius: 16,
@@ -951,7 +1452,7 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "700",
     color: "#111",
-    marginBottom: 4,
+    marginBottom: 16,
   },
   currentPhone: {
     fontSize: 14,
@@ -971,28 +1472,28 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#ddd",
     borderRadius: 8,
-    paddingHorizontal: 12,
+    paddingHorizontal: 8,
+    paddingRight: 4,
   },
   phonePrefix: {
     fontSize: 16,
     fontWeight: "500",
     color: "#333",
-    marginRight: 8,
+    marginRight: 6,
   },
   phoneInput: {
     flex: 1,
     fontSize: 16,
     paddingVertical: 12,
+    paddingHorizontal: 4,
     color: "#111",
   },
-  fieldInput: {
-    borderWidth: 1,
-    borderColor: "#ddd",
-    borderRadius: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    fontSize: 16,
-    color: "#111",
+  phoneContactButton: {
+    padding: 6,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#f0f6ff",
+    borderRadius: 6,
   },
   validationText: {
     color: "#dc2626",
@@ -1034,5 +1535,203 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: "#999",
     marginTop: 20,
+  },
+
+  // OTP Styles
+  otpMessageContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f0fdf4",
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: "#bbf7d0",
+  },
+  otpMessageText: {
+    fontSize: 14,
+    color: "#16a34a",
+    fontWeight: "500",
+    marginLeft: 8,
+  },
+  otpContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginTop: 4,
+  },
+  otpInput: {
+    width: 44,
+    height: 56,
+    borderWidth: 1.5,
+    borderColor: "#ddd",
+    borderRadius: 10,
+    textAlign: "center",
+    fontSize: 22,
+    fontWeight: "600",
+    color: "#111",
+    backgroundColor: "#fafafa",
+  },
+  otpInputFilled: {
+    borderColor: "#1a73e8",
+    backgroundColor: "#fff",
+  },
+  timerContainer: {
+    alignItems: "center",
+    marginTop: 12,
+  },
+  timerText: {
+    fontSize: 14,
+    color: "#666",
+    fontWeight: "500",
+  },
+  resendOtpButton: {
+    alignSelf: "center",
+  },
+  resendOtpText: {
+    fontSize: 14,
+    color: "#1a73e8",
+    fontWeight: "500",
+  },
+
+  // ==============================================================
+  // CONTACT PICKER MODAL STYLES
+  // ==============================================================
+
+  contactModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "flex-end",
+  },
+  contactModalContainer: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 0,
+    maxHeight: "85%",
+    minHeight: "40%",
+  },
+  contactModalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  contactModalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1a1a1a",
+  },
+  contactModalCloseButton: {
+    padding: 4,
+  },
+  contactModalSearchContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f5f5f5",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    marginBottom: 16,
+    minHeight: 46,
+  },
+  contactModalSearchInput: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    fontSize: 15,
+    color: "#1a1a1a",
+  },
+  contactClearSearchButton: {
+    padding: 4,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  contactListWrapper: {
+    flex: 1,
+    minHeight: 200,
+    maxHeight: 400,
+  },
+  contactListContainer: {
+    flex: 1,
+  },
+  contactListContent: {
+    paddingBottom: 8,
+  },
+  contactItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f0f0",
+  },
+  contactAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#e8f0fe",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+  contactAvatarText: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#1a73e8",
+  },
+  contactInfo: {
+    flex: 1,
+    marginRight: 8,
+  },
+  contactName: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#1a1a1a",
+  },
+  contactPhone: {
+    fontSize: 13,
+    color: "#666",
+    marginTop: 2,
+  },
+  noContactsContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 40,
+    paddingHorizontal: 20,
+  },
+  noContactsIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "#f5f5f5",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+  noContactsTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#333",
+    marginBottom: 6,
+  },
+  noContactsText: {
+    fontSize: 13,
+    color: "#888",
+    textAlign: "center",
+    lineHeight: 19,
+  },
+  contactModalCancelButton: {
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: "#f5f5f5",
+    alignItems: "center",
+    marginTop: 16,
+    marginBottom: 4,
+  },
+  contactModalCancelButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#555",
   },
 });
