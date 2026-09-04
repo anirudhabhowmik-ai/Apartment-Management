@@ -11,7 +11,6 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import DatePickerModal from "../../components/DatePickerModal";
 import MonthYearPickerModal from "../../components/MonthYearPickerModal";
 import { useAccounts } from "../../hooks/useAccounts";
@@ -295,7 +294,7 @@ export default function PeopleScreen() {
 
   if (!selectedAccountId) {
     return (
-      <SafeAreaView style={styles.container}>
+      <View style={styles.container}>
         <View style={styles.emptyState}>
           <Ionicons name="business-outline" size={48} color="#ccc" />
 
@@ -320,7 +319,7 @@ export default function PeopleScreen() {
             </Text>
           </TouchableOpacity>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
@@ -534,7 +533,7 @@ export default function PeopleScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       {/* HEADER */}
 
       <View style={styles.header}>
@@ -1327,7 +1326,7 @@ export default function PeopleScreen() {
         onClose={() => setShowPaidDatePicker(false)}
         onSelect={setPaidDate}
       />
-    </SafeAreaView>
+    </View>
   );
 }
 

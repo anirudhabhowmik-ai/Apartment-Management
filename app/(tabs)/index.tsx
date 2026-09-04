@@ -10,7 +10,6 @@ import {
   Text,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useGroups } from "../../hooks/useGroups";
 import { useMemberStore } from "../../store/memberStore";
@@ -240,18 +239,18 @@ export default function HomeScreen() {
 
   if (accountsLoading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <View style={styles.container}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#1a73e8" />
           <Text style={styles.loadingText}>Loading your homes...</Text>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   if (!selectedAccount) {
     return (
-      <SafeAreaView style={styles.container}>
+      <View style={styles.container}>
         <ScrollView contentContainerStyle={styles.scrollContent}>
           <View style={styles.emptyStateContainer}>
             <Ionicons name="business-outline" size={64} color="#ccc" />
@@ -286,7 +285,7 @@ export default function HomeScreen() {
             )}
           </View>
         </ScrollView>
-      </SafeAreaView>
+      </View>
     );
   }
 
@@ -298,7 +297,7 @@ export default function HomeScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         refreshControl={
@@ -425,7 +424,7 @@ export default function HomeScreen() {
           )}
         </View>
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 

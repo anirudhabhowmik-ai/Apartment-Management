@@ -18,7 +18,6 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import * as XLSX from "xlsx";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useGroups } from "../../hooks/useGroups";
@@ -647,18 +646,18 @@ export default function FinanceScreen() {
 
   if (accountsLoading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <View style={styles.container}>
         <View style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#1a73e8" />
           <Text style={styles.loadingText}>Loading finances...</Text>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   if (!selectedAccount) {
     return (
-      <SafeAreaView style={styles.container}>
+      <View style={styles.container}>
         <View style={styles.emptyState}>
           <Ionicons name="wallet-outline" size={64} color="#ccc" />
           <Text style={styles.emptyTitle}>No Property Selected</Text>
@@ -682,12 +681,12 @@ export default function FinanceScreen() {
             </Text>
           </TouchableOpacity>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         refreshControl={
@@ -916,7 +915,7 @@ export default function FinanceScreen() {
           </View>
         </View>
       </Modal>
-    </SafeAreaView>
+    </View>
   );
 }
 

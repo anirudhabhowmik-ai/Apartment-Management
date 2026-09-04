@@ -23,7 +23,6 @@ import {
   TouchableWithoutFeedback,
   View,
 } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
 import { useAccounts } from "../../hooks/useAccounts";
 import { sendOtp, verifyOtp } from "../../services/otpService";
 import { useAccessStore } from "../../store/accessStore";
@@ -924,7 +923,7 @@ export default function ProfileScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       <ScrollView contentContainerStyle={styles.scrollContent}>
         {/* Profile Header */}
         <View style={styles.profileHeader}>
@@ -1162,7 +1161,7 @@ export default function ProfileScreen() {
         {/* Contact Picker Modal */}
         {renderContactPickerModal()}
       </ScrollView>
-    </SafeAreaView>
+    </View>
   );
 }
 
