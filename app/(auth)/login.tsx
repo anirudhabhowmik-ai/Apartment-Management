@@ -443,7 +443,7 @@ export default function LoginScreen() {
             {/* PHONE INPUT */}
             <TextInput
               style={styles.input}
-              placeholder="Enter your phone number"
+              placeholder="Phone number"
               placeholderTextColor="#999"
               keyboardType="number-pad"
               maxLength={10}

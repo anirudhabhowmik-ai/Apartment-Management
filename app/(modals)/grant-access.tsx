@@ -4,14 +4,15 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useMemo, useState } from "react";
 import {
   Alert,
-  Linking,
+  Modal,
   Platform,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  TouchableWithoutFeedback,
+  View
 } from "react-native";
 import { useGroups } from "../../hooks/useGroups";
 import { useAccessStore } from "../../store/accessStore";
@@ -22,6 +23,15 @@ import { ACCESS_ROLE_LABEL, AccountAccessRole } from "../../types/access";
 
 type RecipientSource = "new" | "existing";
 type MemberType = "owner" | "staff";
+
+interface ContactData {
+  id: string;
+  name: string;
+  phoneNumbers: {
+    number: string;
+    label?: string;
+  }[];
+}
 
 export default function GrantAccessScreen() {
   const router = useRouter();
@@ -42,6 +52,11 @@ export default function GrantAccessScreen() {
   const [selectedMemberId, setSelectedMemberId] = useState("");
   const [search, setSearch] = useState("");
   const [error, setError] = useState("");
+
+  // Contact picker states
+  const [showContactPicker, setShowContactPicker] = useState(false);
+  const [contactsList, setContactsList] = useState<ContactData[]>([]);
+  const [contactSearch, setContactSearch] = useState("");
 
   const eligibleMembers = useMemo(() => {
     const eligibleGroupIds = groups
@@ -96,7 +111,6 @@ export default function GrantAccessScreen() {
 
   const isVisibilityFlow = memberType === "owner" || memberType === "staff";
 
-  // Updated visibility titles to be more user-friendly
   const visibilityTitle =
     memberType === "owner"
       ? "Invite Member"
@@ -104,17 +118,13 @@ export default function GrantAccessScreen() {
         ? "Invite Staff"
         : "";
 
-  // Updated button text
-  const getButtonText = () => {
-    if (isVisibilityFlow) {
-      return memberType === "owner" ? "Send Invite" : "Send Invite";
-    }
-    return `Grant ${title} Access`;
-  };
+  const title = ACCESS_ROLE_LABEL[role || "member_visibility"];
 
-  // Contact picker function
+  // ============================================================
+  // CONTACT PICKER FUNCTIONS - Same as Login page
+  // ============================================================
+
   const pickContact = async () => {
-    // Check if running on web
     if (Platform.OS === "web") {
       Alert.alert(
         "Not Available",
@@ -125,17 +135,7 @@ export default function GrantAccessScreen() {
     }
 
     try {
-      // Check if Contacts module is available
-      if (!Contacts) {
-        Alert.alert(
-          "Error",
-          "Contacts module is not available. Please try again.",
-          [{ text: "OK" }],
-        );
-        return;
-      }
-
-      // Request permission to access contacts
+      // Request permission
       const { status } = await Contacts.requestPermissionsAsync();
 
       if (status !== "granted") {
@@ -143,15 +143,12 @@ export default function GrantAccessScreen() {
           "Permission Required",
           "We need access to your contacts to help you quickly add phone numbers.",
           [
-            { text: "Cancel", style: "cancel" },
             {
-              text: "Open Settings",
-              onPress: () => {
-                // For iOS, you can open settings
-                if (Platform.OS === "ios") {
-                  Linking.openURL("app-settings:");
-                }
-              },
+              text: "Cancel",
+              style: "cancel",
+            },
+            {
+              text: "OK",
             },
           ],
         );
@@ -159,50 +156,235 @@ export default function GrantAccessScreen() {
         return;
       }
 
-      // Present the native contact picker
-      const contact = await Contacts.presentContactPickerAsync();
+      // Get all contacts using getAllDetails - same as login page
+      const contacts = await Contacts.Contact.getAllDetails(
+        [Contacts.ContactField.FULL_NAME, Contacts.ContactField.PHONES],
+        {
+          sortOrder: Contacts.ContactsSortOrder.GivenName,
+        },
+      );
 
-      if (contact && contact.phoneNumbers && contact.phoneNumbers.length > 0) {
-        // Get the first phone number
-        let phoneNumber = contact.phoneNumbers[0].number || "";
-
-        // Clean the phone number: remove spaces, special characters, and country codes
-        phoneNumber = phoneNumber
-          .replace(/[^0-9]/g, "") // Remove all non-digits
-          .replace(/^91/, "") // Remove country code if present
-          .replace(/^0/, ""); // Remove leading zero if present
-
-        // Ensure it's 10 digits (or less if shorter)
-        if (phoneNumber.length > 10) {
-          phoneNumber = phoneNumber.slice(-10); // Take last 10 digits
-        }
-
-        setPhone(phoneNumber);
-        setError(""); // Clear any previous errors
-
-        // If name is empty, try to use contact name
-        if (!name.trim() && contact.name) {
-          setName(contact.name);
-        }
-      } else {
-        setError("Selected contact doesn't have a phone number");
-      }
-    } catch (error: any) {
-      console.error("Error picking contact:", error);
-
-      // User might have cancelled the picker
-      if (error.message && error.message.includes("cancelled")) {
-        // User cancelled, do nothing
+      if (contacts.length === 0) {
+        setError("No contacts found on your device");
         return;
       }
 
-      // Check for specific error types
-      if (error.message && error.message.includes("permission")) {
-        setError("Permission to access contacts is required");
-      } else {
-        setError("Failed to pick contact. Please try again.");
+      // Convert Expo contacts into our own format
+      const mappedContacts: ContactData[] = contacts
+        .filter((contact) => contact.phones && contact.phones.length > 0)
+        .map((contact) => ({
+          id: contact.id,
+          name: contact.fullName || "Unknown",
+          phoneNumbers: contact.phones.map((phone) => ({
+            number: phone.number || "",
+            label: phone.label || undefined,
+          })),
+        }));
+
+      if (mappedContacts.length === 0) {
+        setError("No contacts with phone numbers found");
+        return;
       }
+
+      // Reset search whenever picker opens
+      setContactSearch("");
+      setContactsList(mappedContacts);
+      setShowContactPicker(true);
+      setError("");
+    } catch (error) {
+      console.error("Error fetching contacts:", error);
+      setError("Failed to fetch contacts. Please try again.");
     }
+  };
+
+  // Filter contacts based on search
+  const filteredContacts = contactsList.filter((contact) => {
+    const search = contactSearch.toLowerCase().trim();
+    if (!search) return true;
+    const nameMatch = contact.name.toLowerCase().includes(search);
+    const phoneMatch = contact.phoneNumbers.some((phone) =>
+      phone.number.toLowerCase().includes(search),
+    );
+    return nameMatch || phoneMatch;
+  });
+
+  // Close contact picker
+  const closeContactPicker = () => {
+    setContactSearch("");
+    setShowContactPicker(false);
+  };
+
+  // Select contact from picker
+  const selectContact = (contact: ContactData) => {
+    if (contact && contact.phoneNumbers && contact.phoneNumbers.length > 0) {
+      let phoneNumber = contact.phoneNumbers[0].number || "";
+
+      // Clean the phone number
+      phoneNumber = phoneNumber
+        .replace(/[^0-9]/g, "")
+        .replace(/^91/, "")
+        .replace(/^0/, "");
+
+      // Ensure it's 10 digits
+      if (phoneNumber.length > 10) {
+        phoneNumber = phoneNumber.slice(-10);
+      }
+
+      if (phoneNumber.length !== 10) {
+        setError(
+          "Selected contact does not have a valid 10-digit phone number",
+        );
+        return;
+      }
+
+      setPhone(phoneNumber);
+      setError("");
+
+      // If name is empty, use contact name
+      if (!name.trim() && contact.name) {
+        setName(contact.name);
+      }
+
+      setContactSearch("");
+      setShowContactPicker(false);
+    } else {
+      setError("Selected contact doesn't have a phone number");
+    }
+  };
+
+  // Render contact picker modal
+  const renderContactPickerModal = () => {
+    if (!showContactPicker) return null;
+
+    return (
+      <Modal
+        visible={showContactPicker}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={closeContactPicker}
+      >
+        <TouchableWithoutFeedback onPress={closeContactPicker}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
+              <View style={styles.modalContainer}>
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>Select Contact</Text>
+                  <TouchableOpacity
+                    onPress={closeContactPicker}
+                    style={styles.modalCloseButton}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="close" size={24} color="#333" />
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.modalSearchContainer}>
+                  <Ionicons name="search" size={20} color="#999" />
+                  <TextInput
+                    style={styles.modalSearchInput}
+                    placeholder="Search contacts..."
+                    placeholderTextColor="#999"
+                    value={contactSearch}
+                    onChangeText={setContactSearch}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    returnKeyType="search"
+                    autoFocus={false}
+                  />
+                  {contactSearch.length > 0 && (
+                    <TouchableOpacity
+                      onPress={() => setContactSearch("")}
+                      style={styles.clearSearchButton}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="close-circle" size={20} color="#999" />
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                <View style={styles.contactListWrapper}>
+                  <ScrollView
+                    style={styles.contactListContainer}
+                    contentContainerStyle={styles.contactListContent}
+                    showsVerticalScrollIndicator={true}
+                    keyboardShouldPersistTaps="handled"
+                    nestedScrollEnabled={true}
+                    scrollEnabled={true}
+                    bounces={true}
+                    alwaysBounceVertical={true}
+                    removeClippedSubviews={false}
+                  >
+                    {filteredContacts.length > 0 ? (
+                      filteredContacts.map((contact) => (
+                        <TouchableOpacity
+                          key={contact.id}
+                          style={styles.contactItem}
+                          onPress={() => selectContact(contact)}
+                          activeOpacity={0.7}
+                        >
+                          <View style={styles.contactAvatar}>
+                            <Text style={styles.contactAvatarText}>
+                              {contact.name
+                                ? contact.name.charAt(0).toUpperCase()
+                                : "?"}
+                            </Text>
+                          </View>
+                          <View style={styles.contactInfo}>
+                            <Text style={styles.contactName} numberOfLines={1}>
+                              {contact.name || "Unknown"}
+                            </Text>
+                            {contact.phoneNumbers &&
+                              contact.phoneNumbers.length > 0 && (
+                                <Text
+                                  style={styles.contactPhone}
+                                  numberOfLines={1}
+                                >
+                                  {contact.phoneNumbers[0].number}
+                                </Text>
+                              )}
+                          </View>
+                          <Ionicons
+                            name="chevron-forward"
+                            size={20}
+                            color="#ccc"
+                          />
+                        </TouchableOpacity>
+                      ))
+                    ) : (
+                      <View style={styles.noContactsContainer}>
+                        <View style={styles.noContactsIcon}>
+                          <Ionicons
+                            name="search-outline"
+                            size={32}
+                            color="#999"
+                          />
+                        </View>
+                        <Text style={styles.noContactsTitle}>
+                          No contacts found
+                        </Text>
+                        <Text style={styles.noContactsText}>
+                          Try searching with a different name or phone number.
+                        </Text>
+                      </View>
+                    )}
+                  </ScrollView>
+                </View>
+
+                <View style={styles.modalFooter}>
+                  <TouchableOpacity
+                    style={styles.modalCancelButton}
+                    onPress={closeContactPicker}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.modalCancelButtonText}>Cancel</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+    );
   };
 
   const handleSave = () => {
@@ -245,8 +427,6 @@ export default function GrantAccessScreen() {
     });
     router.back();
   };
-
-  const title = ACCESS_ROLE_LABEL[role || "member_visibility"];
 
   const renderMemberRow = (member: (typeof eligibleMembers)[number]) => {
     const apt = (member as any).apartmentNumber as string | undefined;
@@ -293,21 +473,9 @@ export default function GrantAccessScreen() {
     );
   };
 
-  // Check if there are any members or staff available
   const hasMembersOrStaff =
     apartmentMembers.length > 0 || staffMembers.length > 0;
 
-  // Get the intro text based on the flow
-  const getIntroText = () => {
-    if (isVisibilityFlow) {
-      return memberType === "owner"
-        ? "Invite a member to your apartment"
-        : "Invite a staff member to your apartment";
-    }
-    return `Grant ${title} access`;
-  };
-
-  // Get the empty state text
   const getEmptyStateText = () => {
     if (isVisibilityFlow) {
       return memberType === "owner"
@@ -372,7 +540,6 @@ export default function GrantAccessScreen() {
 
       {isVisibilityFlow ? (
         <>
-          {/* Search bar - only visible if there are members or staff in visibility flow */}
           {hasMembersOrStaff && (
             <View style={styles.searchRow}>
               <Ionicons name="search-outline" size={18} color="#999" />
@@ -449,7 +616,6 @@ export default function GrantAccessScreen() {
         <>
           <Text style={styles.label}>Select a person</Text>
 
-          {/* Search bar - only visible if there are members or staff */}
           {hasMembersOrStaff && (
             <View style={styles.searchRow}>
               <Ionicons name="search-outline" size={18} color="#999" />
@@ -471,7 +637,6 @@ export default function GrantAccessScreen() {
               {apartmentMembers.length === 0 ? (
                 <Text style={styles.emptyText}>No members are available.</Text>
               ) : (
-                // Apply search filter to members if search is active
                 (searchLower ? filteredMembers : apartmentMembers).map(
                   renderMemberRow,
                 )
@@ -483,7 +648,6 @@ export default function GrantAccessScreen() {
                   No staff members are available.
                 </Text>
               ) : (
-                // Apply search filter to staff if search is active
                 (searchLower ? filteredStaff : staffMembers).map(
                   renderMemberRow,
                 )
@@ -499,6 +663,9 @@ export default function GrantAccessScreen() {
           {isVisibilityFlow ? "Send Invite" : `Grant ${title} Access`}
         </Text>
       </TouchableOpacity>
+
+      {/* Contact Picker Modal */}
+      {renderContactPickerModal()}
     </ScrollView>
   );
 }
@@ -551,20 +718,23 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flexDirection: "row",
     height: 48,
-    paddingHorizontal: 12,
+    paddingHorizontal: 8,
+    paddingRight: 4,
   },
-  phonePrefix: { color: "#333", fontSize: 15, marginRight: 8 },
+  phonePrefix: { color: "#333", fontSize: 15, marginRight: 6 },
   phoneInput: {
     flex: 1,
     fontSize: 15,
     height: "100%",
+    paddingHorizontal: 4,
     ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as any) : {}),
   },
   contactIcon: {
-    padding: 8,
-    marginLeft: 4,
+    padding: 6,
     justifyContent: "center",
     alignItems: "center",
+    backgroundColor: "#f0f6ff",
+    borderRadius: 6,
   },
   phoneHint: { color: "#dc2626", fontSize: 12, marginTop: 5 },
   searchRow: {
@@ -623,4 +793,146 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
   },
   saveText: { color: "#fff", fontSize: 15, fontWeight: "700" },
+
+  // ==============================================================
+  // CONTACT MODAL STYLES - Same as Login page
+  // ==============================================================
+
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "flex-end",
+  },
+  modalContainer: {
+    backgroundColor: "#fff",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    maxHeight: "85%",
+    minHeight: "40%",
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+    color: "#1a1a1a",
+  },
+  modalCloseButton: {
+    padding: 4,
+  },
+  modalSearchContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f5f5f5",
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    marginBottom: 16,
+    minHeight: 46,
+  },
+  modalSearchInput: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    fontSize: 15,
+    color: "#1a1a1a",
+  },
+  clearSearchButton: {
+    padding: 4,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  contactListWrapper: {
+    flex: 1,
+    minHeight: 200,
+    maxHeight: 400,
+  },
+  contactListContainer: {
+    flex: 1,
+  },
+  contactListContent: {
+    paddingBottom: 8,
+  },
+  contactItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f0f0f0",
+  },
+  contactAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#e8f0fe",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+  contactAvatarText: {
+    fontSize: 18,
+    fontWeight: "600",
+    color: "#1a73e8",
+  },
+  contactInfo: {
+    flex: 1,
+    marginRight: 8,
+  },
+  contactName: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#1a1a1a",
+  },
+  contactPhone: {
+    fontSize: 13,
+    color: "#666",
+    marginTop: 2,
+  },
+  noContactsContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 40,
+    paddingHorizontal: 20,
+  },
+  noContactsIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "#f5f5f5",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+  noContactsTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#333",
+    marginBottom: 6,
+  },
+  noContactsText: {
+    fontSize: 13,
+    color: "#888",
+    textAlign: "center",
+    lineHeight: 19,
+  },
+  modalFooter: {
+    paddingTop: 16,
+    paddingBottom: 20,
+  },
+  modalCancelButton: {
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: "#f5f5f5",
+    alignItems: "center",
+  },
+  modalCancelButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+    color: "#555",
+  },
 });
