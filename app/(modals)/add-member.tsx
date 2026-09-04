@@ -1636,7 +1636,7 @@ export default function AddMemberScreen() {
 }
 
 // ================================================================
-// STYLES
+// STYLES - All shadow* replaced with boxShadow
 // ================================================================
 
 const styles = StyleSheet.create({
@@ -2333,14 +2333,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 9,
     marginTop: 18,
-    shadowColor: BLUE,
-    shadowOffset: {
-      width: 0,
-      height: 5,
-    },
-    shadowOpacity: 0.18,
-    shadowRadius: 10,
-    elevation: 4,
+    boxShadow: "0px 5px 10px rgba(37, 99, 235, 0.18)",
   },
 
   buttonDisabled: {

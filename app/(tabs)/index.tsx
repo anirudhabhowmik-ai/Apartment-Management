@@ -892,7 +892,7 @@ export default function HomeScreen() {
 }
 
 /* ========================================================================== */
-/* STYLES                                                                     */
+/* STYLES - All shadow* replaced with boxShadow                              */
 /* ========================================================================== */
 
 const styles = StyleSheet.create({
@@ -1020,15 +1020,7 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     borderWidth: 1,
     borderColor: "#E2E8F0",
-
-    shadowColor: "#0F172A",
-    shadowOffset: {
-      width: 0,
-      height: 8,
-    },
-    shadowOpacity: 0.06,
-    shadowRadius: 18,
-    elevation: 3,
+    boxShadow: "0px 8px 18px rgba(15, 23, 42, 0.06)",
   },
 
   balanceTop: {
@@ -1159,15 +1151,7 @@ const styles = StyleSheet.create({
     padding: 16,
     borderWidth: 1,
     borderColor: "#E2E8F0",
-
-    shadowColor: "#0F172A",
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.035,
-    shadowRadius: 10,
-    elevation: 2,
+    boxShadow: "0px 4px 10px rgba(15, 23, 42, 0.035)",
   },
 
   statIconContainer: {
@@ -1468,15 +1452,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-
-    shadowColor: "#2563EB",
-    shadowOffset: {
-      width: 0,
-      height: 6,
-    },
-    shadowOpacity: 0.18,
-    shadowRadius: 10,
-    elevation: 3,
+    boxShadow: "0px 6px 10px rgba(37, 99, 235, 0.18)",
   },
 
   primaryButtonText: {

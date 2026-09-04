@@ -49,7 +49,6 @@ interface SetupOption {
   category: "create" | "join";
 }
 
-// Staff role definitions with specific access levels
 interface StaffRole {
   id: string;
   label: string;
@@ -144,7 +143,6 @@ const SETUP_OPTIONS: SetupOption[] = [
   },
 ];
 
-// Separate staff join options with specific roles
 const STAFF_JOIN_OPTIONS: SetupOption[] = [
   {
     id: "join_staff_sweeper",
@@ -174,7 +172,6 @@ const STAFF_JOIN_OPTIONS: SetupOption[] = [
   },
 ];
 
-// Dummy invitations for testing
 const DUMMY_INVITATIONS: any[] = [
   {
     id: "dummy_invite_1",
@@ -215,7 +212,172 @@ const DUMMY_INVITATIONS: any[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Photo Adjust (pinch-zoom / drag) Modal
+// Smooth Zoom Slider - Android / iOS compatible
+// ---------------------------------------------------------------------------
+
+interface CustomSliderProps {
+  minimumValue: number;
+  maximumValue: number;
+  value: number;
+  onValueChange: (value: number) => void;
+  minimumTrackTintColor?: string;
+  maximumTrackTintColor?: string;
+  thumbTintColor?: string;
+}
+
+function CustomSlider({
+  minimumValue,
+  maximumValue,
+  value,
+  onValueChange,
+  minimumTrackTintColor = "#1a73e8",
+  maximumTrackTintColor = "#e2e8f0",
+  thumbTintColor = "#1a73e8",
+}: CustomSliderProps) {
+  const sliderWidth = useRef(0);
+  const sliderPageX = useRef(0);
+  const isDragging = useRef(false);
+
+  const thumbSize = 22;
+
+  const clamp = (number: number, min: number, max: number) => {
+    return Math.min(Math.max(number, min), max);
+  };
+
+  const valueToPercent = () => {
+    if (maximumValue === minimumValue) return 0;
+    return clamp((value - minimumValue) / (maximumValue - minimumValue), 0, 1);
+  };
+
+  const updateFromPageX = (pageX: number) => {
+    if (sliderWidth.current <= 0) return;
+    const relativeX = pageX - sliderPageX.current;
+    const percent = clamp(relativeX / sliderWidth.current, 0, 1);
+    const newValue = minimumValue + percent * (maximumValue - minimumValue);
+    onValueChange(newValue);
+  };
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onPanResponderGrant: (event) => {
+        isDragging.current = true;
+        updateFromPageX(event.nativeEvent.pageX);
+      },
+      onPanResponderMove: (event) => {
+        if (!isDragging.current) return;
+        updateFromPageX(event.nativeEvent.pageX);
+      },
+      onPanResponderRelease: () => {
+        isDragging.current = false;
+      },
+      onPanResponderTerminate: () => {
+        isDragging.current = false;
+      },
+    }),
+  ).current;
+
+  const percent = valueToPercent();
+
+  return (
+    <View
+      style={sliderStyles.sliderContainer}
+      onLayout={(event) => {
+        const { width } = event.nativeEvent.layout;
+        sliderWidth.current = width;
+        // @ts-ignore - measureInWindow is available on native
+        event.currentTarget?.measureInWindow?.((pageX: number) => {
+          sliderPageX.current = pageX;
+        });
+      }}
+      {...panResponder.panHandlers}
+    >
+      {/* Track */}
+      <View style={sliderStyles.sliderTrack}>
+        <View
+          style={[
+            sliderStyles.sliderTrackFill,
+            {
+              width: `${percent * 100}%`,
+              backgroundColor: minimumTrackTintColor,
+            },
+          ]}
+        />
+        <View
+          style={[
+            sliderStyles.sliderTrackRemaining,
+            {
+              flex: 1,
+              backgroundColor: maximumTrackTintColor,
+            },
+          ]}
+        />
+      </View>
+
+      {/* Thumb */}
+      <View
+        style={[
+          sliderStyles.sliderThumb,
+          {
+            left: `${percent * 100}%`,
+            backgroundColor: thumbTintColor,
+            width: thumbSize,
+            height: thumbSize,
+            borderRadius: thumbSize / 2,
+            marginLeft: -thumbSize / 2,
+            pointerEvents: "none",
+          },
+        ]}
+      >
+        <View style={sliderStyles.sliderThumbInner} />
+      </View>
+    </View>
+  );
+}
+
+const sliderStyles = StyleSheet.create({
+  sliderContainer: {
+    width: "100%",
+    height: 44,
+    justifyContent: "center",
+    position: "relative",
+    paddingHorizontal: 2,
+  },
+  sliderTrack: {
+    width: "100%",
+    height: 5,
+    borderRadius: 3,
+    overflow: "hidden",
+    flexDirection: "row",
+    backgroundColor: "#e2e8f0",
+  },
+  sliderTrackFill: {
+    height: "100%",
+  },
+  sliderTrackRemaining: {
+    height: "100%",
+  },
+  sliderThumb: {
+    position: "absolute",
+    top: "50%",
+    marginTop: -11,
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 2,
+    borderColor: "#ffffff",
+    boxShadow: "0px 2px 4px rgba(0, 0, 0, 0.22)",
+  },
+  sliderThumbInner: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: "rgba(255,255,255,0.75)",
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Photo Adjust Modal - Fixed for Android
 // ---------------------------------------------------------------------------
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -236,26 +398,6 @@ interface PhotoAdjustModalProps {
   onConfirm: (uri: string) => void;
 }
 
-function getTouchDistance(touches: any[]) {
-  const [a, b] = touches;
-  const dx = a.pageX - b.pageX;
-  const dy = a.pageY - b.pageY;
-  return Math.sqrt(dx * dx + dy * dy);
-}
-
-function getTouchMidpoint(touches: any[]) {
-  const [a, b] = touches;
-  return {
-    x: (a.pageX + b.pageX) / 2,
-    y: (a.pageY + b.pageY) / 2,
-  };
-}
-
-function clampNumber(value: number, min: number, max: number) {
-  "worklet";
-  return Math.min(Math.max(value, min), max);
-}
-
 function PhotoAdjustModal({
   visible,
   image,
@@ -266,15 +408,6 @@ function PhotoAdjustModal({
   const [translate, setTranslate] = useState({ x: 0, y: 0 });
   const [processing, setProcessing] = useState(false);
 
-  const gesture = useRef({
-    mode: "none" as "none" | "pan" | "pinch",
-    startDistance: 0,
-    startZoom: 1,
-    startTouch: { x: 0, y: 0 },
-    startTranslate: { x: 0, y: 0 },
-  }).current;
-
-  // Reset adjustments whenever a new image is loaded into the modal
   useEffect(() => {
     if (visible && image) {
       setZoom(1);
@@ -284,7 +417,6 @@ function PhotoAdjustModal({
 
   const baseScale = useMemo(() => {
     if (!image || !image.width || !image.height) return 1;
-    // Scale so the image always fully covers the square viewport at zoom = 1
     return VIEWPORT / Math.min(image.width, image.height);
   }, [image]);
 
@@ -305,11 +437,17 @@ function PhotoAdjustModal({
     };
   };
 
-  // Re-clamp translation whenever zoom changes (e.g. after pinch or +/- buttons)
   useEffect(() => {
     setTranslate((t) => clampTranslate(t, zoom));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zoom, image]);
+
+  const gestureRef = useRef<{
+    mode: "pan" | "pinch";
+    startTouch?: { x: number; y: number };
+    startTranslate?: { x: number; y: number };
+    startDistance?: number;
+    startZoom?: number;
+  } | null>(null);
 
   const panResponder = useRef(
     PanResponder.create({
@@ -319,14 +457,19 @@ function PhotoAdjustModal({
       onMoveShouldSetPanResponderCapture: () => true,
       onPanResponderGrant: (evt: GestureResponderEvent) => {
         const touches = evt.nativeEvent.touches;
-        if (touches.length === 2) {
-          gesture.mode = "pinch";
-          gesture.startDistance = getTouchDistance(touches);
-          gesture.startZoom = zoom;
-        } else if (touches.length === 1) {
-          gesture.mode = "pan";
-          gesture.startTouch = { x: touches[0].pageX, y: touches[0].pageY };
-          gesture.startTranslate = { ...translate };
+        if (touches.length === 1) {
+          const touch = touches[0];
+          gestureRef.current = {
+            mode: "pan",
+            startTouch: { x: touch.pageX, y: touch.pageY },
+            startTranslate: { ...translate },
+          };
+        } else if (touches.length === 2) {
+          gestureRef.current = {
+            mode: "pinch",
+            startDistance: getTouchDistance(touches),
+            startZoom: zoom,
+          };
         }
       },
       onPanResponderMove: (
@@ -334,37 +477,28 @@ function PhotoAdjustModal({
         _gestureState: PanResponderGestureState,
       ) => {
         const touches = evt.nativeEvent.touches;
+        const gesture = gestureRef.current;
 
-        if (touches.length === 2) {
-          if (gesture.mode !== "pinch") {
-            gesture.mode = "pinch";
-            gesture.startDistance = getTouchDistance(touches);
-            gesture.startZoom = zoom;
-          }
+        if (!gesture) return;
+
+        if (touches.length === 2 && gesture.mode === "pinch") {
           const distance = getTouchDistance(touches);
-          if (gesture.startDistance > 0) {
+          if (gesture.startDistance && gesture.startDistance > 0) {
             const nextZoom = clampNumber(
-              gesture.startZoom * (distance / gesture.startDistance),
+              (gesture.startZoom || 1) * (distance / gesture.startDistance),
               MIN_ZOOM,
               MAX_ZOOM,
             );
             setZoom(nextZoom);
           }
-          // avoid stale midpoint calc; keep pan anchored to current translate
-          getTouchMidpoint(touches);
-        } else if (touches.length === 1) {
-          if (gesture.mode !== "pan") {
-            gesture.mode = "pan";
-            gesture.startTouch = { x: touches[0].pageX, y: touches[0].pageY };
-            gesture.startTranslate = { ...translate };
-            return;
-          }
-          const dx = touches[0].pageX - gesture.startTouch.x;
-          const dy = touches[0].pageY - gesture.startTouch.y;
+        } else if (touches.length === 1 && gesture.mode === "pan") {
+          const touch = touches[0];
+          const dx = touch.pageX - (gesture.startTouch?.x || 0);
+          const dy = touch.pageY - (gesture.startTouch?.y || 0);
           const next = clampTranslate(
             {
-              x: gesture.startTranslate.x + dx,
-              y: gesture.startTranslate.y + dy,
+              x: (gesture.startTranslate?.x || 0) + dx,
+              y: (gesture.startTranslate?.y || 0) + dy,
             },
             zoom,
           );
@@ -372,17 +506,20 @@ function PhotoAdjustModal({
         }
       },
       onPanResponderRelease: () => {
-        gesture.mode = "none";
+        gestureRef.current = null;
         setTranslate((t) => clampTranslate(t, zoom));
       },
       onPanResponderTerminate: () => {
-        gesture.mode = "none";
+        gestureRef.current = null;
       },
     }),
   ).current;
 
-  const handleZoomButton = (delta: number) => {
-    setZoom((z) => clampNumber(z + delta, MIN_ZOOM, MAX_ZOOM));
+  const handleZoomChange = (value: number) => {
+    setZoom(value);
+    setTranslate((current) => {
+      return clampTranslate(current, value);
+    });
   };
 
   const handleReset = () => {
@@ -402,7 +539,6 @@ function PhotoAdjustModal({
       let originY =
         image.height / 2 - VIEWPORT / (2 * scale) - translate.y / scale;
 
-      // Safety clamp in case of rounding drift
       originX = clampNumber(originX, 0, Math.max(0, image.width - cropSize));
       originY = clampNumber(originY, 0, Math.max(0, image.height - cropSize));
 
@@ -433,7 +569,6 @@ function PhotoAdjustModal({
       onConfirm(result.uri);
     } catch (err) {
       console.error("Error adjusting photo:", err);
-      // Fall back to the original image if cropping fails
       onConfirm(image.uri);
     } finally {
       setProcessing(false);
@@ -453,7 +588,7 @@ function PhotoAdjustModal({
         <View style={adjustStyles.card}>
           <Text style={adjustStyles.title}>Adjust Photo</Text>
           <Text style={adjustStyles.subtitle}>
-            Pinch to zoom, drag to reposition
+            Drag to reposition • Use slider to zoom
           </Text>
 
           <View style={adjustStyles.viewportWrapper}>
@@ -475,40 +610,36 @@ function PhotoAdjustModal({
                 }}
                 resizeMode="cover"
               />
-              {/* Circular guide overlay showing final avatar mask */}
-              <View pointerEvents="none" style={adjustStyles.circleGuide} />
+              <View
+                style={[adjustStyles.circleGuide, { pointerEvents: "none" }]}
+              />
+
+              <View style={adjustStyles.zoomLevelBadge}>
+                <Text style={adjustStyles.zoomLevelText}>
+                  {Math.round(zoom * 100)}%
+                </Text>
+              </View>
             </View>
           </View>
 
-          <View style={adjustStyles.zoomRow}>
-            <TouchableOpacity
-              style={adjustStyles.zoomButton}
-              onPress={() => handleZoomButton(-0.25)}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="remove" size={20} color="#1a73e8" />
-            </TouchableOpacity>
-
-            <View style={adjustStyles.zoomTrack}>
-              <View
-                style={[
-                  adjustStyles.zoomFill,
-                  {
-                    width: `${
-                      ((zoom - MIN_ZOOM) / (MAX_ZOOM - MIN_ZOOM)) * 100
-                    }%`,
-                  },
-                ]}
-              />
+          {/* Smooth Zoom Slider */}
+          <View style={adjustStyles.sliderContainer}>
+            <View style={adjustStyles.sliderLabelRow}>
+              <Text style={adjustStyles.sliderLabel}>Zoom</Text>
+              <Text style={adjustStyles.zoomValueText}>
+                {Math.round(zoom * 100)}%
+              </Text>
             </View>
 
-            <TouchableOpacity
-              style={adjustStyles.zoomButton}
-              onPress={() => handleZoomButton(0.25)}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="add" size={20} color="#1a73e8" />
-            </TouchableOpacity>
+            <CustomSlider
+              minimumValue={MIN_ZOOM}
+              maximumValue={MAX_ZOOM}
+              value={zoom}
+              onValueChange={handleZoomChange}
+              minimumTrackTintColor="#1a73e8"
+              maximumTrackTintColor="#e2e8f0"
+              thumbTintColor="#1a73e8"
+            />
           </View>
 
           <TouchableOpacity
@@ -517,7 +648,7 @@ function PhotoAdjustModal({
             activeOpacity={0.7}
           >
             <Ionicons name="refresh" size={14} color="#64748b" />
-            <Text style={adjustStyles.resetText}>Reset</Text>
+            <Text style={adjustStyles.resetText}>Reset Position & Zoom</Text>
           </TouchableOpacity>
 
           <View style={adjustStyles.actionRow}>
@@ -550,6 +681,19 @@ function PhotoAdjustModal({
       </View>
     </Modal>
   );
+}
+
+// Helper functions
+function clampNumber(value: number, min: number, max: number) {
+  "worklet";
+  return Math.min(Math.max(value, min), max);
+}
+
+function getTouchDistance(touches: any[]) {
+  const [a, b] = touches;
+  const dx = a.pageX - b.pageX;
+  const dy = a.pageY - b.pageY;
+  return Math.sqrt(dx * dx + dy * dy);
 }
 
 const adjustStyles = StyleSheet.create({
@@ -596,42 +740,48 @@ const adjustStyles = StyleSheet.create({
     right: 0,
     bottom: 0,
     borderRadius: 9999,
-    borderWidth: 999,
-    borderColor: "rgba(15,23,42,0.001)", // keep hit-test transparent
-    // The visible circular mask guide is drawn via a separate overlay below
+    borderWidth: 2,
+    borderColor: "rgba(255,255,255,0.3)",
   },
-  zoomRow: {
+  zoomLevelBadge: {
+    position: "absolute",
+    top: 12,
+    right: 12,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  zoomLevelText: {
+    color: "#ffffff",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  sliderContainer: {
+    width: "100%",
+    marginTop: 16,
+  },
+  sliderLabelRow: {
     flexDirection: "row",
     alignItems: "center",
-    width: "100%",
-    marginTop: 18,
-    gap: 10,
+    justifyContent: "space-between",
+    marginBottom: 2,
   },
-  zoomButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: "#eff6ff",
-    justifyContent: "center",
-    alignItems: "center",
+  sliderLabel: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#475569",
   },
-  zoomTrack: {
-    flex: 1,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "#e2e8f0",
-    overflow: "hidden",
-  },
-  zoomFill: {
-    height: "100%",
-    backgroundColor: "#1a73e8",
-    borderRadius: 2,
+  zoomValueText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#1a73e8",
   },
   resetButton: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    marginTop: 12,
+    marginTop: 10,
     paddingVertical: 4,
     paddingHorizontal: 10,
   },
@@ -644,7 +794,7 @@ const adjustStyles = StyleSheet.create({
     flexDirection: "row",
     gap: 10,
     width: "100%",
-    marginTop: 18,
+    marginTop: 16,
   },
   cancelButton: {
     flex: 1,
@@ -704,7 +854,6 @@ export default function AddAccountScreen() {
   const [showPhotoOptions, setShowPhotoOptions] = useState(false);
   const [showDummyInvites, setShowDummyInvites] = useState(true);
 
-  // New: raw picked image + adjust (zoom/drag) modal state
   const [rawImage, setRawImage] = useState<RawImage | null>(null);
   const [showAdjustModal, setShowAdjustModal] = useState(false);
 
@@ -727,21 +876,6 @@ export default function AddAccountScreen() {
     const account = accounts.find((a) => a.id === invitation.accountId);
     return account?.name || invitation.accountName || "Apartment Society";
   };
-
-  const ownerInvite = useMemo(() => {
-    return (
-      pendingInvitations.find((g: any) => g.role === "member_visibility") ||
-      pendingInvitations[0]
-    );
-  }, [pendingInvitations]);
-
-  const staffInvite = useMemo(() => {
-    return (
-      pendingInvitations.find(
-        (g: any) => g.role !== "admin" && g.role !== "member_visibility",
-      ) || pendingInvitations[0]
-    );
-  }, [pendingInvitations]);
 
   const handleSelectOption = async (option: SetupOption) => {
     setError("");
@@ -830,12 +964,10 @@ export default function AddAccountScreen() {
     }
   };
 
-  // Show photo selection options
   const showPhotoSelectionOptions = () => {
     setShowPhotoOptions(true);
   };
 
-  // Handle taking photo with camera - opens the custom zoom/drag adjuster
   const takePhoto = async () => {
     setShowPhotoOptions(false);
     const permission = await ImagePicker.requestCameraPermissionsAsync();
@@ -846,7 +978,7 @@ export default function AddAccountScreen() {
 
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: ["images"],
-      allowsEditing: false, // We use our own zoom/drag adjuster instead of native crop
+      allowsEditing: false,
       quality: 1,
     });
 
@@ -861,7 +993,6 @@ export default function AddAccountScreen() {
     }
   };
 
-  // Handle choosing photo from gallery - opens the custom zoom/drag adjuster
   const choosePhoto = async () => {
     setShowPhotoOptions(false);
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -872,7 +1003,7 @@ export default function AddAccountScreen() {
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
-      allowsEditing: false, // We use our own zoom/drag adjuster instead of native crop
+      allowsEditing: false,
       quality: 1,
     });
 
@@ -1196,6 +1327,7 @@ export default function AddAccountScreen() {
                           const isOwnerRole =
                             invitation.role === "member_visibility";
                           const isAdminRole = invitation.role === "admin";
+
                           const inviterPhone =
                             invitation.invitedByPhone || "Secretary";
 
@@ -1587,7 +1719,7 @@ export default function AddAccountScreen() {
         </Pressable>
       </Modal>
 
-      {/* Photo Adjust (zoom / drag) Modal */}
+      {/* Photo Adjust (zoom / drag) Modal with Slider */}
       <PhotoAdjustModal
         visible={showAdjustModal}
         image={rawImage}
@@ -1658,6 +1790,10 @@ export default function AddAccountScreen() {
     </KeyboardAvoidingView>
   );
 }
+
+// ================================================================
+// STYLES - All shadow* replaced with boxShadow
+// ================================================================
 
 const styles = StyleSheet.create({
   container: {
@@ -1738,19 +1874,11 @@ const styles = StyleSheet.create({
   },
   tabButtonActiveBlue: {
     backgroundColor: "#ffffff",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06,
-    shadowRadius: 3,
-    elevation: 2,
+    boxShadow: "0px 1px 3px rgba(0, 0, 0, 0.06)",
   },
   tabButtonActivePurple: {
     backgroundColor: "#ffffff",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.06,
-    shadowRadius: 3,
-    elevation: 2,
+    boxShadow: "0px 1px 3px rgba(0, 0, 0, 0.06)",
   },
   tabButtonText: {
     fontSize: 13.5,
@@ -1787,11 +1915,7 @@ const styles = StyleSheet.create({
     padding: 14,
     borderWidth: 1,
     borderColor: "#e2e8f0",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    elevation: 2,
+    boxShadow: "0px 1px 4px rgba(0, 0, 0, 0.04)",
   },
   cardHeader: {
     flexDirection: "row",
@@ -1859,11 +1983,7 @@ const styles = StyleSheet.create({
     padding: 16,
     borderWidth: 1,
     borderColor: "#e2e8f0",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    elevation: 2,
+    boxShadow: "0px 2px 8px rgba(0, 0, 0, 0.04)",
   },
   apartmentHeader: {
     flexDirection: "row",
@@ -2042,11 +2162,7 @@ const styles = StyleSheet.create({
     padding: 18,
     borderWidth: 1,
     borderColor: "#e2e8f0",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 8,
-    elevation: 2,
+    boxShadow: "0px 2px 8px rgba(0, 0, 0, 0.04)",
   },
   photoSection: {
     alignItems: "center",
@@ -2127,11 +2243,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: 12,
     height: 48,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.03,
-    shadowRadius: 3,
-    elevation: 1,
+    boxShadow: "0px 1px 3px rgba(0, 0, 0, 0.03)",
   },
   inputIcon: {
     marginRight: 8,
@@ -2169,14 +2281,11 @@ const styles = StyleSheet.create({
     height: 50,
     marginTop: 6,
     gap: 8,
-    shadowColor: "#1a73e8",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 6,
-    elevation: 4,
+    boxShadow: "0px 4px 6px rgba(26, 115, 232, 0.25)",
   },
   submitButtonDisabled: {
     backgroundColor: "#93c5fd",
+    boxShadow: "none",
   },
   submitButtonText: {
     color: "#ffffff",
@@ -2195,11 +2304,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     padding: 24,
     alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
-    elevation: 6,
+    boxShadow: "0px 4px 12px rgba(0, 0, 0, 0.1)",
     gap: 12,
   },
   loadingText: {
@@ -2306,11 +2411,7 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 400,
     alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.15,
-    shadowRadius: 16,
-    elevation: 10,
+    boxShadow: "0px 6px 16px rgba(0, 0, 0, 0.15)",
   },
   modalIconCircle: {
     width: 56,

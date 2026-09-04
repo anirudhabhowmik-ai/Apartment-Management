@@ -1755,7 +1755,7 @@ function InputContainer({
 }
 
 // ==================================================
-// STYLES
+// STYLES - All shadow* replaced with boxShadow
 // ==================================================
 
 const styles = StyleSheet.create({
@@ -2510,19 +2510,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     marginTop: 3,
-    shadowColor: "#2563eb",
-    shadowOpacity: 0.18,
-    shadowRadius: 8,
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    elevation: 3,
+    boxShadow: "0px 4px 8px rgba(37, 99, 235, 0.18)",
   },
 
   updateButtonDisabled: {
     backgroundColor: "#93c5fd",
-    shadowOpacity: 0,
+    boxShadow: "none",
   },
 
   updateButtonText: {

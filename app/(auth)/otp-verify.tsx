@@ -383,6 +383,10 @@ export default function OtpVerifyScreen() {
   );
 }
 
+// ================================================================
+// STYLES - All shadow* replaced with boxShadow
+// ================================================================
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -397,32 +401,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderBottomLeftRadius: 30,
     borderBottomRightRadius: 30,
-
-    ...Platform.select({
-      ios: {
-        shadowColor: "#000",
-        shadowOffset: {
-          width: 0,
-          height: 2,
-        },
-        shadowOpacity: 0.05,
-        shadowRadius: 10,
-      },
-
-      android: {
-        elevation: 4,
-      },
-
-      web: {
-        shadowColor: "#000",
-        shadowOffset: {
-          width: 0,
-          height: 2,
-        },
-        shadowOpacity: 0.05,
-        shadowRadius: 10,
-      },
-    }),
+    boxShadow: "0px 2px 10px rgba(0, 0, 0, 0.05)",
   },
 
   backButton: {
@@ -457,32 +436,7 @@ const styles = StyleSheet.create({
     padding: 24,
     backgroundColor: "#fff",
     borderRadius: 20,
-
-    ...Platform.select({
-      ios: {
-        shadowColor: "#000",
-        shadowOffset: {
-          width: 0,
-          height: 4,
-        },
-        shadowOpacity: 0.08,
-        shadowRadius: 20,
-      },
-
-      android: {
-        elevation: 8,
-      },
-
-      web: {
-        shadowColor: "#000",
-        shadowOffset: {
-          width: 0,
-          height: 4,
-        },
-        shadowOpacity: 0.08,
-        shadowRadius: 20,
-      },
-    }),
+    boxShadow: "0px 4px 20px rgba(0, 0, 0, 0.08)",
   },
 
   cardTitle: {
@@ -551,22 +505,7 @@ const styles = StyleSheet.create({
   otpBoxFocused: {
     borderColor: "#1a73e8",
     backgroundColor: "#fff",
-
-    ...Platform.select({
-      ios: {
-        shadowColor: "#1a73e8",
-        shadowOffset: {
-          width: 0,
-          height: 0,
-        },
-        shadowOpacity: 0.2,
-        shadowRadius: 8,
-      },
-
-      android: {
-        elevation: 4,
-      },
-    }),
+    boxShadow: "0px 0px 8px rgba(26, 115, 232, 0.2)",
   },
 
   otpBoxFilled: {
@@ -607,32 +546,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     marginTop: 8,
-
-    ...Platform.select({
-      ios: {
-        shadowColor: "#1a73e8",
-        shadowOffset: {
-          width: 0,
-          height: 4,
-        },
-        shadowOpacity: 0.3,
-        shadowRadius: 12,
-      },
-
-      android: {
-        elevation: 6,
-      },
-
-      web: {
-        shadowColor: "#1a73e8",
-        shadowOffset: {
-          width: 0,
-          height: 4,
-        },
-        shadowOpacity: 0.3,
-        shadowRadius: 12,
-      },
-    }),
+    boxShadow: "0px 4px 12px rgba(26, 115, 232, 0.3)",
   },
 
   buttonDisabled: {
@@ -694,32 +608,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderRadius: 16,
     flexWrap: "wrap",
-
-    ...Platform.select({
-      ios: {
-        shadowColor: "#000",
-        shadowOffset: {
-          width: 0,
-          height: 2,
-        },
-        shadowOpacity: 0.04,
-        shadowRadius: 8,
-      },
-
-      android: {
-        elevation: 2,
-      },
-
-      web: {
-        shadowColor: "#000",
-        shadowOffset: {
-          width: 0,
-          height: 2,
-        },
-        shadowOpacity: 0.04,
-        shadowRadius: 8,
-      },
-    }),
+    boxShadow: "0px 2px 8px rgba(0, 0, 0, 0.04)",
   },
 
   footerItem: {

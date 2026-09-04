@@ -95,7 +95,6 @@ export default function LoginScreen() {
     }
 
     try {
-      // Request permission
       const { status } = await requestPermissionsAsync();
 
       if (status !== "granted") {
@@ -117,10 +116,6 @@ export default function LoginScreen() {
         return;
       }
 
-      // ========================================================
-      // CURRENT EXPO CONTACTS API
-      // ========================================================
-
       const contacts = await Contact.getAllDetails(
         [ContactField.FULL_NAME, ContactField.PHONES],
         {
@@ -133,7 +128,6 @@ export default function LoginScreen() {
         return;
       }
 
-      // Convert Expo contacts into our own format
       const mappedContacts: ContactData[] = contacts
         .filter((contact) => contact.phones && contact.phones.length > 0)
         .map((contact) => ({
@@ -150,15 +144,12 @@ export default function LoginScreen() {
         return;
       }
 
-      // Reset search whenever picker opens
       setContactSearch("");
-
       setContactsList(mappedContacts);
       setShowContactPicker(true);
       setError("");
     } catch (error) {
       console.error("Error fetching contacts:", error);
-
       setError("Failed to fetch contacts. Please try again.");
     }
   };
@@ -170,15 +161,11 @@ export default function LoginScreen() {
   const filteredContacts = contactsList.filter((contact) => {
     const search = contactSearch.toLowerCase().trim();
 
-    // Show everything if search is empty
     if (!search) {
       return true;
     }
 
-    // Search by contact name
     const nameMatch = contact.name.toLowerCase().includes(search);
-
-    // Search by phone number
     const phoneMatch = contact.phoneNumbers.some((phone) =>
       phone.number.toLowerCase().includes(search),
     );
@@ -203,21 +190,14 @@ export default function LoginScreen() {
     if (contact && contact.phoneNumbers && contact.phoneNumbers.length > 0) {
       let phoneNumber = contact.phoneNumbers[0].number || "";
 
-      // Remove spaces, +, -, brackets etc.
       phoneNumber = phoneNumber.replace(/[^0-9]/g, "");
-
-      // Remove Indian country code
       phoneNumber = phoneNumber.replace(/^91/, "");
-
-      // Remove leading zero
       phoneNumber = phoneNumber.replace(/^0/, "");
 
-      // Keep last 10 digits
       if (phoneNumber.length > 10) {
         phoneNumber = phoneNumber.slice(-10);
       }
 
-      // Validate
       if (phoneNumber.length !== 10) {
         setError(
           "Selected contact does not have a valid 10-digit phone number",
@@ -236,7 +216,7 @@ export default function LoginScreen() {
   };
 
   // ============================================================
-  // CONTACT PICKER MODAL - Fixed with no extra bottom space
+  // CONTACT PICKER MODAL
   // ============================================================
 
   const renderContactPickerModal = () => {
@@ -255,7 +235,6 @@ export default function LoginScreen() {
           <View style={styles.modalOverlay}>
             <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
               <View style={styles.modalContainer}>
-                {/* MODAL HEADER */}
                 <View style={styles.modalHeader}>
                   <Text style={styles.modalTitle}>Select Contact</Text>
 
@@ -268,7 +247,6 @@ export default function LoginScreen() {
                   </TouchableOpacity>
                 </View>
 
-                {/* SEARCH */}
                 <View style={styles.modalSearchContainer}>
                   <Ionicons name="search" size={20} color="#999" />
 
@@ -284,7 +262,6 @@ export default function LoginScreen() {
                     autoFocus={false}
                   />
 
-                  {/* CLEAR SEARCH BUTTON */}
                   {contactSearch.length > 0 && (
                     <TouchableOpacity
                       onPress={() => setContactSearch("")}
@@ -296,7 +273,6 @@ export default function LoginScreen() {
                   )}
                 </View>
 
-                {/* CONTACT LIST - Fixed with proper scrolling */}
                 <View style={styles.contactListWrapper}>
                   <ScrollView
                     style={styles.contactListContainer}
@@ -317,7 +293,6 @@ export default function LoginScreen() {
                           onPress={() => selectContact(contact)}
                           activeOpacity={0.7}
                         >
-                          {/* AVATAR */}
                           <View style={styles.contactAvatar}>
                             <Text style={styles.contactAvatarText}>
                               {contact.name
@@ -326,7 +301,6 @@ export default function LoginScreen() {
                             </Text>
                           </View>
 
-                          {/* CONTACT INFO */}
                           <View style={styles.contactInfo}>
                             <Text style={styles.contactName} numberOfLines={1}>
                               {contact.name || "Unknown"}
@@ -343,7 +317,6 @@ export default function LoginScreen() {
                               )}
                           </View>
 
-                          {/* ARROW */}
                           <Ionicons
                             name="chevron-forward"
                             size={20}
@@ -352,7 +325,6 @@ export default function LoginScreen() {
                         </TouchableOpacity>
                       ))
                     ) : (
-                      // NO SEARCH RESULTS
                       <View style={styles.noContactsContainer}>
                         <View style={styles.noContactsIcon}>
                           <Ionicons
@@ -374,7 +346,6 @@ export default function LoginScreen() {
                   </ScrollView>
                 </View>
 
-                {/* CANCEL BUTTON */}
                 <View style={styles.modalFooter}>
                   <TouchableOpacity
                     style={styles.modalCancelButton}
@@ -535,7 +506,7 @@ export default function LoginScreen() {
 }
 
 // ================================================================
-// STYLES
+// STYLES - All shadow* replaced with boxShadow
 // ================================================================
 
 const styles = StyleSheet.create({
@@ -555,32 +526,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     borderBottomLeftRadius: 30,
     borderBottomRightRadius: 30,
-
-    ...Platform.select({
-      ios: {
-        shadowColor: "#000",
-        shadowOffset: {
-          width: 0,
-          height: 2,
-        },
-        shadowOpacity: 0.05,
-        shadowRadius: 10,
-      },
-
-      android: {
-        elevation: 4,
-      },
-
-      web: {
-        shadowColor: "#000",
-        shadowOffset: {
-          width: 0,
-          height: 2,
-        },
-        shadowOpacity: 0.05,
-        shadowRadius: 10,
-      },
-    }),
+    boxShadow: "0px 2px 10px rgba(0, 0, 0, 0.05)",
   },
 
   logoContainer: {
@@ -621,32 +567,7 @@ const styles = StyleSheet.create({
     padding: 24,
     backgroundColor: "#fff",
     borderRadius: 20,
-
-    ...Platform.select({
-      ios: {
-        shadowColor: "#000",
-        shadowOffset: {
-          width: 0,
-          height: 4,
-        },
-        shadowOpacity: 0.08,
-        shadowRadius: 20,
-      },
-
-      android: {
-        elevation: 8,
-      },
-
-      web: {
-        shadowColor: "#000",
-        shadowOffset: {
-          width: 0,
-          height: 4,
-        },
-        shadowOpacity: 0.08,
-        shadowRadius: 20,
-      },
-    }),
+    boxShadow: "0px 4px 20px rgba(0, 0, 0, 0.08)",
   },
 
   cardTitle: {
@@ -756,32 +677,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     marginTop: 8,
-
-    ...Platform.select({
-      ios: {
-        shadowColor: "#1a73e8",
-        shadowOffset: {
-          width: 0,
-          height: 4,
-        },
-        shadowOpacity: 0.3,
-        shadowRadius: 12,
-      },
-
-      android: {
-        elevation: 6,
-      },
-
-      web: {
-        shadowColor: "#1a73e8",
-        shadowOffset: {
-          width: 0,
-          height: 4,
-        },
-        shadowOpacity: 0.3,
-        shadowRadius: 12,
-      },
-    }),
+    boxShadow: "0px 4px 12px rgba(26, 115, 232, 0.3)",
   },
 
   buttonDisabled: {
@@ -816,32 +712,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     backgroundColor: "#fff",
     borderRadius: 16,
-
-    ...Platform.select({
-      ios: {
-        shadowColor: "#000",
-        shadowOffset: {
-          width: 0,
-          height: 2,
-        },
-        shadowOpacity: 0.04,
-        shadowRadius: 8,
-      },
-
-      android: {
-        elevation: 2,
-      },
-
-      web: {
-        shadowColor: "#000",
-        shadowOffset: {
-          width: 0,
-          height: 2,
-        },
-        shadowOpacity: 0.04,
-        shadowRadius: 8,
-      },
-    }),
+    boxShadow: "0px 2px 8px rgba(0, 0, 0, 0.04)",
   },
 
   featureItem: {
@@ -870,7 +741,7 @@ const styles = StyleSheet.create({
   },
 
   // ==============================================================
-  // CONTACT MODAL - Fixed with no extra bottom space
+  // CONTACT MODAL
   // ==============================================================
 
   modalOverlay: {
@@ -906,7 +777,6 @@ const styles = StyleSheet.create({
     padding: 4,
   },
 
-  // SEARCH
   modalSearchContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -931,7 +801,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
 
-  // CONTACT LIST WRAPPER
   contactListWrapper: {
     flex: 1,
     minHeight: 200,
@@ -987,7 +856,6 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
-  // NO CONTACTS
   noContactsContainer: {
     alignItems: "center",
     justifyContent: "center",
@@ -1019,13 +887,11 @@ const styles = StyleSheet.create({
     lineHeight: 19,
   },
 
-  // MODAL FOOTER
   modalFooter: {
     paddingTop: 16,
     paddingBottom: 20,
   },
 
-  // CANCEL
   modalCancelButton: {
     paddingVertical: 14,
     borderRadius: 12,
