@@ -12,17 +12,69 @@ import {
   KeyboardAvoidingView,
   Modal,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity,
   TouchableWithoutFeedback,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { sendOtp } from "../../services/otpService";
 import { useAuthStore } from "../../store/useAuthStore";
+
+// ================================================================
+// REACT NATIVE WEB WARNING FILTER
+// ================================================================
+//
+// React Native Web may currently emit this internal warning:
+//
+// "props.pointerEvents is deprecated. Use style.pointerEvents"
+//
+// The warning is generated inside react-native-web's internal
+// touch/press implementation.
+//
+// We suppress ONLY this exact warning.
+// All other warnings and errors remain visible.
+// ================================================================
+
+if (
+  Platform.OS === "web" &&
+  typeof console !== "undefined" &&
+  !("__khataPointerWarningFiltered" in console)
+) {
+  const originalWarn = console.warn;
+
+  console.warn = (...args: unknown[]) => {
+    const message = args
+      .map((arg) => {
+        try {
+          if (typeof arg === "string") {
+            return arg;
+          }
+
+          return JSON.stringify(arg);
+        } catch {
+          return String(arg);
+        }
+      })
+      .join(" ");
+
+    if (message.includes("props.pointerEvents is deprecated")) {
+      return;
+    }
+
+    originalWarn(...args);
+  };
+
+  Object.defineProperty(console, "__khataPointerWarningFiltered", {
+    value: true,
+    configurable: false,
+    enumerable: false,
+    writable: false,
+  });
+}
 
 interface ContactData {
   id: string;
@@ -48,9 +100,34 @@ export default function LoginScreen() {
   const [contactsList, setContactsList] = useState<ContactData[]>([]);
   const [contactSearch, setContactSearch] = useState("");
 
-  // ============================================================
+  // ==============================================================
+  // BLUR BROWSER FOCUS
+  // ==============================================================
+  //
+  // When navigating on Web, Expo Router hides the current screen.
+  // If a button/input still has browser focus, Chrome can report:
+  //
+  // "Blocked aria-hidden on an element because its descendant
+  // retained focus."
+  //
+  // We remove the browser focus before navigation.
+  // ==============================================================
+
+  const blurWebFocus = () => {
+    if (Platform.OS !== "web") {
+      return;
+    }
+
+    const activeElement = document.activeElement;
+
+    if (activeElement instanceof HTMLElement) {
+      activeElement.blur();
+    }
+  };
+
+  // ==============================================================
   // SEND OTP
-  // ============================================================
+  // ==============================================================
 
   const handleSendOtp = async () => {
     setError("");
@@ -66,8 +143,21 @@ export default function LoginScreen() {
       const result = await sendOtp(`+91${phone}`);
 
       if (result.success) {
+        // Save phone number before navigation.
         setPendingPhone(phone);
-        router.push("/(auth)/otp-verify");
+
+        // IMPORTANT:
+        // Remove browser focus before Expo Router hides this page.
+        blurWebFocus();
+
+        if (Platform.OS === "web") {
+          // Allow the browser to process blur before navigation.
+          requestAnimationFrame(() => {
+            router.push("/(auth)/otp-verify");
+          });
+        } else {
+          router.push("/(auth)/otp-verify");
+        }
       } else {
         setError(result.message || "Something went wrong");
       }
@@ -79,9 +169,9 @@ export default function LoginScreen() {
     }
   };
 
-  // ============================================================
+  // ==============================================================
   // PICK CONTACT
-  // ============================================================
+  // ==============================================================
 
   const pickContact = async () => {
     if (Platform.OS === "web") {
@@ -154,9 +244,9 @@ export default function LoginScreen() {
     }
   };
 
-  // ============================================================
+  // ==============================================================
   // FILTER CONTACTS
-  // ============================================================
+  // ==============================================================
 
   const filteredContacts = contactsList.filter((contact) => {
     const search = contactSearch.toLowerCase().trim();
@@ -166,6 +256,7 @@ export default function LoginScreen() {
     }
 
     const nameMatch = contact.name.toLowerCase().includes(search);
+
     const phoneMatch = contact.phoneNumbers.some((phone) =>
       phone.number.toLowerCase().includes(search),
     );
@@ -173,27 +264,36 @@ export default function LoginScreen() {
     return nameMatch || phoneMatch;
   });
 
-  // ============================================================
+  // ==============================================================
   // CLOSE CONTACT PICKER
-  // ============================================================
+  // ==============================================================
 
   const closeContactPicker = () => {
     setContactSearch("");
     setShowContactPicker(false);
+
+    // Make sure Web doesn't retain focus inside the modal.
+    blurWebFocus();
   };
 
-  // ============================================================
+  // ==============================================================
   // SELECT CONTACT
-  // ============================================================
+  // ==============================================================
 
   const selectContact = (contact: ContactData) => {
     if (contact && contact.phoneNumbers && contact.phoneNumbers.length > 0) {
       let phoneNumber = contact.phoneNumbers[0].number || "";
 
+      // Remove spaces, +, -, brackets, etc.
       phoneNumber = phoneNumber.replace(/[^0-9]/g, "");
+
+      // Remove country code.
       phoneNumber = phoneNumber.replace(/^91/, "");
+
+      // Remove leading zero.
       phoneNumber = phoneNumber.replace(/^0/, "");
 
+      // If still longer than 10 digits, take last 10.
       if (phoneNumber.length > 10) {
         phoneNumber = phoneNumber.slice(-10);
       }
@@ -210,14 +310,16 @@ export default function LoginScreen() {
 
       setContactSearch("");
       setShowContactPicker(false);
+
+      blurWebFocus();
     } else {
       setError("Selected contact doesn't have a phone number");
     }
   };
 
-  // ============================================================
+  // ==============================================================
   // CONTACT PICKER MODAL
-  // ============================================================
+  // ==============================================================
 
   const renderContactPickerModal = () => {
     if (!showContactPicker) {
@@ -227,7 +329,7 @@ export default function LoginScreen() {
     return (
       <Modal
         visible={showContactPicker}
-        transparent={true}
+        transparent
         animationType="slide"
         onRequestClose={closeContactPicker}
       >
@@ -235,17 +337,27 @@ export default function LoginScreen() {
           <View style={styles.modalOverlay}>
             <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
               <View style={styles.modalContainer}>
+                {/* ==================================================
+                    MODAL HEADER
+                ================================================== */}
+
                 <View style={styles.modalHeader}>
                   <Text style={styles.modalTitle}>Select Contact</Text>
 
-                  <TouchableOpacity
+                  <Pressable
                     onPress={closeContactPicker}
-                    style={styles.modalCloseButton}
-                    activeOpacity={0.7}
+                    style={({ pressed }) => [
+                      styles.modalCloseButton,
+                      pressed && styles.pressed,
+                    ]}
                   >
                     <Ionicons name="close" size={24} color="#333" />
-                  </TouchableOpacity>
+                  </Pressable>
                 </View>
+
+                {/* ==================================================
+                    SEARCH
+                ================================================== */}
 
                 <View style={styles.modalSearchContainer}>
                   <Ionicons name="search" size={20} color="#999" />
@@ -260,39 +372,53 @@ export default function LoginScreen() {
                     autoCorrect={false}
                     returnKeyType="search"
                     autoFocus={false}
+                    {...(Platform.OS === "web"
+                      ? ({
+                          outlineStyle: "none",
+                        } as any)
+                      : {})}
                   />
 
                   {contactSearch.length > 0 && (
-                    <TouchableOpacity
+                    <Pressable
                       onPress={() => setContactSearch("")}
-                      style={styles.clearSearchButton}
-                      activeOpacity={0.7}
+                      style={({ pressed }) => [
+                        styles.clearSearchButton,
+                        pressed && styles.pressed,
+                      ]}
                     >
                       <Ionicons name="close-circle" size={20} color="#999" />
-                    </TouchableOpacity>
+                    </Pressable>
                   )}
                 </View>
+
+                {/* ==================================================
+                    CONTACT LIST
+                ================================================== */}
 
                 <View style={styles.contactListWrapper}>
                   <ScrollView
                     style={styles.contactListContainer}
                     contentContainerStyle={styles.contactListContent}
-                    showsVerticalScrollIndicator={true}
+                    showsVerticalScrollIndicator
                     keyboardShouldPersistTaps="handled"
-                    nestedScrollEnabled={true}
-                    scrollEnabled={true}
-                    bounces={true}
-                    alwaysBounceVertical={true}
+                    nestedScrollEnabled
+                    scrollEnabled
+                    bounces
+                    alwaysBounceVertical
                     removeClippedSubviews={false}
                   >
                     {filteredContacts.length > 0 ? (
                       filteredContacts.map((contact) => (
-                        <TouchableOpacity
+                        <Pressable
                           key={contact.id}
-                          style={styles.contactItem}
+                          style={({ pressed }) => [
+                            styles.contactItem,
+                            pressed && styles.contactItemPressed,
+                          ]}
                           onPress={() => selectContact(contact)}
-                          activeOpacity={0.7}
                         >
+                          {/* AVATAR */}
                           <View style={styles.contactAvatar}>
                             <Text style={styles.contactAvatarText}>
                               {contact.name
@@ -301,6 +427,7 @@ export default function LoginScreen() {
                             </Text>
                           </View>
 
+                          {/* CONTACT INFO */}
                           <View style={styles.contactInfo}>
                             <Text style={styles.contactName} numberOfLines={1}>
                               {contact.name || "Unknown"}
@@ -322,7 +449,7 @@ export default function LoginScreen() {
                             size={20}
                             color="#ccc"
                           />
-                        </TouchableOpacity>
+                        </Pressable>
                       ))
                     ) : (
                       <View style={styles.noContactsContainer}>
@@ -346,14 +473,20 @@ export default function LoginScreen() {
                   </ScrollView>
                 </View>
 
+                {/* ==================================================
+                    MODAL FOOTER
+                ================================================== */}
+
                 <View style={styles.modalFooter}>
-                  <TouchableOpacity
-                    style={styles.modalCancelButton}
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.modalCancelButton,
+                      pressed && styles.pressed,
+                    ]}
                     onPress={closeContactPicker}
-                    activeOpacity={0.7}
                   >
                     <Text style={styles.modalCancelButtonText}>Cancel</Text>
-                  </TouchableOpacity>
+                  </Pressable>
                 </View>
               </View>
             </TouchableWithoutFeedback>
@@ -363,9 +496,9 @@ export default function LoginScreen() {
     );
   };
 
-  // ============================================================
+  // ==============================================================
   // SCREEN
-  // ============================================================
+  // ==============================================================
 
   return (
     <KeyboardAvoidingView
@@ -378,7 +511,10 @@ export default function LoginScreen() {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={0}
     >
-      {/* HEADER */}
+      {/* ========================================================
+          HEADER
+      ======================================================== */}
+
       <View style={styles.header}>
         <View style={styles.logoContainer}>
           <View style={styles.logoCircle}>
@@ -391,7 +527,10 @@ export default function LoginScreen() {
         <Text style={styles.subtitle}>Manage your properties effortlessly</Text>
       </View>
 
-      {/* LOGIN CARD */}
+      {/* ========================================================
+          LOGIN CARD
+      ======================================================== */}
+
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Welcome Back</Text>
 
@@ -399,12 +538,16 @@ export default function LoginScreen() {
           Sign in to manage your properties, tenants, and expenses
         </Text>
 
-        {/* PHONE INPUT */}
+        {/* ======================================================
+            PHONE INPUT
+        ====================================================== */}
+
         <View style={styles.inputWrapper}>
           <Text style={styles.inputLabel}>Phone Number</Text>
 
           <View style={[styles.inputRow, isFocused && styles.inputRowFocused]}>
             {/* COUNTRY CODE */}
+
             <View style={styles.countryCode}>
               <Text style={styles.prefix}>+91</Text>
 
@@ -412,6 +555,7 @@ export default function LoginScreen() {
             </View>
 
             {/* PHONE INPUT */}
+
             <TextInput
               style={styles.input}
               placeholder="Phone number"
@@ -423,28 +567,43 @@ export default function LoginScreen() {
               onFocus={() => setIsFocused(true)}
               onBlur={() => setIsFocused(false)}
               returnKeyType="done"
+              {...(Platform.OS === "web"
+                ? ({
+                    outlineStyle: "none",
+                  } as any)
+                : {})}
             />
 
             {/* CONTACT BUTTON */}
-            <TouchableOpacity
+
+            <Pressable
               onPress={pickContact}
-              style={styles.contactIcon}
-              activeOpacity={0.7}
+              style={({ pressed }) => [
+                styles.contactIcon,
+                pressed && styles.pressed,
+              ]}
             >
               <Ionicons name="person-outline" size={22} color="#1a73e8" />
-            </TouchableOpacity>
+            </Pressable>
           </View>
 
           {/* ERROR */}
+
           {error ? <Text style={styles.error}>{error}</Text> : null}
         </View>
 
-        {/* CONTINUE BUTTON */}
-        <TouchableOpacity
-          style={[styles.button, loading && styles.buttonDisabled]}
+        {/* ======================================================
+            CONTINUE BUTTON
+        ====================================================== */}
+
+        <Pressable
+          style={({ pressed }) => [
+            styles.button,
+            loading && styles.buttonDisabled,
+            pressed && !loading && styles.buttonPressed,
+          ]}
           onPress={handleSendOtp}
           disabled={loading}
-          activeOpacity={0.8}
         >
           <Text style={styles.buttonText}>
             {loading ? "Sending..." : "Continue with OTP"}
@@ -458,13 +617,17 @@ export default function LoginScreen() {
               style={styles.buttonIcon}
             />
           )}
-        </TouchableOpacity>
+        </Pressable>
       </View>
 
-      {/* FEATURES FOOTER */}
+      {/* ========================================================
+          FEATURES FOOTER
+      ======================================================== */}
+
       <View style={styles.footer}>
         <View style={styles.featureRow}>
           {/* PROPERTY */}
+
           <View style={styles.featureItem}>
             <View style={styles.featureIcon}>
               <Ionicons name="home-outline" size={20} color="#1a73e8" />
@@ -476,6 +639,7 @@ export default function LoginScreen() {
           </View>
 
           {/* TENANTS */}
+
           <View style={styles.featureItem}>
             <View style={styles.featureIcon}>
               <Ionicons name="people-outline" size={20} color="#1a73e8" />
@@ -487,6 +651,7 @@ export default function LoginScreen() {
           </View>
 
           {/* EXPENSES */}
+
           <View style={styles.featureItem}>
             <View style={styles.featureIcon}>
               <Ionicons name="cash-outline" size={20} color="#1a73e8" />
@@ -499,17 +664,24 @@ export default function LoginScreen() {
         </View>
       </View>
 
-      {/* CONTACT PICKER */}
+      {/* ========================================================
+          CONTACT PICKER
+      ======================================================== */}
+
       {renderContactPickerModal()}
     </KeyboardAvoidingView>
   );
 }
 
-// ================================================================
-// STYLES - All shadow* replaced with boxShadow
-// ================================================================
+// =================================================================
+// STYLES
+// =================================================================
 
 const styles = StyleSheet.create({
+  // ==============================================================
+  // CONTAINER
+  // ==============================================================
+
   container: {
     flex: 1,
     backgroundColor: "#f5f7fa",
@@ -685,6 +857,10 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
 
+  buttonPressed: {
+    opacity: 0.9,
+  },
+
   buttonText: {
     color: "#fff",
     fontSize: 16,
@@ -693,6 +869,14 @@ const styles = StyleSheet.create({
 
   buttonIcon: {
     marginLeft: 8,
+  },
+
+  // ==============================================================
+  // PRESSED STATE
+  // ==============================================================
+
+  pressed: {
+    opacity: 0.7,
   },
 
   // ==============================================================
@@ -793,6 +977,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     fontSize: 15,
     color: "#1a1a1a",
+
+    ...(Platform.OS === "web"
+      ? ({
+          outlineStyle: "none",
+        } as any)
+      : {}),
   },
 
   clearSearchButton: {
@@ -821,6 +1011,11 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderBottomWidth: 1,
     borderBottomColor: "#f0f0f0",
+  },
+
+  contactItemPressed: {
+    opacity: 0.7,
+    backgroundColor: "#fafafa",
   },
 
   contactAvatar: {
