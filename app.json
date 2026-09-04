@@ -7,11 +7,9 @@
     "icon": "./assets/images/icon.png",
     "scheme": "aikhata",
     "userInterfaceStyle": "automatic",
-
     "ios": {
       "supportsTablet": true
     },
-
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
@@ -23,12 +21,10 @@
       "predictiveBackGestureEnabled": false,
       "package": "com.anonymous.aikhata"
     },
-
     "web": {
       "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
-
     "plugins": [
       "expo-router",
       [
@@ -44,21 +40,19 @@
         }
       ],
       "expo-status-bar",
-      "expo-asset"
+      "expo-asset",
+      "expo-sharing"
     ],
-
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
     },
-
     "extra": {
       "router": {},
       "eas": {
         "projectId": "fcbcf0b3-e22c-4620-a25d-53e8fc0ec627"
       }
     },
-
     "owner": "anirudhabhowmiks-team"
   }
 }

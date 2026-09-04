@@ -213,6 +213,11 @@ const DUMMY_INVITATIONS: any[] = [
 
 // ---------------------------------------------------------------------------
 // Smooth Zoom Slider - Android / iOS compatible
+//
+// FIX: PanResponder is created once (via useRef) so its handlers must never
+// read state/props directly - those closures go stale. `onValueChange` is
+// now tracked in a ref that we refresh every render, and the handlers call
+// `onValueChangeRef.current(...)` so they always invoke the latest callback.
 // ---------------------------------------------------------------------------
 
 interface CustomSliderProps {
@@ -238,6 +243,21 @@ function CustomSlider({
   const sliderPageX = useRef(0);
   const isDragging = useRef(false);
 
+  // Keep the latest callback + bounds in refs so the PanResponder
+  // (created once below) never calls stale versions.
+  const onValueChangeRef = useRef(onValueChange);
+  const minRef = useRef(minimumValue);
+  const maxRef = useRef(maximumValue);
+
+  useEffect(() => {
+    onValueChangeRef.current = onValueChange;
+  }, [onValueChange]);
+
+  useEffect(() => {
+    minRef.current = minimumValue;
+    maxRef.current = maximumValue;
+  }, [minimumValue, maximumValue]);
+
   const thumbSize = 22;
 
   const clamp = (number: number, min: number, max: number) => {
@@ -253,8 +273,9 @@ function CustomSlider({
     if (sliderWidth.current <= 0) return;
     const relativeX = pageX - sliderPageX.current;
     const percent = clamp(relativeX / sliderWidth.current, 0, 1);
-    const newValue = minimumValue + percent * (maximumValue - minimumValue);
-    onValueChange(newValue);
+    const newValue =
+      minRef.current + percent * (maxRef.current - minRef.current);
+    onValueChangeRef.current(newValue);
   };
 
   const panResponder = useRef(
@@ -378,6 +399,16 @@ const sliderStyles = StyleSheet.create({
 
 // ---------------------------------------------------------------------------
 // Photo Adjust Modal - Fixed for Android
+//
+// FIX: same stale-closure bug as above. The PanResponder here is also built
+// once via useRef, so its grant/move/release handlers used to read `zoom`,
+// `translate`, and `image` from the very first render forever - meaning
+// every drag/pinch after the first one started from the wrong baseline and
+// the image would jump back or ignore further gestures.
+//
+// Now `zoomRef` / `translateRef` / `imageRef` / `baseScaleRef` are kept in
+// sync with state on every render, and the PanResponder handlers read from
+// those refs instead of the state variables directly.
 // ---------------------------------------------------------------------------
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -439,7 +470,49 @@ function PhotoAdjustModal({
 
   useEffect(() => {
     setTranslate((t) => clampTranslate(t, zoom));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zoom, image]);
+
+  // ----- Refs kept in sync with the latest state, for the PanResponder -----
+  const zoomRef = useRef(zoom);
+  const translateRef = useRef(translate);
+  const imageRef = useRef(image);
+  const baseScaleRef = useRef(baseScale);
+
+  useEffect(() => {
+    zoomRef.current = zoom;
+  }, [zoom]);
+
+  useEffect(() => {
+    translateRef.current = translate;
+  }, [translate]);
+
+  useEffect(() => {
+    imageRef.current = image;
+  }, [image]);
+
+  useEffect(() => {
+    baseScaleRef.current = baseScale;
+  }, [baseScale]);
+
+  // Clamp helper that only ever reads from refs, so it stays correct even
+  // though the PanResponder below captures it just once at mount.
+  const clampTranslateFromRefs = (
+    t: { x: number; y: number },
+    currentZoom: number,
+  ) => {
+    const img = imageRef.current;
+    if (!img) return { x: 0, y: 0 };
+    const scale = baseScaleRef.current * currentZoom;
+    const dW = img.width * scale;
+    const dH = img.height * scale;
+    const maxX = Math.max(0, (dW - VIEWPORT) / 2);
+    const maxY = Math.max(0, (dH - VIEWPORT) / 2);
+    return {
+      x: clampNumber(t.x, -maxX, maxX),
+      y: clampNumber(t.y, -maxY, maxY),
+    };
+  };
 
   const gestureRef = useRef<{
     mode: "pan" | "pinch";
@@ -462,13 +535,13 @@ function PhotoAdjustModal({
           gestureRef.current = {
             mode: "pan",
             startTouch: { x: touch.pageX, y: touch.pageY },
-            startTranslate: { ...translate },
+            startTranslate: { ...translateRef.current },
           };
         } else if (touches.length === 2) {
           gestureRef.current = {
             mode: "pinch",
             startDistance: getTouchDistance(touches),
-            startZoom: zoom,
+            startZoom: zoomRef.current,
           };
         }
       },
@@ -489,25 +562,32 @@ function PhotoAdjustModal({
               MIN_ZOOM,
               MAX_ZOOM,
             );
+            zoomRef.current = nextZoom;
             setZoom(nextZoom);
           }
         } else if (touches.length === 1 && gesture.mode === "pan") {
           const touch = touches[0];
           const dx = touch.pageX - (gesture.startTouch?.x || 0);
           const dy = touch.pageY - (gesture.startTouch?.y || 0);
-          const next = clampTranslate(
+          const next = clampTranslateFromRefs(
             {
               x: (gesture.startTranslate?.x || 0) + dx,
               y: (gesture.startTranslate?.y || 0) + dy,
             },
-            zoom,
+            zoomRef.current,
           );
+          translateRef.current = next;
           setTranslate(next);
         }
       },
       onPanResponderRelease: () => {
         gestureRef.current = null;
-        setTranslate((t) => clampTranslate(t, zoom));
+        const clamped = clampTranslateFromRefs(
+          translateRef.current,
+          zoomRef.current,
+        );
+        translateRef.current = clamped;
+        setTranslate(clamped);
       },
       onPanResponderTerminate: () => {
         gestureRef.current = null;
@@ -1136,7 +1216,7 @@ export default function AddAccountScreen() {
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
     >
       <ScrollView
         contentContainerStyle={styles.scrollContent}
