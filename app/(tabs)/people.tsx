@@ -126,6 +126,20 @@ const formatMonthLong = (month: string) =>
     year: "numeric",
   });
 
+const formatFullDate = (dateStr: string) => {
+  const parts = dateStr.split("-");
+  const year = parts[0];
+  const monthNum = parts[1];
+  const day = parts[2] || "01";
+
+  const date = new Date(`${year}-${monthNum}-${day}`);
+  return date.toLocaleString("default", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  });
+};
+
 const getCalculatedStaffSalary = (
   salary: number,
   month: string,
@@ -152,6 +166,30 @@ const getCalculatedStaffSalary = (
   return Math.round((salary / daysInMonth) * paidDays);
 };
 
+// Helper function to navigate months
+const navigateMonth = (
+  currentMonth: string | null,
+  direction: "prev" | "next",
+): string => {
+  if (!currentMonth) {
+    return new Date().toISOString().slice(0, 7);
+  }
+
+  const [year, month] = currentMonth.split("-").map(Number);
+  let newMonth = month + (direction === "next" ? 1 : -1);
+  let newYear = year;
+
+  if (newMonth > 12) {
+    newMonth = 1;
+    newYear = year + 1;
+  } else if (newMonth < 1) {
+    newMonth = 12;
+    newYear = year - 1;
+  }
+
+  return `${newYear}-${String(newMonth).padStart(2, "0")}`;
+};
+
 export default function PeopleScreen() {
   const router = useRouter();
 
@@ -166,9 +204,7 @@ export default function PeopleScreen() {
 
   const { getMembersByGroup, updateMember } = useMemberStore();
 
-  const getAttendanceRecord = useAttendanceStore(
-    (state: any) => state.getRecord,
-  );
+  const getAttendanceRecord = useAttendanceStore((state) => state.getRecord);
 
   const tabTypes: GroupType[] = ["apartment", "staff", "expense"];
 
@@ -203,6 +239,8 @@ export default function PeopleScreen() {
   const [deductionAmount, setDeductionAmount] = useState("");
 
   const [deductionNote, setDeductionNote] = useState("");
+
+  const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
     if (tab === "apartment" || tab === "staff" || tab === "expense") {
@@ -481,6 +519,20 @@ export default function PeopleScreen() {
     setShowChangeStatusModal(false);
   };
 
+  // Handle month navigation
+  const handlePrevMonth = () => {
+    setSelectedMonth(navigateMonth(selectedMonth, "prev"));
+  };
+
+  const handleNextMonth = () => {
+    setSelectedMonth(navigateMonth(selectedMonth, "next"));
+  };
+
+  // Force refresh when coming back from attendance
+  const refreshData = () => {
+    setRefreshKey((prev) => prev + 1);
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       {/* HEADER */}
@@ -488,24 +540,43 @@ export default function PeopleScreen() {
       <View style={styles.header}>
         <Text style={styles.title}>Groups</Text>
 
-        <TouchableOpacity
-          style={styles.monthFilter}
-          onPress={() => setShowMonthPicker(true)}
-        >
-          <Ionicons name="calendar-outline" size={18} color="#1a73e8" />
+        {/* Month Navigation with Slider */}
+        <View style={styles.monthNavContainer}>
+          <TouchableOpacity
+            style={styles.monthNavButton}
+            onPress={handlePrevMonth}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="chevron-back" size={20} color="#1a73e8" />
+          </TouchableOpacity>
 
-          <Text style={styles.monthFilterText}>
-            {selectedMonth
-              ? new Date(`${selectedMonth}-01T00:00:00`).toLocaleString(
-                  "default",
-                  {
-                    month: "short",
-                    year: "numeric",
-                  },
-                )
-              : "All months"}
-          </Text>
-        </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.monthFilter}
+            onPress={() => setShowMonthPicker(true)}
+          >
+            <Ionicons name="calendar-outline" size={16} color="#1a73e8" />
+
+            <Text style={styles.monthFilterText}>
+              {selectedMonth
+                ? new Date(`${selectedMonth}-01T00:00:00`).toLocaleString(
+                    "default",
+                    {
+                      month: "short",
+                      year: "numeric",
+                    },
+                  )
+                : "All months"}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={styles.monthNavButton}
+            onPress={handleNextMonth}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="chevron-forward" size={20} color="#1a73e8" />
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* TABS */}
@@ -570,48 +641,73 @@ export default function PeopleScreen() {
         ) : (
           <View style={styles.membersList}>
             {activeMembers.map((member: any) => {
+              const month =
+                selectedMonth || new Date().toISOString().slice(0, 7);
+              const record = getAttendanceRecord(member.id, month);
+              const monthlyPayment = member.monthlyPayments?.[month];
+
+              // FIXED: Get base payment amount with priority:
+              // 1. monthlyPayment.payableSalary (from attendance save)
+              // 2. record.payableSalary (from attendance store)
+              // 3. Calculated from statuses
               const basePaymentAmount = isApartment
                 ? member.maintenanceAmount || 0
                 : (() => {
-                    const month =
-                      selectedMonth || new Date().toISOString().slice(0, 7);
+                    // First check if there's a monthly payment with a payableSalary
+                    if (monthlyPayment?.payableSalary) {
+                      return monthlyPayment.payableSalary;
+                    }
 
-                    const record = getAttendanceRecord(member.id, month);
+                    // Then check attendance record
+                    if (record?.payableSalary) {
+                      return record.payableSalary;
+                    }
 
-                    return (
-                      record?.payableSalary ??
-                      getCalculatedStaffSalary(
-                        member.monthlySalary || 0,
-                        month,
-                        record?.statuses || {},
-                      )
+                    // Otherwise calculate based on statuses
+                    return getCalculatedStaffSalary(
+                      member.monthlySalary || 0,
+                      month,
+                      record?.statuses || {},
                     );
                   })();
 
-              const monthlyPayment = getPaymentForMonth(member, selectedMonth);
+              const monthlyPaymentData = getPaymentForMonth(
+                member,
+                selectedMonth,
+              );
 
               const statusPaymentAmount =
-                monthlyPayment.status === "paid"
+                monthlyPaymentData.status === "paid"
                   ? basePaymentAmount +
-                    (monthlyPayment.additionalAmount || 0) -
-                    (monthlyPayment.deductionAmount || 0)
+                    (monthlyPaymentData.additionalAmount || 0) -
+                    (monthlyPaymentData.deductionAmount || 0)
                   : basePaymentAmount;
 
+              // Check if the details history matches the selected month
+              const hasMatchingHistory = member.detailsHistory?.some(
+                (snapshot: any) =>
+                  snapshot.changeSummary &&
+                  snapshot.effectiveMonth === selectedMonth,
+              );
+
               return (
-                <View key={member.id} style={styles.memberPaymentCard}>
-                  <TouchableOpacity
-                    style={styles.memberItem}
-                    onPress={() =>
-                      router.push({
-                        pathname: "/(modals)/edit-member",
-                        params: {
-                          memberId: member.id,
-                          groupId: member.groupId,
-                          groupType: activeTab,
-                        },
-                      })
-                    }
-                  >
+                // Full card is clickable -> Navigate to edit-member page
+                <TouchableOpacity
+                  key={`${member.id}-${refreshKey}`}
+                  style={styles.memberPaymentCard}
+                  activeOpacity={0.7}
+                  onPress={() =>
+                    router.push({
+                      pathname: "/(modals)/edit-member",
+                      params: {
+                        memberId: member.id,
+                        groupId: member.groupId,
+                        groupType: activeTab,
+                      },
+                    })
+                  }
+                >
+                  <View style={styles.memberItem}>
                     <View
                       style={[
                         styles.memberIcon,
@@ -652,7 +748,7 @@ export default function PeopleScreen() {
                         )}
 
                         {(isApartment || isStaff) &&
-                          (monthlyPayment.status === "paid" ? (
+                          (monthlyPaymentData.status === "paid" ? (
                             <View
                               style={[
                                 styles.statusBadge,
@@ -739,7 +835,7 @@ export default function PeopleScreen() {
                     )}
 
                     <Ionicons name="chevron-forward" size={18} color="#ccc" />
-                  </TouchableOpacity>
+                  </View>
 
                   {(isApartment || isStaff) && (
                     <View
@@ -754,7 +850,8 @@ export default function PeopleScreen() {
                             styles.attendanceButton,
                             styles.rowActionButton,
                           ]}
-                          onPress={() =>
+                          onPress={(e) => {
+                            e.stopPropagation();
                             router.push({
                               pathname: "/(modals)/mark-attendance",
                               params: {
@@ -762,8 +859,8 @@ export default function PeopleScreen() {
                                 memberId: member.id,
                                 month: selectedMonth || "",
                               },
-                            })
-                          }
+                            });
+                          }}
                         >
                           <Ionicons
                             name="calendar-outline"
@@ -777,14 +874,16 @@ export default function PeopleScreen() {
                         </TouchableOpacity>
                       )}
 
-                      {/* CHANGE PAYMENT STATUS */}
-
+                      {/* CHANGE PAYMENT STATUS - Opens payment modal */}
                       <TouchableOpacity
                         style={[
                           styles.editPaymentButton,
                           isStaff && styles.rowActionButton,
                         ]}
-                        onPress={() => openPaymentModal(member)}
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          openPaymentModal(member);
+                        }}
                       >
                         <Ionicons
                           name="swap-horizontal-outline"
@@ -799,26 +898,34 @@ export default function PeopleScreen() {
                     </View>
                   )}
 
-                  {/* FIXED: Show Payment Details Updated with correct month */}
-                  {(isApartment || isStaff) &&
-                  member.detailsHistory?.some(
-                    (snapshot: any) => snapshot.changeSummary,
-                  ) ? (
+                  {/* Keep original UI for Payment Details Updated */}
+                  {(isApartment || isStaff) && hasMatchingHistory && (
                     <View style={styles.detailsHistory}>
                       {member.detailsHistory
-                        .filter((snapshot: any) => snapshot.changeSummary)
-                        .map((snapshot: any) => (
-                          <Text
-                            key={snapshot.effectiveMonth}
-                            style={styles.detailsHistoryText}
-                          >
-                            Payment Details Updated at{" "}
-                            {formatMonthLong(snapshot.effectiveMonth)}
-                          </Text>
-                        ))}
+                        .filter(
+                          (snapshot: any) =>
+                            snapshot.changeSummary &&
+                            snapshot.effectiveMonth === selectedMonth,
+                        )
+                        .map((snapshot: any) => {
+                          const fullDate =
+                            snapshot.effectiveMonth.length === 7
+                              ? `${snapshot.effectiveMonth}-01`
+                              : snapshot.effectiveMonth;
+
+                          return (
+                            <Text
+                              key={snapshot.effectiveMonth}
+                              style={styles.detailsHistoryText}
+                            >
+                              Payment Details Updated at{" "}
+                              {formatFullDate(fullDate)}
+                            </Text>
+                          );
+                        })}
                     </View>
-                  ) : null}
-                </View>
+                  )}
+                </TouchableOpacity>
               );
             })}
           </View>
@@ -940,12 +1047,7 @@ export default function PeopleScreen() {
                 <Text style={styles.amountText}>₹{paymentAmount || 0}</Text>
               </View>
 
-              {/* 
-                FIXED: ADDITIONAL AMOUNT - Available for BOTH Paid and Due
-                Removed the paymentStatus === "paid" condition
-              */}
-
-              {/* ADDITIONAL AMOUNT */}
+              {/* ADDITIONAL AMOUNT - Available for BOTH Paid and Due */}
               <TouchableOpacity
                 style={styles.additionalButton}
                 onPress={() => {
@@ -1248,6 +1350,23 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: "700",
     color: "#111",
+  },
+
+  monthNavContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+
+  monthNavButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#fff",
+    borderWidth: 1,
+    borderColor: "#dbe7f8",
   },
 
   monthFilter: {
