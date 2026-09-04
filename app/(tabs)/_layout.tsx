@@ -18,6 +18,28 @@ import { useAccounts } from "../../hooks/useAccounts";
 import { useMaintenance } from "../../hooks/useMaintenance";
 import { usePayments } from "../../hooks/usePayments";
 
+const COLORS = {
+  primary: "#2563EB",
+  primaryLight: "#EFF6FF",
+
+  background: "#F8FAFC",
+  white: "#FFFFFF",
+
+  text: "#0F172A",
+  secondary: "#64748B",
+  muted: "#94A3B8",
+
+  border: "#E2E8F0",
+
+  danger: "#DC2626",
+
+  warning: "#D97706",
+  warningLight: "#FFF7ED",
+
+  success: "#16A34A",
+  successLight: "#F0FDF4",
+};
+
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
 
@@ -30,6 +52,12 @@ export default function TabsLayout() {
   const [dismissedNotificationIds, setDismissedNotificationIds] = useState<
     string[]
   >([]);
+
+  /*
+   * =========================================================
+   * NOTIFICATIONS
+   * =========================================================
+   */
 
   const pendingPayments = (getPendingPayments?.() || []).filter(
     (payment) => !dismissedNotificationIds.includes(`payment-${payment.id}`),
@@ -50,27 +78,39 @@ export default function TabsLayout() {
     ]);
   };
 
-  /*
-   * Bottom safe area:
-   *
-   * Android:
-   * Protects the tabs from Back/Home/Recents navigation area.
-   *
-   * iPhone:
-   * Protects the tabs from the Home Indicator area.
-   *
-   * We keep the actual tab content at 60px and only add
-   * the device inset underneath it.
-   */
   const bottomInset = insets.bottom;
 
   return (
     <Tabs
       screenOptions={{
-        headerTitle: () => <AccountSwitcher />,
+        /*
+         * =====================================================
+         * HEADER
+         * =====================================================
+         */
+
+        headerTitle: () => (
+          <View style={styles.accountSwitcherContainer}>
+            <AccountSwitcher />
+          </View>
+        ),
+
         headerTitleAlign: "left",
 
-        tabBarActiveTintColor: "#1a73e8",
+        headerStyle: {
+          backgroundColor: COLORS.white,
+          elevation: 0,
+          borderBottomWidth: 1,
+          borderBottomColor: COLORS.border,
+        },
+
+        headerShadowVisible: false,
+
+        /*
+         * =====================================================
+         * NOTIFICATIONS
+         * =====================================================
+         */
 
         headerRight: () => (
           <View style={styles.notificationMenu}>
@@ -80,7 +120,11 @@ export default function TabsLayout() {
               activeOpacity={0.7}
             >
               <View style={styles.notificationIconWrapper}>
-                <Ionicons name="notifications-outline" size={24} color="#333" />
+                <Ionicons
+                  name="notifications-outline"
+                  size={23}
+                  color={COLORS.text}
+                />
 
                 {notificationCount > 0 && (
                   <View style={styles.notificationBadge}>
@@ -106,21 +150,63 @@ export default function TabsLayout() {
                   style={styles.notificationPopover}
                   onPress={(event) => event.stopPropagation()}
                 >
+                  {/* Notification Header */}
+
+                  <View style={styles.notificationHeader}>
+                    <View style={styles.notificationHeaderTextContainer}>
+                      <Text style={styles.notificationHeaderTitle}>
+                        Notifications
+                      </Text>
+
+                      <Text style={styles.notificationHeaderSubtitle}>
+                        {notificationCount === 0
+                          ? "Everything is up to date"
+                          : `${notificationCount} item${
+                              notificationCount === 1 ? "" : "s"
+                            } need your attention`}
+                      </Text>
+                    </View>
+
+                    <TouchableOpacity
+                      style={styles.closeNotificationButton}
+                      onPress={() => setShowNotifications(false)}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons
+                        name="close"
+                        size={19}
+                        color={COLORS.secondary}
+                      />
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Empty State */}
+
                   {notificationCount === 0 ? (
                     <View style={styles.emptyNotifications}>
-                      <Ionicons
-                        name="checkmark-circle-outline"
-                        size={28}
-                        color="#22a553"
-                      />
+                      <View style={styles.emptyNotificationIcon}>
+                        <Ionicons
+                          name="checkmark-circle"
+                          size={30}
+                          color={COLORS.success}
+                        />
+                      </View>
+
+                      <Text style={styles.emptyNotificationsTitle}>
+                        You're all caught up
+                      </Text>
 
                       <Text style={styles.emptyNotificationsText}>
-                        You're all caught up
+                        There are no pending payments or maintenance tasks.
                       </Text>
                     </View>
                   ) : (
-                    <ScrollView showsVerticalScrollIndicator={false}>
+                    <ScrollView
+                      showsVerticalScrollIndicator={false}
+                      contentContainerStyle={styles.notificationScrollContent}
+                    >
                       {/* Payments */}
+
                       {pendingPayments.map((payment) => (
                         <View
                           key={`payment-${payment.id}`}
@@ -135,7 +221,7 @@ export default function TabsLayout() {
                             <Ionicons
                               name="receipt-outline"
                               size={18}
-                              color="#d97706"
+                              color={COLORS.warning}
                             />
                           </View>
 
@@ -148,10 +234,18 @@ export default function TabsLayout() {
                                 `${payment.category} payment`}
                             </Text>
 
-                            <Text style={styles.notificationDetail}>
-                              Due{" "}
-                              {new Date(payment.dueDate).toLocaleDateString()}
-                            </Text>
+                            <View style={styles.notificationMeta}>
+                              <Ionicons
+                                name="calendar-outline"
+                                size={12}
+                                color={COLORS.secondary}
+                              />
+
+                              <Text style={styles.notificationDetail}>
+                                Due{" "}
+                                {new Date(payment.dueDate).toLocaleDateString()}
+                              </Text>
+                            </View>
                           </View>
 
                           <TouchableOpacity
@@ -159,13 +253,19 @@ export default function TabsLayout() {
                             onPress={() =>
                               dismissNotification(`payment-${payment.id}`)
                             }
+                            activeOpacity={0.7}
                           >
-                            <Ionicons name="close" size={18} color="#777" />
+                            <Ionicons
+                              name="close"
+                              size={17}
+                              color={COLORS.secondary}
+                            />
                           </TouchableOpacity>
                         </View>
                       ))}
 
                       {/* Maintenance Tasks */}
+
                       {pendingTasks.map((task) => (
                         <View
                           key={`task-${task.id}`}
@@ -180,7 +280,7 @@ export default function TabsLayout() {
                             <Ionicons
                               name="construct-outline"
                               size={18}
-                              color="#1a73e8"
+                              color={COLORS.primary}
                             />
                           </View>
 
@@ -192,10 +292,18 @@ export default function TabsLayout() {
                               {task.title}
                             </Text>
 
-                            <Text style={styles.notificationDetail}>
-                              Scheduled{" "}
-                              {new Date(task.date).toLocaleDateString()}
-                            </Text>
+                            <View style={styles.notificationMeta}>
+                              <Ionicons
+                                name="calendar-outline"
+                                size={12}
+                                color={COLORS.secondary}
+                              />
+
+                              <Text style={styles.notificationDetail}>
+                                Scheduled{" "}
+                                {new Date(task.date).toLocaleDateString()}
+                              </Text>
+                            </View>
                           </View>
 
                           <TouchableOpacity
@@ -203,8 +311,13 @@ export default function TabsLayout() {
                             onPress={() =>
                               dismissNotification(`task-${task.id}`)
                             }
+                            activeOpacity={0.7}
                           >
-                            <Ionicons name="close" size={18} color="#777" />
+                            <Ionicons
+                              name="close"
+                              size={17}
+                              color={COLORS.secondary}
+                            />
                           </TouchableOpacity>
                         </View>
                       ))}
@@ -216,134 +329,205 @@ export default function TabsLayout() {
           </View>
         ),
 
-        headerStyle: {
-          backgroundColor: "#fff",
-          elevation: 0,
-          shadowOpacity: 0,
-          borderBottomWidth: 1,
-          borderBottomColor: "#f0f0f0",
-        },
+        /*
+         * =====================================================
+         * TAB COLORS
+         * =====================================================
+         */
+
+        tabBarActiveTintColor: COLORS.primary,
+        tabBarInactiveTintColor: COLORS.muted,
 
         /*
-         * IMPORTANT
-         *
-         * The tab bar has:
-         *
-         * 60px = actual tab buttons
-         * bottomInset = Android/iPhone system area
-         *
-         * This keeps the tab buttons above the system navigation area.
+         * =====================================================
+         * BOTTOM TAB BAR
+         * =====================================================
          */
+
         tabBarStyle: {
-          height: 60 + bottomInset,
+          height: 64 + bottomInset,
 
-          paddingTop: 0,
+          paddingTop: 5,
+          paddingBottom: bottomInset + 5,
 
-          /*
-           * The bottom inset is reserved for the system navigation area.
-           * The tab buttons themselves remain in the 60px area.
-           */
-          paddingBottom: bottomInset,
+          paddingHorizontal: 8,
 
-          backgroundColor: "#fff",
+          backgroundColor: COLORS.white,
 
           borderTopWidth: 1,
-          borderTopColor: "#f0f0f0",
+          borderTopColor: COLORS.border,
 
           ...(Platform.OS === "android"
             ? {
-                elevation: 8,
+                elevation: 0,
               }
             : {}),
         },
 
+        /*
+         * =====================================================
+         * TAB LABEL
+         * =====================================================
+         */
+
         tabBarLabelStyle: {
-          fontSize: 11,
-          fontWeight: "500",
+          fontSize: 10,
+          fontWeight: "600",
+
+          marginTop: 1,
         },
 
         /*
-         * Keeps the icon + label centered inside the 60px
-         * visible tab area instead of spreading them through
-         * the safe-area space.
+         * =====================================================
+         * TAB ITEM
+         *
+         * IMPORTANT:
+         *
+         * No large borderRadius.
+         * No background color.
+         * This prevents the large grey tab area.
+         * =====================================================
          */
+
         tabBarItemStyle: {
-          height: 60,
-          justifyContent: "center",
+          height: 44,
+
+          marginHorizontal: 0,
+
+          padding: 0,
+
+          backgroundColor: "transparent",
+
+          borderRadius: 0,
         },
       }}
     >
-      {/* HOME */}
+      {/* =====================================================
+          HOME
+          ===================================================== */}
+
       <Tabs.Screen
         name="index"
         options={{
           title: "Home",
-          tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons
-              name={focused ? "home" : "home-outline"}
-              color={color}
-              size={size}
-            />
+
+          tabBarIcon: ({ color, focused }) => (
+            <View
+              style={[
+                styles.tabIconContainer,
+                focused && styles.tabIconContainerActive,
+              ]}
+            >
+              <Ionicons
+                name={focused ? "home" : "home-outline"}
+                color={color}
+                size={22}
+              />
+            </View>
           ),
         }}
       />
 
-      {/* CALENDAR */}
+      {/* =====================================================
+          CALENDAR
+          ===================================================== */}
+
       <Tabs.Screen
         name="calendar"
         options={{
           title: "Calendar",
-          tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons
-              name={focused ? "calendar" : "calendar-outline"}
-              color={color}
-              size={size}
-            />
+
+          tabBarIcon: ({ color, focused }) => (
+            <View
+              style={[
+                styles.tabIconContainer,
+                focused && styles.tabIconContainerActive,
+              ]}
+            >
+              <Ionicons
+                name={focused ? "calendar" : "calendar-outline"}
+                color={color}
+                size={22}
+              />
+            </View>
           ),
         }}
       />
 
-      {/* FINANCE */}
+      {/* =====================================================
+          FINANCE
+          ===================================================== */}
+
       <Tabs.Screen
         name="finance"
         options={{
           title: "Finance",
-          tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons
-              name={focused ? "wallet" : "wallet-outline"}
-              color={color}
-              size={size}
-            />
+
+          tabBarIcon: ({ color, focused }) => (
+            <View
+              style={[
+                styles.tabIconContainer,
+                focused && styles.tabIconContainerActive,
+              ]}
+            >
+              <Ionicons
+                name={focused ? "wallet" : "wallet-outline"}
+                color={color}
+                size={22}
+              />
+            </View>
           ),
         }}
       />
 
-      {/* PEOPLE */}
+      {/* =====================================================
+          MANAGEMENT
+          ===================================================== */}
+
       <Tabs.Screen
         name="people"
         options={{
           title: "Management",
-          tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons
-              name={focused ? "briefcase" : "briefcase-outline"}
-              color={color}
-              size={size}
-            />
+
+          tabBarIcon: ({ color, focused }) => (
+            <View
+              style={[
+                styles.tabIconContainer,
+                focused && styles.tabIconContainerActive,
+              ]}
+            >
+              <Ionicons
+                name={focused ? "briefcase" : "briefcase-outline"}
+                color={color}
+                size={22}
+              />
+            </View>
           ),
         }}
       />
 
-      {/* PROFILE */}
+      {/* =====================================================
+          PROFILE
+          ===================================================== */}
+
       <Tabs.Screen
         name="profile"
         options={{
           title: "Profile",
-          tabBarIcon: ({ color, size, focused }) => (
-            <Ionicons
-              name={focused ? "person" : "person-outline"}
-              color={color}
-              size={size}
-            />
+
+          tabBarIcon: ({ color, focused }) => (
+            <View
+              style={[
+                styles.tabIconContainer,
+                focused && styles.tabIconContainerActive,
+              ]}
+            >
+              <Ionicons
+                name={focused ? "person" : "person-outline"}
+                color={color}
+                size={22}
+              />
+            </View>
           ),
         }}
       />
@@ -352,143 +536,297 @@ export default function TabsLayout() {
 }
 
 const styles = StyleSheet.create({
-  notificationButton: {
-    marginRight: 16,
-    padding: 4,
+  /*
+   * =========================================================
+   * HEADER
+   * =========================================================
+   */
+
+  accountSwitcherContainer: {
+    flex: 1,
+
+    maxWidth: 280,
   },
 
   notificationMenu: {
     position: "relative",
-    zIndex: 10,
+
+    zIndex: 100,
+  },
+
+  notificationButton: {
+    marginRight: 12,
+
+    padding: 5,
   },
 
   notificationIconWrapper: {
-    position: "relative",
-    width: 32,
-    height: 32,
-    justifyContent: "center",
+    width: 34,
+    height: 34,
+
     alignItems: "center",
+    justifyContent: "center",
+
+    borderRadius: 17,
   },
 
   notificationBadge: {
     position: "absolute",
+
     top: -2,
-    right: -6,
-
-    backgroundColor: "#F44336",
-
-    borderRadius: 10,
+    right: -5,
 
     minWidth: 18,
     height: 18,
 
-    justifyContent: "center",
-    alignItems: "center",
-
     paddingHorizontal: 4,
 
+    borderRadius: 9,
+
+    backgroundColor: COLORS.danger,
+
+    alignItems: "center",
+    justifyContent: "center",
+
     borderWidth: 2,
-    borderColor: "#fff",
+    borderColor: COLORS.white,
   },
 
   notificationCount: {
-    color: "#fff",
+    color: COLORS.white,
+
     fontSize: 9,
     fontWeight: "700",
   },
 
+  /*
+   * =========================================================
+   * NOTIFICATION POPUP
+   * =========================================================
+   */
+
   notificationBackdrop: {
     flex: 1,
+
+    backgroundColor: "rgba(15, 23, 42, 0.12)",
   },
 
   notificationPopover: {
     position: "absolute",
 
-    top: 52,
-    right: 16,
+    top: Platform.OS === "ios" ? 94 : 60,
 
-    width: 340,
-    maxHeight: 360,
+    right: 12,
 
-    backgroundColor: "#fff",
+    width: 350,
 
-    borderColor: "#e5e7eb",
+    maxWidth: "calc(100% - 24px)" as any,
+
+    maxHeight: 430,
+
+    backgroundColor: COLORS.white,
+
+    borderRadius: 20,
+
     borderWidth: 1,
-    borderRadius: 8,
+    borderColor: COLORS.border,
 
-    elevation: 8,
-
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
-
-    zIndex: 20,
+    overflow: "hidden",
   },
 
-  notificationItem: {
+  notificationHeader: {
     flexDirection: "row",
+
     alignItems: "center",
 
-    padding: 12,
+    justifyContent: "space-between",
+
+    paddingHorizontal: 18,
+    paddingTop: 18,
+    paddingBottom: 14,
 
     borderBottomWidth: 1,
-    borderBottomColor: "#eef0f3",
+    borderBottomColor: COLORS.border,
   },
 
-  notificationItemIcon: {
-    width: 32,
-    height: 32,
+  notificationHeaderTextContainer: {
+    flex: 1,
+  },
 
-    borderRadius: 16,
+  notificationHeaderTitle: {
+    fontSize: 17,
+
+    fontWeight: "700",
+
+    color: COLORS.text,
+  },
+
+  notificationHeaderSubtitle: {
+    fontSize: 12,
+
+    color: COLORS.secondary,
+
+    marginTop: 3,
+  },
+
+  closeNotificationButton: {
+    width: 34,
+    height: 34,
+
+    borderRadius: 17,
+
+    backgroundColor: COLORS.background,
 
     alignItems: "center",
     justifyContent: "center",
 
-    marginRight: 10,
+    marginLeft: 10,
+  },
+
+  notificationScrollContent: {
+    paddingBottom: 4,
+  },
+
+  notificationItem: {
+    flexDirection: "row",
+
+    alignItems: "center",
+
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+
+    borderBottomWidth: 1,
+    borderBottomColor: "#F1F5F9",
+  },
+
+  notificationItemIcon: {
+    width: 40,
+    height: 40,
+
+    borderRadius: 12,
+
+    alignItems: "center",
+    justifyContent: "center",
+
+    marginRight: 12,
   },
 
   paymentIcon: {
-    backgroundColor: "#fff3df",
+    backgroundColor: COLORS.warningLight,
   },
 
   taskIcon: {
-    backgroundColor: "#e8f0fe",
+    backgroundColor: COLORS.primaryLight,
   },
 
   notificationContent: {
     flex: 1,
+
+    minWidth: 0,
   },
 
   notificationTitle: {
-    color: "#222",
+    color: COLORS.text,
+
     fontSize: 13,
+
     fontWeight: "600",
-    textTransform: "capitalize",
+  },
+
+  notificationMeta: {
+    flexDirection: "row",
+
+    alignItems: "center",
+
+    marginTop: 5,
   },
 
   notificationDetail: {
-    color: "#777",
+    color: COLORS.secondary,
+
     fontSize: 11,
-    marginTop: 2,
+
+    marginLeft: 4,
   },
 
   dismissButton: {
-    padding: 5,
+    width: 30,
+    height: 30,
+
+    borderRadius: 15,
+
+    alignItems: "center",
+    justifyContent: "center",
+
+    marginLeft: 6,
   },
+
+  /*
+   * =========================================================
+   * EMPTY NOTIFICATIONS
+   * =========================================================
+   */
 
   emptyNotifications: {
     alignItems: "center",
-    padding: 28,
+
+    paddingHorizontal: 24,
+    paddingVertical: 34,
+  },
+
+  emptyNotificationIcon: {
+    width: 64,
+    height: 64,
+
+    borderRadius: 32,
+
+    backgroundColor: COLORS.successLight,
+
+    alignItems: "center",
+    justifyContent: "center",
+
+    marginBottom: 14,
+  },
+
+  emptyNotificationsTitle: {
+    color: COLORS.text,
+
+    fontSize: 15,
+
+    fontWeight: "700",
   },
 
   emptyNotificationsText: {
-    color: "#555",
-    fontSize: 13,
-    fontWeight: "600",
-    marginTop: 8,
+    color: COLORS.secondary,
+
+    fontSize: 12,
+
+    textAlign: "center",
+
+    lineHeight: 18,
+
+    marginTop: 5,
   },
-});
+
+  /*
+   * =========================================================
+   * TAB ICON
+   * =========================================================
+   */
+
+  tabIconContainer: {
+    width: 38,
+    height: 28,
+
+    borderRadius: 14,
+
+    alignItems: "center",
+    justifyContent: "center",
+
+    backgroundColor: "transparent",
+  },
+
+  tabIconContainerActive: {
+    backgroundColor: COLORS.primaryLight,
+  },
+}) as any;

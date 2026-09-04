@@ -550,6 +550,11 @@ export default function EditMemberScreen() {
   if (!member) {
     return (
       <View style={styles.container}>
+        <Stack.Screen
+          options={{
+            title: groupType === "expense" ? "Edit Expense" : "Edit Member",
+          }}
+        />
         <View style={styles.centerContent}>
           <View style={styles.notFoundIcon}>
             <Ionicons name="person-outline" size={34} color="#2563eb" />
@@ -594,38 +599,6 @@ export default function EditMemberScreen() {
         keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
         showsVerticalScrollIndicator={false}
       >
-        {/* ==================================================
-            TOP HEADER
-        ================================================== */}
-
-        <View style={styles.topHeader}>
-          <View style={styles.headerLeft}>
-            <TouchableOpacity
-              style={styles.headerBackButton}
-              onPress={() => router.back()}
-            >
-              <Ionicons name="arrow-back" size={22} color="#111827" />
-            </TouchableOpacity>
-
-            <View>
-              <Text style={styles.headerTitle}>
-                {groupType === "expense" ? "Edit Expense" : "Edit Member"}
-              </Text>
-
-              <Text style={styles.headerSubtitle}>
-                Update information and save changes
-              </Text>
-            </View>
-          </View>
-
-          <TouchableOpacity
-            style={styles.headerDeleteButton}
-            onPress={handleDelete}
-          >
-            <Ionicons name="trash-outline" size={20} color="#dc2626" />
-          </TouchableOpacity>
-        </View>
-
         {/* ==================================================
             PROFILE CARD
         ================================================== */}
@@ -1848,59 +1821,6 @@ const styles = StyleSheet.create({
   },
 
   // ==================================================
-  // HEADER
-  // ==================================================
-
-  topHeader: {
-    minHeight: 68,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 12,
-  },
-
-  headerLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
-  },
-
-  headerBackButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
-    backgroundColor: "#fff",
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 11,
-    borderWidth: 1,
-    borderColor: "#e8edf5",
-  },
-
-  headerTitle: {
-    fontSize: 21,
-    fontWeight: "800",
-    color: "#111827",
-  },
-
-  headerSubtitle: {
-    fontSize: 12,
-    color: "#6b7280",
-    marginTop: 3,
-  },
-
-  headerDeleteButton: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
-    backgroundColor: "#fff1f2",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#fee2e2",
-  },
-
-  // ==================================================
   // PROFILE
   // ==================================================
 
@@ -2265,6 +2185,7 @@ const styles = StyleSheet.create({
   paymentStatusRow: {
     flexDirection: "row",
     gap: 10,
+    marginTop: 8,
     marginBottom: 14,
   },
 

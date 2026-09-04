@@ -2033,6 +2033,7 @@ const styles = StyleSheet.create({
   paymentStatusRow: {
     flexDirection: "row",
     gap: 10,
+    marginTop: 8,
   },
 
   paymentStatus: {

@@ -4,13 +4,14 @@ import { useEffect, useState } from "react";
 import {
   Image,
   Modal,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
-  TouchableOpacity,
   View,
 } from "react-native";
+
 import DatePickerModal from "../../components/DatePickerModal";
 import MonthYearPickerModal from "../../components/MonthYearPickerModal";
 import { useAccounts } from "../../hooks/useAccounts";
@@ -18,6 +19,44 @@ import { useGroups } from "../../hooks/useGroups";
 import { useAttendanceStore } from "../../store/attendanceStore";
 import { useMemberStore } from "../../store/memberStore";
 import { GroupType } from "../../types";
+
+/* ================================================================
+   COLORS
+================================================================ */
+
+const COLORS = {
+  primary: "#2563EB",
+  primaryDark: "#1D4ED8",
+  primaryLight: "#EFF6FF",
+  primarySoft: "#DBEAFE",
+
+  background: "#F8FAFC",
+  white: "#FFFFFF",
+
+  text: "#0F172A",
+  textSoft: "#334155",
+  secondary: "#64748B",
+  muted: "#94A3B8",
+
+  border: "#E2E8F0",
+  borderLight: "#F1F5F9",
+
+  success: "#16A34A",
+  successLight: "#F0FDF4",
+  successBorder: "#BBF7D0",
+
+  danger: "#DC2626",
+  dangerLight: "#FEF2F2",
+  dangerBorder: "#FECACA",
+
+  purple: "#7C3AED",
+  purpleLight: "#F5F3FF",
+  purpleBorder: "#DDD6FE",
+};
+
+/* ================================================================
+   HELPERS
+================================================================ */
 
 const getTabLabel = (
   type: GroupType,
@@ -49,7 +88,7 @@ const getCountLabel = (
 
   const plural = type === "staff" ? "Staff" : `${singular}s`;
 
-  return `${count} ${count === 1 ? singular : plural} added`;
+  return `${count} ${count === 1 ? singular : plural}`;
 };
 
 const getAddButtonLabel = (
@@ -69,7 +108,7 @@ const getAddButtonLabel = (
 const getTabIcon = (type: GroupType): keyof typeof Ionicons.glyphMap => {
   if (type === "apartment") return "business-outline";
   if (type === "staff") return "people-outline";
-  if (type === "expense") return "cash-outline";
+  if (type === "expense") return "wallet-outline";
 
   return "folder-outline";
 };
@@ -127,11 +166,13 @@ const formatMonthLong = (month: string) =>
 
 const formatFullDate = (dateStr: string) => {
   const parts = dateStr.split("-");
+
   const year = parts[0];
   const monthNum = parts[1];
   const day = parts[2] || "01";
 
   const date = new Date(`${year}-${monthNum}-${day}`);
+
   return date.toLocaleString("default", {
     day: "numeric",
     month: "long",
@@ -165,7 +206,6 @@ const getCalculatedStaffSalary = (
   return Math.round((salary / daysInMonth) * paidDays);
 };
 
-// Helper function to navigate months
 const navigateMonth = (
   currentMonth: string | null,
   direction: "prev" | "next",
@@ -175,6 +215,7 @@ const navigateMonth = (
   }
 
   const [year, month] = currentMonth.split("-").map(Number);
+
   let newMonth = month + (direction === "next" ? 1 : -1);
   let newYear = year;
 
@@ -188,6 +229,10 @@ const navigateMonth = (
 
   return `${newYear}-${String(newMonth).padStart(2, "0")}`;
 };
+
+/* ================================================================
+   SCREEN
+================================================================ */
 
 export default function PeopleScreen() {
   const router = useRouter();
@@ -247,6 +292,10 @@ export default function PeopleScreen() {
     }
   }, [tab]);
 
+  /* ================================================================
+     ADD
+  ================================================================ */
+
   const handleAdd = async (type: GroupType) => {
     const existingGroup = groups.find((group) => group.type === type);
 
@@ -292,20 +341,37 @@ export default function PeopleScreen() {
     });
   };
 
+  /* ================================================================
+     NO PROPERTY
+  ================================================================ */
+
   if (!selectedAccountId) {
     return (
       <View style={styles.container}>
-        <View style={styles.emptyState}>
-          <Ionicons name="business-outline" size={48} color="#ccc" />
+        <View style={styles.noPropertyState}>
+          <View style={styles.noPropertyIcon}>
+            <Ionicons
+              name="business-outline"
+              size={40}
+              color={COLORS.primary}
+            />
+          </View>
 
-          <Text style={styles.emptyStateText}>
-            {groups.length > 0
-              ? "Select a property first"
-              : "Create a property first"}
+          <Text style={styles.noPropertyTitle}>
+            {groups.length > 0 ? "Select a property" : "Create your property"}
           </Text>
 
-          <TouchableOpacity
-            style={styles.createButton}
+          <Text style={styles.noPropertySubtitle}>
+            {groups.length > 0
+              ? "Choose a property before managing your members, staff or expenses."
+              : "Create a property first to start managing your apartment or home."}
+          </Text>
+
+          <Pressable
+            style={({ pressed }) => [
+              styles.createButton,
+              pressed && styles.pressedButton,
+            ]}
             onPress={() =>
               router.push(
                 groups.length > 0
@@ -314,14 +380,24 @@ export default function PeopleScreen() {
               )
             }
           >
+            <Ionicons
+              name={groups.length > 0 ? "swap-horizontal" : "add"}
+              size={18}
+              color={COLORS.white}
+            />
+
             <Text style={styles.createButtonText}>
               {groups.length > 0 ? "Select Property" : "Create Property"}
             </Text>
-          </TouchableOpacity>
+          </Pressable>
         </View>
       </View>
     );
   }
+
+  /* ================================================================
+     DATA
+  ================================================================ */
 
   const activeGroups = groups.filter((group) => group.type === activeTab);
 
@@ -347,6 +423,10 @@ export default function PeopleScreen() {
   const isApartment = activeTab === "apartment";
   const isStaff = activeTab === "staff";
   const isExpense = activeTab === "expense";
+
+  /* ================================================================
+     PAYMENT
+  ================================================================ */
 
   const paymentAmount = paymentMember
     ? isApartment
@@ -474,6 +554,7 @@ export default function PeopleScreen() {
 
     setPaymentStatus("paid");
     setShowChangeStatusModal(false);
+    setRefreshKey((previous) => previous + 1);
   };
 
   const markPaymentAsDue = () => {
@@ -484,13 +565,17 @@ export default function PeopleScreen() {
     updateMember(paymentMember.id, {
       paymentStatus: "due",
       paidDate: undefined,
+
       additionalAmount: showAdditionalAmount
         ? Number(additionalAmount) || 0
         : 0,
+
       additionalNote: showAdditionalAmount
         ? additionalNote.trim() || undefined
         : undefined,
+
       deductionAmount: showDeduction ? Number(deductionAmount) || 0 : 0,
+
       deductionNote: showDeduction
         ? deductionNote.trim() || undefined
         : undefined,
@@ -500,13 +585,17 @@ export default function PeopleScreen() {
 
         [month]: {
           status: "due",
+
           additionalAmount: showAdditionalAmount
             ? Number(additionalAmount) || 0
             : 0,
+
           additionalNote: showAdditionalAmount
             ? additionalNote.trim() || undefined
             : undefined,
+
           deductionAmount: showDeduction ? Number(deductionAmount) || 0 : 0,
+
           deductionNote: showDeduction
             ? deductionNote.trim() || undefined
             : undefined,
@@ -516,9 +605,13 @@ export default function PeopleScreen() {
 
     setPaymentStatus("due");
     setShowChangeStatusModal(false);
+    setRefreshKey((previous) => previous + 1);
   };
 
-  // Handle month navigation
+  /* ================================================================
+     MONTH
+  ================================================================ */
+
   const handlePrevMonth = () => {
     setSelectedMonth(navigateMonth(selectedMonth, "prev"));
   };
@@ -527,142 +620,217 @@ export default function PeopleScreen() {
     setSelectedMonth(navigateMonth(selectedMonth, "next"));
   };
 
-  // Force refresh when coming back from attendance
-  const refreshData = () => {
-    setRefreshKey((prev) => prev + 1);
-  };
+  /* ================================================================
+     RENDER
+  ================================================================ */
 
   return (
     <View style={styles.container}>
-      {/* HEADER */}
+      {/* ==========================================================
+          HEADER
+      ========================================================== */}
 
       <View style={styles.header}>
-        <Text style={styles.title}>Groups</Text>
+        <View style={styles.headerTitleArea}>
+          <Text style={styles.title}>Management</Text>
 
-        {/* Month Navigation with Slider */}
-        <View style={styles.monthNavContainer}>
-          <TouchableOpacity
-            style={styles.monthNavButton}
+          <Text style={styles.headerSubtitle} numberOfLines={1}>
+            {selectedAccount?.name || "Your property"}
+          </Text>
+        </View>
+
+        <View style={styles.monthNavigation}>
+          <Pressable
+            style={({ pressed }) => [
+              styles.monthArrow,
+              pressed && styles.pressedButton,
+            ]}
             onPress={handlePrevMonth}
-            activeOpacity={0.7}
           >
-            <Ionicons name="chevron-back" size={20} color="#1a73e8" />
-          </TouchableOpacity>
+            <Ionicons name="chevron-back" size={17} color={COLORS.primary} />
+          </Pressable>
 
-          <TouchableOpacity
-            style={styles.monthFilter}
+          <Pressable
+            style={({ pressed }) => [
+              styles.monthSelector,
+              pressed && styles.pressedButton,
+            ]}
             onPress={() => setShowMonthPicker(true)}
           >
-            <Ionicons name="calendar-outline" size={16} color="#1a73e8" />
+            <Ionicons
+              name="calendar-outline"
+              size={15}
+              color={COLORS.primary}
+            />
 
-            <Text style={styles.monthFilterText}>
-              {selectedMonth
-                ? new Date(`${selectedMonth}-01T00:00:00`).toLocaleString(
-                    "default",
-                    {
-                      month: "short",
-                      year: "numeric",
-                    },
-                  )
-                : "All months"}
+            <Text style={styles.monthText}>
+              {selectedMonth ? formatMonth(selectedMonth) : "All months"}
             </Text>
-          </TouchableOpacity>
+          </Pressable>
 
-          <TouchableOpacity
-            style={styles.monthNavButton}
+          <Pressable
+            style={({ pressed }) => [
+              styles.monthArrow,
+              pressed && styles.pressedButton,
+            ]}
             onPress={handleNextMonth}
-            activeOpacity={0.7}
           >
-            <Ionicons name="chevron-forward" size={20} color="#1a73e8" />
-          </TouchableOpacity>
+            <Ionicons name="chevron-forward" size={17} color={COLORS.primary} />
+          </Pressable>
         </View>
       </View>
 
-      {/* TABS */}
+      {/* ==========================================================
+          TABS
+      ========================================================== */}
 
-      <View style={styles.tabBar}>
+      <View style={styles.tabsContainer}>
         {tabTypes.map((type) => {
           const isActive = activeTab === type;
 
           return (
-            <TouchableOpacity
+            <Pressable
               key={type}
-              style={[styles.tab, isActive && styles.tabActive]}
+              style={({ pressed }) => [
+                styles.tab,
+                isActive && styles.tabActive,
+                pressed && styles.tabPressed,
+              ]}
               onPress={() => setActiveTab(type)}
             >
               <Ionicons
                 name={getTabIcon(type)}
                 size={16}
-                color={isActive ? "#1a73e8" : "#888"}
+                color={isActive ? COLORS.primary : COLORS.secondary}
               />
 
-              <Text style={[styles.tabText, isActive && styles.tabTextActive]}>
+              <Text
+                style={[styles.tabText, isActive && styles.tabTextActive]}
+                numberOfLines={1}
+              >
                 {getTabLabel(type, selectedAccount?.type)}
               </Text>
-            </TouchableOpacity>
+            </Pressable>
           );
         })}
       </View>
 
-      {/* MEMBER LIST */}
+      {/* ==========================================================
+          CONTENT
+      ========================================================== */}
 
-      <ScrollView contentContainerStyle={styles.listContent}>
-        <View style={styles.actionRow}>
-          <Text style={styles.countLabel}>
-            {getCountLabel(
-              activeTab,
-              activeMembers.length,
-              selectedAccount?.type,
-            )}
-          </Text>
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.listContent}
+      >
+        {/* LIST HEADER */}
 
-          <TouchableOpacity
-            style={styles.addButtonSmall}
+        <View style={styles.listHeader}>
+          <View style={styles.countArea}>
+            <Text style={styles.countTitle}>
+              {getCountLabel(
+                activeTab,
+                activeMembers.length,
+                selectedAccount?.type,
+              )}
+            </Text>
+
+            <Text style={styles.countSubtitle}>
+              {isExpense
+                ? "Property expenses"
+                : isStaff
+                  ? "Staff and salary"
+                  : selectedAccount?.type === "home"
+                    ? "Your tenants"
+                    : "Apartment members"}
+            </Text>
+          </View>
+
+          {/* ======================================================
+              ONE ADD BUTTON — ALWAYS VISIBLE
+          ====================================================== */}
+
+          <Pressable
+            style={({ pressed }) => [
+              styles.addButton,
+              pressed && styles.addButtonPressed,
+            ]}
             onPress={() => handleAdd(activeTab)}
           >
-            <Ionicons name="add" size={16} color="#fff" />
+            <Ionicons name="add" size={18} color={COLORS.white} />
 
-            <Text style={styles.addButtonSmallText}>
+            <Text style={styles.addButtonText}>
               {getAddButtonLabel(activeTab, selectedAccount?.type)}
             </Text>
-          </TouchableOpacity>
+          </Pressable>
         </View>
 
-        {activeMembers.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Ionicons name={getTabIcon(activeTab)} size={40} color="#ccc" />
+        {/* ========================================================
+            EMPTY
+        ======================================================== */}
 
-            <Text style={styles.emptyStateText}>
+        {activeMembers.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <View
+              style={[
+                styles.emptyIcon,
+                isStaff && styles.emptyIconStaff,
+                isExpense && styles.emptyIconExpense,
+              ]}
+            >
+              <Ionicons
+                name={getTabIcon(activeTab)}
+                size={31}
+                color={
+                  isStaff
+                    ? COLORS.purple
+                    : isExpense
+                      ? COLORS.success
+                      : COLORS.primary
+                }
+              />
+            </View>
+
+            <Text style={styles.emptyTitle}>
               No {getTabLabel(activeTab, selectedAccount?.type).toLowerCase()}{" "}
-              added yet
+              yet
+            </Text>
+
+            <Text style={styles.emptySubtitle}>
+              {isExpense
+                ? "Add your first expense to start tracking property spending."
+                : isStaff
+                  ? "Add staff members to manage attendance and salary."
+                  : selectedAccount?.type === "home"
+                    ? "Add tenants to start managing your property."
+                    : "Add apartment members to manage maintenance and payments."}
             </Text>
           </View>
         ) : (
-          <View style={styles.membersList}>
+          /* ========================================================
+             MEMBER LIST
+          ======================================================== */
+
+          <View>
             {activeMembers.map((member: any) => {
               const month =
                 selectedMonth || new Date().toISOString().slice(0, 7);
+
               const record = getAttendanceRecord(member.id, month);
+
               const monthlyPayment = member.monthlyPayments?.[month];
 
-              // FIXED: Get base payment amount with priority:
-              // 1. monthlyPayment.payableSalary (from attendance save)
-              // 2. record.payableSalary (from attendance store)
-              // 3. Calculated from statuses
               const basePaymentAmount = isApartment
                 ? member.maintenanceAmount || 0
                 : (() => {
-                    // First check if there's a monthly payment with a payableSalary
                     if (monthlyPayment?.payableSalary) {
                       return monthlyPayment.payableSalary;
                     }
 
-                    // Then check attendance record
                     if (record?.payableSalary) {
                       return record.payableSalary;
                     }
 
-                    // Otherwise calculate based on statuses
                     return getCalculatedStaffSalary(
                       member.monthlySalary || 0,
                       month,
@@ -682,7 +850,6 @@ export default function PeopleScreen() {
                     (monthlyPaymentData.deductionAmount || 0)
                   : basePaymentAmount;
 
-              // Check if the details history matches the selected month
               const hasMatchingHistory = member.detailsHistory?.some(
                 (snapshot: any) =>
                   snapshot.changeSummary &&
@@ -690,11 +857,12 @@ export default function PeopleScreen() {
               );
 
               return (
-                // Full card is clickable -> Navigate to edit-member page
-                <TouchableOpacity
+                <Pressable
                   key={`${member.id}-${refreshKey}`}
-                  style={styles.memberPaymentCard}
-                  activeOpacity={0.7}
+                  style={({ pressed }) => [
+                    styles.memberCard,
+                    pressed && styles.memberCardPressed,
+                  ]}
                   onPress={() =>
                     router.push({
                       pathname: "/(modals)/edit-member",
@@ -706,15 +874,22 @@ export default function PeopleScreen() {
                     })
                   }
                 >
-                  <View style={styles.memberItem}>
+                  {/* TOP */}
+
+                  <View style={styles.memberTop}>
                     <View
                       style={[
-                        styles.memberIcon,
-                        isExpense && styles.memberIconExpense,
+                        styles.memberAvatar,
+                        isStaff && styles.memberAvatarStaff,
+                        isExpense && styles.memberAvatarExpense,
                       ]}
                     >
                       {isExpense ? (
-                        <Ionicons name="cash-outline" size={18} color="#fff" />
+                        <Ionicons
+                          name="wallet-outline"
+                          size={19}
+                          color={COLORS.white}
+                        />
                       ) : member.photoUri ? (
                         <Image
                           source={{
@@ -724,13 +899,13 @@ export default function PeopleScreen() {
                         />
                       ) : (
                         <Text style={styles.memberInitial}>
-                          {member.name?.charAt(0)?.toUpperCase() ?? "?"}
+                          {member.name?.charAt(0)?.toUpperCase() || "?"}
                         </Text>
                       )}
                     </View>
 
                     <View style={styles.memberInfo}>
-                      <View style={styles.memberTitleRow}>
+                      <View style={styles.memberNameRow}>
                         <Text style={styles.memberName} numberOfLines={1}>
                           {isExpense
                             ? member.category || member.name
@@ -745,112 +920,137 @@ export default function PeopleScreen() {
                             </Text>
                           </View>
                         )}
-
-                        {(isApartment || isStaff) &&
-                          (monthlyPaymentData.status === "paid" ? (
-                            <View
-                              style={[
-                                styles.statusBadge,
-                                styles.statusPaid,
-                                styles.inlineStatusBadge,
-                              ]}
-                            >
-                              <Text
-                                style={[
-                                  styles.statusBadgeText,
-                                  styles.statusPaidText,
-                                ]}
-                              >
-                                Paid ₹{statusPaymentAmount}
-                              </Text>
-                            </View>
-                          ) : (
-                            <View
-                              style={[
-                                styles.statusBadge,
-                                styles.statusDue,
-                                styles.inlineStatusBadge,
-                              ]}
-                            >
-                              <Text
-                                style={[
-                                  styles.statusBadgeText,
-                                  styles.statusDueText,
-                                ]}
-                              >
-                                Due ₹{statusPaymentAmount}
-                              </Text>
-                            </View>
-                          ))}
                       </View>
 
                       {isApartment && (
                         <Text style={styles.memberSubtitle} numberOfLines={1}>
-                          {member.wing ? `${member.wing} - ` : ""}
-                          {member.flatNumber ? `Flat ${member.flatNumber}` : ""}
-                          {member.maintenanceAmount
-                            ? `  •  ₹${member.maintenanceAmount}/mo`
-                            : ""}
+                          {member.wing ? `${member.wing} • ` : ""}
+                          {member.flatNumber
+                            ? `Flat ${member.flatNumber}`
+                            : "Apartment member"}
                         </Text>
                       )}
 
                       {isStaff && (
                         <Text style={styles.memberSubtitle} numberOfLines={1}>
-                          {member.phone || ""}
-                          {member.monthlySalary
-                            ? `  •  ₹${member.monthlySalary}/mo`
-                            : ""}
+                          {member.phone || "Staff member"}
                         </Text>
                       )}
 
                       {isExpense && (
                         <Text style={styles.memberSubtitle} numberOfLines={1}>
-                          {member.amount ? `₹${member.amount}` : ""}
-                          {member.dueDate ? `  •  Due ${member.dueDate}` : ""}
+                          {member.dueDate
+                            ? `Due ${formatFullDate(member.dueDate)}`
+                            : "Property expense"}
                         </Text>
                       )}
                     </View>
 
+                    <Ionicons
+                      name="chevron-forward"
+                      size={17}
+                      color={COLORS.muted}
+                    />
+                  </View>
+
+                  {/* DETAILS */}
+
+                  <View style={styles.memberDetails}>
+                    <View style={styles.detailItem}>
+                      <Ionicons
+                        name="cash-outline"
+                        size={14}
+                        color={COLORS.secondary}
+                      />
+
+                      <Text style={styles.detailText}>
+                        {isApartment &&
+                          `₹${member.maintenanceAmount || 0} /month`}
+
+                        {isStaff && `₹${member.monthlySalary || 0} /month`}
+
+                        {isExpense && `₹${member.amount || 0}`}
+                      </Text>
+                    </View>
+
+                    {(isApartment || isStaff) && (
+                      <View
+                        style={[
+                          styles.paymentBadge,
+                          monthlyPaymentData.status === "paid"
+                            ? styles.paymentBadgePaid
+                            : styles.paymentBadgeDue,
+                        ]}
+                      >
+                        <View
+                          style={[
+                            styles.paymentDot,
+                            monthlyPaymentData.status === "paid"
+                              ? styles.paymentDotPaid
+                              : styles.paymentDotDue,
+                          ]}
+                        />
+
+                        <Text
+                          style={[
+                            styles.paymentBadgeText,
+                            monthlyPaymentData.status === "paid"
+                              ? styles.paymentTextPaid
+                              : styles.paymentTextDue,
+                          ]}
+                        >
+                          {monthlyPaymentData.status === "paid"
+                            ? `Paid ₹${statusPaymentAmount}`
+                            : `Due ₹${statusPaymentAmount}`}
+                        </Text>
+                      </View>
+                    )}
+
                     {isExpense && member.status && (
                       <View
                         style={[
-                          styles.statusBadge,
+                          styles.paymentBadge,
                           member.status === "paid"
-                            ? styles.statusPaid
-                            : styles.statusDue,
+                            ? styles.paymentBadgePaid
+                            : styles.paymentBadgeDue,
                         ]}
                       >
+                        <View
+                          style={[
+                            styles.paymentDot,
+                            member.status === "paid"
+                              ? styles.paymentDotPaid
+                              : styles.paymentDotDue,
+                          ]}
+                        />
+
                         <Text
                           style={[
-                            styles.statusBadgeText,
+                            styles.paymentBadgeText,
                             member.status === "paid"
-                              ? styles.statusPaidText
-                              : styles.statusDueText,
+                              ? styles.paymentTextPaid
+                              : styles.paymentTextDue,
                           ]}
                         >
                           {member.status === "paid" ? "Paid" : "Due"}
                         </Text>
                       </View>
                     )}
-
-                    <Ionicons name="chevron-forward" size={18} color="#ccc" />
                   </View>
 
+                  {/* ACTIONS */}
+
                   {(isApartment || isStaff) && (
-                    <View
-                      style={[
-                        styles.paymentActions,
-                        isStaff && styles.staffActions,
-                      ]}
-                    >
+                    <View style={styles.actionButtons}>
                       {isStaff && (
-                        <TouchableOpacity
-                          style={[
-                            styles.attendanceButton,
-                            styles.rowActionButton,
+                        <Pressable
+                          style={({ pressed }) => [
+                            styles.secondaryAction,
+                            pressed && styles.actionPressed,
                           ]}
-                          onPress={(e) => {
-                            e.stopPropagation();
+                          onPress={(event) => {
+                            event.stopPropagation();
+
                             router.push({
                               pathname: "/(modals)/mark-attendance",
                               params: {
@@ -863,75 +1063,63 @@ export default function PeopleScreen() {
                         >
                           <Ionicons
                             name="calendar-outline"
-                            size={14}
-                            color="#1a73e8"
+                            size={15}
+                            color={COLORS.primary}
                           />
 
-                          <Text style={styles.attendanceButtonText}>
+                          <Text style={styles.secondaryActionText}>
                             Attendance
                           </Text>
-                        </TouchableOpacity>
+                        </Pressable>
                       )}
 
-                      {/* CHANGE PAYMENT STATUS - Opens payment modal */}
-                      <TouchableOpacity
-                        style={[
-                          styles.editPaymentButton,
-                          isStaff && styles.rowActionButton,
+                      <Pressable
+                        style={({ pressed }) => [
+                          styles.paymentAction,
+                          pressed && styles.actionPressed,
                         ]}
-                        onPress={(e) => {
-                          e.stopPropagation();
+                        onPress={(event) => {
+                          event.stopPropagation();
                           openPaymentModal(member);
                         }}
                       >
                         <Ionicons
                           name="swap-horizontal-outline"
-                          size={14}
-                          color="#1a73e8"
+                          size={15}
+                          color={COLORS.primary}
                         />
 
-                        <Text style={styles.editPaymentButtonText}>
-                          Change Payment Status
-                        </Text>
-                      </TouchableOpacity>
+                        <Text style={styles.paymentActionText}>Payment</Text>
+                      </Pressable>
                     </View>
                   )}
 
-                  {/* Keep original UI for Payment Details Updated */}
+                  {/* HISTORY */}
+
                   {(isApartment || isStaff) && hasMatchingHistory && (
-                    <View style={styles.detailsHistory}>
-                      {member.detailsHistory
-                        .filter(
-                          (snapshot: any) =>
-                            snapshot.changeSummary &&
-                            snapshot.effectiveMonth === selectedMonth,
-                        )
-                        .map((snapshot: any) => {
-                          const fullDate =
-                            snapshot.effectiveMonth.length === 7
-                              ? `${snapshot.effectiveMonth}-01`
-                              : snapshot.effectiveMonth;
+                    <View style={styles.historyNotice}>
+                      <Ionicons
+                        name="information-circle-outline"
+                        size={14}
+                        color={COLORS.secondary}
+                      />
 
-                          return (
-                            <Text
-                              key={snapshot.effectiveMonth}
-                              style={styles.detailsHistoryText}
-                            >
-                              Payment Details Updated at{" "}
-                              {formatFullDate(fullDate)}
-                            </Text>
-                          );
-                        })}
+                      <Text style={styles.historyText}>
+                        Payment details updated on{" "}
+                        {formatFullDate(`${selectedMonth}-01`)}
+                      </Text>
                     </View>
                   )}
-                </TouchableOpacity>
+                </Pressable>
               );
             })}
           </View>
         )}
       </ScrollView>
 
-      {/* MONTH PICKER */}
+      {/* ==========================================================
+          MONTH PICKER
+      ========================================================== */}
 
       <MonthYearPickerModal
         visible={showMonthPicker}
@@ -940,7 +1128,9 @@ export default function PeopleScreen() {
         onSelect={setSelectedMonth}
       />
 
-      {/* PAYMENT MODAL */}
+      {/* ==========================================================
+          PAYMENT MODAL
+      ========================================================== */}
 
       <Modal
         transparent
@@ -956,7 +1146,15 @@ export default function PeopleScreen() {
             {/* HEADER */}
 
             <View style={styles.paymentModalHeader}>
-              <View style={{ flex: 1 }}>
+              <View style={styles.paymentHeaderIcon}>
+                <Ionicons
+                  name={isApartment ? "home-outline" : "wallet-outline"}
+                  size={20}
+                  color={COLORS.primary}
+                />
+              </View>
+
+              <View style={styles.paymentHeaderInfo}>
                 <Text style={styles.paymentTitle}>Payment Details</Text>
 
                 <Text style={styles.paymentMemberName} numberOfLines={1}>
@@ -964,91 +1162,130 @@ export default function PeopleScreen() {
                 </Text>
               </View>
 
-              <TouchableOpacity
+              <Pressable
                 style={styles.closeModalButton}
-                onPress={() => setPaymentMember(null)}
+                onPress={() => {
+                  setShowChangeStatusModal(false);
+                  setPaymentMember(null);
+                }}
               >
-                <Ionicons name="close" size={21} color="#666" />
-              </TouchableOpacity>
+                <Ionicons name="close" size={20} color={COLORS.text} />
+              </Pressable>
             </View>
 
-            {/* SCROLLABLE CONTENT */}
+            {/* CONTENT */}
 
             <ScrollView
               style={styles.paymentScroll}
               contentContainerStyle={styles.paymentScrollContent}
-              showsVerticalScrollIndicator
+              showsVerticalScrollIndicator={false}
               keyboardShouldPersistTaps="handled"
             >
-              <View style={styles.paymentForRow}>
-                <Text style={styles.paymentForLabel}>Payment for</Text>
+              {/* PAYMENT MONTH */}
 
-                <Text style={styles.paymentForMonth}>
-                  {formatMonth(selectedMonth || paidDate.slice(0, 7))}
-                </Text>
-              </View>
+              <View style={styles.paymentMonthRow}>
+                <View>
+                  <Text style={styles.paymentMonthLabel}>PAYMENT FOR</Text>
 
-              {/* PAYMENT STATUS */}
-
-              <Text style={styles.paymentLabel}>Payment Status</Text>
-
-              <TouchableOpacity
-                style={styles.changeStatusButton}
-                onPress={() => setShowChangeStatusModal(true)}
-                activeOpacity={0.75}
-              >
-                <View style={styles.changeStatusLeft}>
-                  <View
-                    style={[
-                      styles.changeStatusIcon,
-                      paymentStatus === "paid"
-                        ? styles.changeStatusIconPaid
-                        : styles.changeStatusIconDue,
-                    ]}
-                  >
-                    <Ionicons
-                      name={
-                        paymentStatus === "paid" ? "checkmark-circle" : "time"
-                      }
-                      size={19}
-                      color={paymentStatus === "paid" ? "#16803a" : "#dc2626"}
-                    />
-                  </View>
-
-                  <View>
-                    <Text style={styles.changeStatusTitle}>
-                      Change Payment Status
-                    </Text>
-
-                    <Text
-                      style={[
-                        styles.changeStatusCurrent,
-                        paymentStatus === "paid"
-                          ? styles.statusPaidText
-                          : styles.statusDueText,
-                      ]}
-                    >
-                      Currently {paymentStatus === "paid" ? "Paid" : "Due"}
-                    </Text>
-                  </View>
+                  <Text style={styles.paymentMonthText}>
+                    {formatMonthLong(selectedMonth || paidDate.slice(0, 7))}
+                  </Text>
                 </View>
 
-                <Ionicons name="chevron-forward" size={19} color="#999" />
-              </TouchableOpacity>
+                <View
+                  style={[
+                    styles.statusSmallBadge,
+                    paymentStatus === "paid"
+                      ? styles.statusSmallBadgePaid
+                      : styles.statusSmallBadgeDue,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.statusSmallText,
+                      paymentStatus === "paid"
+                        ? styles.statusSmallTextPaid
+                        : styles.statusSmallTextDue,
+                    ]}
+                  >
+                    {paymentStatus === "paid" ? "PAID" : "DUE"}
+                  </Text>
+                </View>
+              </View>
 
-              {/* AMOUNT */}
+              {/* STATUS */}
 
-              <Text style={styles.paymentLabel}>
+              <Text style={styles.sectionLabel}>Payment Status</Text>
+
+              <Pressable
+                style={({ pressed }) => [
+                  styles.statusSelector,
+                  pressed && styles.statusSelectorPressed,
+                ]}
+                onPress={() => setShowChangeStatusModal(true)}
+              >
+                <View
+                  style={[
+                    styles.statusSelectorIcon,
+                    paymentStatus === "paid"
+                      ? styles.statusSelectorIconPaid
+                      : styles.statusSelectorIconDue,
+                  ]}
+                >
+                  <Ionicons
+                    name={
+                      paymentStatus === "paid" ? "checkmark" : "time-outline"
+                    }
+                    size={18}
+                    color={
+                      paymentStatus === "paid" ? COLORS.success : COLORS.danger
+                    }
+                  />
+                </View>
+
+                <View style={styles.statusSelectorInfo}>
+                  <Text style={styles.statusSelectorTitle}>
+                    {paymentStatus === "paid"
+                      ? "Payment received"
+                      : "Payment pending"}
+                  </Text>
+
+                  <Text style={styles.statusSelectorSubtitle}>
+                    Tap to change status
+                  </Text>
+                </View>
+
+                <Ionicons
+                  name="chevron-forward"
+                  size={18}
+                  color={COLORS.muted}
+                />
+              </Pressable>
+
+              {/* BASE AMOUNT */}
+
+              <Text style={styles.sectionLabel}>
                 {isApartment ? "Maintenance Amount" : "Salary Amount"}
               </Text>
 
-              <View style={styles.amountDisplay}>
-                <Text style={styles.amountText}>₹{paymentAmount || 0}</Text>
+              <View style={styles.amountCard}>
+                <View style={styles.amountLeft}>
+                  <Ionicons
+                    name="cash-outline"
+                    size={19}
+                    color={COLORS.primary}
+                  />
+
+                  <Text style={styles.amountLabel}>Base amount</Text>
+                </View>
+
+                <Text style={styles.amountValue}>₹{paymentAmount || 0}</Text>
               </View>
 
-              {/* ADDITIONAL AMOUNT - Available for BOTH Paid and Due */}
-              <TouchableOpacity
-                style={styles.additionalButton}
+              {/* ADDITIONAL */}
+
+              <Pressable
+                style={styles.modifierButton}
                 onPress={() => {
                   setShowAdditionalAmount(!showAdditionalAmount);
 
@@ -1057,35 +1294,48 @@ export default function PeopleScreen() {
                     setAdditionalNote("");
                   }
                 }}
-                activeOpacity={0.7}
               >
-                <Ionicons
-                  name={
+                <View
+                  style={[
+                    styles.modifierIcon,
                     showAdditionalAmount
-                      ? "remove-circle-outline"
-                      : "add-circle-outline"
-                  }
-                  size={18}
-                  color={showAdditionalAmount ? "#dc2626" : "#1a73e8"}
-                />
+                      ? styles.modifierIconRemove
+                      : styles.modifierIconAdd,
+                  ]}
+                >
+                  <Ionicons
+                    name={showAdditionalAmount ? "remove" : "add"}
+                    size={16}
+                    color={
+                      showAdditionalAmount ? COLORS.danger : COLORS.primary
+                    }
+                  />
+                </View>
 
                 <Text
                   style={[
-                    styles.additionalButtonText,
-                    showAdditionalAmount && styles.removeAdditionalButtonText,
+                    styles.modifierText,
+                    showAdditionalAmount && styles.modifierTextRemove,
                   ]}
                 >
                   {showAdditionalAmount
                     ? "Remove additional amount"
                     : "Add additional amount"}
                 </Text>
-              </TouchableOpacity>
+
+                <Ionicons
+                  name={showAdditionalAmount ? "chevron-up" : "chevron-down"}
+                  size={16}
+                  color={COLORS.muted}
+                />
+              </Pressable>
 
               {showAdditionalAmount && (
-                <>
+                <View style={styles.inputGroup}>
                   <TextInput
                     style={styles.modalInput}
                     placeholder="Additional amount"
+                    placeholderTextColor={COLORS.muted}
                     keyboardType="numeric"
                     value={additionalAmount}
                     onChangeText={(value) =>
@@ -1096,15 +1346,17 @@ export default function PeopleScreen() {
                   <TextInput
                     style={styles.modalInput}
                     placeholder="Note, e.g. bonus or event work"
+                    placeholderTextColor={COLORS.muted}
                     value={additionalNote}
                     onChangeText={setAdditionalNote}
                   />
-                </>
+                </View>
               )}
 
-              {/* DEDUCTION - Available for BOTH Paid and Due */}
-              <TouchableOpacity
-                style={styles.additionalButton}
+              {/* DEDUCTION */}
+
+              <Pressable
+                style={styles.modifierButton}
                 onPress={() => {
                   setShowDeduction(!showDeduction);
 
@@ -1113,29 +1365,44 @@ export default function PeopleScreen() {
                     setDeductionNote("");
                   }
                 }}
-                activeOpacity={0.7}
               >
-                <Ionicons
-                  name="remove-circle-outline"
-                  size={18}
-                  color={showDeduction ? "#dc2626" : "#1a73e8"}
-                />
+                <View
+                  style={[
+                    styles.modifierIcon,
+                    showDeduction
+                      ? styles.modifierIconRemove
+                      : styles.modifierIconAdd,
+                  ]}
+                >
+                  <Ionicons
+                    name="remove"
+                    size={16}
+                    color={showDeduction ? COLORS.danger : COLORS.primary}
+                  />
+                </View>
 
                 <Text
                   style={[
-                    styles.additionalButtonText,
-                    showDeduction && styles.removeAdditionalButtonText,
+                    styles.modifierText,
+                    showDeduction && styles.modifierTextRemove,
                   ]}
                 >
                   {showDeduction ? "Remove deduction" : "Less deduction"}
                 </Text>
-              </TouchableOpacity>
+
+                <Ionicons
+                  name={showDeduction ? "chevron-up" : "chevron-down"}
+                  size={16}
+                  color={COLORS.muted}
+                />
+              </Pressable>
 
               {showDeduction && (
-                <>
+                <View style={styles.inputGroup}>
                   <TextInput
                     style={styles.modalInput}
                     placeholder="Deduction amount"
+                    placeholderTextColor={COLORS.muted}
                     keyboardType="numeric"
                     value={deductionAmount}
                     onChangeText={(value) =>
@@ -1146,67 +1413,90 @@ export default function PeopleScreen() {
                   <TextInput
                     style={styles.modalInput}
                     placeholder="Note, e.g. advance or absence"
+                    placeholderTextColor={COLORS.muted}
                     value={deductionNote}
                     onChangeText={setDeductionNote}
                   />
-                </>
+                </View>
               )}
 
-              {/* NET PAID - Available for BOTH Paid and Due */}
-              <View style={styles.netPaidRow}>
-                <Text style={styles.netPaidLabel}>
-                  {paymentStatus === "paid" ? "Net Paid" : "Amount to Pay"}
-                </Text>
+              {/* NET */}
 
-                <Text style={styles.amountText}>₹{netPaidAmount}</Text>
+              <View style={styles.netAmountCard}>
+                <View>
+                  <Text style={styles.netAmountLabel}>
+                    {paymentStatus === "paid" ? "NET PAID" : "AMOUNT TO PAY"}
+                  </Text>
+
+                  <Text style={styles.netAmountHint}>
+                    Base + additions − deductions
+                  </Text>
+                </View>
+
+                <Text style={styles.netAmountValue}>₹{netPaidAmount}</Text>
               </View>
 
-              {/* PAID DATE - Only shows when status is Paid */}
+              {/* PAID DATE */}
+
               {paymentStatus === "paid" && (
                 <>
-                  <Text style={styles.paymentLabel}>Paid Date</Text>
+                  <Text style={styles.sectionLabel}>Paid Date</Text>
 
-                  <TouchableOpacity
+                  <Pressable
                     style={styles.dateSelector}
                     onPress={() => setShowPaidDatePicker(true)}
-                    activeOpacity={0.7}
                   >
-                    <Text style={styles.dateSelectorText}>{paidDate}</Text>
+                    <View style={styles.dateIcon}>
+                      <Ionicons
+                        name="calendar-outline"
+                        size={17}
+                        color={COLORS.primary}
+                      />
+                    </View>
+
+                    <Text style={styles.dateText}>
+                      {formatFullDate(paidDate)}
+                    </Text>
 
                     <Ionicons
-                      name="calendar-outline"
-                      size={19}
-                      color="#1a73e8"
+                      name="chevron-forward"
+                      size={17}
+                      color={COLORS.muted}
                     />
-                  </TouchableOpacity>
+                  </Pressable>
                 </>
               )}
 
-              <View style={styles.paymentScrollBottom} />
+              <View style={styles.paymentBottomSpace} />
             </ScrollView>
 
-            {/* FIXED ACTIONS */}
+            {/* FOOTER */}
 
             <View style={styles.modalActions}>
-              <TouchableOpacity
-                style={styles.cancelPaymentButton}
-                onPress={() => setPaymentMember(null)}
-                activeOpacity={0.7}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.cancelButton,
+                  pressed && styles.cancelButtonPressed,
+                ]}
+                onPress={() => {
+                  setShowChangeStatusModal(false);
+                  setPaymentMember(null);
+                }}
               >
-                <Text style={styles.cancelPaymentText}>Cancel</Text>
-              </TouchableOpacity>
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </Pressable>
 
-              <TouchableOpacity
-                style={[
-                  styles.confirmPaymentButton,
-                  paymentStatus === "due" && styles.confirmDueButton,
+              <Pressable
+                style={({ pressed }) => [
+                  styles.saveButton,
+                  paymentStatus === "due" && styles.saveDueButton,
+                  pressed && styles.saveButtonPressed,
                 ]}
                 onPress={
                   paymentStatus === "paid"
                     ? markPaymentAsPaid
                     : markPaymentAsDue
                 }
-                activeOpacity={0.8}
               >
                 <Ionicons
                   name={
@@ -1215,110 +1505,141 @@ export default function PeopleScreen() {
                       : "time-outline"
                   }
                   size={18}
-                  color="#fff"
+                  color={COLORS.white}
                 />
 
-                <Text style={styles.confirmPaymentText}>
+                <Text style={styles.saveButtonText}>
                   {paymentStatus === "paid" ? "Save as Paid" : "Save as Due"}
                 </Text>
-              </TouchableOpacity>
+              </Pressable>
             </View>
           </View>
         </View>
-
-        {/* CHANGE PAYMENT STATUS MODAL */}
-
-        <Modal
-          transparent
-          animationType="fade"
-          visible={showChangeStatusModal}
-          onRequestClose={() => setShowChangeStatusModal(false)}
-        >
-          <View style={styles.statusModalOverlay}>
-            <View style={styles.statusModal}>
-              <View style={styles.statusModalHeader}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.statusModalTitle}>
-                    Change Payment Status
-                  </Text>
-
-                  <Text style={styles.statusModalSubtitle}>
-                    Select the new payment status
-                  </Text>
-                </View>
-
-                <TouchableOpacity
-                  style={styles.closeModalButton}
-                  onPress={() => setShowChangeStatusModal(false)}
-                >
-                  <Ionicons name="close" size={21} color="#666" />
-                </TouchableOpacity>
-              </View>
-
-              {/* MARK AS PAID */}
-
-              <TouchableOpacity
-                style={[styles.statusActionButton, styles.statusActionPaid]}
-                onPress={markPaymentAsPaid}
-                activeOpacity={0.75}
-              >
-                <View
-                  style={[styles.statusActionIcon, styles.statusActionIconPaid]}
-                >
-                  <Ionicons name="checkmark-circle" size={23} color="#16803a" />
-                </View>
-
-                <View style={styles.statusActionInfo}>
-                  <Text style={styles.statusActionTitle}>Mark as Paid</Text>
-
-                  <Text style={styles.statusActionSubtitle}>
-                    Payment has been received
-                  </Text>
-                </View>
-
-                {paymentStatus === "paid" && (
-                  <Ionicons name="checkmark" size={21} color="#16803a" />
-                )}
-              </TouchableOpacity>
-
-              {/* MARK AS DUE */}
-
-              <TouchableOpacity
-                style={[styles.statusActionButton, styles.statusActionDue]}
-                onPress={markPaymentAsDue}
-                activeOpacity={0.75}
-              >
-                <View
-                  style={[styles.statusActionIcon, styles.statusActionIconDue]}
-                >
-                  <Ionicons name="time" size={23} color="#dc2626" />
-                </View>
-
-                <View style={styles.statusActionInfo}>
-                  <Text style={styles.statusActionTitle}>Mark as Due</Text>
-
-                  <Text style={styles.statusActionSubtitle}>
-                    Payment is still pending
-                  </Text>
-                </View>
-
-                {paymentStatus === "due" && (
-                  <Ionicons name="checkmark" size={21} color="#dc2626" />
-                )}
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.statusCancelButton}
-                onPress={() => setShowChangeStatusModal(false)}
-              >
-                <Text style={styles.statusCancelText}>Cancel</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </Modal>
       </Modal>
 
-      {/* DATE PICKER */}
+      {/* ==========================================================
+          CHANGE STATUS MODAL
+      ========================================================== */}
+
+      <Modal
+        transparent
+        animationType="fade"
+        visible={showChangeStatusModal}
+        onRequestClose={() => setShowChangeStatusModal(false)}
+      >
+        <View style={styles.statusModalOverlay}>
+          <View style={styles.statusModal}>
+            <View style={styles.statusModalHeader}>
+              <View style={styles.statusModalIcon}>
+                <Ionicons
+                  name="swap-vertical"
+                  size={20}
+                  color={COLORS.primary}
+                />
+              </View>
+
+              <View style={styles.statusModalHeaderInfo}>
+                <Text style={styles.statusModalTitle}>Payment Status</Text>
+
+                <Text style={styles.statusModalSubtitle}>
+                  Choose the current status
+                </Text>
+              </View>
+
+              <Pressable
+                style={styles.closeModalButton}
+                onPress={() => setShowChangeStatusModal(false)}
+              >
+                <Ionicons name="close" size={20} color={COLORS.text} />
+              </Pressable>
+            </View>
+
+            {/* PAID */}
+
+            <Pressable
+              style={({ pressed }) => [
+                styles.statusOption,
+                styles.statusOptionPaid,
+                paymentStatus === "paid" && styles.statusOptionSelectedPaid,
+                pressed && styles.statusOptionPressed,
+              ]}
+              onPress={markPaymentAsPaid}
+            >
+              <View
+                style={[styles.statusOptionIcon, styles.statusOptionIconPaid]}
+              >
+                <Ionicons
+                  name="checkmark-circle"
+                  size={23}
+                  color={COLORS.success}
+                />
+              </View>
+
+              <View style={styles.statusOptionInfo}>
+                <Text style={styles.statusOptionTitle}>Mark as Paid</Text>
+
+                <Text style={styles.statusOptionSubtitle}>
+                  Payment has been received
+                </Text>
+              </View>
+
+              {paymentStatus === "paid" && (
+                <View style={styles.statusSelectedCheck}>
+                  <Ionicons name="checkmark" size={15} color={COLORS.white} />
+                </View>
+              )}
+            </Pressable>
+
+            {/* DUE */}
+
+            <Pressable
+              style={({ pressed }) => [
+                styles.statusOption,
+                styles.statusOptionDue,
+                paymentStatus === "due" && styles.statusOptionSelectedDue,
+                pressed && styles.statusOptionPressed,
+              ]}
+              onPress={markPaymentAsDue}
+            >
+              <View
+                style={[styles.statusOptionIcon, styles.statusOptionIconDue]}
+              >
+                <Ionicons name="time" size={23} color={COLORS.danger} />
+              </View>
+
+              <View style={styles.statusOptionInfo}>
+                <Text style={styles.statusOptionTitle}>Mark as Due</Text>
+
+                <Text style={styles.statusOptionSubtitle}>
+                  Payment is still pending
+                </Text>
+              </View>
+
+              {paymentStatus === "due" && (
+                <View
+                  style={[
+                    styles.statusSelectedCheck,
+                    styles.statusSelectedCheckDue,
+                  ]}
+                >
+                  <Ionicons name="checkmark" size={15} color={COLORS.white} />
+                </View>
+              )}
+            </Pressable>
+
+            <Pressable
+              style={styles.statusCancelButton}
+              onPress={() => setShowChangeStatusModal(false)}
+            >
+              <Text style={styles.statusCancelText}>Cancel</Text>
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ==========================================================
+          DATE PICKER
+      ========================================================== */}
 
       <DatePickerModal
         visible={showPaidDatePicker}
@@ -1330,377 +1651,585 @@ export default function PeopleScreen() {
   );
 }
 
+/* ==================================================================
+   STYLES
+================================================================== */
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f7f8fa",
+    backgroundColor: COLORS.background,
   },
+
+  pressedButton: {
+    opacity: 0.7,
+  },
+
+  /* HEADER */
 
   header: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 8,
+    paddingTop: 14,
+    paddingBottom: 12,
+    backgroundColor: COLORS.white,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.borderLight,
+  },
+
+  headerTitleArea: {
+    flex: 1,
+    minWidth: 0,
+    marginRight: 10,
   },
 
   title: {
-    fontSize: 22,
+    fontSize: 21,
+    lineHeight: 27,
     fontWeight: "700",
-    color: "#111",
+    color: COLORS.text,
   },
 
-  monthNavContainer: {
+  headerSubtitle: {
+    marginTop: 2,
+    fontSize: 11,
+    lineHeight: 16,
+    color: COLORS.secondary,
+  },
+
+  monthNavigation: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
   },
 
-  monthNavButton: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+  monthArrow: {
+    width: 32,
+    height: 38,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: "#dbe7f8",
+    borderRadius: 10,
+    backgroundColor: COLORS.primaryLight,
   },
 
-  monthFilter: {
+  monthSelector: {
+    height: 38,
+    minWidth: 105,
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    borderRadius: 8,
-    backgroundColor: "#fff",
-    borderWidth: 1,
-    borderColor: "#dbe7f8",
+    justifyContent: "center",
+    paddingHorizontal: 9,
+    marginHorizontal: 4,
+    borderRadius: 10,
+    backgroundColor: COLORS.primaryLight,
   },
 
-  monthFilterText: {
-    color: "#1a73e8",
-    fontSize: 13,
-    fontWeight: "600",
+  monthText: {
+    marginLeft: 6,
+    fontSize: 12,
+    fontWeight: "700",
+    color: COLORS.primaryDark,
   },
 
-  tabBar: {
+  /* TABS */
+
+  tabsContainer: {
     flexDirection: "row",
-    backgroundColor: "#fff",
     marginHorizontal: 16,
-    borderRadius: 12,
-    padding: 4,
-    gap: 4,
+    marginTop: 12,
+    padding: 3,
+    borderRadius: 13,
+    backgroundColor: COLORS.white,
     borderWidth: 1,
-    borderColor: "#e7ebf3",
+    borderColor: COLORS.border,
   },
 
   tab: {
     flex: 1,
+    height: 44,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
-    paddingVertical: 10,
-    paddingHorizontal: 4,
-    borderRadius: 9,
+    borderRadius: 10,
   },
 
   tabActive: {
-    backgroundColor: "#eaf3ff",
+    backgroundColor: COLORS.primaryLight,
+  },
+
+  tabPressed: {
+    opacity: 0.7,
   },
 
   tabText: {
-    fontSize: 13,
+    marginLeft: 6,
+    fontSize: 12,
     fontWeight: "600",
-    color: "#888",
+    color: COLORS.secondary,
   },
 
   tabTextActive: {
-    color: "#1a73e8",
+    color: COLORS.primary,
+    fontWeight: "700",
   },
+
+  /* LIST */
 
   listContent: {
-    padding: 16,
-    paddingBottom: 40,
+    paddingHorizontal: 16,
+    paddingTop: 17,
+    paddingBottom: 35,
   },
 
-  actionRow: {
+  listHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 16,
+    marginBottom: 13,
   },
 
-  countLabel: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#666",
+  countArea: {
+    flex: 1,
+    minWidth: 0,
+    marginRight: 10,
   },
 
-  addButtonSmall: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#1a73e8",
-    borderRadius: 20,
-    paddingVertical: 8,
-    paddingHorizontal: 14,
-    gap: 6,
-  },
-
-  addButtonSmallText: {
-    color: "#fff",
-    fontSize: 13,
-    fontWeight: "700",
-  },
-
-  membersList: {
-    backgroundColor: "#fff",
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: "#e7ebf3",
-    padding: 8,
-  },
-
-  memberPaymentCard: {
-    marginBottom: 6,
-    borderRadius: 10,
-    overflow: "hidden",
-    backgroundColor: "#f9fafb",
-  },
-
-  memberItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 12,
-    paddingHorizontal: 8,
-    marginVertical: 2,
-    borderRadius: 10,
-    backgroundColor: "#f9fafb",
-  },
-
-  memberIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#1a73e8",
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 12,
-  },
-
-  memberIconExpense: {
-    backgroundColor: "#16a34a",
-  },
-
-  memberInitial: {
+  countTitle: {
     fontSize: 16,
+    lineHeight: 21,
     fontWeight: "700",
-    color: "#fff",
+    color: COLORS.text,
+  },
+
+  countSubtitle: {
+    marginTop: 2,
+    fontSize: 11,
+    lineHeight: 15,
+    color: COLORS.secondary,
+  },
+
+  /* THIS IS THE ONLY ADD BUTTON */
+
+  addButton: {
+    height: 40,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 13,
+    borderRadius: 11,
+    backgroundColor: COLORS.primary,
+  },
+
+  addButtonPressed: {
+    opacity: 0.8,
+  },
+
+  addButtonText: {
+    marginLeft: 5,
+    fontSize: 12,
+    fontWeight: "700",
+    color: COLORS.white,
+  },
+
+  /* EMPTY */
+
+  emptyCard: {
+    alignItems: "center",
+    paddingHorizontal: 24,
+    paddingVertical: 40,
+    borderRadius: 16,
+    backgroundColor: COLORS.white,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+
+  emptyIcon: {
+    width: 66,
+    height: 66,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 15,
+    borderRadius: 20,
+    backgroundColor: COLORS.primaryLight,
+  },
+
+  emptyIconStaff: {
+    backgroundColor: COLORS.purpleLight,
+  },
+
+  emptyIconExpense: {
+    backgroundColor: COLORS.successLight,
+  },
+
+  emptyTitle: {
+    fontSize: 17,
+    lineHeight: 23,
+    fontWeight: "700",
+    color: COLORS.text,
+    textAlign: "center",
+  },
+
+  emptySubtitle: {
+    maxWidth: 300,
+    marginTop: 7,
+    fontSize: 12,
+    lineHeight: 18,
+    color: COLORS.secondary,
+    textAlign: "center",
+  },
+
+  /* MEMBER CARD */
+
+  memberCard: {
+    padding: 13,
+    marginBottom: 10,
+    borderRadius: 16,
+    backgroundColor: COLORS.white,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+
+  memberCardPressed: {
+    opacity: 0.76,
+  },
+
+  memberTop: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  memberAvatar: {
+    width: 45,
+    height: 45,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
+    overflow: "hidden",
+    borderRadius: 14,
+    backgroundColor: COLORS.primary,
+  },
+
+  memberAvatarStaff: {
+    backgroundColor: COLORS.purple,
+  },
+
+  memberAvatarExpense: {
+    backgroundColor: COLORS.success,
   },
 
   memberPhoto: {
     width: "100%",
     height: "100%",
-    borderRadius: 20,
+  },
+
+  memberInitial: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: COLORS.white,
   },
 
   memberInfo: {
     flex: 1,
+    minWidth: 0,
   },
 
-  memberTitleRow: {
+  memberNameRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    marginBottom: 2,
+    minWidth: 0,
   },
 
   memberName: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#111",
     flexShrink: 1,
-  },
-
-  memberSubtitle: {
-    fontSize: 12,
-    color: "#888",
+    fontSize: 14,
+    lineHeight: 19,
+    fontWeight: "700",
+    color: COLORS.text,
   },
 
   roleBadge: {
-    backgroundColor: "#eef2ff",
-    borderRadius: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
+    marginLeft: 7,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 6,
+    backgroundColor: COLORS.purpleLight,
   },
 
   roleBadgeText: {
-    fontSize: 10,
+    fontSize: 9,
+    lineHeight: 12,
     fontWeight: "700",
-    color: "#4f46e5",
+    color: COLORS.purple,
   },
 
-  statusBadge: {
-    borderRadius: 8,
+  memberSubtitle: {
+    marginTop: 3,
+    fontSize: 11,
+    lineHeight: 16,
+    color: COLORS.secondary,
+  },
+
+  /* DETAILS */
+
+  memberDetails: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    minHeight: 35,
+    marginTop: 10,
+    paddingTop: 9,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.borderLight,
+  },
+
+  detailItem: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  detailText: {
+    marginLeft: 5,
+    fontSize: 11,
+    fontWeight: "600",
+    color: COLORS.secondary,
+  },
+
+  paymentBadge: {
+    flexDirection: "row",
+    alignItems: "center",
     paddingHorizontal: 8,
-    paddingVertical: 4,
-    marginRight: 8,
+    paddingVertical: 5,
+    borderRadius: 8,
   },
 
-  statusPaid: {
-    backgroundColor: "#dcfce7",
+  paymentBadgePaid: {
+    backgroundColor: COLORS.successLight,
   },
 
-  statusDue: {
-    backgroundColor: "#fee2e2",
+  paymentBadgeDue: {
+    backgroundColor: COLORS.dangerLight,
   },
 
-  statusBadgeText: {
+  paymentDot: {
+    width: 5,
+    height: 5,
+    marginRight: 5,
+    borderRadius: 3,
+  },
+
+  paymentDotPaid: {
+    backgroundColor: COLORS.success,
+  },
+
+  paymentDotDue: {
+    backgroundColor: COLORS.danger,
+  },
+
+  paymentBadgeText: {
     fontSize: 10,
     fontWeight: "700",
   },
 
-  statusPaidText: {
-    color: "#16a34a",
+  paymentTextPaid: {
+    color: COLORS.success,
   },
 
-  statusDueText: {
-    color: "#dc2626",
+  paymentTextDue: {
+    color: COLORS.danger,
   },
 
-  inlineStatusBadge: {
-    marginRight: 0,
-  },
+  /* ACTIONS */
 
-  editPaymentButton: {
-    alignItems: "center",
-    backgroundColor: "#eff6ff",
-    borderColor: "#93c5fd",
-    borderRadius: 8,
-    borderWidth: 1,
+  actionButtons: {
     flexDirection: "row",
-    gap: 7,
+    alignItems: "center",
+    marginTop: 9,
+  },
+
+  secondaryAction: {
+    minHeight: 32,
+    flexDirection: "row",
+    alignItems: "center",
     justifyContent: "center",
-    alignSelf: "flex-start",
-    marginLeft: 60,
-    marginTop: -6,
-    marginBottom: 10,
-    paddingHorizontal: 7,
-    paddingVertical: 4,
-  },
-
-  editPaymentButtonText: {
-    color: "#1a73e8",
-    fontSize: 10,
-    fontWeight: "700",
-  },
-
-  paymentActions: {
-    alignSelf: "flex-start",
-  },
-
-  staffActions: {
-    flexDirection: "row",
-    gap: 8,
-    marginBottom: 10,
-    marginLeft: 60,
-    marginTop: -6,
-  },
-
-  rowActionButton: {
-    marginBottom: 0,
-    marginLeft: 0,
-    marginTop: 0,
-  },
-
-  attendanceButton: {
-    alignSelf: "flex-start",
-    alignItems: "center",
-    borderColor: "#9ec5fe",
-    borderRadius: 8,
+    paddingHorizontal: 10,
+    marginRight: 7,
+    borderRadius: 9,
+    backgroundColor: COLORS.primaryLight,
     borderWidth: 1,
-    flexDirection: "row",
-    gap: 6,
-    marginBottom: 8,
-    marginLeft: 60,
-    marginTop: -6,
-    paddingHorizontal: 7,
-    paddingVertical: 4,
+    borderColor: COLORS.primarySoft,
   },
 
-  attendanceButtonText: {
-    color: "#1a73e8",
+  paymentAction: {
+    minHeight: 32,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 10,
+    borderRadius: 9,
+    backgroundColor: COLORS.white,
+    borderWidth: 1,
+    borderColor: COLORS.primarySoft,
+  },
+
+  actionPressed: {
+    opacity: 0.65,
+  },
+
+  secondaryActionText: {
+    marginLeft: 5,
     fontSize: 10,
     fontWeight: "700",
+    color: COLORS.primary,
   },
 
-  detailsHistory: {
-    marginLeft: 50,
-    marginTop: 4,
-    marginBottom: 8,
+  paymentActionText: {
+    marginLeft: 5,
+    fontSize: 10,
+    fontWeight: "700",
+    color: COLORS.primary,
   },
 
-  detailsHistoryText: {
-    color: "#666",
-    fontSize: 12,
+  /* HISTORY */
+
+  historyNotice: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 9,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.borderLight,
+  },
+
+  historyText: {
+    flex: 1,
+    marginLeft: 5,
+    fontSize: 10,
+    lineHeight: 15,
     fontStyle: "italic",
+    color: COLORS.secondary,
   },
 
-  /* =========================
-     PAYMENT MODAL
-     ========================= */
+  /* NO PROPERTY */
+
+  noPropertyState: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 30,
+  },
+
+  noPropertyIcon: {
+    width: 82,
+    height: 82,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 18,
+    borderRadius: 25,
+    backgroundColor: COLORS.primaryLight,
+  },
+
+  noPropertyTitle: {
+    fontSize: 20,
+    lineHeight: 26,
+    fontWeight: "700",
+    color: COLORS.text,
+    textAlign: "center",
+  },
+
+  noPropertySubtitle: {
+    maxWidth: 310,
+    marginTop: 8,
+    fontSize: 12,
+    lineHeight: 19,
+    color: COLORS.secondary,
+    textAlign: "center",
+  },
+
+  createButton: {
+    height: 47,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 20,
+    marginTop: 21,
+    borderRadius: 12,
+    backgroundColor: COLORS.primary,
+  },
+
+  createButtonText: {
+    marginLeft: 7,
+    fontSize: 13,
+    fontWeight: "700",
+    color: COLORS.white,
+  },
+
+  /* PAYMENT MODAL */
 
   modalOverlay: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 16,
-    paddingVertical: 32,
-    backgroundColor: "rgba(0, 0, 0, 0.4)",
+    paddingHorizontal: 14,
+    paddingVertical: 22,
+    backgroundColor: "rgba(15, 23, 42, 0.52)",
   },
 
   paymentModal: {
     width: "100%",
-    maxWidth: 380,
-    maxHeight: "88%",
-    backgroundColor: "#fff",
-    borderRadius: 16,
+    maxWidth: 410,
+    maxHeight: "91%",
     overflow: "hidden",
+    borderRadius: 21,
+    backgroundColor: COLORS.white,
   },
 
   paymentModalHeader: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: 20,
-    paddingTop: 18,
-    paddingBottom: 12,
+    paddingHorizontal: 17,
+    paddingVertical: 14,
     borderBottomWidth: 1,
-    borderBottomColor: "#eeeeee",
+    borderBottomColor: COLORS.borderLight,
+  },
+
+  paymentHeaderIcon: {
+    width: 41,
+    height: 41,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
+    borderRadius: 12,
+    backgroundColor: COLORS.primaryLight,
+  },
+
+  paymentHeaderInfo: {
+    flex: 1,
+    minWidth: 0,
   },
 
   paymentTitle: {
-    color: "#111",
-    fontSize: 19,
+    fontSize: 17,
+    lineHeight: 22,
     fontWeight: "700",
+    color: COLORS.text,
   },
 
   paymentMemberName: {
-    color: "#666",
-    fontSize: 13,
-    marginTop: 3,
+    marginTop: 2,
+    fontSize: 11,
+    lineHeight: 16,
+    color: COLORS.secondary,
   },
 
   closeModalButton: {
     width: 34,
     height: 34,
-    borderRadius: 17,
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#f4f5f7",
+    borderRadius: 10,
+    backgroundColor: COLORS.background,
   },
 
   paymentScroll: {
@@ -1708,344 +2237,480 @@ const styles = StyleSheet.create({
   },
 
   paymentScrollContent: {
-    paddingHorizontal: 20,
-    paddingTop: 4,
+    paddingHorizontal: 17,
+    paddingTop: 14,
   },
 
-  paymentScrollBottom: {
-    height: 20,
-  },
+  /* PAYMENT MONTH */
 
-  paymentForRow: {
-    alignItems: "center",
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: 12,
-  },
-
-  paymentForLabel: {
-    color: "#555",
-    fontSize: 13,
-    fontWeight: "600",
-  },
-
-  paymentForMonth: {
-    color: "#1a73e8",
-    fontSize: 13,
-    fontWeight: "700",
-  },
-
-  paymentLabel: {
-    color: "#555",
-    fontSize: 13,
-    fontWeight: "600",
-    marginTop: 18,
-    marginBottom: 7,
-  },
-
-  amountDisplay: {
-    paddingHorizontal: 14,
-    paddingVertical: 13,
-    borderRadius: 8,
-    backgroundColor: "#f4f8fe",
-  },
-
-  amountText: {
-    color: "#111",
-    fontSize: 17,
-    fontWeight: "700",
-  },
-
-  /* CHANGE STATUS BUTTON */
-
-  changeStatusButton: {
-    minHeight: 60,
+  paymentMonthRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingHorizontal: 12,
-    borderWidth: 1,
-    borderColor: "#dbe3ee",
-    borderRadius: 10,
-    backgroundColor: "#fff",
+    paddingVertical: 11,
+    borderRadius: 12,
+    backgroundColor: COLORS.primaryLight,
   },
 
-  changeStatusLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
+  paymentMonthLabel: {
+    fontSize: 8,
+    lineHeight: 11,
+    fontWeight: "700",
+    letterSpacing: 0.7,
+    color: COLORS.muted,
   },
 
-  changeStatusIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 19,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 10,
+  paymentMonthText: {
+    marginTop: 2,
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "700",
+    color: COLORS.text,
   },
 
-  changeStatusIconPaid: {
-    backgroundColor: "#dcfce7",
+  statusSmallBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 7,
   },
 
-  changeStatusIconDue: {
-    backgroundColor: "#fee2e2",
+  statusSmallBadgePaid: {
+    backgroundColor: COLORS.successLight,
   },
 
-  changeStatusTitle: {
-    color: "#222",
-    fontSize: 14,
+  statusSmallBadgeDue: {
+    backgroundColor: COLORS.dangerLight,
+  },
+
+  statusSmallText: {
+    fontSize: 9,
     fontWeight: "700",
   },
 
-  changeStatusCurrent: {
-    fontSize: 12,
-    fontWeight: "600",
-    marginTop: 3,
+  statusSmallTextPaid: {
+    color: COLORS.success,
   },
 
-  /* ADDITIONAL / DEDUCTION */
+  statusSmallTextDue: {
+    color: COLORS.danger,
+  },
 
-  additionalButton: {
+  /* PAYMENT STATUS */
+
+  sectionLabel: {
+    marginTop: 16,
+    marginBottom: 7,
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: "700",
+    color: COLORS.textSoft,
+  },
+
+  statusSelector: {
+    minHeight: 61,
     flexDirection: "row",
     alignItems: "center",
-    gap: 7,
-    alignSelf: "flex-start",
-    marginTop: 16,
-    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.white,
   },
 
-  additionalButtonText: {
-    color: "#1a73e8",
-    fontSize: 14,
+  statusSelectorPressed: {
+    opacity: 0.7,
+    backgroundColor: COLORS.background,
+  },
+
+  statusSelectorIcon: {
+    width: 39,
+    height: 39,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 9,
+    borderRadius: 11,
+  },
+
+  statusSelectorIconPaid: {
+    backgroundColor: COLORS.successLight,
+  },
+
+  statusSelectorIconDue: {
+    backgroundColor: COLORS.dangerLight,
+  },
+
+  statusSelectorInfo: {
+    flex: 1,
+  },
+
+  statusSelectorTitle: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "700",
+    color: COLORS.text,
+  },
+
+  statusSelectorSubtitle: {
+    marginTop: 2,
+    fontSize: 10,
+    lineHeight: 15,
+    color: COLORS.secondary,
+  },
+
+  /* AMOUNT */
+
+  amountCard: {
+    minHeight: 59,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 11,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.background,
+  },
+
+  amountLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  amountLabel: {
+    marginLeft: 8,
+    fontSize: 11,
+    color: COLORS.secondary,
+  },
+
+  amountValue: {
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: "700",
+    color: COLORS.text,
+  },
+
+  /* MODIFIERS */
+
+  modifierButton: {
+    minHeight: 42,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  modifierIcon: {
+    width: 27,
+    height: 27,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 8,
+    borderRadius: 8,
+  },
+
+  modifierIconAdd: {
+    backgroundColor: COLORS.primaryLight,
+  },
+
+  modifierIconRemove: {
+    backgroundColor: COLORS.dangerLight,
+  },
+
+  modifierText: {
+    flex: 1,
+    fontSize: 12,
     fontWeight: "600",
+    color: COLORS.primary,
   },
 
-  removeAdditionalButtonText: {
-    color: "#dc2626",
+  modifierTextRemove: {
+    color: COLORS.danger,
+  },
+
+  inputGroup: {
+    marginTop: 1,
   },
 
   modalInput: {
-    height: 48,
+    minHeight: 45,
+    paddingHorizontal: 11,
+    marginBottom: 8,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: "#dde3ea",
-    borderRadius: 8,
-    paddingHorizontal: 13,
-    fontSize: 14,
-    marginTop: 10,
-    backgroundColor: "#fff",
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.white,
+    fontSize: 13,
+    color: COLORS.text,
   },
 
   /* NET */
 
-  netPaidRow: {
-    alignItems: "center",
+  netAmountCard: {
+    minHeight: 69,
     flexDirection: "row",
+    alignItems: "center",
     justifyContent: "space-between",
-    marginTop: 18,
+    paddingHorizontal: 13,
+    paddingVertical: 9,
+    marginTop: 10,
+    borderRadius: 13,
+    backgroundColor: COLORS.text,
   },
 
-  netPaidLabel: {
-    color: "#555",
-    fontSize: 13,
-    fontWeight: "600",
+  netAmountLabel: {
+    fontSize: 9,
+    lineHeight: 13,
+    fontWeight: "700",
+    letterSpacing: 0.7,
+    color: "#CBD5E1",
   },
 
-  /* DATE */
+  netAmountHint: {
+    marginTop: 2,
+    fontSize: 9,
+    lineHeight: 14,
+    color: "#94A3B8",
+  },
+
+  netAmountValue: {
+    fontSize: 20,
+    lineHeight: 26,
+    fontWeight: "700",
+    color: COLORS.white,
+  },
+
+  /* PAID DATE */
 
   dateSelector: {
-    height: 48,
+    minHeight: 49,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    paddingHorizontal: 10,
+    borderRadius: 11,
     borderWidth: 1,
-    borderColor: "#dde3ea",
-    borderRadius: 8,
-    paddingHorizontal: 13,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.white,
   },
 
-  dateSelectorText: {
-    color: "#333",
-    fontSize: 14,
+  dateIcon: {
+    width: 32,
+    height: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 9,
+    borderRadius: 9,
+    backgroundColor: COLORS.primaryLight,
   },
 
-  /* FIXED BOTTOM */
+  dateText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "600",
+    color: COLORS.text,
+  },
+
+  paymentBottomSpace: {
+    height: 17,
+  },
+
+  /* PAYMENT FOOTER */
 
   modalActions: {
     flexDirection: "row",
-    justifyContent: "flex-end",
     alignItems: "center",
-    gap: 10,
-    paddingHorizontal: 20,
-    paddingTop: 12,
-    paddingBottom: 16,
+    justifyContent: "flex-end",
+    paddingHorizontal: 17,
+    paddingVertical: 12,
     borderTopWidth: 1,
-    borderTopColor: "#eeeeee",
-    backgroundColor: "#fff",
+    borderTopColor: COLORS.borderLight,
+    backgroundColor: COLORS.white,
   },
 
-  cancelPaymentButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-  },
-
-  cancelPaymentText: {
-    color: "#555",
-    fontWeight: "600",
-  },
-
-  confirmPaymentButton: {
+  cancelButton: {
     minHeight: 42,
-    paddingHorizontal: 15,
-    borderRadius: 8,
-    backgroundColor: "#16803a",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 13,
+    marginRight: 7,
+    borderRadius: 10,
+  },
+
+  cancelButtonPressed: {
+    backgroundColor: COLORS.background,
+  },
+
+  cancelButtonText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: COLORS.secondary,
+  },
+
+  saveButton: {
+    minHeight: 42,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 7,
+    paddingHorizontal: 14,
+    borderRadius: 10,
+    backgroundColor: COLORS.success,
   },
 
-  confirmDueButton: {
-    backgroundColor: "#dc2626",
+  saveDueButton: {
+    backgroundColor: COLORS.danger,
   },
 
-  confirmPaymentText: {
-    color: "#fff",
+  saveButtonPressed: {
+    opacity: 0.8,
+  },
+
+  saveButtonText: {
+    marginLeft: 6,
+    fontSize: 12,
     fontWeight: "700",
-    fontSize: 13,
+    color: COLORS.white,
   },
 
-  /* =========================
-     CHANGE STATUS MODAL
-     ========================= */
+  /* STATUS MODAL */
 
   statusModalOverlay: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 20,
-    paddingVertical: 32,
-    backgroundColor: "rgba(0, 0, 0, 0.45)",
+    backgroundColor: "rgba(15, 23, 42, 0.5)",
   },
 
   statusModal: {
     width: "100%",
-    maxWidth: 360,
-    backgroundColor: "#fff",
-    borderRadius: 16,
-    padding: 20,
+    maxWidth: 380,
+    padding: 17,
+    borderRadius: 20,
+    backgroundColor: COLORS.white,
   },
 
   statusModalHeader: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 18,
+    marginBottom: 15,
   },
 
-  statusModalTitle: {
-    color: "#111",
-    fontSize: 18,
-    fontWeight: "700",
-  },
-
-  statusModalSubtitle: {
-    color: "#777",
-    fontSize: 12,
-    marginTop: 4,
-  },
-
-  statusActionButton: {
-    minHeight: 70,
-    borderRadius: 11,
-    borderWidth: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 12,
-    marginBottom: 10,
-  },
-
-  statusActionPaid: {
-    backgroundColor: "#f0fdf4",
-    borderColor: "#bbf7d0",
-  },
-
-  statusActionDue: {
-    backgroundColor: "#fef2f2",
-    borderColor: "#fecaca",
-  },
-
-  statusActionIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 21,
+  statusModalIcon: {
+    width: 41,
+    height: 41,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 11,
+    marginRight: 10,
+    borderRadius: 12,
+    backgroundColor: COLORS.primaryLight,
   },
 
-  statusActionIconPaid: {
-    backgroundColor: "#dcfce7",
-  },
-
-  statusActionIconDue: {
-    backgroundColor: "#fee2e2",
-  },
-
-  statusActionInfo: {
+  statusModalHeaderInfo: {
     flex: 1,
   },
 
-  statusActionTitle: {
-    color: "#222",
-    fontSize: 14,
+  statusModalTitle: {
+    fontSize: 16,
+    lineHeight: 21,
     fontWeight: "700",
+    color: COLORS.text,
   },
 
-  statusActionSubtitle: {
-    color: "#777",
-    fontSize: 12,
-    marginTop: 3,
+  statusModalSubtitle: {
+    marginTop: 2,
+    fontSize: 10,
+    lineHeight: 15,
+    color: COLORS.secondary,
+  },
+
+  statusOption: {
+    minHeight: 72,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 10,
+    paddingVertical: 9,
+    marginBottom: 8,
+    borderRadius: 13,
+    borderWidth: 1,
+  },
+
+  statusOptionPaid: {
+    backgroundColor: COLORS.successLight,
+    borderColor: COLORS.successBorder,
+  },
+
+  statusOptionDue: {
+    backgroundColor: COLORS.dangerLight,
+    borderColor: COLORS.dangerBorder,
+  },
+
+  statusOptionSelectedPaid: {
+    borderColor: COLORS.success,
+  },
+
+  statusOptionSelectedDue: {
+    borderColor: COLORS.danger,
+  },
+
+  statusOptionPressed: {
+    opacity: 0.7,
+  },
+
+  statusOptionIcon: {
+    width: 43,
+    height: 43,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
+    borderRadius: 13,
+  },
+
+  statusOptionIconPaid: {
+    backgroundColor: "#DCFCE7",
+  },
+
+  statusOptionIconDue: {
+    backgroundColor: "#FEE2E2",
+  },
+
+  statusOptionInfo: {
+    flex: 1,
+  },
+
+  statusOptionTitle: {
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: "700",
+    color: COLORS.text,
+  },
+
+  statusOptionSubtitle: {
+    marginTop: 2,
+    fontSize: 10,
+    lineHeight: 15,
+    color: COLORS.secondary,
+  },
+
+  statusSelectedCheck: {
+    width: 24,
+    height: 24,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 12,
+    backgroundColor: COLORS.success,
+  },
+
+  statusSelectedCheckDue: {
+    backgroundColor: COLORS.danger,
   },
 
   statusCancelButton: {
+    minHeight: 40,
     alignItems: "center",
-    paddingVertical: 11,
-    marginTop: 4,
+    justifyContent: "center",
   },
 
   statusCancelText: {
-    color: "#555",
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: "600",
-  },
-
-  /* EMPTY */
-
-  emptyState: {
-    alignItems: "center",
-    paddingVertical: 48,
-  },
-
-  emptyStateText: {
-    fontSize: 14,
-    color: "#888",
-    textAlign: "center",
-    marginTop: 10,
-  },
-
-  createButton: {
-    backgroundColor: "#1a73e8",
-    borderRadius: 10,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-    marginTop: 16,
-  },
-
-  createButtonText: {
-    color: "#fff",
-    fontSize: 14,
-    fontWeight: "600",
+    color: COLORS.secondary,
   },
 });
