@@ -2,12 +2,16 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Dimensions,
+  GestureResponderEvent,
   Image,
   KeyboardAvoidingView,
   Modal,
+  PanResponder,
+  PanResponderGestureState,
   Platform,
   Pressable,
   ScrollView,
@@ -210,6 +214,473 @@ const DUMMY_INVITATIONS: any[] = [
   },
 ];
 
+// ---------------------------------------------------------------------------
+// Photo Adjust (pinch-zoom / drag) Modal
+// ---------------------------------------------------------------------------
+
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
+const VIEWPORT = Math.min(SCREEN_WIDTH - 64, 320);
+const MIN_ZOOM = 1;
+const MAX_ZOOM = 4;
+
+interface RawImage {
+  uri: string;
+  width: number;
+  height: number;
+}
+
+interface PhotoAdjustModalProps {
+  visible: boolean;
+  image: RawImage | null;
+  onCancel: () => void;
+  onConfirm: (uri: string) => void;
+}
+
+function getTouchDistance(touches: any[]) {
+  const [a, b] = touches;
+  const dx = a.pageX - b.pageX;
+  const dy = a.pageY - b.pageY;
+  return Math.sqrt(dx * dx + dy * dy);
+}
+
+function getTouchMidpoint(touches: any[]) {
+  const [a, b] = touches;
+  return {
+    x: (a.pageX + b.pageX) / 2,
+    y: (a.pageY + b.pageY) / 2,
+  };
+}
+
+function clampNumber(value: number, min: number, max: number) {
+  "worklet";
+  return Math.min(Math.max(value, min), max);
+}
+
+function PhotoAdjustModal({
+  visible,
+  image,
+  onCancel,
+  onConfirm,
+}: PhotoAdjustModalProps) {
+  const [zoom, setZoom] = useState(1);
+  const [translate, setTranslate] = useState({ x: 0, y: 0 });
+  const [processing, setProcessing] = useState(false);
+
+  const gesture = useRef({
+    mode: "none" as "none" | "pan" | "pinch",
+    startDistance: 0,
+    startZoom: 1,
+    startTouch: { x: 0, y: 0 },
+    startTranslate: { x: 0, y: 0 },
+  }).current;
+
+  // Reset adjustments whenever a new image is loaded into the modal
+  useEffect(() => {
+    if (visible && image) {
+      setZoom(1);
+      setTranslate({ x: 0, y: 0 });
+    }
+  }, [visible, image]);
+
+  const baseScale = useMemo(() => {
+    if (!image || !image.width || !image.height) return 1;
+    // Scale so the image always fully covers the square viewport at zoom = 1
+    return VIEWPORT / Math.min(image.width, image.height);
+  }, [image]);
+
+  const effectiveScale = baseScale * zoom;
+  const displayWidth = (image?.width ?? 0) * effectiveScale;
+  const displayHeight = (image?.height ?? 0) * effectiveScale;
+
+  const clampTranslate = (t: { x: number; y: number }, currentZoom: number) => {
+    if (!image) return { x: 0, y: 0 };
+    const scale = baseScale * currentZoom;
+    const dW = image.width * scale;
+    const dH = image.height * scale;
+    const maxX = Math.max(0, (dW - VIEWPORT) / 2);
+    const maxY = Math.max(0, (dH - VIEWPORT) / 2);
+    return {
+      x: clampNumber(t.x, -maxX, maxX),
+      y: clampNumber(t.y, -maxY, maxY),
+    };
+  };
+
+  // Re-clamp translation whenever zoom changes (e.g. after pinch or +/- buttons)
+  useEffect(() => {
+    setTranslate((t) => clampTranslate(t, zoom));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [zoom, image]);
+
+  const panResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: () => true,
+      onStartShouldSetPanResponderCapture: () => true,
+      onMoveShouldSetPanResponder: () => true,
+      onMoveShouldSetPanResponderCapture: () => true,
+      onPanResponderGrant: (evt: GestureResponderEvent) => {
+        const touches = evt.nativeEvent.touches;
+        if (touches.length === 2) {
+          gesture.mode = "pinch";
+          gesture.startDistance = getTouchDistance(touches);
+          gesture.startZoom = zoom;
+        } else if (touches.length === 1) {
+          gesture.mode = "pan";
+          gesture.startTouch = { x: touches[0].pageX, y: touches[0].pageY };
+          gesture.startTranslate = { ...translate };
+        }
+      },
+      onPanResponderMove: (
+        evt: GestureResponderEvent,
+        _gestureState: PanResponderGestureState,
+      ) => {
+        const touches = evt.nativeEvent.touches;
+
+        if (touches.length === 2) {
+          if (gesture.mode !== "pinch") {
+            gesture.mode = "pinch";
+            gesture.startDistance = getTouchDistance(touches);
+            gesture.startZoom = zoom;
+          }
+          const distance = getTouchDistance(touches);
+          if (gesture.startDistance > 0) {
+            const nextZoom = clampNumber(
+              gesture.startZoom * (distance / gesture.startDistance),
+              MIN_ZOOM,
+              MAX_ZOOM,
+            );
+            setZoom(nextZoom);
+          }
+          // avoid stale midpoint calc; keep pan anchored to current translate
+          getTouchMidpoint(touches);
+        } else if (touches.length === 1) {
+          if (gesture.mode !== "pan") {
+            gesture.mode = "pan";
+            gesture.startTouch = { x: touches[0].pageX, y: touches[0].pageY };
+            gesture.startTranslate = { ...translate };
+            return;
+          }
+          const dx = touches[0].pageX - gesture.startTouch.x;
+          const dy = touches[0].pageY - gesture.startTouch.y;
+          const next = clampTranslate(
+            {
+              x: gesture.startTranslate.x + dx,
+              y: gesture.startTranslate.y + dy,
+            },
+            zoom,
+          );
+          setTranslate(next);
+        }
+      },
+      onPanResponderRelease: () => {
+        gesture.mode = "none";
+        setTranslate((t) => clampTranslate(t, zoom));
+      },
+      onPanResponderTerminate: () => {
+        gesture.mode = "none";
+      },
+    }),
+  ).current;
+
+  const handleZoomButton = (delta: number) => {
+    setZoom((z) => clampNumber(z + delta, MIN_ZOOM, MAX_ZOOM));
+  };
+
+  const handleReset = () => {
+    setZoom(1);
+    setTranslate({ x: 0, y: 0 });
+  };
+
+  const handleConfirm = async () => {
+    if (!image) return;
+    setProcessing(true);
+    try {
+      const scale = baseScale * zoom;
+      const cropSize = VIEWPORT / scale;
+
+      let originX =
+        image.width / 2 - VIEWPORT / (2 * scale) - translate.x / scale;
+      let originY =
+        image.height / 2 - VIEWPORT / (2 * scale) - translate.y / scale;
+
+      // Safety clamp in case of rounding drift
+      originX = clampNumber(originX, 0, Math.max(0, image.width - cropSize));
+      originY = clampNumber(originY, 0, Math.max(0, image.height - cropSize));
+
+      const result = await ImageManipulator.manipulateAsync(
+        image.uri,
+        [
+          {
+            crop: {
+              originX,
+              originY,
+              width: cropSize,
+              height: cropSize,
+            },
+          },
+          {
+            resize: {
+              width: 500,
+              height: 500,
+            },
+          },
+        ],
+        {
+          compress: 0.8,
+          format: ImageManipulator.SaveFormat.JPEG,
+        },
+      );
+
+      onConfirm(result.uri);
+    } catch (err) {
+      console.error("Error adjusting photo:", err);
+      // Fall back to the original image if cropping fails
+      onConfirm(image.uri);
+    } finally {
+      setProcessing(false);
+    }
+  };
+
+  if (!image) return null;
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onCancel}
+    >
+      <View style={adjustStyles.backdrop}>
+        <View style={adjustStyles.card}>
+          <Text style={adjustStyles.title}>Adjust Photo</Text>
+          <Text style={adjustStyles.subtitle}>
+            Pinch to zoom, drag to reposition
+          </Text>
+
+          <View style={adjustStyles.viewportWrapper}>
+            <View
+              style={[
+                adjustStyles.viewport,
+                { width: VIEWPORT, height: VIEWPORT },
+              ]}
+              {...panResponder.panHandlers}
+            >
+              <Image
+                source={{ uri: image.uri }}
+                style={{
+                  position: "absolute",
+                  width: displayWidth,
+                  height: displayHeight,
+                  left: VIEWPORT / 2 - displayWidth / 2 + translate.x,
+                  top: VIEWPORT / 2 - displayHeight / 2 + translate.y,
+                }}
+                resizeMode="cover"
+              />
+              {/* Circular guide overlay showing final avatar mask */}
+              <View pointerEvents="none" style={adjustStyles.circleGuide} />
+            </View>
+          </View>
+
+          <View style={adjustStyles.zoomRow}>
+            <TouchableOpacity
+              style={adjustStyles.zoomButton}
+              onPress={() => handleZoomButton(-0.25)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="remove" size={20} color="#1a73e8" />
+            </TouchableOpacity>
+
+            <View style={adjustStyles.zoomTrack}>
+              <View
+                style={[
+                  adjustStyles.zoomFill,
+                  {
+                    width: `${
+                      ((zoom - MIN_ZOOM) / (MAX_ZOOM - MIN_ZOOM)) * 100
+                    }%`,
+                  },
+                ]}
+              />
+            </View>
+
+            <TouchableOpacity
+              style={adjustStyles.zoomButton}
+              onPress={() => handleZoomButton(0.25)}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="add" size={20} color="#1a73e8" />
+            </TouchableOpacity>
+          </View>
+
+          <TouchableOpacity
+            style={adjustStyles.resetButton}
+            onPress={handleReset}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="refresh" size={14} color="#64748b" />
+            <Text style={adjustStyles.resetText}>Reset</Text>
+          </TouchableOpacity>
+
+          <View style={adjustStyles.actionRow}>
+            <TouchableOpacity
+              style={adjustStyles.cancelButton}
+              onPress={onCancel}
+              activeOpacity={0.8}
+              disabled={processing}
+            >
+              <Text style={adjustStyles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={adjustStyles.confirmButton}
+              onPress={handleConfirm}
+              activeOpacity={0.85}
+              disabled={processing}
+            >
+              {processing ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <>
+                  <Ionicons name="checkmark" size={18} color="#fff" />
+                  <Text style={adjustStyles.confirmText}>Use Photo</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const adjustStyles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 20,
+  },
+  card: {
+    backgroundColor: "#ffffff",
+    borderRadius: 22,
+    padding: 20,
+    width: "100%",
+    maxWidth: 420,
+    alignItems: "center",
+  },
+  title: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: "#0f172a",
+    marginBottom: 2,
+  },
+  subtitle: {
+    fontSize: 12.5,
+    color: "#64748b",
+    marginBottom: 16,
+  },
+  viewportWrapper: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  viewport: {
+    backgroundColor: "#0f172a",
+    borderRadius: 16,
+    overflow: "hidden",
+    position: "relative",
+  },
+  circleGuide: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 9999,
+    borderWidth: 999,
+    borderColor: "rgba(15,23,42,0.001)", // keep hit-test transparent
+    // The visible circular mask guide is drawn via a separate overlay below
+  },
+  zoomRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    width: "100%",
+    marginTop: 18,
+    gap: 10,
+  },
+  zoomButton: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "#eff6ff",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  zoomTrack: {
+    flex: 1,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#e2e8f0",
+    overflow: "hidden",
+  },
+  zoomFill: {
+    height: "100%",
+    backgroundColor: "#1a73e8",
+    borderRadius: 2,
+  },
+  resetButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 12,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+  },
+  resetText: {
+    fontSize: 12.5,
+    fontWeight: "600",
+    color: "#64748b",
+  },
+  actionRow: {
+    flexDirection: "row",
+    gap: 10,
+    width: "100%",
+    marginTop: 18,
+  },
+  cancelButton: {
+    flex: 1,
+    paddingVertical: 13,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    backgroundColor: "#f8fafc",
+    alignItems: "center",
+  },
+  cancelText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#475569",
+  },
+  confirmButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 13,
+    borderRadius: 12,
+    backgroundColor: "#1a73e8",
+  },
+  confirmText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#ffffff",
+  },
+});
+
+// ---------------------------------------------------------------------------
+// Main Screen
+// ---------------------------------------------------------------------------
+
 export default function AddAccountScreen() {
   const router = useRouter();
   const user = useAuthStore((s) => s.user);
@@ -232,6 +703,10 @@ export default function AddAccountScreen() {
   const [rejectingGrantId, setRejectingGrantId] = useState<string | null>(null);
   const [showPhotoOptions, setShowPhotoOptions] = useState(false);
   const [showDummyInvites, setShowDummyInvites] = useState(true);
+
+  // New: raw picked image + adjust (zoom/drag) modal state
+  const [rawImage, setRawImage] = useState<RawImage | null>(null);
+  const [showAdjustModal, setShowAdjustModal] = useState(false);
 
   const pendingInvitations = useMemo(() => {
     const realInvitations = user?.phone
@@ -360,7 +835,7 @@ export default function AddAccountScreen() {
     setShowPhotoOptions(true);
   };
 
-  // Handle taking photo with camera - Native crop with full drag, pinch, zoom
+  // Handle taking photo with camera - opens the custom zoom/drag adjuster
   const takePhoto = async () => {
     setShowPhotoOptions(false);
     const permission = await ImagePicker.requestCameraPermissionsAsync();
@@ -371,19 +846,22 @@ export default function AddAccountScreen() {
 
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: ["images"],
-      allowsEditing: true, // Enables native crop with drag, pinch, zoom
-      aspect: [1, 1], // Square crop
-      quality: 0.7,
+      allowsEditing: false, // We use our own zoom/drag adjuster instead of native crop
+      quality: 1,
     });
 
     if (!result.canceled && result.assets[0]) {
-      const imageUri = result.assets[0].uri;
-      const croppedImage = await cropImage(imageUri);
-      setPhotoUri(croppedImage);
+      const asset = result.assets[0];
+      setRawImage({
+        uri: asset.uri,
+        width: asset.width,
+        height: asset.height,
+      });
+      setShowAdjustModal(true);
     }
   };
 
-  // Handle choosing photo from gallery - Native crop with full drag, pinch, zoom
+  // Handle choosing photo from gallery - opens the custom zoom/drag adjuster
   const choosePhoto = async () => {
     setShowPhotoOptions(false);
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -394,41 +872,30 @@ export default function AddAccountScreen() {
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
-      allowsEditing: true, // Enables native crop with drag, pinch, zoom
-      aspect: [1, 1], // Square crop
-      quality: 0.7,
+      allowsEditing: false, // We use our own zoom/drag adjuster instead of native crop
+      quality: 1,
     });
 
     if (!result.canceled && result.assets[0]) {
-      const imageUri = result.assets[0].uri;
-      const croppedImage = await cropImage(imageUri);
-      setPhotoUri(croppedImage);
+      const asset = result.assets[0];
+      setRawImage({
+        uri: asset.uri,
+        width: asset.width,
+        height: asset.height,
+      });
+      setShowAdjustModal(true);
     }
   };
 
-  // Crop and resize image
-  const cropImage = async (uri: string): Promise<string> => {
-    try {
-      const result = await ImageManipulator.manipulateAsync(
-        uri,
-        [
-          {
-            resize: {
-              width: 500,
-              height: 500,
-            },
-          },
-        ],
-        {
-          compress: 0.8,
-          format: ImageManipulator.SaveFormat.JPEG,
-        },
-      );
-      return result.uri;
-    } catch (error) {
-      console.error("Error cropping image:", error);
-      return uri;
-    }
+  const handleAdjustConfirm = (uri: string) => {
+    setPhotoUri(uri);
+    setShowAdjustModal(false);
+    setRawImage(null);
+  };
+
+  const handleAdjustCancel = () => {
+    setShowAdjustModal(false);
+    setRawImage(null);
   };
 
   const handlePickPhoto = async () => {
@@ -1119,6 +1586,14 @@ export default function AddAccountScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* Photo Adjust (zoom / drag) Modal */}
+      <PhotoAdjustModal
+        visible={showAdjustModal}
+        image={rawImage}
+        onCancel={handleAdjustCancel}
+        onConfirm={handleAdjustConfirm}
+      />
 
       {/* Reject Modal - Centered */}
       <Modal
