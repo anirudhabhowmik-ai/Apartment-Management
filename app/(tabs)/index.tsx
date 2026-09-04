@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -10,6 +10,7 @@ import {
   Text,
   View,
 } from "react-native";
+
 import { useAccounts } from "../../hooks/useAccounts";
 import { useGroups } from "../../hooks/useGroups";
 import { useMemberStore } from "../../store/memberStore";
@@ -18,64 +19,214 @@ import {
   getPeopleTransactions,
 } from "../../utils/peopleTransactions";
 
-// Quick Action Component
+/* ========================================================================== */
+/* TYPES                                                                      */
+/* ========================================================================== */
+
 interface QuickAction {
   id: string;
   title: string;
+  subtitle: string;
   icon: keyof typeof Ionicons.glyphMap;
   color: string;
   tab: "apartment" | "staff" | "expense";
 }
 
+/* ========================================================================== */
+/* CONSTANTS                                                                  */
+/* ========================================================================== */
+
 const QUICK_ACTIONS: QuickAction[] = [
   {
-    id: "apartments",
+    id: "members",
     title: "Add Member",
-    icon: "business-outline",
-    color: "#1a73e8",
+    subtitle: "Add a resident",
+    icon: "person-add-outline",
+    color: "#2563EB",
     tab: "apartment",
   },
   {
     id: "staff",
     title: "Add Staff",
+    subtitle: "Manage staff",
     icon: "people-outline",
-    color: "#4CAF50",
+    color: "#16A34A",
     tab: "staff",
   },
   {
-    id: "expenses",
-    title: "Add Expenses",
-    icon: "cash-outline",
-    color: "#1a73e8",
+    id: "expense",
+    title: "Add Expense",
+    subtitle: "Record spending",
+    icon: "receipt-outline",
+    color: "#EA580C",
     tab: "expense",
   },
 ];
 
-// Stat Card Component Props
-interface StatCardProps {
+const ROLE_COLORS: Record<string, string> = {
+  sweeper: "#8B5CF6",
+  security: "#EF4444",
+  maintenance: "#F59E0B",
+  maid: "#16A34A",
+  driver: "#2563EB",
+  cook: "#92400E",
+  gardener: "#65A30D",
+  other: "#64748B",
+};
+
+const ROLE_LABELS: Record<string, string> = {
+  sweeper: "Sweeper",
+  security: "Security",
+  maintenance: "Maintenance",
+  maid: "Maid",
+  driver: "Driver",
+  cook: "Cook",
+  gardener: "Gardener",
+  other: "Staff",
+};
+
+/* ========================================================================== */
+/* HELPERS                                                                    */
+/* ========================================================================== */
+
+function formatCurrency(amount: number) {
+  const safeAmount = Number.isFinite(amount) ? amount : 0;
+
+  return `₹${Math.abs(safeAmount).toLocaleString("en-IN")}`;
+}
+
+function getGreeting() {
+  const hour = new Date().getHours();
+
+  if (hour < 12) {
+    return "Good Morning";
+  }
+
+  if (hour < 17) {
+    return "Good Afternoon";
+  }
+
+  return "Good Evening";
+}
+
+function getCurrentMonth() {
+  return new Date().toLocaleDateString("en-IN", {
+    month: "long",
+    year: "numeric",
+  });
+}
+
+function getRoleColor(role?: string) {
+  if (!role) {
+    return ROLE_COLORS.other;
+  }
+
+  return ROLE_COLORS[role.toLowerCase()] || ROLE_COLORS.other;
+}
+
+function getRoleLabel(role?: string) {
+  if (!role) {
+    return "Staff";
+  }
+
+  return ROLE_LABELS[role.toLowerCase()] || role;
+}
+
+/* ========================================================================== */
+/* STAT CARD                                                                  */
+/* ========================================================================== */
+
+function StatCard({
+  title,
+  value,
+  icon,
+  color,
+  description,
+}: {
   title: string;
   value: number | string;
   icon: keyof typeof Ionicons.glyphMap;
   color: string;
-  subtitle?: string;
-}
-
-function StatCard({ title, value, icon, color, subtitle }: StatCardProps) {
+  description?: string;
+}) {
   return (
-    <View style={[styles.statCard, { borderLeftColor: color }]}>
-      <View style={styles.statHeader}>
-        <View style={[styles.statIcon, { backgroundColor: color + "20" }]}>
-          <Ionicons name={icon} size={20} color={color} />
-        </View>
-        <Text style={[styles.statValue, { color }]}>{value}</Text>
+    <View style={styles.statCard}>
+      <View
+        style={[
+          styles.statIconContainer,
+          {
+            backgroundColor: `${color}12`,
+          },
+        ]}
+      >
+        <Ionicons name={icon} size={20} color={color} />
       </View>
+
+      <Text style={styles.statValue}>{value}</Text>
+
       <Text style={styles.statTitle}>{title}</Text>
-      {subtitle && <Text style={styles.statSubtitle}>{subtitle}</Text>}
+
+      {description ? (
+        <Text style={styles.statDescription}>{description}</Text>
+      ) : null}
     </View>
   );
 }
 
-// ✅ Staff Card for Recent Staff
+/* ========================================================================== */
+/* QUICK ACTION CARD                                                          */
+/* ========================================================================== */
+
+function QuickActionCard({
+  action,
+  onPress,
+}: {
+  action: QuickAction;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.quickActionCard,
+        pressed && styles.pressed,
+      ]}
+    >
+      <View
+        style={[
+          styles.quickActionIcon,
+          {
+            backgroundColor: `${action.color}12`,
+          },
+        ]}
+      >
+        <Ionicons name={action.icon} size={23} color={action.color} />
+      </View>
+
+      <View style={styles.quickActionContent}>
+        <Text style={styles.quickActionTitle}>{action.title}</Text>
+
+        <Text style={styles.quickActionSubtitle}>{action.subtitle}</Text>
+      </View>
+
+      <View
+        style={[
+          styles.quickActionArrow,
+          {
+            backgroundColor: `${action.color}10`,
+          },
+        ]}
+      >
+        <Ionicons name="chevron-forward" size={15} color={action.color} />
+      </View>
+    </Pressable>
+  );
+}
+
+/* ========================================================================== */
+/* STAFF CARD                                                                 */
+/* ========================================================================== */
+
 function StaffCard({
   name,
   role,
@@ -83,56 +234,118 @@ function StaffCard({
 }: {
   name: string;
   role: string;
-  onPress?: () => void;
+  onPress: () => void;
 }) {
-  const getRoleColor = (role: string) => {
-    const colors: Record<string, string> = {
-      sweeper: "#9C27B0",
-      security: "#F44336",
-      maintenance: "#FF9800",
-      maid: "#4CAF50",
-      driver: "#2196F3",
-      cook: "#795548",
-      gardener: "#8BC34A",
-      other: "#757575",
-    };
-    return colors[role] || "#666";
-  };
+  const roleColor = getRoleColor(role);
+  const roleLabel = getRoleLabel(role);
 
-  const getRoleLabel = (role: string) => {
-    const labels: Record<string, string> = {
-      sweeper: "Sweeper",
-      security: "Security",
-      maintenance: "Maintenance",
-      maid: "Maid",
-      driver: "Driver",
-      cook: "Cook",
-      gardener: "Gardener",
-      other: "Staff",
-    };
-    return labels[role] || role;
-  };
+  const initial = name?.trim()?.charAt(0)?.toUpperCase() || "?";
 
   return (
-    <Pressable style={styles.staffCard} onPress={onPress}>
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [styles.staffCard, pressed && styles.pressed]}
+    >
       <View
         style={[
           styles.staffAvatar,
-          { backgroundColor: getRoleColor(role) + "20" },
+          {
+            backgroundColor: `${roleColor}12`,
+          },
         ]}
       >
-        <Text style={[styles.staffInitial, { color: getRoleColor(role) }]}>
-          {name.charAt(0).toUpperCase()}
+        <Text
+          style={[
+            styles.staffInitial,
+            {
+              color: roleColor,
+            },
+          ]}
+        >
+          {initial}
         </Text>
       </View>
+
       <View style={styles.staffInfo}>
-        <Text style={styles.staffName}>{name}</Text>
-        <Text style={styles.staffRole}>{getRoleLabel(role)}</Text>
+        <Text style={styles.staffName} numberOfLines={1}>
+          {name || "Unnamed Staff"}
+        </Text>
+
+        <View style={styles.staffRoleRow}>
+          <View
+            style={[
+              styles.roleDot,
+              {
+                backgroundColor: roleColor,
+              },
+            ]}
+          />
+
+          <Text style={styles.staffRole}>{roleLabel}</Text>
+        </View>
       </View>
-      <Ionicons name="chevron-forward" size={20} color="#ccc" />
+
+      <View style={styles.staffArrow}>
+        <Ionicons name="chevron-forward" size={17} color="#94A3B8" />
+      </View>
     </Pressable>
   );
 }
+
+/* ========================================================================== */
+/* FINANCIAL CARD                                                             */
+/* ========================================================================== */
+
+function FinancialCard({
+  title,
+  amount,
+  icon,
+  color,
+  background,
+}: {
+  title: string;
+  amount: number;
+  icon: keyof typeof Ionicons.glyphMap;
+  color: string;
+  background: string;
+}) {
+  return (
+    <View style={styles.financialCard}>
+      <View
+        style={[
+          styles.financialIcon,
+          {
+            backgroundColor: background,
+          },
+        ]}
+      >
+        <Ionicons name={icon} size={17} color={color} />
+      </View>
+
+      <Text style={styles.financialLabel}>{title}</Text>
+
+      <Text
+        style={[
+          styles.financialAmount,
+          {
+            color,
+          },
+        ]}
+        numberOfLines={1}
+        adjustsFontSizeToFit
+      >
+        {amount < 0 ? "-" : ""}
+        {formatCurrency(amount)}
+      </Text>
+
+      <Text style={styles.financialPeriod}>This month</Text>
+    </View>
+  );
+}
+
+/* ========================================================================== */
+/* HOME SCREEN                                                                */
+/* ========================================================================== */
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -143,88 +356,117 @@ export default function HomeScreen() {
     isLoading: accountsLoading,
   } = useAccounts();
 
-  // ✅ Only using groups if needed - removed unused staffGroups
   const { groups } = useGroups(selectedAccount?.id || null);
+
   const members = useMemberStore((state) => state.members);
 
   const [refreshing, setRefreshing] = useState(false);
-  const [stats, setStats] = useState({
-    totalProperties: 0, // apartments for apartment account, tenants for home account
-    totalStaff: 0,
-    monthlyIncome: 0,
-    monthlyExpense: 0,
-  });
-  const [recentStaff, setRecentStaff] = useState<any[]>([]);
 
-  // Load data when current account changes
-  useEffect(() => {
-    if (selectedAccount) {
-      loadDashboardData();
+  /* ------------------------------------------------------------------------ */
+  /* DASHBOARD DATA                                                           */
+  /* ------------------------------------------------------------------------ */
+
+  const dashboardData = useMemo(() => {
+    const emptyData = {
+      stats: {
+        totalProperties: 0,
+        totalStaff: 0,
+        monthlyIncome: 0,
+        monthlyExpense: 0,
+      },
+      recentStaff: [] as any[],
+    };
+
+    if (!selectedAccount) {
+      return emptyData;
     }
-  }, [selectedAccount, groups, members]);
 
-  const loadDashboardData = async () => {
     try {
       const accountGroupIds = new Set(groups.map((group) => group.id));
+
       const accountMembers = members.filter((member) =>
         accountGroupIds.has(member.groupId),
       );
+
       const apartmentMembers = accountMembers.filter(
         (member) => "maintenanceAmount" in member,
       );
-      const apartmentCount = apartmentMembers.length;
+
       const staffMembers = accountMembers.filter(
         (member) => "monthlySalary" in member,
       );
+
       const currentMonth = `${new Date().getFullYear()}-${String(
         new Date().getMonth() + 1,
       ).padStart(2, "0")}`;
-      const financialSummary = getPeopleSummary(
-        getPeopleTransactions(accountMembers, currentMonth),
-      );
 
-      const nextStats = {
-        totalProperties: apartmentCount,
-        totalStaff: staffMembers.length,
-        monthlyIncome: financialSummary.income,
-        monthlyExpense: financialSummary.expenses,
+      const transactions = getPeopleTransactions(accountMembers, currentMonth);
+
+      const financialSummary = getPeopleSummary(transactions);
+
+      const recentStaff = [...staffMembers].reverse().slice(0, 5);
+
+      return {
+        stats: {
+          totalProperties: apartmentMembers.length,
+
+          totalStaff: staffMembers.length,
+
+          monthlyIncome: Number(financialSummary.income) || 0,
+
+          monthlyExpense: Number(financialSummary.expenses) || 0,
+        },
+
+        recentStaff,
       };
-
-      setStats((currentStats) =>
-        currentStats.totalProperties === nextStats.totalProperties &&
-        currentStats.totalStaff === nextStats.totalStaff &&
-        currentStats.monthlyIncome === nextStats.monthlyIncome &&
-        currentStats.monthlyExpense === nextStats.monthlyExpense
-          ? currentStats
-          : nextStats,
-      );
-      setRecentStaff((currentStaff) =>
-        currentStaff.length === staffMembers.length &&
-        currentStaff.every(
-          (staff, index) =>
-            staff.name === staffMembers[index].name &&
-            staff.role === staffMembers[index].role,
-        )
-          ? currentStaff
-          : staffMembers,
-      );
     } catch (error) {
-      console.error("Error loading dashboard data:", error);
+      console.error("Error calculating dashboard data:", error);
+
+      return emptyData;
     }
-  };
+  }, [selectedAccount, groups, members]);
+
+  const stats = dashboardData.stats;
+  const recentStaff = dashboardData.recentStaff;
+
+  /* ------------------------------------------------------------------------ */
+  /* NET BALANCE                                                              */
+  /* ------------------------------------------------------------------------ */
+
+  const netBalance = stats.monthlyIncome - stats.monthlyExpense;
+
+  const isPositiveBalance = netBalance >= 0;
+
+  /* ------------------------------------------------------------------------ */
+  /* REFRESH                                                                  */
+  /* ------------------------------------------------------------------------ */
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await loadDashboardData();
-    setRefreshing(false);
+
+    try {
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    } finally {
+      setRefreshing(false);
+    }
   };
+
+  /* ------------------------------------------------------------------------ */
+  /* QUICK ACTION                                                             */
+  /* ------------------------------------------------------------------------ */
 
   const handleQuickAction = (action: QuickAction) => {
     router.push({
       pathname: "/(tabs)/people",
-      params: { tab: action.tab },
+      params: {
+        tab: action.tab,
+      },
     });
   };
+
+  /* ------------------------------------------------------------------------ */
+  /* STAFF                                                                    */
+  /* ------------------------------------------------------------------------ */
 
   const handleStaffPress = (staff: any) => {
     router.push({
@@ -237,50 +479,80 @@ export default function HomeScreen() {
     });
   };
 
+  /* ------------------------------------------------------------------------ */
+  /* LOADING                                                                  */
+  /* ------------------------------------------------------------------------ */
+
   if (accountsLoading) {
     return (
-      <View style={styles.container}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#1a73e8" />
-          <Text style={styles.loadingText}>Loading your homes...</Text>
+      <View style={styles.loadingScreen}>
+        <View style={styles.loadingIcon}>
+          <Ionicons name="business-outline" size={28} color="#2563EB" />
         </View>
+
+        <ActivityIndicator
+          size="small"
+          color="#2563EB"
+          style={styles.loadingSpinner}
+        />
+
+        <Text style={styles.loadingTitle}>Loading dashboard</Text>
+
+        <Text style={styles.loadingSubtitle}>Please wait a moment...</Text>
       </View>
     );
   }
 
+  /* ------------------------------------------------------------------------ */
+  /* NO ACCOUNT                                                               */
+  /* ------------------------------------------------------------------------ */
+
   if (!selectedAccount) {
     return (
       <View style={styles.container}>
-        <ScrollView contentContainerStyle={styles.scrollContent}>
+        <ScrollView contentContainerStyle={styles.emptyScrollContent}>
           <View style={styles.emptyStateContainer}>
-            <Ionicons name="business-outline" size={64} color="#ccc" />
-            <Text style={styles.emptyTitle}>No Property Selected</Text>
+            <View style={styles.emptyIconCircle}>
+              <Ionicons name="business-outline" size={42} color="#2563EB" />
+            </View>
+
+            <Text style={styles.emptyTitle}>
+              {accounts.length > 0
+                ? "No property selected"
+                : "Create your property"}
+            </Text>
+
             <Text style={styles.emptySubtitle}>
               {accounts.length > 0
-                ? "Select a property to continue"
-                : "Create a property to get started"}
+                ? "Please select a property from the property settings to continue."
+                : "Create your first property to start managing members, staff and expenses."}
             </Text>
-            <Pressable
-              style={styles.createPropertyButton}
-              onPress={() =>
-                router.push(
-                  accounts.length > 0
-                    ? "/(modals)/switch-account"
-                    : "/(modals)/add-account",
-                )
-              }
-            >
-              <Ionicons name="add" size={20} color="#fff" />
-              <Text style={styles.createPropertyText}>
-                {accounts.length > 0 ? "Select Property" : "Create Property"}
-              </Text>
-            </Pressable>
-            {accounts.length > 0 && (
+
+            {accounts.length === 0 ? (
               <Pressable
-                style={styles.switchPropertyButton}
-                onPress={() => router.push("/(modals)/switch-account")}
+                style={({ pressed }) => [
+                  styles.primaryButton,
+                  pressed && styles.pressed,
+                ]}
+                onPress={() => router.push("/(modals)/add-account")}
               >
-                <Text style={styles.switchPropertyText}>Switch Property</Text>
+                <Ionicons name="add" size={20} color="#FFFFFF" />
+
+                <Text style={styles.primaryButtonText}>Create Property</Text>
+              </Pressable>
+            ) : (
+              <Pressable
+                style={({ pressed }) => [
+                  styles.secondaryActionButton,
+                  pressed && styles.pressed,
+                ]}
+                onPress={() => router.push("/(modals)/add-account")}
+              >
+                <Ionicons name="add-outline" size={18} color="#2563EB" />
+
+                <Text style={styles.secondaryButtonText}>
+                  Add another property
+                </Text>
               </Pressable>
             )}
           </View>
@@ -289,412 +561,956 @@ export default function HomeScreen() {
     );
   }
 
-  const getGreeting = () => {
-    const hour = new Date().getHours();
-    if (hour < 12) return "Good Morning";
-    if (hour < 17) return "Good Afternoon";
-    return "Good Evening";
-  };
+  /* ------------------------------------------------------------------------ */
+  /* ACCOUNT TYPE                                                             */
+  /* ------------------------------------------------------------------------ */
+
+  const accountTypeLabel =
+    selectedAccount.type === "apartment" ? "Apartment Community" : "Home";
+
+  /* ------------------------------------------------------------------------ */
+  /* MAIN DASHBOARD                                                           */
+  /* ------------------------------------------------------------------------ */
 
   return (
     <View style={styles.container}>
       <ScrollView
+        showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor="#2563EB"
+            colors={["#2563EB"]}
+          />
         }
       >
-        {/* Header - Simple Greeting */}
+        {/* ================================================================== */}
+        {/* HEADER                                                             */}
+        {/* ================================================================== */}
+
         <View style={styles.header}>
-          <View>
-            <Text style={styles.greeting}>{getGreeting()}! 👋</Text>
-            <Text style={styles.subGreeting}>
-              Welcome back to your dashboard
-            </Text>
+          <View style={styles.headerTop}>
+            <View style={styles.headerTextContainer}>
+              <Text style={styles.greeting}>{getGreeting()} 👋</Text>
+
+              <Text style={styles.accountName} numberOfLines={1}>
+                {selectedAccount.name || "My Property"}
+              </Text>
+
+              <View style={styles.accountTypeRow}>
+                <View style={styles.accountStatusDot} />
+
+                <Text style={styles.accountTypeText}>{accountTypeLabel}</Text>
+
+                <View style={styles.dotSeparator} />
+
+                <Text style={styles.monthText}>{getCurrentMonth()}</Text>
+              </View>
+            </View>
           </View>
         </View>
 
-        {/* ✅ Stats Grid - Dynamic based on account type */}
-        <View style={styles.statsGrid}>
-          <StatCard
-            title={
-              selectedAccount?.type === "apartment" ? "Members" : "Tenants"
-            }
-            value={stats.totalProperties}
-            icon={
-              selectedAccount?.type === "apartment"
-                ? "business-outline"
-                : "home-outline"
-            }
-            color="#1a73e8"
-          />
-          <StatCard
-            title="Staff"
-            value={stats.totalStaff}
-            icon="people-outline"
-            color="#4CAF50"
-          />
-          <StatCard
-            title="Expenses"
-            value={stats.monthlyExpense}
-            icon="cash-outline"
-            color="#F44336"
-          />
+        {/* ================================================================== */}
+        {/* NET BALANCE                                                        */}
+        {/* ================================================================== */}
+
+        <View style={styles.balanceCard}>
+          <View style={styles.balanceTop}>
+            <View>
+              <Text style={styles.balanceLabel}>Net Balance</Text>
+
+              <Text style={styles.balancePeriod}>{getCurrentMonth()}</Text>
+            </View>
+
+            <View
+              style={[
+                styles.balanceIcon,
+                {
+                  backgroundColor: isPositiveBalance ? "#DCFCE7" : "#FEE2E2",
+                },
+              ]}
+            >
+              <Ionicons
+                name={
+                  isPositiveBalance
+                    ? "trending-up-outline"
+                    : "trending-down-outline"
+                }
+                size={21}
+                color={isPositiveBalance ? "#16A34A" : "#DC2626"}
+              />
+            </View>
+          </View>
+
+          <Text
+            style={[
+              styles.balanceAmount,
+              {
+                color: isPositiveBalance ? "#15803D" : "#DC2626",
+              },
+            ]}
+            numberOfLines={1}
+            adjustsFontSizeToFit
+          >
+            {isPositiveBalance ? "" : "-"}
+            {formatCurrency(netBalance)}
+          </Text>
+
+          <View style={styles.balanceDivider} />
+
+          <View style={styles.balanceBottom}>
+            <View style={styles.balanceMiniItem}>
+              <View
+                style={[
+                  styles.miniDot,
+                  {
+                    backgroundColor: "#16A34A",
+                  },
+                ]}
+              />
+
+              <View>
+                <Text style={styles.miniLabel}>Income</Text>
+
+                <Text style={styles.miniValue}>
+                  {formatCurrency(stats.monthlyIncome)}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.balanceMiniItem}>
+              <View
+                style={[
+                  styles.miniDot,
+                  {
+                    backgroundColor: "#EA580C",
+                  },
+                ]}
+              />
+
+              <View>
+                <Text style={styles.miniLabel}>Expenses</Text>
+
+                <Text style={styles.miniValue}>
+                  {formatCurrency(stats.monthlyExpense)}
+                </Text>
+              </View>
+            </View>
+          </View>
         </View>
 
-        <View style={styles.quickActionsSection}>
+        {/* ================================================================== */}
+        {/* OVERVIEW                                                           */}
+        {/* ================================================================== */}
+
+        <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Quick Actions</Text>
+            <View>
+              <Text style={styles.sectionTitle}>Overview</Text>
+
+              <Text style={styles.sectionSubtitle}>
+                Your property at a glance
+              </Text>
+            </View>
           </View>
-          <View style={styles.quickActionsGrid}>
+
+          <View style={styles.statsGrid}>
+            <StatCard
+              title={
+                selectedAccount.type === "apartment" ? "Members" : "Tenants"
+              }
+              value={stats.totalProperties}
+              icon={
+                selectedAccount.type === "apartment"
+                  ? "people-outline"
+                  : "home-outline"
+              }
+              color="#2563EB"
+              description="Active"
+            />
+
+            <StatCard
+              title="Staff"
+              value={stats.totalStaff}
+              icon="briefcase-outline"
+              color="#16A34A"
+              description="Working"
+            />
+          </View>
+        </View>
+
+        {/* ================================================================== */}
+        {/* QUICK ACTIONS                                                      */}
+        {/* ================================================================== */}
+
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <View>
+              <Text style={styles.sectionTitle}>Quick Actions</Text>
+
+              <Text style={styles.sectionSubtitle}>
+                Manage your property faster
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.quickActions}>
             {QUICK_ACTIONS.map((action) => (
-              <Pressable
+              <QuickActionCard
                 key={action.id}
-                style={styles.quickActionItem}
+                action={action}
                 onPress={() => handleQuickAction(action)}
-              >
-                <View
-                  style={[
-                    styles.quickActionIcon,
-                    { backgroundColor: action.color + "15" },
-                  ]}
-                >
-                  <Ionicons name={action.icon} size={28} color={action.color} />
-                </View>
-                <Text style={styles.quickActionTitle}>{action.title}</Text>
-              </Pressable>
+              />
             ))}
           </View>
         </View>
 
-        {/* ✅ Financial Summary */}
-        <View style={styles.financialSection}>
+        {/* ================================================================== */}
+        {/* FINANCIAL SUMMARY                                                  */}
+        {/* ================================================================== */}
+
+        <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Financial Summary</Text>
-            <Pressable onPress={() => router.push("/(tabs)/finance")}>
-              <Text style={styles.seeAllText}>See All</Text>
+            <View>
+              <Text style={styles.sectionTitle}>Financial Summary</Text>
+
+              <Text style={styles.sectionSubtitle}>This month's activity</Text>
+            </View>
+
+            <Pressable
+              style={styles.seeAllButton}
+              onPress={() => router.push("/(tabs)/finance")}
+            >
+              <Text style={styles.seeAllText}>View All</Text>
+
+              <Ionicons name="chevron-forward" size={15} color="#2563EB" />
             </Pressable>
           </View>
-          <View style={styles.financialCards}>
-            <View style={styles.financialCard}>
-              <Text style={styles.financialLabel}>Income</Text>
-              <Text style={[styles.financialAmount, styles.incomeText]}>
-                ₹{stats.monthlyIncome.toLocaleString()}
-              </Text>
-              <Text style={styles.financialPeriod}>This Month</Text>
-            </View>
-            <View style={styles.financialCard}>
-              <Text style={styles.financialLabel}>Expenses</Text>
-              <Text style={[styles.financialAmount, styles.expenseText]}>
-                ₹{stats.monthlyExpense.toLocaleString()}
-              </Text>
-              <Text style={styles.financialPeriod}>This Month</Text>
-            </View>
-            <View style={styles.financialCard}>
-              <Text style={styles.financialLabel}>Net</Text>
-              <Text style={[styles.financialAmount, styles.netText]}>
-                ₹{(stats.monthlyIncome - stats.monthlyExpense).toLocaleString()}
-              </Text>
-              <Text style={styles.financialPeriod}>This Month</Text>
-            </View>
+
+          <View style={styles.financialGrid}>
+            <FinancialCard
+              title="Income"
+              amount={stats.monthlyIncome}
+              icon="arrow-down-outline"
+              color="#16A34A"
+              background="#DCFCE7"
+            />
+
+            <FinancialCard
+              title="Expenses"
+              amount={stats.monthlyExpense}
+              icon="arrow-up-outline"
+              color="#EA580C"
+              background="#FFEDD5"
+            />
+
+            <FinancialCard
+              title="Net"
+              amount={netBalance}
+              icon={
+                isPositiveBalance ? "wallet-outline" : "alert-circle-outline"
+              }
+              color={isPositiveBalance ? "#2563EB" : "#DC2626"}
+              background={isPositiveBalance ? "#DBEAFE" : "#FEE2E2"}
+            />
           </View>
         </View>
 
-        {/* ✅ Staff List - Quick View */}
+        {/* ================================================================== */}
+        {/* RECENT STAFF                                                       */}
+        {/* ================================================================== */}
+
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Recent Staff</Text>
-            <Pressable onPress={() => router.push("/(tabs)/people")}>
-              <Text style={styles.seeAllText}>View All</Text>
-            </Pressable>
+            <View>
+              <Text style={styles.sectionTitle}>Recent Staff</Text>
+
+              <Text style={styles.sectionSubtitle}>Your property team</Text>
+            </View>
+
+            {recentStaff.length > 0 && (
+              <Pressable
+                style={styles.seeAllButton}
+                onPress={() => router.push("/(tabs)/people")}
+              >
+                <Text style={styles.seeAllText}>View All</Text>
+
+                <Ionicons name="chevron-forward" size={15} color="#2563EB" />
+              </Pressable>
+            )}
           </View>
+
           {recentStaff.length === 0 ? (
-            <View style={styles.emptyState}>
-              <Text style={styles.emptyText}>No staff added yet</Text>
+            <View style={styles.staffEmptyCard}>
+              <View style={styles.staffEmptyIcon}>
+                <Ionicons name="people-outline" size={25} color="#94A3B8" />
+              </View>
+
+              <View style={styles.staffEmptyContent}>
+                <Text style={styles.staffEmptyTitle}>No staff yet</Text>
+
+                <Text style={styles.staffEmptyText}>
+                  Add your first staff member to start managing your property
+                  team.
+                </Text>
+              </View>
+
+              <Pressable
+                style={styles.staffEmptyButton}
+                onPress={() =>
+                  router.push({
+                    pathname: "/(tabs)/people",
+                    params: {
+                      tab: "staff",
+                    },
+                  })
+                }
+              >
+                <Ionicons name="add" size={19} color="#FFFFFF" />
+              </Pressable>
             </View>
           ) : (
-            recentStaff.map((staff, index) => (
-              <StaffCard
-                key={index}
-                name={staff.name}
-                role={staff.role}
-                onPress={() => handleStaffPress(staff)}
-              />
-            ))
+            <View style={styles.staffList}>
+              {recentStaff.map((staff, index) => (
+                <StaffCard
+                  key={staff.id || `${staff.name}-${index}`}
+                  name={staff.name || "Unnamed Staff"}
+                  role={staff.role || "other"}
+                  onPress={() => handleStaffPress(staff)}
+                />
+              ))}
+            </View>
           )}
         </View>
+
+        <View style={styles.bottomSpace} />
       </ScrollView>
     </View>
   );
 }
 
+/* ========================================================================== */
+/* STYLES                                                                     */
+/* ========================================================================== */
+
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f5f7fa",
+    backgroundColor: "#F8FAFC",
   },
+
   scrollContent: {
-    padding: 16,
-    paddingBottom: 40,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 30,
   },
-  loadingContainer: {
+
+  /* ====================================================================== */
+  /* LOADING                                                                */
+  /* ====================================================================== */
+
+  loadingScreen: {
     flex: 1,
+    backgroundColor: "#F8FAFC",
     justifyContent: "center",
     alignItems: "center",
+    paddingHorizontal: 30,
   },
-  loadingText: {
-    marginTop: 12,
-    color: "#666",
-    fontSize: 14,
+
+  loadingIcon: {
+    width: 58,
+    height: 58,
+    borderRadius: 18,
+    backgroundColor: "#EFF6FF",
+    alignItems: "center",
+    justifyContent: "center",
   },
-  // Header
-  header: {
-    marginBottom: 20,
-    paddingHorizontal: 4,
+
+  loadingSpinner: {
+    marginTop: 22,
   },
-  greeting: {
-    fontSize: 22,
+
+  loadingTitle: {
+    marginTop: 14,
+    fontSize: 17,
     fontWeight: "700",
-    color: "#111",
+    color: "#0F172A",
   },
-  subGreeting: {
-    fontSize: 14,
-    color: "#666",
-    marginTop: 2,
+
+  loadingSubtitle: {
+    marginTop: 5,
+    fontSize: 13,
+    color: "#94A3B8",
   },
-  // Stats
+
+  /* ====================================================================== */
+  /* HEADER                                                                 */
+  /* ====================================================================== */
+
+  header: {
+    marginBottom: 16,
+  },
+
+  headerTop: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  headerTextContainer: {
+    flex: 1,
+  },
+
+  greeting: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#64748B",
+    marginBottom: 4,
+  },
+
+  accountName: {
+    fontSize: 24,
+    lineHeight: 30,
+    fontWeight: "800",
+    color: "#0F172A",
+  },
+
+  accountTypeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 7,
+  },
+
+  accountStatusDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: "#22C55E",
+    marginRight: 6,
+  },
+
+  accountTypeText: {
+    fontSize: 12,
+    color: "#64748B",
+    fontWeight: "500",
+  },
+
+  dotSeparator: {
+    width: 3,
+    height: 3,
+    borderRadius: 2,
+    backgroundColor: "#CBD5E1",
+    marginHorizontal: 7,
+  },
+
+  monthText: {
+    fontSize: 12,
+    color: "#94A3B8",
+  },
+
+  /* ====================================================================== */
+  /* BALANCE                                                                */
+  /* ====================================================================== */
+
+  balanceCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    padding: 20,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+
+    shadowColor: "#0F172A",
+    shadowOffset: {
+      width: 0,
+      height: 8,
+    },
+    shadowOpacity: 0.06,
+    shadowRadius: 18,
+    elevation: 3,
+  },
+
+  balanceTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+
+  balanceLabel: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#475569",
+  },
+
+  balancePeriod: {
+    fontSize: 11,
+    color: "#94A3B8",
+    marginTop: 3,
+  },
+
+  balanceIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  balanceAmount: {
+    fontSize: 32,
+    lineHeight: 40,
+    fontWeight: "800",
+    marginTop: 15,
+    letterSpacing: -0.6,
+  },
+
+  balanceDivider: {
+    height: 1,
+    backgroundColor: "#F1F5F9",
+    marginVertical: 17,
+  },
+
+  balanceBottom: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+
+  balanceMiniItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
+
+  miniDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginRight: 8,
+  },
+
+  miniLabel: {
+    fontSize: 11,
+    color: "#94A3B8",
+    marginBottom: 2,
+  },
+
+  miniValue: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#334155",
+  },
+
+  /* ====================================================================== */
+  /* SECTIONS                                                               */
+  /* ====================================================================== */
+
+  section: {
+    marginBottom: 25,
+  },
+
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 13,
+  },
+
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#0F172A",
+  },
+
+  sectionSubtitle: {
+    fontSize: 12,
+    color: "#94A3B8",
+    marginTop: 3,
+  },
+
+  seeAllButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 5,
+    paddingLeft: 8,
+  },
+
+  seeAllText: {
+    fontSize: 12,
+    color: "#2563EB",
+    fontWeight: "700",
+    marginRight: 2,
+  },
+
+  /* ====================================================================== */
+  /* STATS                                                                  */
+  /* ====================================================================== */
+
   statsGrid: {
     flexDirection: "row",
     gap: 12,
-    marginBottom: 20,
   },
+
   statCard: {
     flex: 1,
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 14,
-    borderLeftWidth: 4,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
+    minHeight: 135,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+
+    shadowColor: "#0F172A",
+    shadowOffset: {
+      width: 0,
+      height: 4,
+    },
+    shadowOpacity: 0.035,
+    shadowRadius: 10,
     elevation: 2,
   },
-  statHeader: {
-    alignItems: "flex-start",
-    marginBottom: 6,
-  },
-  statIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    justifyContent: "center",
+
+  statIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 13,
     alignItems: "center",
+    justifyContent: "center",
   },
+
   statValue: {
-    fontSize: 22,
-    fontWeight: "700",
-    marginTop: 6,
-    maxWidth: "100%",
+    fontSize: 25,
+    fontWeight: "800",
+    color: "#0F172A",
+    marginTop: 12,
   },
+
   statTitle: {
     fontSize: 13,
-    color: "#666",
-  },
-  statSubtitle: {
-    fontSize: 11,
-    color: "#999",
+    fontWeight: "700",
+    color: "#475569",
     marginTop: 2,
   },
-  // Quick Actions
-  quickActionsSection: {
-    marginBottom: 20,
+
+  statDescription: {
+    fontSize: 11,
+    color: "#94A3B8",
+    marginTop: 2,
   },
-  quickActionsGrid: {
+
+  /* ====================================================================== */
+  /* QUICK ACTIONS                                                          */
+  /* ====================================================================== */
+
+  quickActions: {
+    gap: 10,
+  },
+
+  quickActionCard: {
     flexDirection: "row",
-    gap: 12,
-  },
-  quickActionItem: {
-    flex: 1,
     alignItems: "center",
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 20,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 17,
+    padding: 13,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    minHeight: 70,
   },
+
   quickActionIcon: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 45,
+    height: 45,
+    borderRadius: 14,
+    alignItems: "center",
     justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 8,
+    marginRight: 12,
   },
+
+  quickActionContent: {
+    flex: 1,
+  },
+
   quickActionTitle: {
-    fontSize: 13,
-    color: "#333",
-    textAlign: "center",
-    fontWeight: "500",
-  },
-  // Section
-  section: {
-    marginBottom: 20,
-  },
-  sectionHeader: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  sectionTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#111",
-  },
-  seeAllText: {
     fontSize: 14,
-    color: "#1a73e8",
-    fontWeight: "600",
+    fontWeight: "700",
+    color: "#0F172A",
   },
-  // Financial
-  financialSection: {
-    marginBottom: 20,
+
+  quickActionSubtitle: {
+    fontSize: 11,
+    color: "#94A3B8",
+    marginTop: 3,
   },
-  financialCards: {
+
+  quickActionArrow: {
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  /* ====================================================================== */
+  /* FINANCIAL                                                              */
+  /* ====================================================================== */
+
+  financialGrid: {
     flexDirection: "row",
-    gap: 12,
+    gap: 10,
   },
+
   financialCard: {
     flex: 1,
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 14,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 17,
+    padding: 13,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    minHeight: 130,
+  },
+
+  financialIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 11,
     alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 4,
-    elevation: 2,
+    justifyContent: "center",
+    marginBottom: 10,
   },
+
   financialLabel: {
-    fontSize: 12,
-    color: "#666",
-    marginBottom: 4,
+    fontSize: 11,
+    color: "#64748B",
+    fontWeight: "600",
   },
+
   financialAmount: {
-    fontSize: 18,
-    fontWeight: "700",
+    fontSize: 17,
+    fontWeight: "800",
+    marginTop: 5,
   },
-  incomeText: {
-    color: "#4CAF50",
-  },
-  expenseText: {
-    color: "#F44336",
-  },
-  netText: {
-    color: "#1a73e8",
-  },
+
   financialPeriod: {
     fontSize: 10,
-    color: "#999",
-    marginTop: 2,
+    color: "#94A3B8",
+    marginTop: 4,
   },
-  // Staff
+
+  /* ====================================================================== */
+  /* STAFF                                                                  */
+  /* ====================================================================== */
+
+  staffList: {
+    gap: 9,
+  },
+
   staffCard: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#fff",
-    borderRadius: 12,
-    padding: 14,
-    marginBottom: 8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 1,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 17,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    minHeight: 68,
   },
+
   staffAvatar: {
     width: 44,
     height: 44,
-    borderRadius: 22,
-    justifyContent: "center",
+    borderRadius: 15,
     alignItems: "center",
+    justifyContent: "center",
     marginRight: 12,
   },
+
   staffInitial: {
-    fontSize: 18,
-    fontWeight: "600",
+    fontSize: 17,
+    fontWeight: "800",
   },
+
   staffInfo: {
     flex: 1,
   },
+
   staffName: {
     fontSize: 14,
-    fontWeight: "600",
-    color: "#111",
-  },
-  staffRole: {
-    fontSize: 12,
-    color: "#666",
-    marginTop: 1,
-  },
-  // Empty State
-  emptyStateContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 40,
-    marginTop: 60,
-  },
-  emptyTitle: {
-    fontSize: 20,
     fontWeight: "700",
-    color: "#333",
-    marginTop: 16,
+    color: "#0F172A",
   },
-  emptySubtitle: {
-    fontSize: 14,
-    color: "#666",
-    textAlign: "center",
-    marginTop: 8,
-    marginBottom: 24,
-  },
-  createPropertyButton: {
+
+  staffRoleRow: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#1a73e8",
-    borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 24,
-    gap: 8,
+    marginTop: 5,
   },
-  createPropertyText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "600",
+
+  roleDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginRight: 6,
   },
-  switchPropertyButton: {
-    marginTop: 12,
-    paddingVertical: 12,
-    paddingHorizontal: 24,
-  },
-  switchPropertyText: {
-    color: "#1a73e8",
-    fontSize: 14,
+
+  staffRole: {
+    fontSize: 11,
+    color: "#64748B",
     fontWeight: "500",
   },
-  emptyState: {
-    padding: 30,
+
+  staffArrow: {
+    width: 31,
+    height: 31,
+    borderRadius: 10,
+    backgroundColor: "#F8FAFC",
     alignItems: "center",
-    backgroundColor: "#fff",
-    borderRadius: 12,
+    justifyContent: "center",
   },
-  emptyText: {
+
+  staffEmptyCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    padding: 15,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+
+  staffEmptyIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: "#F1F5F9",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+
+  staffEmptyContent: {
+    flex: 1,
+  },
+
+  staffEmptyTitle: {
     fontSize: 14,
-    color: "#999",
+    fontWeight: "700",
+    color: "#334155",
+  },
+
+  staffEmptyText: {
+    fontSize: 11,
+    lineHeight: 16,
+    color: "#94A3B8",
+    marginTop: 3,
+  },
+
+  staffEmptyButton: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: "#2563EB",
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 10,
+  },
+
+  /* ====================================================================== */
+  /* EMPTY ACCOUNT                                                          */
+  /* ====================================================================== */
+
+  emptyScrollContent: {
+    flexGrow: 1,
+    justifyContent: "center",
+    padding: 24,
+  },
+
+  emptyStateContainer: {
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 24,
+    padding: 28,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+
+  emptyIconCircle: {
+    width: 82,
+    height: 82,
+    borderRadius: 28,
+    backgroundColor: "#EFF6FF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 20,
+  },
+
+  emptyTitle: {
+    fontSize: 21,
+    fontWeight: "800",
+    color: "#0F172A",
+    textAlign: "center",
+  },
+
+  emptySubtitle: {
+    fontSize: 13,
+    lineHeight: 20,
+    color: "#64748B",
+    textAlign: "center",
+    marginTop: 9,
+    marginBottom: 25,
+  },
+
+  primaryButton: {
+    width: "100%",
+    minHeight: 52,
+    borderRadius: 15,
+    backgroundColor: "#2563EB",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+
+    shadowColor: "#2563EB",
+    shadowOffset: {
+      width: 0,
+      height: 6,
+    },
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    elevation: 3,
+  },
+
+  primaryButtonText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+
+  secondaryActionButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 14,
+    paddingHorizontal: 18,
+    borderRadius: 14,
+    backgroundColor: "#EFF6FF",
+    gap: 6,
+  },
+
+  secondaryButtonText: {
+    fontSize: 13,
+    color: "#2563EB",
+    fontWeight: "600",
+  },
+
+  /* ====================================================================== */
+  /* COMMON                                                                 */
+  /* ====================================================================== */
+
+  pressed: {
+    opacity: 0.72,
+  },
+
+  bottomSpace: {
+    height: 20,
   },
 });
