@@ -11,7 +11,6 @@ import {
   KeyboardAvoidingView,
   Modal,
   PanResponder,
-  PanResponderGestureState,
   Platform,
   Pressable,
   ScrollView,
@@ -19,7 +18,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from "react-native";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useAccessStore } from "../../store/accessStore";
@@ -212,203 +211,22 @@ const DUMMY_INVITATIONS: any[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Smooth Zoom Slider - Android / iOS compatible
-//
-// FIX: PanResponder is created once (via useRef) so its handlers must never
-// read state/props directly - those closures go stale. `onValueChange` is
-// now tracked in a ref that we refresh every render, and the handlers call
-// `onValueChangeRef.current(...)` so they always invoke the latest callback.
-// ---------------------------------------------------------------------------
-
-interface CustomSliderProps {
-  minimumValue: number;
-  maximumValue: number;
-  value: number;
-  onValueChange: (value: number) => void;
-  minimumTrackTintColor?: string;
-  maximumTrackTintColor?: string;
-  thumbTintColor?: string;
-}
-
-function CustomSlider({
-  minimumValue,
-  maximumValue,
-  value,
-  onValueChange,
-  minimumTrackTintColor = "#1a73e8",
-  maximumTrackTintColor = "#e2e8f0",
-  thumbTintColor = "#1a73e8",
-}: CustomSliderProps) {
-  const sliderWidth = useRef(0);
-  const sliderPageX = useRef(0);
-  const isDragging = useRef(false);
-
-  // Keep the latest callback + bounds in refs so the PanResponder
-  // (created once below) never calls stale versions.
-  const onValueChangeRef = useRef(onValueChange);
-  const minRef = useRef(minimumValue);
-  const maxRef = useRef(maximumValue);
-
-  useEffect(() => {
-    onValueChangeRef.current = onValueChange;
-  }, [onValueChange]);
-
-  useEffect(() => {
-    minRef.current = minimumValue;
-    maxRef.current = maximumValue;
-  }, [minimumValue, maximumValue]);
-
-  const thumbSize = 22;
-
-  const clamp = (number: number, min: number, max: number) => {
-    return Math.min(Math.max(number, min), max);
-  };
-
-  const valueToPercent = () => {
-    if (maximumValue === minimumValue) return 0;
-    return clamp((value - minimumValue) / (maximumValue - minimumValue), 0, 1);
-  };
-
-  const updateFromPageX = (pageX: number) => {
-    if (sliderWidth.current <= 0) return;
-    const relativeX = pageX - sliderPageX.current;
-    const percent = clamp(relativeX / sliderWidth.current, 0, 1);
-    const newValue =
-      minRef.current + percent * (maxRef.current - minRef.current);
-    onValueChangeRef.current(newValue);
-  };
-
-  const panResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: (event) => {
-        isDragging.current = true;
-        updateFromPageX(event.nativeEvent.pageX);
-      },
-      onPanResponderMove: (event) => {
-        if (!isDragging.current) return;
-        updateFromPageX(event.nativeEvent.pageX);
-      },
-      onPanResponderRelease: () => {
-        isDragging.current = false;
-      },
-      onPanResponderTerminate: () => {
-        isDragging.current = false;
-      },
-    }),
-  ).current;
-
-  const percent = valueToPercent();
-
-  return (
-    <View
-      style={sliderStyles.sliderContainer}
-      onLayout={(event) => {
-        const { width } = event.nativeEvent.layout;
-        sliderWidth.current = width;
-        // @ts-ignore - measureInWindow is available on native
-        event.currentTarget?.measureInWindow?.((pageX: number) => {
-          sliderPageX.current = pageX;
-        });
-      }}
-      {...panResponder.panHandlers}
-    >
-      {/* Track */}
-      <View style={sliderStyles.sliderTrack}>
-        <View
-          style={[
-            sliderStyles.sliderTrackFill,
-            {
-              width: `${percent * 100}%`,
-              backgroundColor: minimumTrackTintColor,
-            },
-          ]}
-        />
-        <View
-          style={[
-            sliderStyles.sliderTrackRemaining,
-            {
-              flex: 1,
-              backgroundColor: maximumTrackTintColor,
-            },
-          ]}
-        />
-      </View>
-
-      {/* Thumb */}
-      <View
-        style={[
-          sliderStyles.sliderThumb,
-          {
-            left: `${percent * 100}%`,
-            backgroundColor: thumbTintColor,
-            width: thumbSize,
-            height: thumbSize,
-            borderRadius: thumbSize / 2,
-            marginLeft: -thumbSize / 2,
-            pointerEvents: "none",
-          },
-        ]}
-      >
-        <View style={sliderStyles.sliderThumbInner} />
-      </View>
-    </View>
-  );
-}
-
-const sliderStyles = StyleSheet.create({
-  sliderContainer: {
-    width: "100%",
-    height: 44,
-    justifyContent: "center",
-    position: "relative",
-    paddingHorizontal: 2,
-  },
-  sliderTrack: {
-    width: "100%",
-    height: 5,
-    borderRadius: 3,
-    overflow: "hidden",
-    flexDirection: "row",
-    backgroundColor: "#e2e8f0",
-  },
-  sliderTrackFill: {
-    height: "100%",
-  },
-  sliderTrackRemaining: {
-    height: "100%",
-  },
-  sliderThumb: {
-    position: "absolute",
-    top: "50%",
-    marginTop: -11,
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 2,
-    borderColor: "#ffffff",
-    boxShadow: "0px 2px 4px rgba(0, 0, 0, 0.22)",
-  },
-  sliderThumbInner: {
-    width: 7,
-    height: 7,
-    borderRadius: 4,
-    backgroundColor: "rgba(255,255,255,0.75)",
-  },
-});
-
-// ---------------------------------------------------------------------------
 // Photo Adjust Modal - Fixed for Android
 //
-// FIX: same stale-closure bug as above. The PanResponder here is also built
-// once via useRef, so its grant/move/release handlers used to read `zoom`,
-// `translate`, and `image` from the very first render forever - meaning
-// every drag/pinch after the first one started from the wrong baseline and
-// the image would jump back or ignore further gestures.
+// FIX: The PanResponder here is built once via useRef, so its grant/move/
+// release handlers used to read `zoom`, `translate`, and `image` from the
+// very first render forever - meaning every drag/pinch after the first one
+// started from the wrong baseline and the image would jump back or ignore
+// further gestures.
 //
 // Now `zoomRef` / `translateRef` / `imageRef` / `baseScaleRef` are kept in
 // sync with state on every render, and the PanResponder handlers read from
 // those refs instead of the state variables directly.
+//
+// ZOOM IS NOW FINGER-ONLY: pinch with two fingers to zoom, drag with one
+// finger to reposition. The slider has been removed - onPanResponderMove
+// already computes the new zoom from the distance between two touches, so
+// no separate slider control is needed.
 // ---------------------------------------------------------------------------
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -495,8 +313,6 @@ function PhotoAdjustModal({
     baseScaleRef.current = baseScale;
   }, [baseScale]);
 
-  // Clamp helper that only ever reads from refs, so it stays correct even
-  // though the PanResponder below captures it just once at mount.
   const clampTranslateFromRefs = (
     t: { x: number; y: number },
     currentZoom: number,
@@ -514,13 +330,79 @@ function PhotoAdjustModal({
     };
   };
 
-  const gestureRef = useRef<{
-    mode: "pan" | "pinch";
-    startTouch?: { x: number; y: number };
-    startTranslate?: { x: number; y: number };
-    startDistance?: number;
-    startZoom?: number;
-  } | null>(null);
+  // -------------------------------------------------------------------
+  // Gesture tracking
+  //
+  // FIX #1: touches are now tracked by `identifier`, sorted, instead of
+  // by raw array position. RN does not guarantee array order stays
+  // stable across move events as fingers lift/land, so array-index
+  // pairing could silently pick the wrong two points for the pinch
+  // distance calculation, producing jumpy/incorrect zoom.
+  //
+  // FIX #2: the gesture is now re-baselined any time the number of
+  // active touches changes (1->2 fingers, or 2->1), rather than only
+  // reacting to a fresh onPanResponderGrant. Previously, if the second
+  // finger touch wasn't captured cleanly as a "grant" (which can be
+  // unreliable, especially on Android), pinch would never engage until
+  // a later touch happened to trigger a clean grant again - which is
+  // what produced the "need three fingers" symptom.
+  //
+  // FIX #3: onPanResponderTerminationRequest now returns false, and
+  // onShouldBlockNativeResponder returns true. Without these, once a
+  // second finger touches down, a sibling/ancestor view can request (and
+  // win) responder control away from this gesture mid-touch, which
+  // resets tracking and causes exactly the flaky "needs an extra finger,
+  // not smooth" behavior being reported.
+  // -------------------------------------------------------------------
+
+  type ActiveGesture =
+    | {
+        mode: "pinch";
+        touchIds: [number, number];
+        startDistance: number;
+        startZoom: number;
+      }
+    | {
+        mode: "pan";
+        touchId: number;
+        startTouch: { x: number; y: number };
+        startTranslate: { x: number; y: number };
+      };
+
+  const gestureRef = useRef<ActiveGesture | null>(null);
+
+  const getSortedTouches = (touches: any[]) =>
+    [...touches]
+      .map((t) => ({
+        identifier: t.identifier as number,
+        pageX: t.pageX as number,
+        pageY: t.pageY as number,
+      }))
+      .sort((a, b) => a.identifier - b.identifier);
+
+  const beginGesture = (touches: any[]) => {
+    const pts = getSortedTouches(touches);
+    if (pts.length >= 2) {
+      const [a, b] = pts;
+      const dx = a.pageX - b.pageX;
+      const dy = a.pageY - b.pageY;
+      gestureRef.current = {
+        mode: "pinch",
+        touchIds: [a.identifier, b.identifier],
+        startDistance: Math.sqrt(dx * dx + dy * dy),
+        startZoom: zoomRef.current,
+      };
+    } else if (pts.length === 1) {
+      gestureRef.current = {
+        mode: "pan",
+        touchId: pts[0].identifier,
+        startTouch: { x: pts[0].pageX, y: pts[0].pageY },
+        startTranslate: { ...translateRef.current },
+      };
+    } else {
+      gestureRef.current = null;
+    }
+  };
 
   const panResponder = useRef(
     PanResponder.create({
@@ -528,51 +410,58 @@ function PhotoAdjustModal({
       onStartShouldSetPanResponderCapture: () => true,
       onMoveShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponderCapture: () => true,
+      onPanResponderTerminationRequest: () => false,
+      onShouldBlockNativeResponder: () => true,
+
       onPanResponderGrant: (evt: GestureResponderEvent) => {
-        const touches = evt.nativeEvent.touches;
-        if (touches.length === 1) {
-          const touch = touches[0];
-          gestureRef.current = {
-            mode: "pan",
-            startTouch: { x: touch.pageX, y: touch.pageY },
-            startTranslate: { ...translateRef.current },
-          };
-        } else if (touches.length === 2) {
-          gestureRef.current = {
-            mode: "pinch",
-            startDistance: getTouchDistance(touches),
-            startZoom: zoomRef.current,
-          };
-        }
+        beginGesture(evt.nativeEvent.touches);
       },
-      onPanResponderMove: (
-        evt: GestureResponderEvent,
-        _gestureState: PanResponderGestureState,
-      ) => {
+
+      onPanResponderMove: (evt: GestureResponderEvent) => {
         const touches = evt.nativeEvent.touches;
         const gesture = gestureRef.current;
 
-        if (!gesture) return;
+        const expectedCount =
+          gesture?.mode === "pinch" ? 2 : gesture?.mode === "pan" ? 1 : 0;
 
-        if (touches.length === 2 && gesture.mode === "pinch") {
-          const distance = getTouchDistance(touches);
-          if (gesture.startDistance && gesture.startDistance > 0) {
+        // Finger count changed (added or lifted) - re-baseline cleanly
+        // instead of letting stale start values cause a jump or a dead
+        // gesture that silently does nothing.
+        if (touches.length > 0 && touches.length !== expectedCount) {
+          beginGesture(touches);
+        }
+
+        const g = gestureRef.current;
+        if (!g) return;
+
+        if (g.mode === "pinch" && touches.length >= 2) {
+          const sorted = getSortedTouches(touches);
+          const tracked = sorted.filter((p) =>
+            g.touchIds.includes(p.identifier),
+          );
+          const [a, b] = tracked.length >= 2 ? tracked : sorted.slice(0, 2);
+
+          const dx = a.pageX - b.pageX;
+          const dy = a.pageY - b.pageY;
+          const distance = Math.sqrt(dx * dx + dy * dy);
+
+          if (g.startDistance > 0) {
             const nextZoom = clampNumber(
-              (gesture.startZoom || 1) * (distance / gesture.startDistance),
+              g.startZoom * (distance / g.startDistance),
               MIN_ZOOM,
               MAX_ZOOM,
             );
             zoomRef.current = nextZoom;
             setZoom(nextZoom);
           }
-        } else if (touches.length === 1 && gesture.mode === "pan") {
+        } else if (g.mode === "pan" && touches.length === 1) {
           const touch = touches[0];
-          const dx = touch.pageX - (gesture.startTouch?.x || 0);
-          const dy = touch.pageY - (gesture.startTouch?.y || 0);
+          const dx = touch.pageX - g.startTouch.x;
+          const dy = touch.pageY - g.startTouch.y;
           const next = clampTranslateFromRefs(
             {
-              x: (gesture.startTranslate?.x || 0) + dx,
-              y: (gesture.startTranslate?.y || 0) + dy,
+              x: g.startTranslate.x + dx,
+              y: g.startTranslate.y + dy,
             },
             zoomRef.current,
           );
@@ -580,8 +469,17 @@ function PhotoAdjustModal({
           setTranslate(next);
         }
       },
-      onPanResponderRelease: () => {
-        gestureRef.current = null;
+
+      onPanResponderRelease: (evt: GestureResponderEvent) => {
+        const remaining = evt.nativeEvent.touches;
+        if (remaining.length > 0) {
+          // A finger lifted but at least one is still down (e.g. pinch
+          // -> pan): re-baseline from the remaining touch(es) instead of
+          // clearing, so the gesture continues smoothly.
+          beginGesture(remaining);
+        } else {
+          gestureRef.current = null;
+        }
         const clamped = clampTranslateFromRefs(
           translateRef.current,
           zoomRef.current,
@@ -589,18 +487,12 @@ function PhotoAdjustModal({
         translateRef.current = clamped;
         setTranslate(clamped);
       },
+
       onPanResponderTerminate: () => {
         gestureRef.current = null;
       },
     }),
   ).current;
-
-  const handleZoomChange = (value: number) => {
-    setZoom(value);
-    setTranslate((current) => {
-      return clampTranslate(current, value);
-    });
-  };
 
   const handleReset = () => {
     setZoom(1);
@@ -668,7 +560,7 @@ function PhotoAdjustModal({
         <View style={adjustStyles.card}>
           <Text style={adjustStyles.title}>Adjust Photo</Text>
           <Text style={adjustStyles.subtitle}>
-            Drag to reposition • Use slider to zoom
+            Pinch to zoom • Drag to reposition
           </Text>
 
           <View style={adjustStyles.viewportWrapper}>
@@ -700,26 +592,6 @@ function PhotoAdjustModal({
                 </Text>
               </View>
             </View>
-          </View>
-
-          {/* Smooth Zoom Slider */}
-          <View style={adjustStyles.sliderContainer}>
-            <View style={adjustStyles.sliderLabelRow}>
-              <Text style={adjustStyles.sliderLabel}>Zoom</Text>
-              <Text style={adjustStyles.zoomValueText}>
-                {Math.round(zoom * 100)}%
-              </Text>
-            </View>
-
-            <CustomSlider
-              minimumValue={MIN_ZOOM}
-              maximumValue={MAX_ZOOM}
-              value={zoom}
-              onValueChange={handleZoomChange}
-              minimumTrackTintColor="#1a73e8"
-              maximumTrackTintColor="#e2e8f0"
-              thumbTintColor="#1a73e8"
-            />
           </View>
 
           <TouchableOpacity
@@ -837,31 +709,11 @@ const adjustStyles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
   },
-  sliderContainer: {
-    width: "100%",
-    marginTop: 16,
-  },
-  sliderLabelRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 2,
-  },
-  sliderLabel: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#475569",
-  },
-  zoomValueText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#1a73e8",
-  },
   resetButton: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    marginTop: 10,
+    marginTop: 16,
     paddingVertical: 4,
     paddingHorizontal: 10,
   },
@@ -1799,7 +1651,7 @@ export default function AddAccountScreen() {
         </Pressable>
       </Modal>
 
-      {/* Photo Adjust (zoom / drag) Modal with Slider */}
+      {/* Photo Adjust (pinch to zoom / drag) Modal */}
       <PhotoAdjustModal
         visible={showAdjustModal}
         image={rawImage}
