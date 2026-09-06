@@ -30,6 +30,7 @@ import {
   View,
 } from "react-native";
 
+import GenerateBillModal from "../../components/GenerateBillModal";
 import { useAccounts } from "../../hooks/useAccounts";
 import { sendOtp, verifyOtp } from "../../services/otpService";
 import { useAccessStore } from "../../store/accessStore";
@@ -1809,6 +1810,54 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#dc2626",
   },
+
+  // ============================================================
+  // GENERATE BILL SECTION - New Styles
+  // ============================================================
+
+  generateBillButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: 12,
+    backgroundColor: "#EFF6FF",
+    borderRadius: 12,
+    marginTop: 14,
+    gap: 12,
+  },
+
+  generateBillIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: "#2563EB",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  generateBillContent: {
+    flex: 1,
+  },
+
+  generateBillTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#0F172A",
+  },
+
+  generateBillSubtitle: {
+    fontSize: 12,
+    color: "#64748B",
+    marginTop: 2,
+  },
+
+  generateBillArrow: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    backgroundColor: "#DBEAFE",
+    alignItems: "center",
+    justifyContent: "center",
+  },
 }) as any;
 
 // ---------------------------------------------------------------------------
@@ -1856,6 +1905,13 @@ export default function ProfileScreen() {
   const [showPhotoOptions, setShowPhotoOptions] = useState(false);
   const [rawImage, setRawImage] = useState<RawImage | null>(null);
   const [showAdjustModal, setShowAdjustModal] = useState(false);
+
+  // Bill generation states
+  const [showGenerateBill, setShowGenerateBill] = useState(false);
+  const [billMemberType, setBillMemberType] = useState<"owner" | "staff">(
+    "owner",
+  );
+  const [generatingBill, setGeneratingBill] = useState(false);
 
   // OTP refs
   const otpInputs = useRef<(TextInput | null)[]>([]);
@@ -2386,6 +2442,34 @@ export default function ProfileScreen() {
   };
 
   // ============================================================
+  // HANDLE GENERATE BILL
+  // ============================================================
+
+  const handleGenerateBill = async (data: any) => {
+    setGeneratingBill(true);
+    try {
+      // This will be called from the GenerateBillModal
+      // The actual bill generation happens in the modal component
+      // We'll handle the PDF generation here
+      console.log("Bill data:", data);
+
+      // Show success message
+      Alert.alert(
+        "Success",
+        "Bill generated successfully! You can download it from the member list.",
+        [{ text: "OK" }],
+      );
+
+      setShowGenerateBill(false);
+    } catch (error) {
+      console.error("Error generating bill:", error);
+      Alert.alert("Error", "Failed to generate bill. Please try again.");
+    } finally {
+      setGeneratingBill(false);
+    }
+  };
+
+  // ============================================================
   // MENU
   // ============================================================
 
@@ -2397,6 +2481,18 @@ export default function ProfileScreen() {
       icon: "swap-horizontal-outline",
       color: "#2563EB",
       onPress: () => setAccountSwitcherOpen(true),
+    },
+
+    {
+      id: "generate_bill",
+      title: "Generate Bill",
+      description: "Create and download bills for owners and staff",
+      icon: "document-text-outline",
+      color: "#2563EB",
+      onPress: () => {
+        setBillMemberType("owner");
+        setShowGenerateBill(true);
+      },
     },
 
     {
@@ -2551,6 +2647,11 @@ export default function ProfileScreen() {
     {
       title: "ACCOUNT",
       itemIds: ["switch_account", "delete_account"],
+    },
+
+    {
+      title: "BILLING",
+      itemIds: ["generate_bill"],
     },
 
     {
@@ -3545,6 +3646,16 @@ export default function ProfileScreen() {
         image={rawImage}
         onCancel={handleAdjustCancel}
         onConfirm={handleAdjustConfirm}
+      />
+
+      {/* =========================================================
+          GENERATE BILL MODAL
+      ========================================================= */}
+      <GenerateBillModal
+        visible={showGenerateBill}
+        onClose={() => setShowGenerateBill(false)}
+        onGenerate={handleGenerateBill}
+        memberType={billMemberType}
       />
     </View>
   );

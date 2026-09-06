@@ -2,6 +2,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
+  Alert,
   Image,
   Modal,
   Pressable,
@@ -16,7 +18,9 @@ import DatePickerModal from "../../components/DatePickerModal";
 import MonthYearPickerModal from "../../components/MonthYearPickerModal";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useGroups } from "../../hooks/useGroups";
+import { generateBillPDF, sharePDF } from "../../services/pdfGenerator";
 import { useAttendanceStore } from "../../store/attendanceStore";
+import { useBillStore } from "../../store/billStore";
 import { useMemberStore } from "../../store/memberStore";
 import { GroupType } from "../../types";
 
@@ -285,6 +289,9 @@ export default function PeopleScreen() {
   const [deductionNote, setDeductionNote] = useState("");
 
   const [refreshKey, setRefreshKey] = useState(0);
+
+  // Download bill states
+  const [generatingBill, setGeneratingBill] = useState<string | null>(null);
 
   useEffect(() => {
     if (tab === "apartment" || tab === "staff" || tab === "expense") {
@@ -609,6 +616,118 @@ export default function PeopleScreen() {
   };
 
   /* ================================================================
+   DOWNLOAD BILL - FIXED for your Account type
+=============================================================== */
+
+  const handleDownloadBill = async (member: any) => {
+    if (generatingBill) return;
+
+    try {
+      setGeneratingBill(member.id);
+
+      const month = selectedMonth || new Date().toISOString().slice(0, 7);
+      const monthlyPayment = getPaymentForMonth(member, month);
+
+      if (monthlyPayment.status !== "paid") {
+        Alert.alert(
+          "No Paid Bill",
+          "This member doesn't have a paid bill for this month. Please mark the payment as paid first.",
+        );
+        setGeneratingBill(null);
+        return;
+      }
+
+      // Get the bill template from store
+      const templates = useBillStore.getState().templates;
+      const selectedTemplate = templates[0] || {
+        id: "default",
+        name: "Default",
+        description: "Default template",
+        colors: {
+          primary: "#1a73e8",
+          secondary: "#34a853",
+          accent: "#fbbc04",
+          background: "#ffffff",
+          text: "#202124",
+          headerBg: "#1a73e8",
+          footerBg: "#f8f9fa",
+        },
+        fontFamily: "Roboto",
+        logoPosition: "top-left" as const,
+        showBorder: true,
+        borderColor: "#e0e0e0",
+        borderWidth: 1,
+        borderRadius: 8,
+        showWatermark: true,
+        watermarkText: "Society Management",
+      };
+
+      // Calculate base amount
+      const baseAmount = isApartment
+        ? member.maintenanceAmount || 0
+        : (() => {
+            const record = getAttendanceRecord(member.id, month);
+            return (
+              record?.payableSalary ??
+              getCalculatedStaffSalary(
+                member.monthlySalary || 0,
+                month,
+                record?.statuses || {},
+              )
+            );
+          })();
+
+      const additionalAmount = monthlyPayment.additionalAmount || 0;
+      const deductionAmount = monthlyPayment.deductionAmount || 0;
+      const netAmount = baseAmount + additionalAmount - deductionAmount;
+
+      // Generate bill number
+      const billNumber = `BILL-${member.id.slice(0, 4)}-${Date.now().toString().slice(-6)}`;
+
+      // Get society name from account or use default
+      const societyName = selectedAccount?.name || "Apartment Society";
+      const address = selectedAccount?.address || "Society Address";
+
+      // For phone and email, use defaults since Account type doesn't have these fields
+      const contactNumber = "+91 9876543210"; // Default contact number
+      const email = "society@example.com"; // Default email
+
+      const billData = {
+        billNumber,
+        apartmentName: member.wing || "Apartment",
+        address: address,
+        societyName: societyName,
+        contactNumber: contactNumber,
+        email: email,
+        memberName: member.name,
+        flatNumber: member.flatNumber || "",
+        amount: baseAmount,
+        month: formatMonthLong(month),
+        paidDate:
+          monthlyPayment.paidDate || new Date().toISOString().slice(0, 10),
+        additionalAmount: additionalAmount || undefined,
+        additionalNote: monthlyPayment.additionalNote,
+        deductionAmount: deductionAmount || undefined,
+        deductionNote: monthlyPayment.deductionNote,
+        netAmount,
+        signData: undefined,
+        template: selectedTemplate,
+        billType: isApartment ? ("maintenance" as const) : ("salary" as const),
+        staffRole: isStaff ? member.role : undefined,
+      };
+
+      const pdfUri = await generateBillPDF(billData);
+      await sharePDF(pdfUri, `Bill-${member.name}-${month}.pdf`);
+
+      setGeneratingBill(null);
+    } catch (error) {
+      console.error("Error generating bill:", error);
+      Alert.alert("Error", "Failed to generate bill. Please try again.");
+      setGeneratingBill(null);
+    }
+  };
+
+  /* ================================================================
      MONTH
   ================================================================ */
 
@@ -856,6 +975,8 @@ export default function PeopleScreen() {
                   snapshot.effectiveMonth === selectedMonth,
               );
 
+              const isPaidThisMonth = monthlyPaymentData.status === "paid";
+
               return (
                 <Pressable
                   key={`${member.id}-${refreshKey}`}
@@ -1091,6 +1212,41 @@ export default function PeopleScreen() {
 
                         <Text style={styles.paymentActionText}>Payment</Text>
                       </Pressable>
+
+                      {/* ==================================================
+                          DOWNLOAD BILL BUTTON - Only shows when PAID
+                      ================================================== */}
+                      {isPaidThisMonth && (
+                        <Pressable
+                          style={({ pressed }) => [
+                            styles.downloadAction,
+                            pressed && styles.actionPressed,
+                          ]}
+                          onPress={(event) => {
+                            event.stopPropagation();
+                            handleDownloadBill(member);
+                          }}
+                          disabled={generatingBill === member.id}
+                        >
+                          {generatingBill === member.id ? (
+                            <ActivityIndicator
+                              size="small"
+                              color={COLORS.primary}
+                            />
+                          ) : (
+                            <>
+                              <Ionicons
+                                name="download-outline"
+                                size={14}
+                                color={COLORS.primary}
+                              />
+                              <Text style={styles.downloadActionText}>
+                                Bill
+                              </Text>
+                            </>
+                          )}
+                        </Pressable>
+                      )}
                     </View>
                   )}
 
@@ -2045,7 +2201,9 @@ const styles = StyleSheet.create({
   actionButtons: {
     flexDirection: "row",
     alignItems: "center",
+    flexWrap: "wrap",
     marginTop: 9,
+    gap: 6,
   },
 
   secondaryAction: {
@@ -2054,7 +2212,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 10,
-    marginRight: 7,
     borderRadius: 9,
     backgroundColor: COLORS.primaryLight,
     borderWidth: 1,
@@ -2073,6 +2230,18 @@ const styles = StyleSheet.create({
     borderColor: COLORS.primarySoft,
   },
 
+  downloadAction: {
+    minHeight: 32,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 10,
+    borderRadius: 9,
+    backgroundColor: COLORS.successLight,
+    borderWidth: 1,
+    borderColor: COLORS.successBorder,
+  },
+
   actionPressed: {
     opacity: 0.65,
   },
@@ -2089,6 +2258,13 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "700",
     color: COLORS.primary,
+  },
+
+  downloadActionText: {
+    marginLeft: 5,
+    fontSize: 10,
+    fontWeight: "700",
+    color: COLORS.success,
   },
 
   /* HISTORY */

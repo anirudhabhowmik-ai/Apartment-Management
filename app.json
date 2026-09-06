@@ -7,9 +7,16 @@
     "icon": "./assets/images/icon.png",
     "scheme": "aikhata",
     "userInterfaceStyle": "automatic",
+
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSPhotoLibraryUsageDescription": "This app needs access to photos to upload profile pictures and bill attachments.",
+        "NSCameraUsageDescription": "This app needs access to camera to take photos for profile pictures and bill attachments.",
+        "NSContactsUsageDescription": "This app needs access to contacts to help you quickly add phone numbers."
+      }
     },
+
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
@@ -19,14 +26,23 @@
       },
       "softwareKeyboardLayoutMode": "resize",
       "predictiveBackGestureEnabled": false,
-      "package": "com.anonymous.aikhata"
+      "package": "com.anonymous.aikhata",
+      "permissions": [
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.CAMERA",
+        "android.permission.READ_CONTACTS"
+      ]
     },
+
     "web": {
       "output": "static",
       "favicon": "./assets/images/favicon.png"
     },
+
     "plugins": [
       "expo-router",
+
       [
         "expo-splash-screen",
         {
@@ -39,20 +55,53 @@
           }
         }
       ],
+
       "expo-status-bar",
       "expo-asset",
-      "expo-sharing"
+      "expo-sharing",
+
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true,
+            "minSdkVersion": 24,
+            "targetSdkVersion": 34
+          },
+          "ios": {
+            "deploymentTarget": "16.4"
+          }
+        }
+      ],
+
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "The app accesses your photos to let you upload profile pictures and bill attachments.",
+          "cameraPermission": "The app accesses your camera to let you take photos for profile pictures and bill attachments."
+        }
+      ],
+
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "The app accesses your contacts to help you quickly add phone numbers."
+        }
+      ]
     ],
+
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
     },
+
     "extra": {
       "router": {},
       "eas": {
         "projectId": "fcbcf0b3-e22c-4620-a25d-53e8fc0ec627"
       }
     },
+
     "owner": "anirudhabhowmiks-team"
   }
 }
