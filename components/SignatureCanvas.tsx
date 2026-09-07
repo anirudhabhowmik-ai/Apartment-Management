@@ -12,50 +12,23 @@ import {
   Switch,
   Text,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { SignatureData } from "../store/billStore";
 
-// ---------------------------------------------------------------------------
-// FIX #1 - "drawing disappears when finger is lifted":
-// The draw surface previously used PanResponder, which does its own JS-side
-// gesture negotiation. On Android, especially inside an overlay/Modal,
-// PanResponder is a known source of exactly this symptom: it can renegotiate
-// or drop the final release event, so the very last committed state update
-// gets lost right as the finger lifts. The fix used by most working RN
-// signature pads is to bypass that negotiation layer entirely and use React
-// Native's raw responder system directly (onStartShouldSetResponder /
-// onResponderMove / onResponderRelease) on the canvas view. There's no
-// negotiation step to desync from, so the state update on release is never
-// silently dropped.
-//
-// Also added: collapsable={false} on every view in the canvas subtree, and
-// renderToHardwareTextureAndroid on the canvas box - Android's automatic
-// view-flattening optimization is a second documented contributor to
-// signature/drawing surfaces visually "losing" their last frame right after
-// a gesture ends.
-//
-// FIX #2 - "crop screen not appearing after upload":
-// expo-image-picker's returned asset.width/height can be 0 or undefined on
-// some devices. When that happened, baseScale became Infinity and every
-// crop dimension became NaN, so the crop UI rendered with invalid/zero
-// size - effectively invisible, which looks exactly like "there's no crop
-// option". Fixed by confirming real image dimensions with Image.getSize()
-// before ever switching to the crop stage, showing a brief loading state,
-// and surfacing a real error if dimensions can't be read - so the crop
-// screen is now guaranteed to have valid geometry whenever it's shown.
-// ---------------------------------------------------------------------------
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
-const CANVAS_HEIGHT = 200;
-const STROKE_COLOR = "#0f172a";
-const STROKE_WIDTH = 3;
+// Draw canvas now spans nearly the full device width (card padding is
+// reduced specifically for this step - see cardDrawMode below) and is
+// taller, so it behaves like a real signing surface rather than a small box.
+const CANVAS_HEIGHT = Math.min(SCREEN_HEIGHT * 0.42, 420);
 
-const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const CROP_VIEWPORT_W = Math.min(SCREEN_WIDTH - 80, 320);
 const CROP_VIEWPORT_H = Math.round(CROP_VIEWPORT_W / 2.6);
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 4;
+const MIN_CROP_SIZE = 40;
 
 interface Point {
   x: number;
@@ -73,6 +46,13 @@ interface SignatureCanvasProps {
   onSave: (signature: SignatureData) => void;
   onCancel: () => void;
   existingSign?: SignatureData;
+}
+
+interface CropRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 function pointsToPath(points: Point[]): string {
@@ -98,8 +78,6 @@ function clampNumber(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
 
-// Reads the real pixel dimensions of a local image uri. Used as a safety
-// net whenever the picker doesn't give us usable width/height.
 function getImageDimensions(
   uri: string,
 ): Promise<{ width: number; height: number }> {
@@ -122,6 +100,10 @@ export default function SignatureCanvas({
   const [uploadStage, setUploadStage] = useState<"pick" | "loading" | "crop">(
     "pick",
   );
+  // false = "Adjust Photo" mode (pinch/drag the image). true = "Crop" mode
+  // (resize/move the crop rectangle). Only one of these can ever be active
+  // for touches at a time - see the two PanResponders below.
+  const [isCropMode, setIsCropMode] = useState(false);
 
   // ----- Draw state -----
   const [strokes, setStrokes] = useState<Point[][]>([]);
@@ -141,6 +123,19 @@ export default function SignatureCanvas({
   const [processingCrop, setProcessingCrop] = useState(false);
   const [cropError, setCropError] = useState("");
 
+  // Crop rectangle (in crop-viewport-local coordinates)
+  const [cropRect, setCropRect] = useState<CropRect>({
+    x: 0,
+    y: 0,
+    width: CROP_VIEWPORT_W * 0.7,
+    height: CROP_VIEWPORT_H * 0.7,
+  });
+  const [isDraggingCrop, setIsDraggingCrop] = useState(false);
+  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [dragStartRect, setDragStartRect] = useState<CropRect | null>(null);
+  const [isResizing, setIsResizing] = useState(false);
+  const [resizeHandle, setResizeHandle] = useState<string | null>(null);
+
   const resetAll = () => {
     setMode("draw");
     setUploadStage("pick");
@@ -153,6 +148,15 @@ export default function SignatureCanvas({
     setCropZoom(1);
     setCropTranslate({ x: 0, y: 0 });
     setCropError("");
+    setIsCropMode(false);
+    setCropRect({
+      x: 0,
+      y: 0,
+      width: CROP_VIEWPORT_W * 0.7,
+      height: CROP_VIEWPORT_H * 0.7,
+    });
+    setIsDraggingCrop(false);
+    setIsResizing(false);
   };
 
   const wasVisibleRef = useRef(false);
@@ -163,8 +167,21 @@ export default function SignatureCanvas({
     wasVisibleRef.current = visible;
   }, [visible]);
 
+  useEffect(() => {
+    if (rawImage && uploadStage === "crop") {
+      const cropW = Math.min(CROP_VIEWPORT_W * 0.7, rawImage.width * 0.8);
+      const cropH = Math.min(CROP_VIEWPORT_H * 0.7, rawImage.height * 0.8);
+      setCropRect({
+        x: (CROP_VIEWPORT_W - cropW) / 2,
+        y: (CROP_VIEWPORT_H - cropH) / 2,
+        width: cropW,
+        height: cropH,
+      });
+    }
+  }, [rawImage, uploadStage]);
+
   // ------------------------------------------------------------------
-  // Draw tab - raw responder system (no PanResponder) for reliability
+  // Draw tab - raw responder system
   // ------------------------------------------------------------------
   const handleDrawStart = (evt: GestureResponderEvent) => {
     const { locationX, locationY } = evt.nativeEvent;
@@ -185,10 +202,6 @@ export default function SignatureCanvas({
   };
 
   const handleDrawEnd = () => {
-    // Commit the finished stroke into a fresh array reference so the
-    // final render is guaranteed to reflect every point that was recorded,
-    // even if the last onResponderMove and onResponderRelease landed in
-    // the same event loop tick.
     const finished = currentStrokeRef.current;
     currentStrokeRef.current = [];
     if (finished.length > 0) {
@@ -222,7 +235,7 @@ export default function SignatureCanvas({
     const svgMarkup = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${canvasSize.width} ${canvasSize.height}">${drawPathData
       .map(
         (d) =>
-          `<path d="${d}" stroke="${STROKE_COLOR}" stroke-width="${STROKE_WIDTH}" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`,
+          `<path d="${d}" stroke="#0f172a" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`,
       )
       .join("")}</svg>`;
 
@@ -235,7 +248,7 @@ export default function SignatureCanvas({
   };
 
   // ------------------------------------------------------------------
-  // Upload tab: pick stage (Take Photo / Choose from Gallery)
+  // Upload tab: pick stage
   // ------------------------------------------------------------------
   const proceedToCrop = async (
     uri: string,
@@ -248,9 +261,6 @@ export default function SignatureCanvas({
       let width = pickerWidth ?? 0;
       let height = pickerHeight ?? 0;
 
-      // Safety net: if the picker didn't give us usable dimensions,
-      // measure the actual file. This is what guarantees the crop screen
-      // never renders with broken/invisible geometry.
       if (!width || !height) {
         const measured = await getImageDimensions(uri);
         width = measured.width;
@@ -264,6 +274,7 @@ export default function SignatureCanvas({
       setRawImage({ uri, width, height });
       setCropZoom(1);
       setCropTranslate({ x: 0, y: 0 });
+      setIsCropMode(false);
       setUploadStage("crop");
     } catch (err: any) {
       console.error("Failed to prepare image for cropping:", err);
@@ -324,8 +335,9 @@ export default function SignatureCanvas({
   };
 
   // ------------------------------------------------------------------
-  // Upload tab: crop stage - pinch-to-zoom, drag-to-reposition, then
-  // "Transparent Background" toggle applied at PDF-render time.
+  // Adjust-photo (pinch/drag) responder - only active when isCropMode is
+  // false. When isCropMode is true, this responder never claims the
+  // gesture, so the photo is fully locked in place while cropping.
   // ------------------------------------------------------------------
   const baseScale =
     rawImage && rawImage.width > 0 && rawImage.height > 0
@@ -342,10 +354,12 @@ export default function SignatureCanvas({
   const translateRef = useRef(cropTranslate);
   const imageRef = useRef(rawImage);
   const baseScaleRef = useRef(baseScale);
+  const isCropModeRef = useRef(isCropMode);
   zoomRef.current = cropZoom;
   translateRef.current = cropTranslate;
   imageRef.current = rawImage;
   baseScaleRef.current = baseScale;
+  isCropModeRef.current = isCropMode;
 
   const clampTranslateFromRefs = (
     t: { x: number; y: number },
@@ -364,7 +378,7 @@ export default function SignatureCanvas({
     };
   };
 
-  type CropGesture =
+  type AdjustGesture =
     | {
         mode: "pinch";
         touchIds: [number, number];
@@ -378,7 +392,7 @@ export default function SignatureCanvas({
         startTranslate: Point;
       };
 
-  const cropGestureRef = useRef<CropGesture | null>(null);
+  const adjustGestureRef = useRef<AdjustGesture | null>(null);
 
   const sortedTouches = (touches: any[]) =>
     [...touches]
@@ -389,46 +403,52 @@ export default function SignatureCanvas({
       }))
       .sort((a, b) => a.identifier - b.identifier);
 
-  const beginCropGesture = (touches: any[]) => {
+  const beginAdjustGesture = (touches: any[]) => {
     const pts = sortedTouches(touches);
     if (pts.length >= 2) {
       const [a, b] = pts;
-      cropGestureRef.current = {
+      adjustGestureRef.current = {
         mode: "pinch",
         touchIds: [a.identifier, b.identifier],
         startDistance: getTouchDistance(pts as any),
         startZoom: zoomRef.current,
       };
     } else if (pts.length === 1) {
-      cropGestureRef.current = {
+      adjustGestureRef.current = {
         mode: "pan",
         touchId: pts[0].identifier,
         startTouch: { x: pts[0].pageX, y: pts[0].pageY },
         startTranslate: { ...translateRef.current },
       };
     } else {
-      cropGestureRef.current = null;
+      adjustGestureRef.current = null;
     }
   };
 
-  const cropPanResponder = useRef(
+  const imagePanResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onStartShouldSetPanResponderCapture: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponderCapture: () => true,
+      // These gate on the LIVE ref, not the closed-over `isCropMode` value,
+      // so flipping the toggle mid-session is respected immediately without
+      // needing to recreate the responder.
+      onStartShouldSetPanResponder: () => !isCropModeRef.current,
+      onStartShouldSetPanResponderCapture: () => !isCropModeRef.current,
+      onMoveShouldSetPanResponder: () => !isCropModeRef.current,
+      onMoveShouldSetPanResponderCapture: () => !isCropModeRef.current,
       onPanResponderTerminationRequest: () => false,
       onShouldBlockNativeResponder: () => true,
-      onPanResponderGrant: (evt: GestureResponderEvent) =>
-        beginCropGesture(evt.nativeEvent.touches),
+      onPanResponderGrant: (evt: GestureResponderEvent) => {
+        if (isCropModeRef.current) return;
+        beginAdjustGesture(evt.nativeEvent.touches);
+      },
       onPanResponderMove: (evt: GestureResponderEvent) => {
+        if (isCropModeRef.current) return;
         const touches = evt.nativeEvent.touches;
-        const g = cropGestureRef.current;
+        const g = adjustGestureRef.current;
         const expected = g?.mode === "pinch" ? 2 : g?.mode === "pan" ? 1 : 0;
         if (touches.length > 0 && touches.length !== expected)
-          beginCropGesture(touches);
+          beginAdjustGesture(touches);
 
-        const gesture = cropGestureRef.current;
+        const gesture = adjustGestureRef.current;
         if (!gesture) return;
 
         if (gesture.mode === "pinch" && touches.length >= 2) {
@@ -463,9 +483,10 @@ export default function SignatureCanvas({
         }
       },
       onPanResponderRelease: (evt: GestureResponderEvent) => {
+        if (isCropModeRef.current) return;
         const remaining = evt.nativeEvent.touches;
-        if (remaining.length > 0) beginCropGesture(remaining);
-        else cropGestureRef.current = null;
+        if (remaining.length > 0) beginAdjustGesture(remaining);
+        else adjustGestureRef.current = null;
         const clamped = clampTranslateFromRefs(
           translateRef.current,
           zoomRef.current,
@@ -474,7 +495,316 @@ export default function SignatureCanvas({
         setCropTranslate(clamped);
       },
       onPanResponderTerminate: () => {
+        adjustGestureRef.current = null;
+      },
+    }),
+  ).current;
+
+  // ------------------------------------------------------------------
+  // Crop-box responder - only active when isCropMode is true. Resizes or
+  // moves the crop rectangle; never touches the image's zoom/position.
+  // ------------------------------------------------------------------
+  const cropRectRef = useRef(cropRect);
+  cropRectRef.current = cropRect;
+
+  // Crop-box gesture responder.
+  // IMPORTANT: this responder is attached to a full-screen transparent layer
+  // inside the crop viewport.  The old implementation attached the responder
+  // only to a rectangle around the crop box, which made the resize handles
+  // unreliable on Android.  We now detect the handle ourselves and keep the
+  // active gesture in refs so Android does not lose the resize state between
+  // touch events.
+  type CropGesture = {
+    type: "resize" | "move";
+    handle: string | null;
+    startTouch: Point;
+    startRect: CropRect;
+  };
+
+  const cropGestureRef = useRef<CropGesture | null>(null);
+
+  const getCropHandleAtPoint = (x: number, y: number, rect: CropRect) => {
+    // Large hit radius makes the small visual handles easy to grab on phones.
+    const radius = 32;
+    const handles: Record<string, Point> = {
+      tl: { x: rect.x, y: rect.y },
+      tr: { x: rect.x + rect.width, y: rect.y },
+      bl: { x: rect.x, y: rect.y + rect.height },
+      br: { x: rect.x + rect.width, y: rect.y + rect.height },
+      top: { x: rect.x + rect.width / 2, y: rect.y },
+      bottom: { x: rect.x + rect.width / 2, y: rect.y + rect.height },
+      left: { x: rect.x, y: rect.y + rect.height / 2 },
+      right: { x: rect.x + rect.width, y: rect.y + rect.height / 2 },
+    };
+
+    // Corners first so they win when their hit areas overlap an edge handle.
+    const cornerOrder = ["tl", "tr", "bl", "br"];
+    for (const key of cornerOrder) {
+      const point = handles[key];
+      if (Math.hypot(x - point.x, y - point.y) <= radius) return key;
+    }
+
+    const edgeRadius = 28;
+    const edgeChecks: Array<[string, boolean]> = [
+      [
+        "top",
+        Math.abs(y - rect.y) <= edgeRadius &&
+          x >= rect.x - edgeRadius &&
+          x <= rect.x + rect.width + edgeRadius,
+      ],
+      [
+        "bottom",
+        Math.abs(y - (rect.y + rect.height)) <= edgeRadius &&
+          x >= rect.x - edgeRadius &&
+          x <= rect.x + rect.width + edgeRadius,
+      ],
+      [
+        "left",
+        Math.abs(x - rect.x) <= edgeRadius &&
+          y >= rect.y - edgeRadius &&
+          y <= rect.y + rect.height + edgeRadius,
+      ],
+      [
+        "right",
+        Math.abs(x - (rect.x + rect.width)) <= edgeRadius &&
+          y >= rect.y - edgeRadius &&
+          y <= rect.y + rect.height + edgeRadius,
+      ],
+    ];
+
+    for (const [key, hit] of edgeChecks) {
+      if (hit) return key;
+    }
+
+    return null;
+  };
+
+  const cropBoxPanResponder = useRef(
+    PanResponder.create({
+      onStartShouldSetPanResponder: (evt) => {
+        if (!isCropModeRef.current) return false;
+
+        const { locationX, locationY } = evt.nativeEvent;
+        const rect = cropRectRef.current;
+        const handle = getCropHandleAtPoint(locationX, locationY, rect);
+
+        const inside =
+          locationX >= rect.x &&
+          locationX <= rect.x + rect.width &&
+          locationY >= rect.y &&
+          locationY <= rect.y + rect.height;
+
+        return handle !== null || inside;
+      },
+
+      onStartShouldSetPanResponderCapture: (evt) => {
+        if (!isCropModeRef.current) return false;
+
+        const { locationX, locationY } = evt.nativeEvent;
+        const rect = cropRectRef.current;
+        const handle = getCropHandleAtPoint(locationX, locationY, rect);
+
+        const inside =
+          locationX >= rect.x &&
+          locationX <= rect.x + rect.width &&
+          locationY >= rect.y &&
+          locationY <= rect.y + rect.height;
+
+        return handle !== null || inside;
+      },
+
+      onMoveShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponderCapture: () => false,
+      onPanResponderTerminationRequest: () => false,
+      onShouldBlockNativeResponder: () => true,
+
+      onPanResponderGrant: (evt) => {
+        if (!isCropModeRef.current) return;
+
+        const { locationX, locationY } = evt.nativeEvent;
+        const rect = { ...cropRectRef.current };
+        const handle = getCropHandleAtPoint(locationX, locationY, rect);
+
+        const inside =
+          locationX >= rect.x &&
+          locationX <= rect.x + rect.width &&
+          locationY >= rect.y &&
+          locationY <= rect.y + rect.height;
+
+        if (handle) {
+          cropGestureRef.current = {
+            type: "resize",
+            handle,
+            startTouch: { x: locationX, y: locationY },
+            startRect: rect,
+          };
+          setResizeHandle(handle);
+          setIsResizing(true);
+          setIsDraggingCrop(false);
+        } else if (inside) {
+          cropGestureRef.current = {
+            type: "move",
+            handle: null,
+            startTouch: { x: locationX, y: locationY },
+            startRect: rect,
+          };
+          setIsDraggingCrop(true);
+          setIsResizing(false);
+          setResizeHandle(null);
+        } else {
+          cropGestureRef.current = null;
+        }
+      },
+
+      onPanResponderMove: (evt) => {
+        if (!isCropModeRef.current) return;
+
+        const gesture = cropGestureRef.current;
+        if (!gesture) return;
+
+        const { locationX, locationY } = evt.nativeEvent;
+        const dx = locationX - gesture.startTouch.x;
+        const dy = locationY - gesture.startTouch.y;
+        const rect = gesture.startRect;
+        let next = { ...rect };
+
+        if (gesture.type === "resize" && gesture.handle) {
+          const handle = gesture.handle;
+          const right = rect.x + rect.width;
+          const bottom = rect.y + rect.height;
+
+          switch (handle) {
+            case "tl": {
+              const newX = clampNumber(rect.x + dx, 0, right - MIN_CROP_SIZE);
+              const newY = clampNumber(rect.y + dy, 0, bottom - MIN_CROP_SIZE);
+              next = {
+                x: newX,
+                y: newY,
+                width: right - newX,
+                height: bottom - newY,
+              };
+              break;
+            }
+            case "tr": {
+              const newRight = clampNumber(
+                right + dx,
+                rect.x + MIN_CROP_SIZE,
+                CROP_VIEWPORT_W,
+              );
+              const newY = clampNumber(rect.y + dy, 0, bottom - MIN_CROP_SIZE);
+              next = {
+                x: rect.x,
+                y: newY,
+                width: newRight - rect.x,
+                height: bottom - newY,
+              };
+              break;
+            }
+            case "bl": {
+              const newX = clampNumber(rect.x + dx, 0, right - MIN_CROP_SIZE);
+              const newBottom = clampNumber(
+                bottom + dy,
+                rect.y + MIN_CROP_SIZE,
+                CROP_VIEWPORT_H,
+              );
+              next = {
+                x: newX,
+                y: rect.y,
+                width: right - newX,
+                height: newBottom - rect.y,
+              };
+              break;
+            }
+            case "br": {
+              const newRight = clampNumber(
+                right + dx,
+                rect.x + MIN_CROP_SIZE,
+                CROP_VIEWPORT_W,
+              );
+              const newBottom = clampNumber(
+                bottom + dy,
+                rect.y + MIN_CROP_SIZE,
+                CROP_VIEWPORT_H,
+              );
+              next = {
+                x: rect.x,
+                y: rect.y,
+                width: newRight - rect.x,
+                height: newBottom - rect.y,
+              };
+              break;
+            }
+            case "top": {
+              const newY = clampNumber(rect.y + dy, 0, bottom - MIN_CROP_SIZE);
+              next = {
+                x: rect.x,
+                y: newY,
+                width: rect.width,
+                height: bottom - newY,
+              };
+              break;
+            }
+            case "bottom": {
+              const newBottom = clampNumber(
+                bottom + dy,
+                rect.y + MIN_CROP_SIZE,
+                CROP_VIEWPORT_H,
+              );
+              next = {
+                x: rect.x,
+                y: rect.y,
+                width: rect.width,
+                height: newBottom - rect.y,
+              };
+              break;
+            }
+            case "left": {
+              const newX = clampNumber(rect.x + dx, 0, right - MIN_CROP_SIZE);
+              next = {
+                x: newX,
+                y: rect.y,
+                width: right - newX,
+                height: rect.height,
+              };
+              break;
+            }
+            case "right": {
+              const newRight = clampNumber(
+                right + dx,
+                rect.x + MIN_CROP_SIZE,
+                CROP_VIEWPORT_W,
+              );
+              next = {
+                x: rect.x,
+                y: rect.y,
+                width: newRight - rect.x,
+                height: rect.height,
+              };
+              break;
+            }
+          }
+        } else {
+          // Moving the complete crop rectangle.
+          next.x = clampNumber(rect.x + dx, 0, CROP_VIEWPORT_W - rect.width);
+          next.y = clampNumber(rect.y + dy, 0, CROP_VIEWPORT_H - rect.height);
+        }
+
+        cropRectRef.current = next;
+        setCropRect(next);
+      },
+
+      onPanResponderRelease: () => {
         cropGestureRef.current = null;
+        setIsDraggingCrop(false);
+        setIsResizing(false);
+        setResizeHandle(null);
+      },
+
+      onPanResponderTerminate: () => {
+        cropGestureRef.current = null;
+        setIsDraggingCrop(false);
+        setIsResizing(false);
+        setResizeHandle(null);
       },
     }),
   ).current;
@@ -483,6 +813,7 @@ export default function SignatureCanvas({
     setRawImage(null);
     setUploadStage("pick");
     setCropError("");
+    setIsCropMode(false);
   };
 
   const handleConfirmCrop = async () => {
@@ -491,25 +822,31 @@ export default function SignatureCanvas({
     setProcessingCrop(true);
     try {
       const scale = baseScale * cropZoom;
-      const cropW = CROP_VIEWPORT_W / scale;
-      const cropH = CROP_VIEWPORT_H / scale;
 
-      let originX =
-        rawImage.width / 2 -
-        CROP_VIEWPORT_W / (2 * scale) -
-        cropTranslate.x / scale;
-      let originY =
-        rawImage.height / 2 -
-        CROP_VIEWPORT_H / (2 * scale) -
-        cropTranslate.y / scale;
+      const cropX =
+        (cropRect.x -
+          CROP_VIEWPORT_W / 2 +
+          displayWidth / 2 -
+          cropTranslate.x) /
+        scale;
+      const cropY =
+        (cropRect.y -
+          CROP_VIEWPORT_H / 2 +
+          displayHeight / 2 -
+          cropTranslate.y) /
+        scale;
+      const cropW = cropRect.width / scale;
+      const cropH = cropRect.height / scale;
 
-      originX = clampNumber(originX, 0, Math.max(0, rawImage.width - cropW));
-      originY = clampNumber(originY, 0, Math.max(0, rawImage.height - cropH));
+      const originX = clampNumber(cropX, 0, rawImage.width - cropW);
+      const originY = clampNumber(cropY, 0, rawImage.height - cropH);
+      const finalW = Math.min(cropW, rawImage.width - originX);
+      const finalH = Math.min(cropH, rawImage.height - originY);
 
       const result = await ImageManipulator.manipulateAsync(
         rawImage.uri,
         [
-          { crop: { originX, originY, width: cropW, height: cropH } },
+          { crop: { originX, originY, width: finalW, height: finalH } },
           { resize: { width: 900 } },
         ],
         { compress: 0.9, format: ImageManipulator.SaveFormat.PNG },
@@ -531,63 +868,70 @@ export default function SignatureCanvas({
   return (
     <View style={sigStyles.overlay} collapsable={false}>
       <View style={sigStyles.backdrop}>
-        <View style={sigStyles.card}>
-          <Text style={sigStyles.title}>Secretary Signature</Text>
-          <Text style={sigStyles.subtitle}>
-            Appears on every generated bill
-          </Text>
+        <View
+          style={[sigStyles.card, mode === "draw" && sigStyles.cardDrawMode]}
+        >
+          <View style={mode === "draw" ? sigStyles.headerPadded : undefined}>
+            <Text style={sigStyles.title}>Secretary Signature</Text>
+            <Text style={sigStyles.subtitle}>
+              Appears on every generated bill
+            </Text>
 
-          <View style={sigStyles.modeSwitcher}>
-            <TouchableOpacity
-              style={[
-                sigStyles.modeButton,
-                mode === "draw" && sigStyles.modeButtonActive,
-              ]}
-              onPress={() => setMode("draw")}
-              activeOpacity={0.8}
-            >
-              <Ionicons
-                name="create-outline"
-                size={15}
-                color={mode === "draw" ? "#1a73e8" : "#94a3b8"}
-              />
-              <Text
+            <View style={sigStyles.modeSwitcher}>
+              <TouchableOpacity
                 style={[
-                  sigStyles.modeButtonText,
-                  mode === "draw" && sigStyles.modeButtonTextActive,
+                  sigStyles.modeButton,
+                  mode === "draw" && sigStyles.modeButtonActive,
                 ]}
+                onPress={() => setMode("draw")}
+                activeOpacity={0.8}
               >
-                Draw
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                sigStyles.modeButton,
-                mode === "upload" && sigStyles.modeButtonActive,
-              ]}
-              onPress={() => setMode("upload")}
-              activeOpacity={0.8}
-            >
-              <Ionicons
-                name="image-outline"
-                size={15}
-                color={mode === "upload" ? "#1a73e8" : "#94a3b8"}
-              />
-              <Text
+                <Ionicons
+                  name="create-outline"
+                  size={15}
+                  color={mode === "draw" ? "#1a73e8" : "#94a3b8"}
+                />
+                <Text
+                  style={[
+                    sigStyles.modeButtonText,
+                    mode === "draw" && sigStyles.modeButtonTextActive,
+                  ]}
+                >
+                  Draw
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
                 style={[
-                  sigStyles.modeButtonText,
-                  mode === "upload" && sigStyles.modeButtonTextActive,
+                  sigStyles.modeButton,
+                  mode === "upload" && sigStyles.modeButtonActive,
                 ]}
+                onPress={() => setMode("upload")}
+                activeOpacity={0.8}
               >
-                Upload
-              </Text>
-            </TouchableOpacity>
+                <Ionicons
+                  name="image-outline"
+                  size={15}
+                  color={mode === "upload" ? "#1a73e8" : "#94a3b8"}
+                />
+                <Text
+                  style={[
+                    sigStyles.modeButtonText,
+                    mode === "upload" && sigStyles.modeButtonTextActive,
+                  ]}
+                >
+                  Upload
+                </Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           {mode === "draw" && (
             <>
               <View
-                style={sigStyles.canvasBox}
+                style={[
+                  sigStyles.canvasBox,
+                  { width: "100%", height: CANVAS_HEIGHT },
+                ]}
                 collapsable={false}
                 renderToHardwareTextureAndroid
                 onLayout={(e) => {
@@ -623,8 +967,8 @@ export default function SignatureCanvas({
                       <Path
                         key={i}
                         d={d}
-                        stroke={STROKE_COLOR}
-                        strokeWidth={STROKE_WIDTH}
+                        stroke="#0f172a"
+                        strokeWidth={3.5}
                         strokeLinecap="round"
                         strokeLinejoin="round"
                         fill="none"
@@ -641,79 +985,81 @@ export default function SignatureCanvas({
                 )}
               </View>
 
-              {drawError ? (
-                <View style={sigStyles.errorContainer}>
-                  <Ionicons name="alert-circle" size={14} color="#dc2626" />
-                  <Text style={sigStyles.errorText}>{drawError}</Text>
+              <View style={sigStyles.footerPadded}>
+                {drawError ? (
+                  <View style={sigStyles.errorContainer}>
+                    <Ionicons name="alert-circle" size={14} color="#dc2626" />
+                    <Text style={sigStyles.errorText}>{drawError}</Text>
+                  </View>
+                ) : (
+                  <Text style={sigStyles.hintText}>
+                    Sign above the line, then tap Save
+                  </Text>
+                )}
+
+                <View style={sigStyles.toolRow}>
+                  <TouchableOpacity
+                    style={sigStyles.toolButton}
+                    onPress={handleUndo}
+                    disabled={strokes.length === 0}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons
+                      name="arrow-undo"
+                      size={16}
+                      color={strokes.length === 0 ? "#cbd5e1" : "#475569"}
+                    />
+                    <Text
+                      style={[
+                        sigStyles.toolButtonText,
+                        strokes.length === 0 && { color: "#cbd5e1" },
+                      ]}
+                    >
+                      Undo
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={sigStyles.toolButton}
+                    onPress={handleClear}
+                    disabled={!hasDrawing}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons
+                      name="refresh"
+                      size={16}
+                      color={!hasDrawing ? "#cbd5e1" : "#475569"}
+                    />
+                    <Text
+                      style={[
+                        sigStyles.toolButtonText,
+                        !hasDrawing && { color: "#cbd5e1" },
+                      ]}
+                    >
+                      Clear
+                    </Text>
+                  </TouchableOpacity>
                 </View>
-              ) : (
-                <Text style={sigStyles.hintText}>
-                  Sign above the line, then tap Save
-                </Text>
-              )}
 
-              <View style={sigStyles.toolRow}>
-                <TouchableOpacity
-                  style={sigStyles.toolButton}
-                  onPress={handleUndo}
-                  disabled={strokes.length === 0}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons
-                    name="arrow-undo"
-                    size={15}
-                    color={strokes.length === 0 ? "#cbd5e1" : "#475569"}
-                  />
-                  <Text
-                    style={[
-                      sigStyles.toolButtonText,
-                      strokes.length === 0 && { color: "#cbd5e1" },
-                    ]}
+                <View style={sigStyles.actionRow}>
+                  <TouchableOpacity
+                    style={sigStyles.cancelButton}
+                    onPress={onCancel}
+                    activeOpacity={0.8}
                   >
-                    Undo
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={sigStyles.toolButton}
-                  onPress={handleClear}
-                  disabled={!hasDrawing}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons
-                    name="refresh"
-                    size={15}
-                    color={!hasDrawing ? "#cbd5e1" : "#475569"}
-                  />
-                  <Text
+                    <Text style={sigStyles.cancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
                     style={[
-                      sigStyles.toolButtonText,
-                      !hasDrawing && { color: "#cbd5e1" },
+                      sigStyles.saveButton,
+                      !hasDrawing && sigStyles.saveButtonDisabled,
                     ]}
+                    onPress={handleSaveDrawing}
+                    activeOpacity={0.85}
                   >
-                    Clear
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              <View style={sigStyles.actionRow}>
-                <TouchableOpacity
-                  style={sigStyles.cancelButton}
-                  onPress={onCancel}
-                  activeOpacity={0.8}
-                >
-                  <Text style={sigStyles.cancelText}>Cancel</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    sigStyles.saveButton,
-                    !hasDrawing && sigStyles.saveButtonDisabled,
-                  ]}
-                  onPress={handleSaveDrawing}
-                  activeOpacity={0.85}
-                >
-                  <Ionicons name="checkmark" size={18} color="#fff" />
-                  <Text style={sigStyles.saveText}>Save Signature</Text>
-                </TouchableOpacity>
+                    <Ionicons name="checkmark" size={18} color="#fff" />
+                    <Text style={sigStyles.saveText}>Save Signature</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             </>
           )}
@@ -787,6 +1133,58 @@ export default function SignatureCanvas({
 
           {mode === "upload" && uploadStage === "crop" && rawImage && (
             <>
+              <View style={sigStyles.cropModeSwitcher}>
+                <TouchableOpacity
+                  style={[
+                    sigStyles.cropModeButton,
+                    !isCropMode && sigStyles.cropModeButtonActive,
+                  ]}
+                  onPress={() => setIsCropMode(false)}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons
+                    name="move-outline"
+                    size={15}
+                    color={!isCropMode ? "#1a73e8" : "#94a3b8"}
+                  />
+                  <Text
+                    style={[
+                      sigStyles.cropModeButtonText,
+                      !isCropMode && sigStyles.cropModeButtonTextActive,
+                    ]}
+                  >
+                    Adjust Photo
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    sigStyles.cropModeButton,
+                    isCropMode && sigStyles.cropModeButtonActive,
+                  ]}
+                  onPress={() => setIsCropMode(true)}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons
+                    name="crop"
+                    size={15}
+                    color={isCropMode ? "#1a73e8" : "#94a3b8"}
+                  />
+                  <Text
+                    style={[
+                      sigStyles.cropModeButtonText,
+                      isCropMode && sigStyles.cropModeButtonTextActive,
+                    ]}
+                  >
+                    Crop
+                  </Text>
+                </TouchableOpacity>
+              </View>
+              <Text style={sigStyles.cropModeHint}>
+                {isCropMode
+                  ? "Drag the corners or edges to resize the crop box. The photo is locked."
+                  : "Pinch with two fingers to zoom • Drag to reposition the photo"}
+              </Text>
+
               <View style={sigStyles.cropViewportWrapper}>
                 <View
                   style={[
@@ -794,34 +1192,182 @@ export default function SignatureCanvas({
                     { width: CROP_VIEWPORT_W, height: CROP_VIEWPORT_H },
                   ]}
                   collapsable={false}
-                  {...cropPanResponder.panHandlers}
                 >
-                  <Image
-                    source={{ uri: rawImage.uri }}
-                    style={{
-                      position: "absolute",
-                      width: displayWidth,
-                      height: displayHeight,
-                      left:
-                        CROP_VIEWPORT_W / 2 -
-                        displayWidth / 2 +
-                        cropTranslate.x,
-                      top:
-                        CROP_VIEWPORT_H / 2 -
-                        displayHeight / 2 +
-                        cropTranslate.y,
-                    }}
-                    resizeMode="cover"
-                  />
                   <View
-                    style={sigStyles.cropGuideBorder}
-                    pointerEvents="none"
-                  />
+                    style={StyleSheet.absoluteFill}
+                    {...imagePanResponder.panHandlers}
+                  >
+                    <Image
+                      source={{ uri: rawImage.uri }}
+                      style={{
+                        position: "absolute",
+                        width: displayWidth,
+                        height: displayHeight,
+                        left:
+                          CROP_VIEWPORT_W / 2 -
+                          displayWidth / 2 +
+                          cropTranslate.x,
+                        top:
+                          CROP_VIEWPORT_H / 2 -
+                          displayHeight / 2 +
+                          cropTranslate.y,
+                      }}
+                      resizeMode="cover"
+                    />
+                  </View>
+
+                  {isCropMode && (
+                    <>
+                      <View style={sigStyles.cropOverlay} pointerEvents="none">
+                        <View
+                          style={[
+                            sigStyles.cropOverlaySection,
+                            { height: cropRect.y },
+                          ]}
+                        />
+                        <View style={sigStyles.cropOverlayMiddle}>
+                          <View style={{ width: cropRect.x, flex: 1 }} />
+                          <View
+                            style={{
+                              width: cropRect.width,
+                              height: cropRect.height,
+                            }}
+                          />
+                          <View style={{ flex: 1 }} />
+                        </View>
+                        <View
+                          style={[
+                            sigStyles.cropOverlaySection,
+                            {
+                              height:
+                                CROP_VIEWPORT_H - cropRect.y - cropRect.height,
+                            },
+                          ]}
+                        />
+                      </View>
+
+                      <View
+                        style={[
+                          sigStyles.cropBoxBorder,
+                          {
+                            left: cropRect.x,
+                            top: cropRect.y,
+                            width: cropRect.width,
+                            height: cropRect.height,
+                          },
+                        ]}
+                        pointerEvents="none"
+                      />
+
+                      {/* Full viewport gesture layer. The responder itself decides
+                          whether the finger is on a resize handle or inside the
+                          crop box. This is much more reliable on Android than a
+                          small transparent touch-area view. */}
+                      <View
+                        style={sigStyles.cropGestureLayer}
+                        {...cropBoxPanResponder.panHandlers}
+                      />
+
+                      {/* Corner handles */}
+                      <View
+                        style={[
+                          sigStyles.resizeHandle,
+                          sigStyles.resizeHandleCorner,
+                          { left: cropRect.x - 10, top: cropRect.y - 10 },
+                        ]}
+                        pointerEvents="none"
+                      />
+                      <View
+                        style={[
+                          sigStyles.resizeHandle,
+                          sigStyles.resizeHandleCorner,
+                          {
+                            left: cropRect.x + cropRect.width - 10,
+                            top: cropRect.y - 10,
+                          },
+                        ]}
+                        pointerEvents="none"
+                      />
+                      <View
+                        style={[
+                          sigStyles.resizeHandle,
+                          sigStyles.resizeHandleCorner,
+                          {
+                            left: cropRect.x - 10,
+                            top: cropRect.y + cropRect.height - 10,
+                          },
+                        ]}
+                        pointerEvents="none"
+                      />
+                      <View
+                        style={[
+                          sigStyles.resizeHandle,
+                          sigStyles.resizeHandleCorner,
+                          {
+                            left: cropRect.x + cropRect.width - 10,
+                            top: cropRect.y + cropRect.height - 10,
+                          },
+                        ]}
+                        pointerEvents="none"
+                      />
+
+                      {/* Edge handles */}
+                      <View
+                        style={[
+                          sigStyles.resizeHandle,
+                          sigStyles.resizeHandleEdge,
+                          {
+                            left: cropRect.x + cropRect.width / 2 - 8,
+                            top: cropRect.y - 8,
+                          },
+                        ]}
+                        pointerEvents="none"
+                      />
+                      <View
+                        style={[
+                          sigStyles.resizeHandle,
+                          sigStyles.resizeHandleEdge,
+                          {
+                            left: cropRect.x + cropRect.width / 2 - 8,
+                            top: cropRect.y + cropRect.height - 8,
+                          },
+                        ]}
+                        pointerEvents="none"
+                      />
+                      <View
+                        style={[
+                          sigStyles.resizeHandle,
+                          sigStyles.resizeHandleEdge,
+                          {
+                            left: cropRect.x - 8,
+                            top: cropRect.y + cropRect.height / 2 - 8,
+                          },
+                        ]}
+                        pointerEvents="none"
+                      />
+                      <View
+                        style={[
+                          sigStyles.resizeHandle,
+                          sigStyles.resizeHandleEdge,
+                          {
+                            left: cropRect.x + cropRect.width - 8,
+                            top: cropRect.y + cropRect.height / 2 - 8,
+                          },
+                        ]}
+                        pointerEvents="none"
+                      />
+                    </>
+                  )}
+
+                  {!isCropMode && (
+                    <View style={sigStyles.zoomBadge} pointerEvents="none">
+                      <Text style={sigStyles.zoomBadgeText}>
+                        {Math.round(cropZoom * 100)}%
+                      </Text>
+                    </View>
+                  )}
                 </View>
               </View>
-              <Text style={sigStyles.hintText}>
-                Pinch with two fingers to zoom • Drag to reposition
-              </Text>
 
               <View style={sigStyles.transparentRow}>
                 <View style={{ flex: 1 }}>
@@ -888,7 +1434,7 @@ const sigStyles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.55)",
     justifyContent: "center",
     alignItems: "center",
-    paddingHorizontal: 20,
+    paddingHorizontal: 12,
   },
   card: {
     backgroundColor: "#ffffff",
@@ -897,6 +1443,15 @@ const sigStyles = StyleSheet.create({
     width: "100%",
     maxWidth: 440,
   },
+  // While drawing, shrink the card's own side padding so the canvas can
+  // stretch to nearly the full device width - the header/footer keep the
+  // normal padding for readability, only the canvas bleeds wide.
+  cardDrawMode: {
+    paddingHorizontal: 8,
+  },
+  headerPadded: { paddingHorizontal: 12 },
+  footerPadded: { paddingHorizontal: 12, marginTop: 10 },
+
   title: { fontSize: 17, fontWeight: "800", color: "#0f172a" },
   subtitle: {
     fontSize: 12.5,
@@ -910,7 +1465,7 @@ const sigStyles = StyleSheet.create({
     backgroundColor: "#f1f5f9",
     borderRadius: 12,
     padding: 4,
-    marginBottom: 16,
+    marginBottom: 4,
     gap: 4,
   },
   modeButton: {
@@ -930,51 +1485,44 @@ const sigStyles = StyleSheet.create({
   modeButtonTextActive: { color: "#1a73e8" },
 
   canvasBox: {
-    width: "100%",
-    height: CANVAS_HEIGHT,
-    borderRadius: 14,
+    borderRadius: 16,
     borderWidth: 1.5,
     borderColor: "#cbd5e1",
     backgroundColor: "#ffffff",
     overflow: "hidden",
     position: "relative",
+    marginTop: 12,
   },
   existingHint: {
     position: "absolute",
-    top: 8,
+    top: 10,
     left: 0,
     right: 0,
     alignItems: "center",
   },
-  existingHintText: { fontSize: 11, color: "#94a3b8", fontStyle: "italic" },
+  existingHintText: { fontSize: 11.5, color: "#94a3b8", fontStyle: "italic" },
   placeholderLine: {
     position: "absolute",
-    left: 20,
-    right: 20,
-    bottom: 36,
+    left: 24,
+    right: 24,
+    bottom: "22%",
     height: 1,
     backgroundColor: "#e2e8f0",
   },
-  hintText: {
-    fontSize: 11.5,
-    color: "#94a3b8",
-    textAlign: "center",
-    marginTop: 8,
-  },
+  hintText: { fontSize: 12, color: "#94a3b8", textAlign: "center" },
   errorContainer: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 5,
-    marginTop: 8,
-    paddingHorizontal: 4,
+    marginBottom: 4,
   },
   errorText: { fontSize: 12, color: "#dc2626", fontWeight: "600", flex: 1 },
 
   toolRow: {
     flexDirection: "row",
     justifyContent: "center",
-    gap: 20,
-    marginTop: 12,
+    gap: 24,
+    marginTop: 10,
   },
   toolButton: {
     flexDirection: "row",
@@ -1017,12 +1565,43 @@ const sigStyles = StyleSheet.create({
   },
 
   loadingBox: {
-    height: CROP_VIEWPORT_H,
+    height: 200,
     justifyContent: "center",
     alignItems: "center",
     gap: 10,
   },
   loadingText: { fontSize: 13, color: "#64748b", fontWeight: "600" },
+
+  cropModeSwitcher: {
+    flexDirection: "row",
+    backgroundColor: "#f1f5f9",
+    borderRadius: 12,
+    padding: 4,
+    marginTop: 4,
+    marginBottom: 8,
+    gap: 4,
+  },
+  cropModeButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 9,
+    borderRadius: 9,
+  },
+  cropModeButtonActive: {
+    backgroundColor: "#ffffff",
+    boxShadow: "0px 1px 3px rgba(0,0,0,0.06)",
+  },
+  cropModeButtonText: { fontSize: 12.5, fontWeight: "700", color: "#94a3b8" },
+  cropModeButtonTextActive: { color: "#1a73e8" },
+  cropModeHint: {
+    fontSize: 11.5,
+    color: "#94a3b8",
+    textAlign: "center",
+    marginBottom: 10,
+  },
 
   cropViewportWrapper: { alignItems: "center", justifyContent: "center" },
   cropViewport: {
@@ -1031,16 +1610,41 @@ const sigStyles = StyleSheet.create({
     overflow: "hidden",
     position: "relative",
   },
-  cropGuideBorder: {
+  cropOverlay: { position: "absolute", top: 0, left: 0, right: 0, bottom: 0 },
+  cropOverlaySection: { width: "100%", backgroundColor: "rgba(0,0,0,0.55)" },
+  cropOverlayMiddle: { flexDirection: "row", flex: 1 },
+  cropBoxBorder: {
     position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
     borderWidth: 2,
-    borderColor: "rgba(255,255,255,0.4)",
-    borderRadius: 12,
+    borderColor: "#fff",
+    borderRadius: 4,
   },
+  cropGestureLayer: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: "transparent",
+    zIndex: 10,
+  },
+  resizeHandle: {
+    position: "absolute",
+    width: 20,
+    height: 20,
+    backgroundColor: "#fff",
+    borderWidth: 2.5,
+    borderColor: "#1a73e8",
+    zIndex: 11,
+  },
+  resizeHandleCorner: { borderRadius: 10 },
+  resizeHandleEdge: { borderRadius: 4, width: 16, height: 16 },
+  zoomBadge: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    backgroundColor: "rgba(0,0,0,0.6)",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  zoomBadgeText: { color: "#fff", fontSize: 11, fontWeight: "600" },
 
   transparentRow: {
     flexDirection: "row",
@@ -1049,14 +1653,14 @@ const sigStyles = StyleSheet.create({
     backgroundColor: "#f8fafc",
     borderRadius: 12,
     padding: 12,
-    marginTop: 14,
+    marginTop: 12,
     borderWidth: 1,
     borderColor: "#e2e8f0",
   },
   transparentLabel: { fontSize: 13, fontWeight: "700", color: "#0f172a" },
   transparentSubtext: { fontSize: 11, color: "#64748b", marginTop: 2 },
 
-  actionRow: { flexDirection: "row", gap: 10, marginTop: 16 },
+  actionRow: { flexDirection: "row", gap: 10, marginTop: 14 },
   cancelButton: {
     flex: 1,
     paddingVertical: 13,
