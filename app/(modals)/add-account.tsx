@@ -30,6 +30,7 @@ import { AccountType } from "../../types";
 type SetupOptionId =
   | "apartment"
   | "home"
+  | "join_admin"
   | "join_owner"
   | "join_staff_sweeper"
   | "join_staff_security";
@@ -47,6 +48,7 @@ interface SetupOption {
   iconColor: string;
   iconBg: string;
   category: "create" | "join";
+  accessLevel?: "admin" | "member" | "staff";
 }
 
 interface StaffRole {
@@ -114,6 +116,7 @@ const SETUP_OPTIONS: SetupOption[] = [
     iconColor: "#1a73e8",
     iconBg: "#e8f0fe",
     category: "create",
+    accessLevel: "admin",
   },
   {
     id: "home",
@@ -127,19 +130,35 @@ const SETUP_OPTIONS: SetupOption[] = [
     iconColor: "#059669",
     iconBg: "#ecfdf5",
     category: "create",
+    accessLevel: "admin",
+  },
+  {
+    id: "join_admin",
+    title: "Join as Admin",
+    badge: "Admin Access",
+    badgeColor: "#1a73e8",
+    badgeBg: "#e8f0fe",
+    description:
+      "Full access to manage members, staff, finances and property settings",
+    icon: "shield-checkmark-outline",
+    iconColor: "#1a73e8",
+    iconBg: "#e8f0fe",
+    category: "join",
+    accessLevel: "admin",
   },
   {
     id: "join_owner",
     title: "Join as Apartment Owner",
-    badge: "Join via Invitation",
+    badge: "Member Access",
     badgeColor: "#7c3aed",
     badgeBg: "#f3e8ff",
     description:
-      "Connect with your society to check monthly dues, view receipts & building notices",
+      "View monthly maintenance dues, payment receipts & society notices",
     icon: "key",
     iconColor: "#7c3aed",
     iconBg: "#f3e8ff",
     category: "join",
+    accessLevel: "member",
   },
 ];
 
@@ -147,7 +166,7 @@ const STAFF_JOIN_OPTIONS: SetupOption[] = [
   {
     id: "join_staff_sweeper",
     title: "Join as Sweeper",
-    badge: "Sweeper / Cleaner",
+    badge: "Staff Access",
     badgeColor: "#059669",
     badgeBg: "#ecfdf5",
     description:
@@ -156,11 +175,12 @@ const STAFF_JOIN_OPTIONS: SetupOption[] = [
     iconColor: "#059669",
     iconBg: "#ecfdf5",
     category: "join",
+    accessLevel: "staff",
   },
   {
     id: "join_staff_security",
     title: "Join as Security Guard",
-    badge: "Security Guard",
+    badge: "Staff Access",
     badgeColor: "#d97706",
     badgeBg: "#fef3c7",
     description:
@@ -169,8 +189,55 @@ const STAFF_JOIN_OPTIONS: SetupOption[] = [
     iconColor: "#d97706",
     iconBg: "#fef3c7",
     category: "join",
+    accessLevel: "staff",
   },
 ];
+
+// Access level descriptions for the info card
+const ACCESS_LEVEL_INFO = {
+  admin: {
+    title: "Admin Access",
+    icon: "shield-checkmark",
+    color: "#1a73e8",
+    bg: "#e8f0fe",
+    description:
+      "Full access to manage members, staff, finances and property settings",
+    permissions: [
+      "Add/Edit/Delete Members",
+      "Add/Edit/Delete Staff",
+      "Manage Finances",
+      "View All Reports",
+      "Property Settings",
+      "Invite Members",
+    ],
+  },
+  member: {
+    title: "Member Access",
+    icon: "home-outline",
+    color: "#7c3aed",
+    bg: "#f3e8ff",
+    description: "View-only access to your apartment details and payments",
+    permissions: [
+      "View Maintenance Dues",
+      "View Payment Receipts",
+      "View Society Notices",
+      "Update Profile",
+    ],
+  },
+  staff: {
+    title: "Staff Access",
+    icon: "briefcase-outline",
+    color: "#059669",
+    bg: "#ecfdf5",
+    description: "Access to staff-specific features and tasks",
+    permissions: [
+      "View Assigned Tasks",
+      "Mark Attendance",
+      "View Salary Details",
+      "Update Profile",
+    ],
+  },
+};
 
 const DUMMY_INVITATIONS: any[] = [
   {
@@ -179,11 +246,12 @@ const DUMMY_INVITATIONS: any[] = [
     accountName: "Green Valley Apartments",
     invitedByPhone: "+91 9876543210",
     invitedByName: "Ramesh Kumar",
-    role: "member_visibility",
+    role: "admin",
     name: "John Doe",
     phone: "+91 9876543210",
     createdAt: new Date().toISOString(),
     acceptedAt: null,
+    accessLevel: "admin",
   },
   {
     id: "dummy_invite_2",
@@ -191,11 +259,12 @@ const DUMMY_INVITATIONS: any[] = [
     accountName: "Sunset Heights",
     invitedByPhone: "+91 9876543211",
     invitedByName: "Priya Sharma",
-    role: "sweeper",
+    role: "member_visibility",
     name: "Rajesh",
     phone: "+91 9876543211",
     createdAt: new Date().toISOString(),
     acceptedAt: null,
+    accessLevel: "member",
   },
   {
     id: "dummy_invite_3",
@@ -203,11 +272,12 @@ const DUMMY_INVITATIONS: any[] = [
     accountName: "Lake View Society",
     invitedByPhone: "+91 9876543212",
     invitedByName: "Amit Singh",
-    role: "security",
+    role: "sweeper",
     name: "Vikram",
     phone: "+91 9876543212",
     createdAt: new Date().toISOString(),
     acceptedAt: null,
+    accessLevel: "staff",
   },
 ];
 
@@ -704,7 +774,7 @@ const adjustStyles = StyleSheet.create({
 });
 
 // ---------------------------------------------------------------------------
-// Main Screen - Fixed keyboard handling
+// Main Screen
 // ---------------------------------------------------------------------------
 
 export default function AddAccountScreen() {
@@ -735,6 +805,10 @@ export default function AddAccountScreen() {
   const [rawImage, setRawImage] = useState<RawImage | null>(null);
   const [showAdjustModal, setShowAdjustModal] = useState(false);
 
+  // Selected invitation for detailed view
+  const [selectedInvitation, setSelectedInvitation] = useState<any>(null);
+  const [showAccessInfo, setShowAccessInfo] = useState(false);
+
   const pendingInvitations = useMemo(() => {
     const realInvitations = user?.phone
       ? getPendingGrantsByPhone(user.phone)
@@ -755,14 +829,24 @@ export default function AddAccountScreen() {
     return account?.name || invitation.accountName || "Apartment Society";
   };
 
+  const getAccessLevelInfo = (invitation: any) => {
+    const accessLevel = invitation.accessLevel || "member";
+    return (
+      ACCESS_LEVEL_INFO[accessLevel as keyof typeof ACCESS_LEVEL_INFO] ||
+      ACCESS_LEVEL_INFO.member
+    );
+  };
+
   const handleSelectOption = async (option: SetupOption) => {
     setError("");
 
     if (option.id === "apartment" || option.id === "home") {
       setSelectedType(option.id);
       setStep(2);
+    } else if (option.id === "join_admin") {
+      await handleDirectJoin("admin");
     } else if (option.id === "join_owner") {
-      await handleDirectJoin("owner");
+      await handleDirectJoin("member");
     } else if (option.id === "join_staff_sweeper") {
       await handleDirectJoin("staff", "sweeper");
     } else if (option.id === "join_staff_security") {
@@ -771,7 +855,7 @@ export default function AddAccountScreen() {
   };
 
   const handleDirectJoin = async (
-    roleType: "owner" | "staff",
+    roleType: "admin" | "member" | "staff",
     staffRoleId?: string,
   ) => {
     setLoading(true);
@@ -780,22 +864,36 @@ export default function AddAccountScreen() {
     try {
       const isFirstAccount = accounts.length === 0;
 
+      // Find matching grant based on role type
       const matchingGrant = pendingInvitations.find((g: any) => {
-        if (roleType === "owner") {
+        if (roleType === "admin") {
+          return g.role === "admin";
+        }
+        if (roleType === "member") {
           return g.role === "member_visibility";
         }
-        return g.role !== "admin" && g.role !== "member_visibility";
+        if (roleType === "staff") {
+          return g.role !== "admin" && g.role !== "member_visibility";
+        }
+        return false;
       });
 
       if (matchingGrant) {
         if (matchingGrant.id?.startsWith("dummy_invite_")) {
           const aptName = getInvitationApartmentName(matchingGrant);
-          const defaultName =
-            roleType === "owner" ? `${aptName} - Owner` : `${aptName} - Staff`;
+          let defaultName = aptName;
+
+          if (roleType === "admin") {
+            defaultName = `${aptName} - Admin`;
+          } else if (roleType === "member") {
+            defaultName = `${aptName} - Owner`;
+          } else if (roleType === "staff") {
+            defaultName = `${aptName} - Staff`;
+          }
 
           const newAccount = await createAccount("apartment", defaultName);
           if (newAccount) {
-            const role = roleType === "owner" ? "member_visibility" : "admin";
+            const role = roleType === "admin" ? "admin" : "member_visibility";
             grantAccountRole(newAccount.id, role);
             selectAccount(newAccount.id);
             setShowDummyInvites(false);
@@ -808,10 +906,13 @@ export default function AddAccountScreen() {
           selectAccount(matchingGrant.accountId);
         }
       } else {
-        let defaultName =
-          roleType === "owner" ? "My Flat (Apartment)" : "Staff Workspace";
+        let defaultName = "My Apartment";
 
-        if (roleType === "staff" && staffRoleId) {
+        if (roleType === "admin") {
+          defaultName = "My Apartment - Admin";
+        } else if (roleType === "member") {
+          defaultName = "My Apartment - Owner";
+        } else if (roleType === "staff" && staffRoleId) {
           const role = STAFF_ROLES.find((r) => r.id === staffRoleId);
           if (role) {
             defaultName = `${role.label} - Workspace`;
@@ -820,8 +921,9 @@ export default function AddAccountScreen() {
 
         const newAccount = await createAccount("apartment", defaultName);
         if (newAccount) {
-          const role = roleType === "owner" ? "member_visibility" : "admin";
+          const role = roleType === "admin" ? "admin" : "member_visibility";
           grantAccountRole(newAccount.id, role);
+          selectAccount(newAccount.id);
         }
       }
 
@@ -933,6 +1035,8 @@ export default function AddAccountScreen() {
 
       if (newAccount) {
         selectAccount(newAccount.id);
+        // Grant admin role to the creator
+        grantAccountRole(newAccount.id, "admin");
         if (isFirstAccount) {
           router.replace("/(tabs)");
         } else {
@@ -953,15 +1057,23 @@ export default function AddAccountScreen() {
     grantId: string,
     accountId: string,
     role: any,
+    invitation?: any,
   ) => {
     if (grantId?.startsWith("dummy_invite_")) {
       const dummyInvite = DUMMY_INVITATIONS.find((inv) => inv.id === grantId);
       if (dummyInvite) {
         const aptName = dummyInvite.accountName || "Apartment Society";
         const isOwner = role === "member_visibility";
-        const defaultName = isOwner
-          ? `${aptName} - Owner`
-          : `${aptName} - Staff`;
+        const isAdmin = role === "admin";
+        let defaultName = aptName;
+
+        if (isAdmin) {
+          defaultName = `${aptName} - Admin`;
+        } else if (isOwner) {
+          defaultName = `${aptName} - Owner`;
+        } else {
+          defaultName = `${aptName} - Staff`;
+        }
 
         createAccount("apartment", defaultName).then((newAccount) => {
           if (newAccount) {
@@ -991,6 +1103,11 @@ export default function AddAccountScreen() {
     }
   };
 
+  const showInvitationDetails = (invitation: any) => {
+    setSelectedInvitation(invitation);
+    setShowAccessInfo(true);
+  };
+
   const getUniqueApartments = () => {
     const apartmentMap = new Map();
     pendingInvitations.forEach((invitation: any) => {
@@ -1007,6 +1124,91 @@ export default function AddAccountScreen() {
   };
 
   const uniqueApartments = getUniqueApartments();
+
+  // Render Access Info Modal
+  const renderAccessInfoModal = () => {
+    if (!selectedInvitation) return null;
+
+    const accessInfo = getAccessLevelInfo(selectedInvitation);
+
+    return (
+      <Modal
+        visible={showAccessInfo}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowAccessInfo(false)}
+      >
+        <Pressable
+          style={styles.modalBackdropCenter}
+          onPress={() => setShowAccessInfo(false)}
+        >
+          <Pressable style={styles.modalCardCenter} onPress={() => {}}>
+            <View
+              style={[
+                styles.accessInfoIcon,
+                { backgroundColor: accessInfo.bg },
+              ]}
+            >
+              <Ionicons
+                name={accessInfo.icon as any}
+                size={32}
+                color={accessInfo.color}
+              />
+            </View>
+
+            <Text style={styles.modalTitle}>{accessInfo.title}</Text>
+            <Text style={styles.modalMessage}>{accessInfo.description}</Text>
+
+            <View style={styles.permissionsContainer}>
+              <Text style={styles.permissionsTitle}>What you can do:</Text>
+              {accessInfo.permissions.map((permission, index) => (
+                <View key={index} style={styles.permissionItem}>
+                  <Ionicons
+                    name="checkmark-circle"
+                    size={16}
+                    color={accessInfo.color}
+                  />
+                  <Text style={styles.permissionText}>{permission}</Text>
+                </View>
+              ))}
+            </View>
+
+            <View style={styles.accessInfoActions}>
+              <TouchableOpacity
+                style={styles.accessInfoCancelButton}
+                onPress={() => setShowAccessInfo(false)}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.accessInfoCancelText}>Close</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.accessInfoAcceptButton,
+                  { backgroundColor: accessInfo.color },
+                ]}
+                onPress={() => {
+                  setShowAccessInfo(false);
+                  handleAcceptInvite(
+                    selectedInvitation.id,
+                    selectedInvitation.accountId,
+                    selectedInvitation.role,
+                    selectedInvitation,
+                  );
+                }}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="checkmark" size={18} color="#fff" />
+                <Text style={styles.accessInfoAcceptText}>
+                  Accept Invitation
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    );
+  };
 
   return (
     <KeyboardAvoidingView
@@ -1152,6 +1354,13 @@ export default function AddAccountScreen() {
                                   {option.badge}
                                 </Text>
                               </View>
+                              {option.accessLevel && (
+                                <View style={styles.accessBadge}>
+                                  <Text style={styles.accessBadgeText}>
+                                    {option.accessLevel.toUpperCase()}
+                                  </Text>
+                                </View>
+                              )}
                             </View>
                           </View>
                           <View style={styles.arrowCircle}>
@@ -1213,9 +1422,10 @@ export default function AddAccountScreen() {
                         </View>
 
                         {apartment.invitations.map((invitation: any) => {
-                          const isOwnerRole =
+                          const isAdmin = invitation.role === "admin";
+                          const isOwner =
                             invitation.role === "member_visibility";
-                          const isAdminRole = invitation.role === "admin";
+                          const isStaff = !isAdmin && !isOwner;
 
                           const inviterPhone =
                             invitation.invitedByPhone || "Secretary";
@@ -1223,7 +1433,7 @@ export default function AddAccountScreen() {
                           let optionCard: SetupOption = {
                             id: "join_owner",
                             title: "Join as Apartment Owner",
-                            badge: "Owner",
+                            badge: "Member Access",
                             badgeColor: "#7c3aed",
                             badgeBg: "#f3e8ff",
                             description:
@@ -1232,13 +1442,29 @@ export default function AddAccountScreen() {
                             iconColor: "#7c3aed",
                             iconBg: "#f3e8ff",
                             category: "join",
+                            accessLevel: "member",
                           };
 
-                          if (isAdminRole || isOwnerRole) {
+                          if (isAdmin) {
+                            optionCard = {
+                              id: "join_admin",
+                              title: "Join as Admin",
+                              badge: "Admin Access",
+                              badgeColor: "#1a73e8",
+                              badgeBg: "#e8f0fe",
+                              description:
+                                "Full access to manage members, staff, finances and property settings.",
+                              icon: "shield-checkmark-outline",
+                              iconColor: "#1a73e8",
+                              iconBg: "#e8f0fe",
+                              category: "join",
+                              accessLevel: "admin",
+                            };
+                          } else if (isOwner) {
                             optionCard = {
                               id: "join_owner",
                               title: "Join as Apartment Owner",
-                              badge: "Owner",
+                              badge: "Member Access",
                               badgeColor: "#7c3aed",
                               badgeBg: "#f3e8ff",
                               description:
@@ -1247,8 +1473,9 @@ export default function AddAccountScreen() {
                               iconColor: "#7c3aed",
                               iconBg: "#f3e8ff",
                               category: "join",
+                              accessLevel: "member",
                             };
-                          } else {
+                          } else if (isStaff) {
                             const staffOption = STAFF_JOIN_OPTIONS.find((opt) =>
                               invitation.role
                                 ?.toLowerCase()
@@ -1260,18 +1487,21 @@ export default function AddAccountScreen() {
                               optionCard = {
                                 id: "join_staff_sweeper",
                                 title: "Join as Staff",
-                                badge: "Staff",
-                                badgeColor: "#d97706",
-                                badgeBg: "#fef3c7",
+                                badge: "Staff Access",
+                                badgeColor: "#059669",
+                                badgeBg: "#ecfdf5",
                                 description:
-                                  "Track your daily tasks, attendance, and monthly salary payouts",
-                                icon: "person",
-                                iconColor: "#d97706",
-                                iconBg: "#fef3c7",
+                                  "Track your daily tasks, attendance, and monthly salary payouts.",
+                                icon: "briefcase-outline",
+                                iconColor: "#059669",
+                                iconBg: "#ecfdf5",
                                 category: "join",
+                                accessLevel: "staff",
                               };
                             }
                           }
+
+                          const accessInfo = getAccessLevelInfo(invitation);
 
                           return (
                             <View
@@ -1361,16 +1591,12 @@ export default function AddAccountScreen() {
                                     },
                                   ]}
                                   onPress={() =>
-                                    handleAcceptInvite(
-                                      invitation.id,
-                                      invitation.accountId,
-                                      invitation.role,
-                                    )
+                                    showInvitationDetails(invitation)
                                   }
                                   activeOpacity={0.8}
                                 >
                                   <Text style={styles.invitationAcceptText}>
-                                    Accept Invitation
+                                    View Access
                                   </Text>
                                   <Ionicons
                                     name="arrow-forward"
@@ -1618,6 +1844,9 @@ export default function AddAccountScreen() {
         onCancel={handleAdjustCancel}
         onConfirm={handleAdjustConfirm}
       />
+
+      {/* Access Info Modal */}
+      {renderAccessInfoModal()}
 
       {/* Reject Modal - Centered */}
       <Modal
@@ -1897,6 +2126,20 @@ const styles = StyleSheet.create({
   cardBadgeText: {
     fontSize: 10.5,
     fontWeight: "700",
+  },
+
+  accessBadge: {
+    backgroundColor: "#dbeafe",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginLeft: 4,
+  },
+
+  accessBadgeText: {
+    fontSize: 9,
+    fontWeight: "700",
+    color: "#1a73e8",
   },
 
   cardDescription: {
@@ -2450,6 +2693,79 @@ const styles = StyleSheet.create({
   },
 
   modalConfirmText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#ffffff",
+  },
+
+  // Access Info Modal Styles
+  accessInfoIcon: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+
+  permissionsContainer: {
+    width: "100%",
+    marginTop: 8,
+    marginBottom: 16,
+  },
+
+  permissionsTitle: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#334155",
+    marginBottom: 8,
+  },
+
+  permissionItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 4,
+  },
+
+  permissionText: {
+    fontSize: 13,
+    color: "#475569",
+  },
+
+  accessInfoActions: {
+    flexDirection: "row",
+    gap: 10,
+    width: "100%",
+    marginTop: 4,
+  },
+
+  accessInfoCancelButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    alignItems: "center",
+  },
+
+  accessInfoCancelText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#475569",
+  },
+
+  accessInfoAcceptButton: {
+    flex: 1.5,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+
+  accessInfoAcceptText: {
     fontSize: 14,
     fontWeight: "700",
     color: "#ffffff",
