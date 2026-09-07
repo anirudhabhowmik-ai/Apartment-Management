@@ -3,6 +3,7 @@ import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { useEffect, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Dimensions,
   GestureResponderEvent,
   Image,
@@ -11,34 +12,39 @@ import {
   Switch,
   Text,
   TouchableOpacity,
-  View,
+  View
 } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { SignatureData } from "../store/billStore";
 
 // ---------------------------------------------------------------------------
-// FIX FOR "draw sometimes works, sometimes doesn't / canvas not full":
+// FIX #1 - "drawing disappears when finger is lifted":
+// The draw surface previously used PanResponder, which does its own JS-side
+// gesture negotiation. On Android, especially inside an overlay/Modal,
+// PanResponder is a known source of exactly this symptom: it can renegotiate
+// or drop the final release event, so the very last committed state update
+// gets lost right as the finger lifts. The fix used by most working RN
+// signature pads is to bypass that negotiation layer entirely and use React
+// Native's raw responder system directly (onStartShouldSetResponder /
+// onResponderMove / onResponderRelease) on the canvas view. There's no
+// negotiation step to desync from, so the state update on release is never
+// silently dropped.
 //
-// Root cause: the previous version converted touches to canvas-local
-// coordinates using `measureInWindow()` (async) to get the canvas's screen
-// position, then subtracted that from `pageX/pageY`. This overlay slides/
-// fades in, so `measureInWindow` can resolve AFTER the user has already
-// started drawing - meaning the very first touches (or all of them, if the
-// callback is slow on that device) used a stale or zeroed origin. That
-// produced strokes drawn at the wrong offset, or nothing appearing at all,
-// which looks exactly like "canvas isn't full" / "works sometimes".
+// Also added: collapsable={false} on every view in the canvas subtree, and
+// renderToHardwareTextureAndroid on the canvas box - Android's automatic
+// view-flattening optimization is a second documented contributor to
+// signature/drawing surfaces visually "losing" their last frame right after
+// a gesture ends.
 //
-// Fix: use `evt.nativeEvent.locationX/locationY` instead. RN computes these
-// natively, already relative to the exact View the touch landed on - no
-// manual origin math, no measurement race, no dependency on animation
-// timing. This is the standard, reliable way to get in-view touch
-// coordinates for a drawing surface.
-//
-// Also added: the "Capture" responder handlers (onStartShouldSetPanResponder
-// Capture / onMoveShouldSetPanResponderCapture) that the crop gesture below
-// already had but the draw gesture was missing - without them, a parent
-// view can sometimes claim the touch before it reaches the draw canvas,
-// which is another way strokes could silently fail to start.
+// FIX #2 - "crop screen not appearing after upload":
+// expo-image-picker's returned asset.width/height can be 0 or undefined on
+// some devices. When that happened, baseScale became Infinity and every
+// crop dimension became NaN, so the crop UI rendered with invalid/zero
+// size - effectively invisible, which looks exactly like "there's no crop
+// option". Fixed by confirming real image dimensions with Image.getSize()
+// before ever switching to the crop stage, showing a brief loading state,
+// and surfacing a real error if dimensions can't be read - so the crop
+// screen is now guaranteed to have valid geometry whenever it's shown.
 // ---------------------------------------------------------------------------
 
 const CANVAS_HEIGHT = 200;
@@ -92,6 +98,20 @@ function clampNumber(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
 
+// Reads the real pixel dimensions of a local image uri. Used as a safety
+// net whenever the picker doesn't give us usable width/height.
+function getImageDimensions(
+  uri: string,
+): Promise<{ width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    Image.getSize(
+      uri,
+      (width, height) => resolve({ width, height }),
+      (err) => reject(err),
+    );
+  });
+}
+
 export default function SignatureCanvas({
   visible,
   onSave,
@@ -99,7 +119,9 @@ export default function SignatureCanvas({
   existingSign,
 }: SignatureCanvasProps) {
   const [mode, setMode] = useState<"draw" | "upload">("draw");
-  const [uploadStage, setUploadStage] = useState<"pick" | "crop">("pick");
+  const [uploadStage, setUploadStage] = useState<"pick" | "loading" | "crop">(
+    "pick",
+  );
 
   // ----- Draw state -----
   const [strokes, setStrokes] = useState<Point[][]>([]);
@@ -109,7 +131,6 @@ export default function SignatureCanvas({
   });
   const [drawError, setDrawError] = useState("");
   const currentStrokeRef = useRef<Point[]>([]);
-  const canvasBoxRef = useRef<View>(null);
 
   // ----- Upload / crop state -----
   const [pickError, setPickError] = useState("");
@@ -134,9 +155,6 @@ export default function SignatureCanvas({
     setCropError("");
   };
 
-  // Reset only on the hidden -> visible transition, inside a proper effect
-  // (not render-phase), so it can never fire mid-drawing from an unrelated
-  // re-render.
   const wasVisibleRef = useRef(false);
   useEffect(() => {
     if (visible && !wasVisibleRef.current) {
@@ -146,42 +164,41 @@ export default function SignatureCanvas({
   }, [visible]);
 
   // ------------------------------------------------------------------
-  // Draw tab
+  // Draw tab - raw responder system (no PanResponder) for reliability
   // ------------------------------------------------------------------
-  const drawPanResponder = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onStartShouldSetPanResponderCapture: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponderCapture: () => true,
-      onPanResponderTerminationRequest: () => false,
-      onShouldBlockNativeResponder: () => true,
-      onPanResponderGrant: (evt: GestureResponderEvent) => {
-        // locationX/Y are already relative to THIS view - no measurement,
-        // no race condition, correct from the very first touch every time.
-        const { locationX, locationY } = evt.nativeEvent;
-        const point = { x: locationX, y: locationY };
-        currentStrokeRef.current = [point];
-        setStrokes((prev) => [...prev, [point]]);
-      },
-      onPanResponderMove: (evt: GestureResponderEvent) => {
-        const { locationX, locationY } = evt.nativeEvent;
-        const point = { x: locationX, y: locationY };
-        currentStrokeRef.current = [...currentStrokeRef.current, point];
-        setStrokes((prev) => {
-          const next = [...prev];
-          next[next.length - 1] = currentStrokeRef.current;
-          return next;
-        });
-      },
-      onPanResponderRelease: () => {
-        currentStrokeRef.current = [];
-      },
-      onPanResponderTerminate: () => {
-        currentStrokeRef.current = [];
-      },
-    }),
-  ).current;
+  const handleDrawStart = (evt: GestureResponderEvent) => {
+    const { locationX, locationY } = evt.nativeEvent;
+    const point = { x: locationX, y: locationY };
+    currentStrokeRef.current = [point];
+    setStrokes((prev) => [...prev, [point]]);
+  };
+
+  const handleDrawMove = (evt: GestureResponderEvent) => {
+    const { locationX, locationY } = evt.nativeEvent;
+    const point = { x: locationX, y: locationY };
+    currentStrokeRef.current = [...currentStrokeRef.current, point];
+    setStrokes((prev) => {
+      const next = [...prev];
+      next[next.length - 1] = currentStrokeRef.current;
+      return next;
+    });
+  };
+
+  const handleDrawEnd = () => {
+    // Commit the finished stroke into a fresh array reference so the
+    // final render is guaranteed to reflect every point that was recorded,
+    // even if the last onResponderMove and onResponderRelease landed in
+    // the same event loop tick.
+    const finished = currentStrokeRef.current;
+    currentStrokeRef.current = [];
+    if (finished.length > 0) {
+      setStrokes((prev) => {
+        const next = [...prev];
+        if (next.length > 0) next[next.length - 1] = finished;
+        return next;
+      });
+    }
+  };
 
   const hasDrawing = strokes.some((s) => s.length > 0);
   const drawPathData = strokes.map((s) => pointsToPath(s)).filter(Boolean);
@@ -220,6 +237,43 @@ export default function SignatureCanvas({
   // ------------------------------------------------------------------
   // Upload tab: pick stage (Take Photo / Choose from Gallery)
   // ------------------------------------------------------------------
+  const proceedToCrop = async (
+    uri: string,
+    pickerWidth?: number,
+    pickerHeight?: number,
+  ) => {
+    setUploadStage("loading");
+    setPickError("");
+    try {
+      let width = pickerWidth ?? 0;
+      let height = pickerHeight ?? 0;
+
+      // Safety net: if the picker didn't give us usable dimensions,
+      // measure the actual file. This is what guarantees the crop screen
+      // never renders with broken/invisible geometry.
+      if (!width || !height) {
+        const measured = await getImageDimensions(uri);
+        width = measured.width;
+        height = measured.height;
+      }
+
+      if (!width || !height) {
+        throw new Error("Could not read image dimensions");
+      }
+
+      setRawImage({ uri, width, height });
+      setCropZoom(1);
+      setCropTranslate({ x: 0, y: 0 });
+      setUploadStage("crop");
+    } catch (err: any) {
+      console.error("Failed to prepare image for cropping:", err);
+      setPickError(
+        `Couldn't load that image (${err?.message ?? "unknown error"}). Please try a different photo.`,
+      );
+      setUploadStage("pick");
+    }
+  };
+
   const handleTakePhoto = async () => {
     setPickError("");
     try {
@@ -234,14 +288,7 @@ export default function SignatureCanvas({
       });
       if (!result.canceled && result.assets[0]) {
         const asset = result.assets[0];
-        setRawImage({
-          uri: asset.uri,
-          width: asset.width,
-          height: asset.height,
-        });
-        setCropZoom(1);
-        setCropTranslate({ x: 0, y: 0 });
-        setUploadStage("crop");
+        await proceedToCrop(asset.uri, asset.width, asset.height);
       }
     } catch (err: any) {
       console.error("Camera capture failed:", err);
@@ -266,14 +313,7 @@ export default function SignatureCanvas({
       });
       if (!result.canceled && result.assets[0]) {
         const asset = result.assets[0];
-        setRawImage({
-          uri: asset.uri,
-          width: asset.width,
-          height: asset.height,
-        });
-        setCropZoom(1);
-        setCropTranslate({ x: 0, y: 0 });
-        setUploadStage("crop");
+        await proceedToCrop(asset.uri, asset.width, asset.height);
       }
     } catch (err: any) {
       console.error("Gallery pick failed:", err);
@@ -287,12 +327,13 @@ export default function SignatureCanvas({
   // Upload tab: crop stage - pinch-to-zoom, drag-to-reposition, then
   // "Transparent Background" toggle applied at PDF-render time.
   // ------------------------------------------------------------------
-  const baseScale = rawImage
-    ? Math.max(
-        CROP_VIEWPORT_W / rawImage.width,
-        CROP_VIEWPORT_H / rawImage.height,
-      )
-    : 1;
+  const baseScale =
+    rawImage && rawImage.width > 0 && rawImage.height > 0
+      ? Math.max(
+          CROP_VIEWPORT_W / rawImage.width,
+          CROP_VIEWPORT_H / rawImage.height,
+        )
+      : 1;
   const effectiveScale = baseScale * cropZoom;
   const displayWidth = (rawImage?.width ?? 0) * effectiveScale;
   const displayHeight = (rawImage?.height ?? 0) * effectiveScale;
@@ -488,7 +529,7 @@ export default function SignatureCanvas({
   if (!visible) return null;
 
   return (
-    <View style={sigStyles.overlay}>
+    <View style={sigStyles.overlay} collapsable={false}>
       <View style={sigStyles.backdrop}>
         <View style={sigStyles.card}>
           <Text style={sigStyles.title}>Secretary Signature</Text>
@@ -546,44 +587,56 @@ export default function SignatureCanvas({
           {mode === "draw" && (
             <>
               <View
-                ref={canvasBoxRef}
                 style={sigStyles.canvasBox}
                 collapsable={false}
+                renderToHardwareTextureAndroid
                 onLayout={(e) => {
                   const { width, height } = e.nativeEvent.layout;
                   setCanvasSize({ width, height });
                 }}
-                {...drawPanResponder.panHandlers}
+                onStartShouldSetResponder={() => true}
+                onMoveShouldSetResponder={() => true}
+                onResponderTerminationRequest={() => false}
+                onResponderGrant={handleDrawStart}
+                onResponderMove={handleDrawMove}
+                onResponderRelease={handleDrawEnd}
+                onResponderTerminate={handleDrawEnd}
               >
                 {!hasDrawing && existingSign && (
-                  <View style={sigStyles.existingHint} pointerEvents="none">
+                  <View
+                    style={sigStyles.existingHint}
+                    pointerEvents="none"
+                    collapsable={false}
+                  >
                     <Text style={sigStyles.existingHintText}>
                       Draw over this box to replace the saved signature
                     </Text>
                   </View>
                 )}
-                <Svg
-                  width="100%"
-                  height={CANVAS_HEIGHT}
+                <View
                   style={StyleSheet.absoluteFill}
                   pointerEvents="none"
+                  collapsable={false}
                 >
-                  {drawPathData.map((d, i) => (
-                    <Path
-                      key={i}
-                      d={d}
-                      stroke={STROKE_COLOR}
-                      strokeWidth={STROKE_WIDTH}
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      fill="none"
-                    />
-                  ))}
-                </Svg>
+                  <Svg width="100%" height={CANVAS_HEIGHT}>
+                    {drawPathData.map((d, i) => (
+                      <Path
+                        key={i}
+                        d={d}
+                        stroke={STROKE_COLOR}
+                        strokeWidth={STROKE_WIDTH}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        fill="none"
+                      />
+                    ))}
+                  </Svg>
+                </View>
                 {!hasDrawing && (
                   <View
                     style={sigStyles.placeholderLine}
                     pointerEvents="none"
+                    collapsable={false}
                   />
                 )}
               </View>
@@ -725,6 +778,13 @@ export default function SignatureCanvas({
             </>
           )}
 
+          {mode === "upload" && uploadStage === "loading" && (
+            <View style={sigStyles.loadingBox}>
+              <ActivityIndicator size="large" color="#1a73e8" />
+              <Text style={sigStyles.loadingText}>Preparing image...</Text>
+            </View>
+          )}
+
           {mode === "upload" && uploadStage === "crop" && rawImage && (
             <>
               <View style={sigStyles.cropViewportWrapper}>
@@ -733,6 +793,7 @@ export default function SignatureCanvas({
                     sigStyles.cropViewport,
                     { width: CROP_VIEWPORT_W, height: CROP_VIEWPORT_H },
                   ]}
+                  collapsable={false}
                   {...cropPanResponder.panHandlers}
                 >
                   <Image
@@ -954,6 +1015,14 @@ const sigStyles = StyleSheet.create({
     backgroundColor: "#f8fafc",
     alignItems: "center",
   },
+
+  loadingBox: {
+    height: CROP_VIEWPORT_H,
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 10,
+  },
+  loadingText: { fontSize: 13, color: "#64748b", fontWeight: "600" },
 
   cropViewportWrapper: { alignItems: "center", justifyContent: "center" },
   cropViewport: {
