@@ -34,6 +34,35 @@ const ACCENT_SWATCHES = [
   "#0891b2",
 ];
 
+/**
+ * Validate email address.
+ *
+ * Empty email is allowed because the field is optional.
+ */
+function validateEmail(email: string): boolean {
+  if (!email.trim()) {
+    return true;
+  }
+
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
+}
+
+/**
+ * Keep only numbers and limit the value to 10 digits.
+ *
+ * This also handles pasted values such as:
+ * +91 98765 43210
+ *
+ * Result:
+ * 9198765432
+ *
+ * The field itself is limited to 10 digits, so only the first
+ * 10 numeric characters are kept.
+ */
+function sanitizeContactNumber(value: string): string {
+  return value.replace(/\D/g, "").slice(0, 10);
+}
+
 function getLabels(memberType: BillMemberType) {
   return memberType === "owner"
     ? {
@@ -50,6 +79,7 @@ function getLabels(memberType: BillMemberType) {
 
 function makeDummyPreviewData(memberType: BillMemberType) {
   const labels = getLabels(memberType);
+
   return memberType === "owner"
     ? {
         ...labels,
@@ -81,6 +111,7 @@ export default function GenerateBillModal({
   onSaved,
 }: GenerateBillModalProps) {
   const { templates, getBillConfig, setBillConfig } = useBillStore();
+
   const existingConfig = getBillConfig(memberType);
   const labels = getLabels(memberType);
 
@@ -88,62 +119,105 @@ export default function GenerateBillModal({
   const accentBg = memberType === "owner" ? "#eff6ff" : "#f3e8ff";
 
   const [step, setStep] = useState<"design" | "details" | "sign">("design");
+
   const [templateId, setTemplateId] = useState(
     existingConfig?.templateId ?? templates[0].id,
   );
+
   const [swatch, setSwatch] = useState(
     existingConfig?.accentColor ?? templates[0].colors.primary,
   );
+
   const [showDesignPreview, setShowDesignPreview] = useState(false);
 
   const [societyName, setSocietyName] = useState(
     existingConfig?.societyName ?? "",
   );
+
   const [address, setAddress] = useState(existingConfig?.address ?? "");
+
   const [contactNumber, setContactNumber] = useState(
     existingConfig?.contactNumber ?? "",
   );
+
   const [email, setEmail] = useState(existingConfig?.email ?? "");
 
   const [signature, setSignature] = useState<SignatureData | undefined>(
     existingConfig?.signature,
   );
+
   const [showSignatureModal, setShowSignatureModal] = useState(false);
+
   const [formError, setFormError] = useState("");
 
   useEffect(() => {
     if (visible) {
       const cfg = getBillConfig(memberType);
+
       setStep("design");
+
       setTemplateId(cfg?.templateId ?? templates[0].id);
+
       setSwatch(cfg?.accentColor ?? templates[0].colors.primary);
+
       setSocietyName(cfg?.societyName ?? "");
+
       setAddress(cfg?.address ?? "");
-      setContactNumber(cfg?.contactNumber ?? "");
+
+      // Sanitize saved contact number as well.
+      setContactNumber(sanitizeContactNumber(cfg?.contactNumber ?? ""));
+
       setEmail(cfg?.email ?? "");
+
       setSignature(cfg?.signature);
+
       setFormError("");
+
       setShowDesignPreview(false);
+
       setShowSignatureModal(false);
     }
+
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, memberType]);
 
   const selectedTemplate =
     templates.find((t) => t.id === templateId) ?? templates[0];
+
   const dummy = makeDummyPreviewData(memberType);
 
   const goBack = () => {
-    if (step === "details") setStep("design");
-    else if (step === "sign") setStep("details");
+    if (step === "details") {
+      setStep("design");
+    } else if (step === "sign") {
+      setStep("details");
+    }
   };
 
+  /**
+   * Validate all common details before moving to the signature step.
+   */
   const handleDetailsNext = () => {
+    // Society name required
     if (!societyName.trim()) {
       setFormError("Please enter the society name");
       return;
     }
+
+    // Contact number required and must contain exactly 10 digits
+    if (contactNumber.length !== 10) {
+      setFormError("Please enter a valid 10-digit contact number");
+      return;
+    }
+
+    // Email is optional, but if entered it must be valid
+    if (!validateEmail(email)) {
+      setFormError("Please enter a valid email address");
+      return;
+    }
+
     setFormError("");
+
     setStep("sign");
   };
 
@@ -158,8 +232,11 @@ export default function GenerateBillModal({
       signature,
       updatedAt: new Date().toISOString(),
     };
+
     setBillConfig(memberType, config);
+
     onSaved?.(config);
+
     onClose();
   };
 
@@ -171,6 +248,7 @@ export default function GenerateBillModal({
 
   const renderStepIndicator = () => {
     const currentIndex = stepOrder.indexOf(step);
+
     return (
       <View style={styles.stepIndicator}>
         {stepOrder.map((s, index) => (
@@ -178,7 +256,9 @@ export default function GenerateBillModal({
             <TouchableOpacity
               style={[
                 styles.stepDot,
-                index <= currentIndex && { backgroundColor: accentColor },
+                index <= currentIndex && {
+                  backgroundColor: accentColor,
+                },
               ]}
               onPress={() => index <= currentIndex && setStep(s)}
               disabled={index > currentIndex}
@@ -190,18 +270,23 @@ export default function GenerateBillModal({
                 <Text
                   style={[
                     styles.stepDotText,
-                    index <= currentIndex && { color: "#fff" },
+                    index <= currentIndex && {
+                      color: "#fff",
+                    },
                   ]}
                 >
                   {index + 1}
                 </Text>
               )}
             </TouchableOpacity>
+
             {index < stepOrder.length - 1 && (
               <View
                 style={[
                   styles.stepLine,
-                  index < currentIndex && { backgroundColor: accentColor },
+                  index < currentIndex && {
+                    backgroundColor: accentColor,
+                  },
                 ]}
               />
             )}
@@ -211,35 +296,40 @@ export default function GenerateBillModal({
     );
   };
 
-  // Shared preview renderer, used by both the Design-step "Preview This
-  // Design" overlay (dummy common details, since none typed yet) and the
-  // final Sign step (real common details the admin has typed).
   const renderPreviewCard = (useRealCommonDetails: boolean) => {
     const displaySociety = useRealCommonDetails
       ? societyName || "Your Society Name"
       : "Green Valley Apartments";
+
     const displayAddress = useRealCommonDetails
       ? address
       : "123, Main Road, City";
+
     const displayContact = useRealCommonDetails
       ? contactNumber
       : "+91 98765 43210";
+
     const displayEmail = useRealCommonDetails ? email : "society@email.com";
+
     const displaySignature = useRealCommonDetails ? signature : undefined;
 
     return (
       <View style={styles.previewCard}>
         <View style={[styles.previewHeader, { backgroundColor: swatch }]}>
           <Text style={styles.previewHeaderTitle}>{dummy.docTitle}</Text>
+
           <Text style={styles.previewHeaderTemplate}>
             {selectedTemplate.name} Template
           </Text>
         </View>
+
         <View style={styles.previewBody}>
           <Text style={styles.previewSociety}>{displaySociety}</Text>
+
           {displayAddress ? (
             <Text style={styles.previewSub}>{displayAddress}</Text>
           ) : null}
+
           {(displayContact || displayEmail) && (
             <Text style={styles.previewSub}>
               {displayContact}
@@ -249,6 +339,7 @@ export default function GenerateBillModal({
           )}
 
           <View style={styles.previewDivider} />
+
           {!useRealCommonDetails && (
             <Text style={styles.dummyTag}>
               Sample preview — your details will appear here
@@ -258,13 +349,16 @@ export default function GenerateBillModal({
           {dummy.rows.map(([label, value]) => (
             <View key={label} style={styles.previewRow}>
               <Text style={styles.previewLabel}>{label}</Text>
+
               <Text style={styles.previewValue}>{value}</Text>
             </View>
           ))}
 
           <View style={styles.previewDivider} />
+
           <View style={styles.previewTotalRow}>
             <Text style={styles.previewTotalLabel}>{dummy.totalLabel}</Text>
+
             <Text style={[styles.previewTotalValue, { color: swatch }]}>
               {dummy.totalValue}
             </Text>
@@ -272,6 +366,7 @@ export default function GenerateBillModal({
 
           <View style={styles.signatureArea}>
             <Text style={styles.signatureAreaLabel}>Authorized Signatory</Text>
+
             {displaySignature ? (
               <SignaturePreview
                 signature={displaySignature}
@@ -303,12 +398,14 @@ export default function GenerateBillModal({
                   <Ionicons name="arrow-back" size={22} color={accentColor} />
                 </TouchableOpacity>
               )}
+
               <View>
                 <Text style={styles.title}>
                   {memberType === "owner"
                     ? "Owner Bill Template"
                     : "Staff Slip Template"}
                 </Text>
+
                 <View style={[styles.badge, { backgroundColor: accentBg }]}>
                   <Text style={[styles.badgeText, { color: accentColor }]}>
                     {existingConfig
@@ -318,6 +415,7 @@ export default function GenerateBillModal({
                 </View>
               </View>
             </View>
+
             <TouchableOpacity onPress={onClose} style={styles.closeButton}>
               <Ionicons name="close" size={24} color="#666" />
             </TouchableOpacity>
@@ -328,10 +426,14 @@ export default function GenerateBillModal({
           <ScrollView
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
           >
+            {/* ================= DESIGN ================= */}
+
             {step === "design" && (
               <View>
                 <Text style={styles.sectionTitle}>Choose a Design</Text>
+
                 <Text style={styles.sectionSubtitle}>
                   This applies to every {labels.docTitle.toLowerCase()}
                 </Text>
@@ -355,15 +457,20 @@ export default function GenerateBillModal({
                     <View
                       style={[
                         styles.templateColorPreview,
-                        { backgroundColor: t.colors.primary },
+                        {
+                          backgroundColor: t.colors.primary,
+                        },
                       ]}
                     />
+
                     <View style={{ flex: 1 }}>
                       <Text style={styles.templateName}>{t.name}</Text>
+
                       <Text style={styles.templateDescription}>
                         {t.description}
                       </Text>
                     </View>
+
                     {templateId === t.id && (
                       <Ionicons
                         name="checkmark-circle"
@@ -375,13 +482,16 @@ export default function GenerateBillModal({
                 ))}
 
                 <Text style={styles.label}>Accent Color</Text>
+
                 <View style={styles.swatchRow}>
                   {ACCENT_SWATCHES.map((c) => (
                     <TouchableOpacity
                       key={c}
                       style={[
                         styles.swatch,
-                        { backgroundColor: c },
+                        {
+                          backgroundColor: c,
+                        },
                         swatch === c && styles.swatchActive,
                       ]}
                       onPress={() => setSwatch(c)}
@@ -395,6 +505,7 @@ export default function GenerateBillModal({
                   activeOpacity={0.7}
                 >
                   <Ionicons name="eye-outline" size={16} color={accentColor} />
+
                   <Text
                     style={[styles.previewLinkText, { color: accentColor }]}
                   >
@@ -403,96 +514,215 @@ export default function GenerateBillModal({
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[styles.nextButton, { backgroundColor: accentColor }]}
+                  style={[
+                    styles.nextButton,
+                    {
+                      backgroundColor: accentColor,
+                    },
+                  ]}
                   onPress={() => setStep("details")}
                   activeOpacity={0.85}
                 >
                   <Text style={styles.nextButtonText}>Continue</Text>
+
                   <Ionicons name="arrow-forward" size={16} color="#fff" />
                 </TouchableOpacity>
               </View>
             )}
 
+            {/* ================= DETAILS ================= */}
+
             {step === "details" && (
               <View>
                 <Text style={styles.sectionTitle}>Common Details</Text>
+
                 <Text style={styles.sectionSubtitle}>
                   Shown on every {labels.docTitle.toLowerCase()} of this type
                 </Text>
 
+                {/* Society Name */}
+
                 <View style={styles.inputGroup}>
                   <Text style={styles.label}>Society Name *</Text>
+
                   <TextInput
                     style={styles.input}
                     placeholder="e.g. Green Valley Apartments"
                     placeholderTextColor="#999"
                     value={societyName}
-                    onChangeText={(v) => {
-                      setSocietyName(v);
+                    onChangeText={(value) => {
+                      setSocietyName(value);
                       setFormError("");
                     }}
+                    returnKeyType="next"
                   />
                 </View>
+
+                {/* Address */}
+
                 <View style={styles.inputGroup}>
                   <Text style={styles.label}>Address</Text>
+
                   <TextInput
                     style={[
                       styles.input,
-                      { height: 60, textAlignVertical: "top" },
+                      {
+                        height: 60,
+                        textAlignVertical: "top",
+                      },
                     ]}
                     placeholder="e.g. 123, Main Road, City"
                     placeholderTextColor="#999"
                     value={address}
-                    onChangeText={setAddress}
+                    onChangeText={(value) => {
+                      setAddress(value);
+                      setFormError("");
+                    }}
                     multiline
                   />
                 </View>
+
+                {/* Contact + Email */}
+
                 <View style={styles.rowGroup}>
+                  {/* CONTACT NUMBER */}
+
                   <View style={[styles.inputGroup, { flex: 1 }]}>
                     <Text style={styles.label}>Contact Number</Text>
+
                     <TextInput
-                      style={styles.input}
-                      placeholder="Phone"
+                      style={[
+                        styles.input,
+                        contactNumber.length > 0 &&
+                          contactNumber.length < 10 &&
+                          styles.inputError,
+                      ]}
+                      placeholder="10-digit phone"
                       placeholderTextColor="#999"
-                      keyboardType="phone-pad"
+                      keyboardType="number-pad"
+                      inputMode="numeric"
+                      maxLength={10}
                       value={contactNumber}
-                      onChangeText={setContactNumber}
+                      onChangeText={(value) => {
+                        const digitsOnly = sanitizeContactNumber(value);
+
+                        setContactNumber(digitsOnly);
+
+                        setFormError("");
+                      }}
+                      returnKeyType="next"
                     />
+
+                    {/* Remaining digits message */}
+
+                    {contactNumber.length > 0 && contactNumber.length < 10 ? (
+                      <Text style={styles.fieldHint}>
+                        {10 - contactNumber.length} digit
+                        {10 - contactNumber.length === 1 ? "" : "s"} remaining
+                      </Text>
+                    ) : null}
+
+                    {/* Valid indicator */}
+
+                    {contactNumber.length === 10 && (
+                      <View style={styles.validFieldRow}>
+                        <Ionicons
+                          name="checkmark-circle"
+                          size={12}
+                          color="#16a34a"
+                        />
+
+                        <Text style={styles.validFieldText}>
+                          Valid 10-digit number
+                        </Text>
+                      </View>
+                    )}
                   </View>
+
+                  {/* EMAIL */}
+
                   <View style={[styles.inputGroup, { flex: 1 }]}>
                     <Text style={styles.label}>Email</Text>
+
                     <TextInput
-                      style={styles.input}
+                      style={[
+                        styles.input,
+                        email.length > 0 &&
+                          !validateEmail(email) &&
+                          styles.inputError,
+                      ]}
                       placeholder="Email"
                       placeholderTextColor="#999"
                       keyboardType="email-address"
+                      inputMode="email"
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      autoComplete="email"
                       value={email}
-                      onChangeText={setEmail}
+                      onChangeText={(value) => {
+                        setEmail(value.trimStart());
+                        setFormError("");
+                      }}
+                      returnKeyType="done"
                     />
+
+                    {/* Invalid email message */}
+
+                    {email.length > 0 && !validateEmail(email) ? (
+                      <Text style={styles.fieldHint}>
+                        Enter a valid email address
+                      </Text>
+                    ) : null}
+
+                    {/* Valid email indicator */}
+
+                    {email.length > 0 && validateEmail(email) ? (
+                      <View style={styles.validFieldRow}>
+                        <Ionicons
+                          name="checkmark-circle"
+                          size={12}
+                          color="#16a34a"
+                        />
+
+                        <Text style={styles.validFieldText}>Valid email</Text>
+                      </View>
+                    ) : null}
                   </View>
                 </View>
+
+                {/* Form Error */}
 
                 {formError ? (
                   <View style={styles.formErrorContainer}>
                     <Ionicons name="alert-circle" size={16} color="#dc2626" />
+
                     <Text style={styles.formErrorText}>{formError}</Text>
                   </View>
                 ) : null}
 
                 <TouchableOpacity
-                  style={[styles.nextButton, { backgroundColor: accentColor }]}
+                  style={[
+                    styles.nextButton,
+                    {
+                      backgroundColor: accentColor,
+                    },
+                  ]}
                   onPress={handleDetailsNext}
                   activeOpacity={0.85}
                 >
                   <Text style={styles.nextButtonText}>Continue to Preview</Text>
+
                   <Ionicons name="arrow-forward" size={16} color="#fff" />
                 </TouchableOpacity>
               </View>
             )}
 
+            {/* ================= SIGN ================= */}
+
             {step === "sign" && (
               <View>
                 <Text style={styles.sectionTitle}>Signature & Preview</Text>
+
                 <Text style={styles.sectionSubtitle}>
                   This is how {labels.docTitle.toLowerCase()}s will look
                 </Text>
@@ -510,10 +740,13 @@ export default function GenerateBillModal({
                       size={15}
                       color={accentColor}
                     />
+
                     <Text
                       style={[
                         styles.changeSignatureText,
-                        { color: accentColor },
+                        {
+                          color: accentColor,
+                        },
                       ]}
                     >
                       Change Signature
@@ -523,7 +756,9 @@ export default function GenerateBillModal({
                   <TouchableOpacity
                     style={[
                       styles.addSignatureButton,
-                      { borderColor: accentColor },
+                      {
+                        borderColor: accentColor,
+                      },
                     ]}
                     onPress={() => setShowSignatureModal(true)}
                     activeOpacity={0.7}
@@ -533,8 +768,14 @@ export default function GenerateBillModal({
                       size={22}
                       color={accentColor}
                     />
+
                     <Text
-                      style={[styles.addSignatureText, { color: accentColor }]}
+                      style={[
+                        styles.addSignatureText,
+                        {
+                          color: accentColor,
+                        },
+                      ]}
                     >
                       Add Signature (optional)
                     </Text>
@@ -544,12 +785,15 @@ export default function GenerateBillModal({
                 <TouchableOpacity
                   style={[
                     styles.saveTemplateButton,
-                    { backgroundColor: accentColor },
+                    {
+                      backgroundColor: accentColor,
+                    },
                   ]}
                   onPress={handleSaveTemplate}
                   activeOpacity={0.85}
                 >
                   <Ionicons name="save-outline" size={20} color="#fff" />
+
                   <Text style={styles.saveTemplateButtonText}>
                     Save Template
                   </Text>
@@ -559,20 +803,15 @@ export default function GenerateBillModal({
           </ScrollView>
         </View>
 
-        {/*
-          Design-step "Preview This Design" - rendered as an inline overlay
-          instead of a nested <Modal>. Two <Modal>s stacked on top of each
-          other is the root cause of Android touch/state glitches (see the
-          signature canvas note below for the full explanation) - so this,
-          like the signature canvas, is now a plain absolutely-positioned
-          View living inside this same outer Modal.
-        */}
+        {/* ================= DESIGN PREVIEW ================= */}
+
         {showDesignPreview && (
           <View style={styles.previewOverlay}>
             <View style={styles.previewModalBackdrop}>
               <View style={styles.previewModalCard}>
                 <View style={styles.previewModalHeader}>
                   <Text style={styles.previewModalTitle}>Design Preview</Text>
+
                   <TouchableOpacity
                     onPress={() => setShowDesignPreview(false)}
                     style={styles.closeButton}
@@ -580,13 +819,21 @@ export default function GenerateBillModal({
                     <Ionicons name="close" size={22} color="#666" />
                   </TouchableOpacity>
                 </View>
-                <ScrollView showsVerticalScrollIndicator={false}>
+
+                <ScrollView
+                  showsVerticalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                >
                   {renderPreviewCard(false)}
                 </ScrollView>
+
                 <TouchableOpacity
                   style={[
                     styles.nextButton,
-                    { backgroundColor: accentColor, marginTop: 14 },
+                    {
+                      backgroundColor: accentColor,
+                      marginTop: 14,
+                    },
                   ]}
                   onPress={() => setShowDesignPreview(false)}
                   activeOpacity={0.85}
@@ -598,24 +845,8 @@ export default function GenerateBillModal({
           </View>
         )}
 
-        {/*
-          Signature canvas - fixed to no longer be its own <Modal>.
-          ROOT CAUSE of "drawing disappears on finger release": this was
-          previously rendered as its own <Modal>, opened while this
-          GenerateBillModal's <Modal> was already open underneath it.
-          Nested Modals on Android are each backed by a SEPARATE native
-          window, and touch/focus handoff between two stacked native
-          windows is a known source of exactly this symptom - drawing works
-          fine while the finger is down (one window has focus), then on
-          release a stray touch-up event or a forced re-render reaches the
-          modal underneath and the drawing state appears to reset.
+        {/* ================= SIGNATURE ================= */}
 
-          Fix: SignatureCanvas is now a plain full-screen absolutely
-          positioned overlay View (see its "visible ? ... : null" render),
-          rendered here as a normal sibling INSIDE this Modal's content.
-          Only one native modal window exists at any time, so there's no
-          window to steal focus/touches away mid-gesture.
-        */}
         <SignatureCanvas
           visible={showSignatureModal}
           onSave={(sig) => {
@@ -637,26 +868,39 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     padding: 16,
   },
+
   card: {
     backgroundColor: "#fff",
     borderRadius: 22,
     padding: 20,
     maxHeight: "92%",
   },
+
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
     marginBottom: 14,
   },
+
   headerLeft: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 8,
     flex: 1,
   },
-  backNavButton: { padding: 4, marginTop: 2 },
-  title: { fontSize: 17, fontWeight: "800", color: "#0f172a" },
+
+  backNavButton: {
+    padding: 4,
+    marginTop: 2,
+  },
+
+  title: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: "#0f172a",
+  },
+
   badge: {
     alignSelf: "flex-start",
     paddingHorizontal: 8,
@@ -664,8 +908,15 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     marginTop: 4,
   },
-  badgeText: { fontSize: 10.5, fontWeight: "700" },
-  closeButton: { padding: 4 },
+
+  badgeText: {
+    fontSize: 10.5,
+    fontWeight: "700",
+  },
+
+  closeButton: {
+    padding: 4,
+  },
 
   stepIndicator: {
     flexDirection: "row",
@@ -673,7 +924,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 18,
   },
-  stepItem: { flexDirection: "row", alignItems: "center" },
+
+  stepItem: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
   stepDot: {
     width: 26,
     height: 26,
@@ -682,17 +938,35 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-  stepDotText: { fontSize: 12, fontWeight: "700", color: "#94a3b8" },
-  stepLine: { width: 44, height: 2, backgroundColor: "#e2e8f0" },
 
-  scrollContent: { paddingBottom: 20 },
+  stepDotText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#94a3b8",
+  },
+
+  stepLine: {
+    width: 44,
+    height: 2,
+    backgroundColor: "#e2e8f0",
+  },
+
+  scrollContent: {
+    paddingBottom: 20,
+  },
+
   sectionTitle: {
     fontSize: 16,
     fontWeight: "800",
     color: "#0f172a",
     marginBottom: 4,
   },
-  sectionSubtitle: { fontSize: 12.5, color: "#64748b", marginBottom: 14 },
+
+  sectionSubtitle: {
+    fontSize: 12.5,
+    color: "#64748b",
+    marginBottom: 14,
+  },
 
   templateCard: {
     flexDirection: "row",
@@ -705,9 +979,24 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     backgroundColor: "#fff",
   },
-  templateColorPreview: { width: 38, height: 38, borderRadius: 10 },
-  templateName: { fontSize: 14.5, fontWeight: "700", color: "#0f172a" },
-  templateDescription: { fontSize: 11.5, color: "#64748b", marginTop: 2 },
+
+  templateColorPreview: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+  },
+
+  templateName: {
+    fontSize: 14.5,
+    fontWeight: "700",
+    color: "#0f172a",
+  },
+
+  templateDescription: {
+    fontSize: 11.5,
+    color: "#64748b",
+    marginTop: 2,
+  },
 
   label: {
     fontSize: 12.5,
@@ -716,7 +1005,13 @@ const styles = StyleSheet.create({
     marginTop: 10,
     marginBottom: 8,
   },
-  swatchRow: { flexDirection: "row", gap: 10, marginBottom: 16 },
+
+  swatchRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 16,
+  },
+
   swatch: {
     width: 28,
     height: 28,
@@ -724,7 +1019,10 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "transparent",
   },
-  swatchActive: { borderColor: "#0f172a" },
+
+  swatchActive: {
+    borderColor: "#0f172a",
+  },
 
   previewLinkButton: {
     flexDirection: "row",
@@ -734,10 +1032,21 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     marginBottom: 6,
   },
-  previewLinkText: { fontSize: 13, fontWeight: "700" },
 
-  inputGroup: { marginBottom: 14 },
-  rowGroup: { flexDirection: "row", gap: 10 },
+  previewLinkText: {
+    fontSize: 13,
+    fontWeight: "700",
+  },
+
+  inputGroup: {
+    marginBottom: 14,
+  },
+
+  rowGroup: {
+    flexDirection: "row",
+    gap: 10,
+  },
+
   input: {
     borderWidth: 1,
     borderColor: "#e2e8f0",
@@ -750,6 +1059,31 @@ const styles = StyleSheet.create({
     minHeight: 44,
   },
 
+  inputError: {
+    borderColor: "#fca5a5",
+  },
+
+  fieldHint: {
+    fontSize: 10.5,
+    color: "#dc2626",
+    marginTop: 4,
+    marginLeft: 2,
+  },
+
+  validFieldRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    marginTop: 4,
+    marginLeft: 2,
+  },
+
+  validFieldText: {
+    fontSize: 10.5,
+    color: "#16a34a",
+    fontWeight: "500",
+  },
+
   formErrorContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -759,7 +1093,13 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     gap: 6,
   },
-  formErrorText: { color: "#dc2626", fontSize: 13, fontWeight: "500" },
+
+  formErrorText: {
+    color: "#dc2626",
+    fontSize: 13,
+    fontWeight: "500",
+    flex: 1,
+  },
 
   nextButton: {
     flexDirection: "row",
@@ -770,7 +1110,12 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     marginTop: 8,
   },
-  nextButtonText: { color: "#fff", fontSize: 15, fontWeight: "700" },
+
+  nextButtonText: {
+    color: "#fff",
+    fontSize: 15,
+    fontWeight: "700",
+  },
 
   previewCard: {
     borderRadius: 14,
@@ -779,27 +1124,49 @@ const styles = StyleSheet.create({
     borderColor: "#e2e8f0",
     marginBottom: 14,
   },
-  previewHeader: { padding: 14, alignItems: "center" },
-  previewHeaderTitle: { fontSize: 15, fontWeight: "800", color: "#fff" },
+
+  previewHeader: {
+    padding: 14,
+    alignItems: "center",
+  },
+
+  previewHeaderTitle: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#fff",
+  },
+
   previewHeaderTemplate: {
     fontSize: 10.5,
     color: "rgba(255,255,255,0.85)",
     marginTop: 2,
   },
-  previewBody: { padding: 16, backgroundColor: "#fff" },
+
+  previewBody: {
+    padding: 16,
+    backgroundColor: "#fff",
+  },
+
   previewSociety: {
     fontSize: 16,
     fontWeight: "800",
     color: "#0f172a",
     textAlign: "center",
   },
+
   previewSub: {
     fontSize: 11.5,
     color: "#64748b",
     textAlign: "center",
     marginTop: 2,
   },
-  previewDivider: { height: 1, backgroundColor: "#f1f5f9", marginVertical: 10 },
+
+  previewDivider: {
+    height: 1,
+    backgroundColor: "#f1f5f9",
+    marginVertical: 10,
+  },
+
   dummyTag: {
     fontSize: 10.5,
     color: "#94a3b8",
@@ -807,23 +1174,52 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     textAlign: "center",
   },
+
   previewRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     paddingVertical: 4,
   },
-  previewLabel: { fontSize: 12.5, color: "#64748b" },
-  previewValue: { fontSize: 12.5, fontWeight: "700", color: "#0f172a" },
+
+  previewLabel: {
+    fontSize: 12.5,
+    color: "#64748b",
+  },
+
+  previewValue: {
+    fontSize: 12.5,
+    fontWeight: "700",
+    color: "#0f172a",
+  },
+
   previewTotalRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
-  previewTotalLabel: { fontSize: 14, fontWeight: "800", color: "#0f172a" },
-  previewTotalValue: { fontSize: 20, fontWeight: "800" },
 
-  signatureArea: { marginTop: 20, alignItems: "center" },
-  signatureAreaLabel: { fontSize: 10.5, color: "#94a3b8", marginBottom: 6 },
+  previewTotalLabel: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#0f172a",
+  },
+
+  previewTotalValue: {
+    fontSize: 20,
+    fontWeight: "800",
+  },
+
+  signatureArea: {
+    marginTop: 20,
+    alignItems: "center",
+  },
+
+  signatureAreaLabel: {
+    fontSize: 10.5,
+    color: "#94a3b8",
+    marginBottom: 6,
+  },
+
   signatureLine: {
     width: 150,
     height: 1,
@@ -842,7 +1238,12 @@ const styles = StyleSheet.create({
     gap: 6,
     marginBottom: 16,
   },
-  addSignatureText: { fontSize: 14, fontWeight: "700" },
+
+  addSignatureText: {
+    fontSize: 14,
+    fontWeight: "700",
+  },
+
   changeSignatureButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -851,7 +1252,11 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     marginBottom: 16,
   },
-  changeSignatureText: { fontSize: 13, fontWeight: "700" },
+
+  changeSignatureText: {
+    fontSize: 13,
+    fontWeight: "700",
+  },
 
   saveTemplateButton: {
     flexDirection: "row",
@@ -861,33 +1266,43 @@ const styles = StyleSheet.create({
     paddingVertical: 15,
     borderRadius: 12,
   },
-  saveTemplateButtonText: { fontSize: 15, fontWeight: "700", color: "#fff" },
 
-  // Overlay wrapper for the design-preview panel, replacing the old
-  // separate <Modal>. zIndex/elevation keep it above the main card content
-  // within this same Modal's native window.
+  saveTemplateButtonText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#fff",
+  },
+
   previewOverlay: {
     ...StyleSheet.absoluteFill,
     zIndex: 900,
     elevation: 15,
   },
+
   previewModalBackdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.6)",
     justifyContent: "center",
     padding: 20,
   },
+
   previewModalCard: {
     backgroundColor: "#fff",
     borderRadius: 20,
     padding: 18,
     maxHeight: "85%",
   },
+
   previewModalHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 12,
   },
-  previewModalTitle: { fontSize: 16, fontWeight: "800", color: "#0f172a" },
+
+  previewModalTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#0f172a",
+  },
 });
