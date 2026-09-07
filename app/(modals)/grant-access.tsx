@@ -4,6 +4,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useMemo, useState } from "react";
 import {
   Alert,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   ScrollView,
@@ -14,6 +15,7 @@ import {
   TouchableWithoutFeedback,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useGroups } from "../../hooks/useGroups";
 import { useAccessStore } from "../../store/accessStore";
@@ -36,6 +38,7 @@ interface ContactData {
 
 export default function GrantAccessScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   const currentUser = useAuthStore((state) => state.user);
 
@@ -458,7 +461,14 @@ export default function GrantAccessScreen() {
             <TouchableWithoutFeedback
               onPress={(event) => event.stopPropagation()}
             >
-              <View style={styles.modalContainer}>
+              <View
+                style={[
+                  styles.modalContainer,
+                  {
+                    paddingBottom: Math.max(insets.bottom, 12),
+                  },
+                ]}
+              >
                 {/* Modal Header */}
                 <View style={styles.modalHeader}>
                   <View>
@@ -622,12 +632,28 @@ export default function GrantAccessScreen() {
   // ============================================================
 
   return (
-    <View style={styles.screen}>
+    <KeyboardAvoidingView
+      style={[
+        styles.screen,
+        {
+          paddingBottom: insets.bottom,
+        },
+      ]}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={0}
+    >
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={styles.container}
+        contentContainerStyle={[
+          styles.container,
+          {
+            paddingBottom: Math.max(insets.bottom, 24),
+          },
+        ]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="none"
+        bounces={false}
       >
         {/* Intro Card */}
         <View style={styles.introCard}>
@@ -1087,7 +1113,7 @@ export default function GrantAccessScreen() {
       </ScrollView>
 
       {renderContactPickerModal()}
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -1108,6 +1134,7 @@ const styles = StyleSheet.create({
   container: {
     paddingHorizontal: 16,
     paddingTop: 16,
+    flexGrow: 1,
   },
 
   // ----------------------------------------------------------

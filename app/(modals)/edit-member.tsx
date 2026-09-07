@@ -585,6 +585,23 @@ export default function EditMemberScreen() {
   const member = getMemberById(memberId);
 
   // ==================================================
+  // GET HEADER TITLE
+  // ==================================================
+
+  const getHeaderTitle = () => {
+    if (groupType === "expense") {
+      return "Edit Expense";
+    }
+    if (groupType === "staff") {
+      return "Edit Staff";
+    }
+    if (groupType === "apartment") {
+      return "Edit Member";
+    }
+    return "Edit Member";
+  };
+
+  // ==================================================
   // ROLE OPTIONS
   // ==================================================
 
@@ -1120,7 +1137,7 @@ export default function EditMemberScreen() {
       <View style={styles.container}>
         <Stack.Screen
           options={{
-            title: groupType === "expense" ? "Edit Expense" : "Edit Member",
+            title: getHeaderTitle(),
           }}
         />
         <View style={styles.centerContent}>
@@ -1151,21 +1168,32 @@ export default function EditMemberScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
+      style={[
+        styles.container,
+        {
+          paddingBottom: insets.bottom,
+        },
+      ]}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
+      keyboardVerticalOffset={0}
     >
       <Stack.Screen
         options={{
-          title: groupType === "expense" ? "Edit Expense" : "Edit Member",
+          title: getHeaderTitle(),
         }}
       />
 
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[
+          styles.scrollContent,
+          {
+            paddingBottom: Math.max(insets.bottom, 24),
+          },
+        ]}
         keyboardShouldPersistTaps="handled"
-        keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
+        keyboardDismissMode="none"
         showsVerticalScrollIndicator={false}
+        bounces={false}
       >
         {/* ==================================================
             PROFILE CARD
@@ -2417,7 +2445,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: 18,
     paddingTop: 8,
-    paddingBottom: 40,
+    flexGrow: 1,
   },
 
   // ==================================================
