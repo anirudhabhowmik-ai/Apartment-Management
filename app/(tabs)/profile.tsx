@@ -35,6 +35,7 @@ import { useAccounts } from "../../hooks/useAccounts";
 import { sendOtp, verifyOtp } from "../../services/otpService";
 import { useAccessStore } from "../../store/accessStore";
 import { useAccountStore } from "../../store/accountStore";
+import { BillMemberType, SavedBillConfig } from "../../store/billStore";
 import { useAuthStore } from "../../store/useAuthStore";
 
 interface MenuItem {
@@ -54,6 +55,33 @@ interface ContactData {
     number: string;
     label?: string;
   }[];
+}
+
+interface HistoryEntry {
+  id: string;
+  type:
+    | "payment"
+    | "maintenance_paid"
+    | "maintenance_due"
+    | "amount_changed"
+    | "template_saved"
+    | "member_added"
+    | "member_removed"
+    | "role_changed"
+    | "bill_generated"
+    | "staff_added"
+    | "staff_removed";
+  title: string;
+  description: string;
+  amount?: number;
+  status?: "paid" | "due";
+  memberName?: string;
+  timestamp: number;
+  date: string;
+  markedBy: string;
+  details?: Record<string, any>;
+  oldValue?: string;
+  newValue?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -556,7 +584,7 @@ const adjustStyles = StyleSheet.create({
 });
 
 // ============================================================
-// STYLES - Full styles object
+// STYLES
 // ============================================================
 
 const styles = StyleSheet.create({
@@ -1143,6 +1171,318 @@ const styles = StyleSheet.create({
   },
 
   // ============================================================
+  // HISTORY CARD - At bottom
+  // ============================================================
+
+  historyCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    marginTop: 14,
+    overflow: "hidden",
+  },
+
+  historyHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 15,
+    paddingTop: 15,
+    paddingBottom: 12,
+  },
+
+  historyTitle: {
+    color: "#0F172A",
+    fontSize: 15,
+    fontWeight: "700",
+  },
+
+  historySubtitle: {
+    color: "#64748B",
+    fontSize: 11,
+    marginTop: 3,
+  },
+
+  historyTotalBadge: {
+    minWidth: 34,
+    height: 34,
+    borderRadius: 12,
+    backgroundColor: "#EFF6FF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  historyTotalText: {
+    color: "#2563EB",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+
+  viewAllHistoryButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#F1F5F9",
+    gap: 6,
+  },
+
+  viewAllHistoryText: {
+    color: "#2563EB",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+
+  // ============================================================
+  // HISTORY MODAL - With date/month/year grouping
+  // ============================================================
+
+  historyModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.58)",
+    justifyContent: "flex-end",
+    alignItems: "center",
+  },
+
+  historyModalCard: {
+    width: "100%",
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    paddingHorizontal: 18,
+    paddingTop: 20,
+    maxHeight: "92%",
+  },
+
+  historyModalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+
+  historyModalTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#0F172A",
+  },
+
+  historyModalSubtitle: {
+    fontSize: 12,
+    color: "#64748B",
+    marginTop: 2,
+  },
+
+  historyModalCloseButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#F1F5F9",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  historyModalHandle: {
+    width: 42,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#CBD5E1",
+    alignSelf: "center",
+    marginBottom: 16,
+  },
+
+  historyModalScroll: {
+    flex: 1,
+  },
+
+  historyModalContent: {
+    paddingBottom: 20,
+  },
+
+  // Month/Year Group
+  historyGroupHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F1F5F9",
+  },
+
+  historyGroupMonth: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#0F172A",
+  },
+
+  historyGroupYear: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#64748B",
+    marginLeft: 6,
+  },
+
+  historyGroupCount: {
+    marginLeft: 8,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 10,
+    backgroundColor: "#EFF6FF",
+    fontSize: 10,
+    fontWeight: "600",
+    color: "#2563EB",
+  },
+
+  historyItem: {
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F5F7FA",
+  },
+
+  historyItemLast: {
+    borderBottomWidth: 0,
+  },
+
+  historyItemHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+  },
+
+  historyIconContainer: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+
+  historyIconPaid: {
+    backgroundColor: "#DCFCE7",
+  },
+
+  historyIconDue: {
+    backgroundColor: "#FEE2E2",
+  },
+
+  historyIconChanged: {
+    backgroundColor: "#EFF6FF",
+  },
+
+  historyIconTemplate: {
+    backgroundColor: "#F3E8FF",
+  },
+
+  historyIconMember: {
+    backgroundColor: "#DBEAFE",
+  },
+
+  historyIconBill: {
+    backgroundColor: "#FEF3C7",
+  },
+
+  historyItemContent: {
+    flex: 1,
+  },
+
+  historyItemTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#0F172A",
+  },
+
+  historyItemDescription: {
+    fontSize: 12,
+    color: "#64748B",
+    marginTop: 2,
+  },
+
+  historyItemMeta: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 4,
+    flexWrap: "wrap",
+  },
+
+  historyItemDate: {
+    fontSize: 10,
+    color: "#94A3B8",
+  },
+
+  historyStatusBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+
+  historyStatusBadgePaid: {
+    backgroundColor: "#DCFCE7",
+  },
+
+  historyStatusBadgeDue: {
+    backgroundColor: "#FEE2E2",
+  },
+
+  historyStatusText: {
+    fontSize: 9,
+    fontWeight: "600",
+  },
+
+  historyStatusTextPaid: {
+    color: "#16A34A",
+  },
+
+  historyStatusTextDue: {
+    color: "#DC2626",
+  },
+
+  historyItemAmount: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#0F172A",
+  },
+
+  historyItemMarkedBy: {
+    fontSize: 10,
+    color: "#94A3B8",
+  },
+
+  noHistoryContainer: {
+    alignItems: "center",
+    paddingVertical: 40,
+    paddingHorizontal: 20,
+  },
+
+  noHistoryIcon: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: "#F1F5F9",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 12,
+  },
+
+  noHistoryTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#334155",
+  },
+
+  noHistoryText: {
+    fontSize: 13,
+    color: "#94A3B8",
+    textAlign: "center",
+    marginTop: 4,
+    lineHeight: 18,
+  },
+
+  // ============================================================
   // FOOTER
   // ============================================================
 
@@ -1715,7 +2055,7 @@ const styles = StyleSheet.create({
   },
 
   // ============================================================
-  // PHOTO OPTIONS MODAL - Matches AddAccountScreen
+  // PHOTO OPTIONS MODAL
   // ============================================================
 
   modalBackdrop: {
@@ -1812,7 +2152,7 @@ const styles = StyleSheet.create({
   },
 
   // ============================================================
-  // GENERATE BILL SECTION - New Styles
+  // GENERATE BILL
   // ============================================================
 
   generateBillButton: {
@@ -1861,7 +2201,7 @@ const styles = StyleSheet.create({
 }) as any;
 
 // ---------------------------------------------------------------------------
-// Main Component - Rest of the component
+// Main Component
 // ---------------------------------------------------------------------------
 
 export default function ProfileScreen() {
@@ -1908,10 +2248,12 @@ export default function ProfileScreen() {
 
   // Bill generation states
   const [showGenerateBill, setShowGenerateBill] = useState(false);
-  const [billMemberType, setBillMemberType] = useState<"owner" | "staff">(
-    "owner",
-  );
-  const [generatingBill, setGeneratingBill] = useState(false);
+  const [billMemberType, setBillMemberType] = useState<BillMemberType>("owner");
+
+  // History states
+  const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [showHistoryModal, setShowHistoryModal] = useState(false);
+  const [historyFilter, setHistoryFilter] = useState<string>("all");
 
   // OTP refs
   const otpInputs = useRef<(TextInput | null)[]>([]);
@@ -1919,9 +2261,7 @@ export default function ProfileScreen() {
 
   // Contacts
   const [showContactPicker, setShowContactPicker] = useState(false);
-
   const [contactsList, setContactsList] = useState<ContactData[]>([]);
-
   const [contactSearch, setContactSearch] = useState("");
 
   // ============================================================
@@ -1947,6 +2287,214 @@ export default function ProfileScreen() {
     visibleMembers.length +
     pendingInvitations.length +
     (selectedAccount?.ownerId === user?.id ? 1 : 0);
+
+  // ============================================================
+  // HISTORY FUNCTIONS
+  // ============================================================
+
+  const addHistoryEntry = (
+    type: HistoryEntry["type"],
+    title: string,
+    description: string,
+    options?: {
+      amount?: number;
+      status?: "paid" | "due";
+      memberName?: string;
+      details?: Record<string, any>;
+      oldValue?: string;
+      newValue?: string;
+    },
+  ) => {
+    const newEntry: HistoryEntry = {
+      id: Date.now().toString(),
+      type,
+      title,
+      description,
+      timestamp: Date.now(),
+      date: new Date().toISOString(),
+      markedBy: user?.name || "Admin",
+      ...options,
+    };
+    setHistory((prev) => [newEntry, ...prev]);
+  };
+
+  // Add sample history entries
+  useEffect(() => {
+    const sampleHistory: HistoryEntry[] = [
+      {
+        id: "1",
+        type: "maintenance_paid",
+        title: "Maintenance Paid",
+        description: "Ramesh Kumar paid maintenance for January 2024",
+        amount: 2500,
+        status: "paid",
+        memberName: "Ramesh Kumar",
+        timestamp: Date.now() - 30 * 24 * 60 * 60 * 1000,
+        date: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
+        markedBy: "Admin (You)",
+        details: { month: "January 2024", flat: "A-204" },
+      },
+      {
+        id: "2",
+        type: "maintenance_due",
+        title: "Maintenance Due",
+        description: "Priya Sharma has pending maintenance for February 2024",
+        amount: 1800,
+        status: "due",
+        memberName: "Priya Sharma",
+        timestamp: Date.now() - 15 * 24 * 60 * 60 * 1000,
+        date: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString(),
+        markedBy: "System",
+        details: { month: "February 2024", flat: "B-101" },
+      },
+      {
+        id: "3",
+        type: "amount_changed",
+        title: "Maintenance Amount Changed",
+        description:
+          "Amit Singh's maintenance amount changed from ₹3,000 to ₹3,200",
+        amount: 3200,
+        memberName: "Amit Singh",
+        timestamp: Date.now() - 5 * 24 * 60 * 60 * 1000,
+        date: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
+        markedBy: "Admin (You)",
+        oldValue: "₹3,000",
+        newValue: "₹3,200",
+        details: { flat: "C-505" },
+      },
+      {
+        id: "4",
+        type: "template_saved",
+        title: "Bill Template Saved",
+        description: "Owner bill template updated with new design",
+        timestamp: Date.now() - 2 * 24 * 60 * 60 * 1000,
+        date: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString(),
+        markedBy: "Admin (You)",
+        details: { template: "Professional", accent: "#1a73e8" },
+      },
+      {
+        id: "5",
+        type: "member_added",
+        title: "New Member Added",
+        description: "Suresh Kumar added as a new member",
+        memberName: "Suresh Kumar",
+        timestamp: Date.now() - 7 * 24 * 60 * 60 * 1000,
+        date: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+        markedBy: "Admin (You)",
+        details: { role: "Owner", flat: "A-101" },
+      },
+    ];
+    setHistory(sampleHistory);
+  }, []);
+
+  const getFilteredHistory = () => {
+    if (historyFilter === "all") return history;
+    return history.filter((item) => item.type === historyFilter);
+  };
+
+  const getHistoryIcon = (type: HistoryEntry["type"]) => {
+    switch (type) {
+      case "maintenance_paid":
+      case "payment":
+        return { icon: "checkmark-circle", color: "#16A34A", bg: "#DCFCE7" };
+      case "maintenance_due":
+        return { icon: "time-outline", color: "#DC2626", bg: "#FEE2E2" };
+      case "amount_changed":
+        return {
+          icon: "swap-horizontal-outline",
+          color: "#2563EB",
+          bg: "#EFF6FF",
+        };
+      case "template_saved":
+        return {
+          icon: "document-text-outline",
+          color: "#7C3AED",
+          bg: "#F3E8FF",
+        };
+      case "member_added":
+      case "staff_added":
+        return { icon: "person-add-outline", color: "#2563EB", bg: "#DBEAFE" };
+      case "member_removed":
+      case "staff_removed":
+        return {
+          icon: "person-remove-outline",
+          color: "#DC2626",
+          bg: "#FEE2E2",
+        };
+      case "bill_generated":
+        return { icon: "receipt-outline", color: "#D97706", bg: "#FEF3C7" };
+      case "role_changed":
+        return { icon: "shield-outline", color: "#7C3AED", bg: "#F3E8FF" };
+      default:
+        return {
+          icon: "information-circle-outline",
+          color: "#64748B",
+          bg: "#F1F5F9",
+        };
+    }
+  };
+
+  const formatDate = (dateString: string) => {
+    const date = new Date(dateString);
+    return date.toLocaleDateString("en-IN", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
+  const formatCurrency = (amount: number) => {
+    return `₹${amount.toLocaleString("en-IN")}`;
+  };
+
+  // Group history by month/year
+  const getGroupedHistory = () => {
+    const filtered = getFilteredHistory();
+    const groups: { [key: string]: HistoryEntry[] } = {};
+
+    filtered.forEach((item) => {
+      const date = new Date(item.date);
+      const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
+      if (!groups[key]) {
+        groups[key] = [];
+      }
+      groups[key].push(item);
+    });
+
+    // Sort groups by date (newest first)
+    const sortedKeys = Object.keys(groups).sort((a, b) => {
+      const [yearA, monthA] = a.split("-").map(Number);
+      const [yearB, monthB] = b.split("-").map(Number);
+      if (yearA !== yearB) return yearB - yearA;
+      return monthB - monthA;
+    });
+
+    return sortedKeys.map((key) => {
+      const [year, month] = key.split("-").map(Number);
+      const monthNames = [
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
+      ];
+      return {
+        key,
+        month: monthNames[month - 1],
+        year: year.toString(),
+        entries: groups[key].sort((a, b) => b.timestamp - a.timestamp),
+      };
+    });
+  };
 
   // ============================================================
   // OTP TIMER
@@ -2031,7 +2579,7 @@ export default function ProfileScreen() {
   };
 
   // ============================================================
-  // CHANGE PROFILE PHOTO - Updated with photo options modal
+  // CHANGE PROFILE PHOTO
   // ============================================================
 
   const showPhotoSelectionOptions = () => {
@@ -2442,31 +2990,19 @@ export default function ProfileScreen() {
   };
 
   // ============================================================
-  // HANDLE GENERATE BILL
+  // HANDLE BILL SAVED
   // ============================================================
 
-  const handleGenerateBill = async (data: any) => {
-    setGeneratingBill(true);
-    try {
-      // This will be called from the GenerateBillModal
-      // The actual bill generation happens in the modal component
-      // We'll handle the PDF generation here
-      console.log("Bill data:", data);
-
-      // Show success message
-      Alert.alert(
-        "Success",
-        "Bill generated successfully! You can download it from the member list.",
-        [{ text: "OK" }],
-      );
-
-      setShowGenerateBill(false);
-    } catch (error) {
-      console.error("Error generating bill:", error);
-      Alert.alert("Error", "Failed to generate bill. Please try again.");
-    } finally {
-      setGeneratingBill(false);
-    }
+  const handleBillSaved = (config: SavedBillConfig) => {
+    // Add to history
+    addHistoryEntry(
+      "template_saved",
+      "Bill Template Saved",
+      `Bill template "${config.templateId}" saved successfully`,
+      {
+        details: { template: config.templateId, accent: config.accentColor },
+      },
+    );
   };
 
   // ============================================================
@@ -2675,6 +3211,236 @@ export default function ProfileScreen() {
       ],
     },
   ];
+
+  // ============================================================
+  // HISTORY MODAL
+  // ============================================================
+
+  const renderHistoryModal = () => {
+    const groupedHistory = getGroupedHistory();
+
+    return (
+      <Modal
+        visible={showHistoryModal}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowHistoryModal(false)}
+      >
+        <TouchableWithoutFeedback onPress={() => setShowHistoryModal(false)}>
+          <View style={styles.historyModalOverlay}>
+            <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
+              <View style={styles.historyModalCard}>
+                <View style={styles.historyModalHandle} />
+
+                <View style={styles.historyModalHeader}>
+                  <View>
+                    <Text style={styles.historyModalTitle}>
+                      Activity History
+                    </Text>
+                    <Text style={styles.historyModalSubtitle}>
+                      {history.length} events recorded
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.historyModalCloseButton}
+                    onPress={() => setShowHistoryModal(false)}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="close" size={22} color="#475569" />
+                  </TouchableOpacity>
+                </View>
+
+                {/* History List with Month/Year Grouping */}
+                <ScrollView
+                  style={styles.historyModalScroll}
+                  showsVerticalScrollIndicator={true}
+                  contentContainerStyle={styles.historyModalContent}
+                >
+                  {groupedHistory.length > 0 ? (
+                    groupedHistory.map((group) => (
+                      <View key={group.key}>
+                        <View style={styles.historyGroupHeader}>
+                          <Text style={styles.historyGroupMonth}>
+                            {group.month}
+                          </Text>
+                          <Text style={styles.historyGroupYear}>
+                            {group.year}
+                          </Text>
+                          <Text style={styles.historyGroupCount}>
+                            {group.entries.length}
+                          </Text>
+                        </View>
+
+                        {group.entries.map((item, index) => {
+                          const iconInfo = getHistoryIcon(item.type);
+                          const isLast = index === group.entries.length - 1;
+
+                          return (
+                            <View
+                              key={item.id}
+                              style={[
+                                styles.historyItem,
+                                isLast && styles.historyItemLast,
+                              ]}
+                            >
+                              <View style={styles.historyItemHeader}>
+                                <View
+                                  style={[
+                                    styles.historyIconContainer,
+                                    { backgroundColor: iconInfo.bg },
+                                  ]}
+                                >
+                                  <Ionicons
+                                    name={iconInfo.icon as any}
+                                    size={18}
+                                    color={iconInfo.color}
+                                  />
+                                </View>
+                                <View style={styles.historyItemContent}>
+                                  <Text style={styles.historyItemTitle}>
+                                    {item.title}
+                                  </Text>
+                                  <Text style={styles.historyItemDescription}>
+                                    {item.description}
+                                  </Text>
+                                  <View style={styles.historyItemMeta}>
+                                    <Text style={styles.historyItemDate}>
+                                      {formatDate(item.date)}
+                                    </Text>
+                                    {item.status && (
+                                      <View
+                                        style={[
+                                          styles.historyStatusBadge,
+                                          item.status === "paid"
+                                            ? styles.historyStatusBadgePaid
+                                            : styles.historyStatusBadgeDue,
+                                        ]}
+                                      >
+                                        <Text
+                                          style={[
+                                            styles.historyStatusText,
+                                            item.status === "paid"
+                                              ? styles.historyStatusTextPaid
+                                              : styles.historyStatusTextDue,
+                                          ]}
+                                        >
+                                          {item.status === "paid"
+                                            ? "Paid"
+                                            : "Due"}
+                                        </Text>
+                                      </View>
+                                    )}
+                                    {item.amount && (
+                                      <Text
+                                        style={[
+                                          styles.historyItemAmount,
+                                          { fontSize: 12 },
+                                        ]}
+                                      >
+                                        {formatCurrency(item.amount)}
+                                      </Text>
+                                    )}
+                                    <Text style={styles.historyItemMarkedBy}>
+                                      by {item.markedBy}
+                                    </Text>
+                                  </View>
+                                </View>
+                              </View>
+                            </View>
+                          );
+                        })}
+                      </View>
+                    ))
+                  ) : (
+                    <View style={styles.noHistoryContainer}>
+                      <View style={styles.noHistoryIcon}>
+                        <Ionicons
+                          name="time-outline"
+                          size={28}
+                          color="#94A3B8"
+                        />
+                      </View>
+                      <Text style={styles.noHistoryTitle}>
+                        No history found
+                      </Text>
+                      <Text style={styles.noHistoryText}>
+                        No events match the selected filter.
+                      </Text>
+                    </View>
+                  )}
+                </ScrollView>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+    );
+  };
+
+  // ============================================================
+  // RENDER MENU ITEM
+  // ============================================================
+
+  const renderMenuItem = (item: MenuItem, index: number, items: MenuItem[]) => {
+    return (
+      <TouchableOpacity
+        key={item.id}
+        style={[
+          styles.menuItem,
+          index === items.length - 1 && styles.menuItemLast,
+        ]}
+        onPress={item.onPress}
+        activeOpacity={0.75}
+      >
+        <View style={styles.menuItemLeft}>
+          <View
+            style={[
+              styles.menuIcon,
+              {
+                backgroundColor: item.color + "14",
+              },
+            ]}
+          >
+            <Ionicons name={item.icon} size={20} color={item.color} />
+          </View>
+
+          <View style={styles.menuItemContent}>
+            <Text style={styles.menuItemTitle}>{item.title}</Text>
+
+            {item.description ? (
+              <Text style={styles.menuItemDescription} numberOfLines={1}>
+                {item.description}
+              </Text>
+            ) : null}
+          </View>
+        </View>
+
+        {item.id === "notifications" ? (
+          <Switch
+            value={notifications}
+            onValueChange={setNotifications}
+            trackColor={{
+              false: "#CBD5E1",
+              true: "#93C5FD",
+            }}
+            thumbColor={notifications ? "#2563EB" : "#FFFFFF"}
+          />
+        ) : item.id === "dark_mode" ? (
+          <Switch
+            value={darkMode}
+            onValueChange={setDarkMode}
+            trackColor={{
+              false: "#CBD5E1",
+              true: "#93C5FD",
+            }}
+            thumbColor={darkMode ? "#2563EB" : "#FFFFFF"}
+          />
+        ) : item.showArrow !== false ? (
+          <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+        ) : null}
+      </TouchableOpacity>
+    );
+  };
 
   // ============================================================
   // PHONE MODAL
@@ -3124,71 +3890,6 @@ export default function ProfileScreen() {
   };
 
   // ============================================================
-  // RENDER MENU ITEM
-  // ============================================================
-
-  const renderMenuItem = (item: MenuItem, index: number, items: MenuItem[]) => {
-    return (
-      <TouchableOpacity
-        key={item.id}
-        style={[
-          styles.menuItem,
-          index === items.length - 1 && styles.menuItemLast,
-        ]}
-        onPress={item.onPress}
-        activeOpacity={0.75}
-      >
-        <View style={styles.menuItemLeft}>
-          <View
-            style={[
-              styles.menuIcon,
-              {
-                backgroundColor: item.color + "14",
-              },
-            ]}
-          >
-            <Ionicons name={item.icon} size={20} color={item.color} />
-          </View>
-
-          <View style={styles.menuItemContent}>
-            <Text style={styles.menuItemTitle}>{item.title}</Text>
-
-            {item.description ? (
-              <Text style={styles.menuItemDescription} numberOfLines={1}>
-                {item.description}
-              </Text>
-            ) : null}
-          </View>
-        </View>
-
-        {item.id === "notifications" ? (
-          <Switch
-            value={notifications}
-            onValueChange={setNotifications}
-            trackColor={{
-              false: "#CBD5E1",
-              true: "#93C5FD",
-            }}
-            thumbColor={notifications ? "#2563EB" : "#FFFFFF"}
-          />
-        ) : item.id === "dark_mode" ? (
-          <Switch
-            value={darkMode}
-            onValueChange={setDarkMode}
-            trackColor={{
-              false: "#CBD5E1",
-              true: "#93C5FD",
-            }}
-            thumbColor={darkMode ? "#2563EB" : "#FFFFFF"}
-          />
-        ) : item.showArrow !== false ? (
-          <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
-        ) : null}
-      </TouchableOpacity>
-    );
-  };
-
-  // ============================================================
   // MAIN
   // ============================================================
 
@@ -3552,6 +4253,83 @@ export default function ProfileScreen() {
         </View>
 
         {/* ======================================================
+            HISTORY - At Bottom
+        ====================================================== */}
+
+        <View style={styles.historyCard}>
+          <View style={styles.historyHeader}>
+            <View>
+              <Text style={styles.historyTitle}>Activity History</Text>
+              <Text style={styles.historySubtitle}>
+                Track all activities in your society
+              </Text>
+            </View>
+            <View style={styles.historyTotalBadge}>
+              <Text style={styles.historyTotalText}>{history.length}</Text>
+            </View>
+          </View>
+
+          {/* Show last 3 entries */}
+          {history.slice(0, 3).map((item, index) => {
+            const iconInfo = getHistoryIcon(item.type);
+            return (
+              <View
+                key={item.id}
+                style={[
+                  styles.historyItem,
+                  index === 2 && styles.historyItemLast,
+                  { paddingHorizontal: 15, paddingVertical: 10 },
+                ]}
+              >
+                <View style={styles.historyItemHeader}>
+                  <View
+                    style={[
+                      styles.historyIconContainer,
+                      { backgroundColor: iconInfo.bg, width: 32, height: 32 },
+                    ]}
+                  >
+                    <Ionicons
+                      name={iconInfo.icon as any}
+                      size={16}
+                      color={iconInfo.color}
+                    />
+                  </View>
+                  <View style={styles.historyItemContent}>
+                    <Text style={[styles.historyItemTitle, { fontSize: 13 }]}>
+                      {item.title}
+                    </Text>
+                    <Text
+                      style={[styles.historyItemDescription, { fontSize: 11 }]}
+                      numberOfLines={1}
+                    >
+                      {item.description}
+                    </Text>
+                    <Text style={[styles.historyItemDate, { fontSize: 9 }]}>
+                      {formatDate(item.date)} • by {item.markedBy}
+                    </Text>
+                  </View>
+                  {item.amount && (
+                    <Text style={[styles.historyItemAmount, { fontSize: 13 }]}>
+                      {formatCurrency(item.amount)}
+                    </Text>
+                  )}
+                </View>
+              </View>
+            );
+          })}
+
+          {/* View All Button */}
+          <TouchableOpacity
+            style={styles.viewAllHistoryButton}
+            onPress={() => setShowHistoryModal(true)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.viewAllHistoryText}>View All History</Text>
+            <Ionicons name="chevron-forward" size={16} color="#2563EB" />
+          </TouchableOpacity>
+        </View>
+
+        {/* ======================================================
             FOOTER
         ====================================================== */}
 
@@ -3569,10 +4347,11 @@ export default function ProfileScreen() {
         {renderPhoneModal()}
         {renderDeleteInvitationModal()}
         {renderContactPickerModal()}
+        {renderHistoryModal()}
       </ScrollView>
 
       {/* =========================================================
-          PHOTO OPTIONS MODAL - Matches AddAccountScreen exactly
+          PHOTO OPTIONS MODAL
       ========================================================= */}
       <Modal
         visible={showPhotoOptions}
@@ -3639,7 +4418,7 @@ export default function ProfileScreen() {
       </Modal>
 
       {/* =========================================================
-          PHOTO ADJUST MODAL - Pinch to zoom / drag
+          PHOTO ADJUST MODAL
       ========================================================= */}
       <PhotoAdjustModal
         visible={showAdjustModal}
@@ -3654,8 +4433,8 @@ export default function ProfileScreen() {
       <GenerateBillModal
         visible={showGenerateBill}
         onClose={() => setShowGenerateBill(false)}
-        onGenerate={handleGenerateBill}
         memberType={billMemberType}
+        onSaved={handleBillSaved}
       />
     </View>
   );
