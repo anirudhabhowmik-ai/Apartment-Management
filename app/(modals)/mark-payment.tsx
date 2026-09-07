@@ -87,10 +87,11 @@ export default function MarkPaymentScreen() {
 
   const [deductionNote, setDeductionNote] = useState("");
 
-  /*
-   * New payment starts as Due.
-   */
+  // Current saved status
   const [paymentStatus, setPaymentStatus] = useState<"paid" | "due">("due");
+
+  // Selected status (temporary, changes when user selects)
+  const [selectedStatus, setSelectedStatus] = useState<"paid" | "due">("due");
 
   const [showStatusOptions, setShowStatusOptions] = useState(false);
 
@@ -98,16 +99,10 @@ export default function MarkPaymentScreen() {
 
   const paymentMonth = month || new Date().toISOString().slice(0, 7);
 
-  /*
-   * Attendance is only required for salary.
-   */
   const attendanceRecord = member
     ? getAttendanceRecord(member.id, paymentMonth)
     : undefined;
 
-  /*
-   * Original/base amount.
-   */
   const amount =
     type === "maintenance"
       ? member && "maintenanceAmount" in member
@@ -124,32 +119,14 @@ export default function MarkPaymentScreen() {
 
   const isEditing = mode === "edit";
 
-  /*
-   * Additional amount.
-   */
   const additionalValue = showAdditionalAmount
     ? Number(additionalAmount) || 0
     : 0;
 
-  /*
-   * Deduction amount.
-   */
   const deductionValue = showDeduction ? Number(deductionAmount) || 0 : 0;
 
-  /*
-   * FINAL AMOUNT.
-   *
-   * This works for both Due and Paid.
-   *
-   * Base Amount
-   * + Additional Amount
-   * - Deduction
-   */
   const netPaidAmount = (amount || 0) + additionalValue - deductionValue;
 
-  /*
-   * Load existing payment for the selected month.
-   */
   useEffect(() => {
     if (!member) return;
 
@@ -166,18 +143,13 @@ export default function MarkPaymentScreen() {
           }
         : undefined);
 
-    /*
-     * If there is no existing payment,
-     * status remains Due.
-     */
-    setPaymentStatus(paymentForMonth?.status === "paid" ? "paid" : "due");
-
+    const existingStatus = paymentForMonth?.status === "paid" ? "paid" : "due";
+    setPaymentStatus(existingStatus);
+    setSelectedStatus(existingStatus);
     setPaidDate(paymentForMonth?.paidDate || `${paymentMonth}-01`);
 
     setAdditionalAmount(paymentForMonth?.additionalAmount?.toString() || "");
-
     setAdditionalNote(paymentForMonth?.additionalNote || "");
-
     setShowAdditionalAmount(
       Boolean(
         paymentForMonth?.additionalAmount || paymentForMonth?.additionalNote,
@@ -185,9 +157,7 @@ export default function MarkPaymentScreen() {
     );
 
     setDeductionAmount(paymentForMonth?.deductionAmount?.toString() || "");
-
     setDeductionNote(paymentForMonth?.deductionNote || "");
-
     setShowDeduction(
       Boolean(
         paymentForMonth?.deductionAmount || paymentForMonth?.deductionNote,
@@ -195,21 +165,11 @@ export default function MarkPaymentScreen() {
     );
   }, [member, paymentMonth]);
 
-  /*
-   * Change status.
-   */
   const selectPaymentStatus = (status: "paid" | "due") => {
-    setPaymentStatus(status);
+    setSelectedStatus(status);
     setShowStatusOptions(false);
-
-    if (status === "paid" && !paidDate) {
-      setPaidDate(new Date().toISOString().slice(0, 10));
-    }
   };
 
-  /*
-   * SAVE PAYMENT
-   */
   const handleSave = async () => {
     if (!memberId || !member) {
       return;
@@ -219,14 +179,13 @@ export default function MarkPaymentScreen() {
       return;
     }
 
+    const finalStatus = selectedStatus;
+
     try {
       setSaving(true);
 
-      /*
-       * Update payment record if we have a paymentId.
-       */
       if (paymentId) {
-        if (paymentStatus === "paid") {
+        if (finalStatus === "paid") {
           if (isEditing) {
             await editPayment(paymentId, {
               status: "paid",
@@ -236,9 +195,6 @@ export default function MarkPaymentScreen() {
             await markAsPaid(paymentId);
           }
         } else {
-          /*
-           * Existing payment becomes Due.
-           */
           await editPayment(paymentId, {
             status: "due",
             paidDate: undefined,
@@ -246,92 +202,41 @@ export default function MarkPaymentScreen() {
         }
       }
 
-      /*
-       * Save everything to the member.
-       *
-       * IMPORTANT:
-       * Additional and deduction are saved even
-       * when the payment status is Due.
-       */
       updateMember(memberId, {
-        paymentStatus,
-
-        /*
-         * Paid date only exists when Paid.
-         */
-        paidDate: paymentStatus === "paid" ? paidDate : undefined,
-
-        /*
-         * Additional amount.
-         */
+        paymentStatus: finalStatus,
+        paidDate: finalStatus === "paid" ? paidDate : undefined,
         additionalAmount: showAdditionalAmount ? additionalValue : 0,
-
         additionalNote: showAdditionalAmount
           ? additionalNote.trim() || undefined
           : undefined,
-
-        /*
-         * Deduction.
-         */
         deductionAmount: showDeduction ? deductionValue : 0,
-
         deductionNote: showDeduction
           ? deductionNote.trim() || undefined
           : undefined,
-
-        /*
-         * Month-specific payment.
-         */
         monthlyPayments: {
           ...(member.monthlyPayments || {}),
-
           [paymentMonth]: {
-            status: paymentStatus,
-
-            /*
-             * Only save paid date for Paid.
-             */
-            ...(paymentStatus === "paid"
+            status: finalStatus,
+            ...(finalStatus === "paid"
               ? {
                   paidDate,
                 }
               : {}),
-
-            /*
-             * Save additional amount even
-             * when status is Due.
-             */
             additionalAmount: showAdditionalAmount ? additionalValue : 0,
-
             additionalNote: showAdditionalAmount
               ? additionalNote.trim() || undefined
               : undefined,
-
-            /*
-             * Save deduction even
-             * when status is Due.
-             */
             deductionAmount: showDeduction ? deductionValue : 0,
-
             deductionNote: showDeduction
               ? deductionNote.trim() || undefined
               : undefined,
-
-            /*
-             * Save the FINAL amount.
-             *
-             * Example:
-             *
-             * ₦2000 + ₦300 - ₦100 = ₦2200
-             */
             netAmount: netPaidAmount,
           },
         },
       });
 
-      /*
-       * Go back after successful save.
-       */
+      setPaymentStatus(finalStatus);
+
       router.back();
     } catch (error) {
       console.error("Failed to save payment:", error);
@@ -339,6 +244,31 @@ export default function MarkPaymentScreen() {
       setSaving(false);
     }
   };
+
+  // Get status display info
+  const getStatusInfo = (status: "paid" | "due") => {
+    if (status === "paid") {
+      return {
+        label: "Paid",
+        icon: "checkmark-circle",
+        color: "#16a34a",
+        bgColor: "#dcfce7",
+        borderColor: "#86efac",
+        textColor: "#15803d",
+      };
+    }
+    return {
+      label: "Due",
+      icon: "time",
+      color: "#dc2626",
+      bgColor: "#fef2f2",
+      borderColor: "#fca5a5",
+      textColor: "#dc2626",
+    };
+  };
+
+  const currentStatusInfo = getStatusInfo(paymentStatus);
+  const selectedStatusInfo = getStatusInfo(selectedStatus);
 
   return (
     <View style={styles.screen}>
@@ -375,107 +305,171 @@ export default function MarkPaymentScreen() {
           </Text>
 
           <View style={styles.amountDisplay}>
-            <Text style={styles.amount}>₦{amount || 0}</Text>
+            <Text style={styles.amount}>₹{amount || 0}</Text>
           </View>
 
-          {/* PAYMENT STATUS */}
+          {/* PAYMENT STATUS - Improved UI */}
           <Text style={styles.label}>Payment Status</Text>
 
           <TouchableOpacity
             style={[
               styles.statusSelector,
-              paymentStatus === "paid" ? styles.statusPaid : styles.statusDue,
+              {
+                backgroundColor: currentStatusInfo.bgColor,
+                borderColor: currentStatusInfo.borderColor,
+              },
             ]}
             onPress={() => setShowStatusOptions((visible) => !visible)}
             activeOpacity={0.7}
           >
             <View style={styles.statusSelectorLeft}>
-              <Ionicons
-                name={paymentStatus === "paid" ? "checkmark-circle" : "time"}
-                size={21}
-                color={paymentStatus === "paid" ? "#16803a" : "#dc2626"}
-              />
+              <View
+                style={[
+                  styles.statusIconContainer,
+                  { backgroundColor: currentStatusInfo.color },
+                ]}
+              >
+                <Ionicons
+                  name={currentStatusInfo.icon as any}
+                  size={16}
+                  color="#fff"
+                />
+              </View>
 
               <Text
                 style={[
                   styles.statusSelectorText,
-                  paymentStatus === "paid"
-                    ? styles.statusPaidText
-                    : styles.statusDueText,
+                  { color: currentStatusInfo.textColor },
                 ]}
               >
-                {paymentStatus === "paid" ? "Paid" : "Due"}
+                {currentStatusInfo.label}
               </Text>
             </View>
 
-            <Ionicons
-              name={showStatusOptions ? "chevron-up" : "chevron-down"}
-              size={19}
-              color="#666"
-            />
+            <View style={styles.statusSelectorRight}>
+              <Text style={styles.statusChangeHint}>
+                {selectedStatus !== paymentStatus ? "• Pending change" : ""}
+              </Text>
+              <Ionicons
+                name={showStatusOptions ? "chevron-up" : "chevron-down"}
+                size={20}
+                color="#94a3b8"
+              />
+            </View>
           </TouchableOpacity>
 
-          {/* STATUS OPTIONS */}
+          {/* STATUS OPTIONS - Improved UI */}
           {showStatusOptions && (
             <View style={styles.statusOptions}>
-              {/* PAID */}
               <TouchableOpacity
                 style={[
                   styles.statusOption,
-                  paymentStatus === "paid" && styles.statusOptionSelected,
+                  selectedStatus === "paid" && styles.statusOptionSelected,
                 ]}
                 onPress={() => selectPaymentStatus("paid")}
                 activeOpacity={0.7}
               >
-                <Ionicons
-                  name="checkmark-circle-outline"
-                  size={20}
-                  color="#16803a"
-                />
-
-                <View style={styles.statusOptionInfo}>
-                  <Text style={styles.statusOptionTitle}>Paid</Text>
-
-                  <Text style={styles.statusOptionSubtitle}>
-                    Payment has been received
-                  </Text>
+                <View
+                  style={[
+                    styles.radioOuter,
+                    selectedStatus === "paid" && styles.radioOuterSelected,
+                  ]}
+                >
+                  {selectedStatus === "paid" && (
+                    <View style={styles.radioInner} />
+                  )}
                 </View>
 
-                {paymentStatus === "paid" && (
-                  <Ionicons name="checkmark" size={20} color="#16803a" />
+                <View style={styles.statusOptionContent}>
+                  <View style={styles.statusOptionIconWrapper}>
+                    <Ionicons
+                      name="checkmark-circle"
+                      size={20}
+                      color="#16a34a"
+                    />
+                  </View>
+                  <View style={styles.statusOptionInfo}>
+                    <Text
+                      style={[
+                        styles.statusOptionTitle,
+                        selectedStatus === "paid" &&
+                          styles.statusOptionTitlePaid,
+                      ]}
+                    >
+                      Paid
+                    </Text>
+                    <Text style={styles.statusOptionSubtitle}>
+                      Payment has been received
+                    </Text>
+                  </View>
+                </View>
+
+                {selectedStatus === "paid" && (
+                  <Ionicons name="checkmark" size={18} color="#16a34a" />
                 )}
               </TouchableOpacity>
 
-              {/* DUE */}
               <TouchableOpacity
                 style={[
                   styles.statusOption,
-                  paymentStatus === "due" && styles.statusOptionSelected,
+                  selectedStatus === "due" && styles.statusOptionSelected,
                 ]}
                 onPress={() => selectPaymentStatus("due")}
                 activeOpacity={0.7}
               >
-                <Ionicons name="time-outline" size={20} color="#dc2626" />
-
-                <View style={styles.statusOptionInfo}>
-                  <Text style={styles.statusOptionTitle}>Due</Text>
-
-                  <Text style={styles.statusOptionSubtitle}>
-                    Payment is still pending
-                  </Text>
+                <View
+                  style={[
+                    styles.radioOuter,
+                    selectedStatus === "due" && styles.radioOuterSelected,
+                  ]}
+                >
+                  {selectedStatus === "due" && (
+                    <View style={styles.radioInner} />
+                  )}
                 </View>
 
-                {paymentStatus === "due" && (
-                  <Ionicons name="checkmark" size={20} color="#dc2626" />
+                <View style={styles.statusOptionContent}>
+                  <View style={styles.statusOptionIconWrapper}>
+                    <Ionicons name="time" size={20} color="#dc2626" />
+                  </View>
+                  <View style={styles.statusOptionInfo}>
+                    <Text
+                      style={[
+                        styles.statusOptionTitle,
+                        selectedStatus === "due" && styles.statusOptionTitleDue,
+                      ]}
+                    >
+                      Due
+                    </Text>
+                    <Text style={styles.statusOptionSubtitle}>
+                      Payment is still pending
+                    </Text>
+                  </View>
+                </View>
+
+                {selectedStatus === "due" && (
+                  <Ionicons name="checkmark" size={18} color="#dc2626" />
                 )}
               </TouchableOpacity>
+
+              {/* Status change indicator */}
+              {selectedStatus !== paymentStatus && (
+                <View style={styles.statusChangeIndicator}>
+                  <Ionicons
+                    name="information-circle"
+                    size={16}
+                    color="#2563eb"
+                  />
+                  <Text style={styles.statusChangeIndicatorText}>
+                    Status will change to "{selectedStatusInfo.label}" when you
+                    save
+                  </Text>
+                </View>
+              )}
             </View>
           )}
 
-          {/* 
-            ADDITIONAL AMOUNT - ALWAYS VISIBLE 
-            This section appears for BOTH "Paid" and "Due" statuses
-          */}
+          {/* ADDITIONAL AMOUNT */}
           <TouchableOpacity
             style={styles.additionalButton}
             onPress={() => setShowAdditionalAmount((visible) => !visible)}
@@ -488,7 +482,7 @@ export default function MarkPaymentScreen() {
                   : "add-circle-outline"
               }
               size={18}
-              color={showAdditionalAmount ? "#dc2626" : "#1a73e8"}
+              color={showAdditionalAmount ? "#dc2626" : "#2563EB"}
             />
 
             <Text
@@ -524,10 +518,7 @@ export default function MarkPaymentScreen() {
             </View>
           )}
 
-          {/* 
-            DEDUCTION - ALWAYS VISIBLE 
-            This section appears for BOTH "Paid" and "Due" statuses
-          */}
+          {/* DEDUCTION */}
           <TouchableOpacity
             style={styles.additionalButton}
             onPress={() => setShowDeduction((visible) => !visible)}
@@ -536,7 +527,7 @@ export default function MarkPaymentScreen() {
             <Ionicons
               name="remove-circle-outline"
               size={18}
-              color={showDeduction ? "#dc2626" : "#1a73e8"}
+              color={showDeduction ? "#dc2626" : "#2563EB"}
             />
 
             <Text
@@ -574,23 +565,23 @@ export default function MarkPaymentScreen() {
           <View style={styles.netAmountCard}>
             <View>
               <Text style={styles.netPaidLabel}>
-                {paymentStatus === "due"
+                {selectedStatus === "due"
                   ? "Amount to Pay"
                   : "Total Amount Received"}
               </Text>
 
               <Text style={styles.netAmountHint}>
-                {paymentStatus === "due"
-                  ? "Flat owner needs to pay this amount"
+                {selectedStatus === "due"
+                  ? "Member needs to pay this amount"
                   : "Total amount received"}
               </Text>
             </View>
 
-            <Text style={styles.netAmount}>₦{netPaidAmount}</Text>
+            <Text style={styles.netAmount}>₹{netPaidAmount}</Text>
           </View>
 
-          {/* PAID DATE - Only shows when status is Paid */}
-          {paymentStatus === "paid" && (
+          {/* PAID DATE */}
+          {selectedStatus === "paid" && (
             <>
               <Text style={styles.label}>Paid Date</Text>
 
@@ -601,7 +592,7 @@ export default function MarkPaymentScreen() {
               >
                 <Text style={styles.dateText}>{paidDate}</Text>
 
-                <Ionicons name="calendar-outline" size={19} color="#1a73e8" />
+                <Ionicons name="calendar-outline" size={19} color="#2563EB" />
               </TouchableOpacity>
             </>
           )}
@@ -623,8 +614,9 @@ export default function MarkPaymentScreen() {
           <TouchableOpacity
             style={[
               styles.saveButton,
-              paymentStatus === "due" && styles.saveDueButton,
+              selectedStatus === "due" && styles.saveDueButton,
               saving && styles.saveButtonDisabled,
+              selectedStatus !== paymentStatus && styles.saveButtonHighlight,
             ]}
             onPress={handleSave}
             disabled={saving}
@@ -632,7 +624,7 @@ export default function MarkPaymentScreen() {
           >
             <Ionicons
               name={
-                paymentStatus === "paid"
+                selectedStatus === "paid"
                   ? "checkmark-circle-outline"
                   : "time-outline"
               }
@@ -643,7 +635,7 @@ export default function MarkPaymentScreen() {
             <Text style={styles.saveButtonText}>
               {saving
                 ? "Saving..."
-                : paymentStatus === "paid"
+                : selectedStatus === "paid"
                   ? "Save as Paid"
                   : "Save as Due"}
             </Text>
@@ -739,80 +731,149 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 
+  // Status Selector - Improved
   statusSelector: {
     alignItems: "center",
-    borderRadius: 9,
-    borderWidth: 1,
+    borderRadius: 12,
+    borderWidth: 2,
     flexDirection: "row",
     justifyContent: "space-between",
-    minHeight: 50,
-    paddingHorizontal: 14,
-  },
-
-  statusPaid: {
-    backgroundColor: "#f0fdf4",
-    borderColor: "#bbf7d0",
-  },
-
-  statusDue: {
-    backgroundColor: "#fef2f2",
-    borderColor: "#fecaca",
+    minHeight: 56,
+    paddingHorizontal: 16,
   },
 
   statusSelectorLeft: {
     alignItems: "center",
     flexDirection: "row",
-    gap: 9,
+    gap: 10,
+  },
+
+  statusSelectorRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+
+  statusIconContainer: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   statusSelectorText: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: "700",
   },
 
-  statusPaidText: {
-    color: "#16803a",
+  statusChangeHint: {
+    fontSize: 11,
+    color: "#2563EB",
+    fontWeight: "600",
   },
 
-  statusDueText: {
-    color: "#dc2626",
-  },
-
+  // Status Options - Improved
   statusOptions: {
     backgroundColor: "#fff",
-    borderColor: "#dbe3ee",
-    borderRadius: 9,
+    borderColor: "#e2e8f0",
+    borderRadius: 12,
     borderWidth: 1,
-    marginTop: 6,
+    marginTop: 8,
     overflow: "hidden",
   },
 
   statusOption: {
     alignItems: "center",
     flexDirection: "row",
-    minHeight: 60,
-    paddingHorizontal: 14,
+    minHeight: 56,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
   },
 
   statusOptionSelected: {
     backgroundColor: "#f8fafc",
   },
 
+  radioOuter: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: "#cbd5e1",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+    flexShrink: 0,
+  },
+
+  radioOuterSelected: {
+    borderColor: "#2563eb",
+  },
+
+  radioInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "#2563eb",
+  },
+
+  statusOptionContent: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+
+  statusOptionIconWrapper: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
+    backgroundColor: "#f1f5f9",
+  },
+
   statusOptionInfo: {
     flex: 1,
-    marginLeft: 10,
   },
 
   statusOptionTitle: {
-    color: "#222",
+    color: "#334155",
     fontSize: 14,
-    fontWeight: "700",
+    fontWeight: "600",
+  },
+
+  statusOptionTitlePaid: {
+    color: "#15803d",
+  },
+
+  statusOptionTitleDue: {
+    color: "#dc2626",
   },
 
   statusOptionSubtitle: {
-    color: "#777",
+    color: "#94a3b8",
     fontSize: 12,
-    marginTop: 3,
+    marginTop: 2,
+  },
+
+  statusChangeIndicator: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderTopWidth: 1,
+    borderTopColor: "#f1f5f9",
+    backgroundColor: "#f0f7ff",
+  },
+
+  statusChangeIndicatorText: {
+    color: "#2563eb",
+    fontSize: 12,
+    fontWeight: "500",
+    flex: 1,
   },
 
   additionalButton: {
@@ -823,7 +884,7 @@ const styles = StyleSheet.create({
   },
 
   additionalButtonText: {
-    color: "#1a73e8",
+    color: "#2563EB",
     fontSize: 14,
     fontWeight: "500",
   },
@@ -838,8 +899,8 @@ const styles = StyleSheet.create({
 
   input: {
     backgroundColor: "#fff",
-    borderColor: "#dbe3ee",
-    borderRadius: 8,
+    borderColor: "#e2e8f0",
+    borderRadius: 10,
     borderWidth: 1,
     fontSize: 14,
     height: 48,
@@ -847,9 +908,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
 
-  /*
-   * Final amount card.
-   */
   netAmountCard: {
     alignItems: "center",
     backgroundColor: "#f3f7fd",
@@ -859,33 +917,33 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     marginTop: 22,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
   },
 
   netPaidLabel: {
-    color: "#333",
+    color: "#0f172a",
     fontSize: 14,
     fontWeight: "700",
   },
 
   netAmountHint: {
-    color: "#777",
+    color: "#94a3b8",
     fontSize: 11,
     marginTop: 4,
     maxWidth: 210,
   },
 
   netAmount: {
-    color: "#111",
-    fontSize: 20,
+    color: "#0f172a",
+    fontSize: 22,
     fontWeight: "800",
   },
 
   dateSelector: {
     alignItems: "center",
-    borderColor: "#dbe3ee",
-    borderRadius: 8,
+    borderColor: "#e2e8f0",
+    borderRadius: 10,
     borderWidth: 1,
     flexDirection: "row",
     height: 48,
@@ -894,20 +952,20 @@ const styles = StyleSheet.create({
   },
 
   dateText: {
-    color: "#333",
+    color: "#0f172a",
     fontSize: 14,
   },
 
   bottomActions: {
     alignItems: "center",
     backgroundColor: "#fff",
-    borderTopColor: "#eeeeee",
+    borderTopColor: "#f1f5f9",
     borderTopWidth: 1,
     flexDirection: "row",
     justifyContent: "flex-end",
     paddingHorizontal: 20,
     paddingTop: 12,
-    paddingBottom: 14,
+    paddingBottom: 16,
   },
 
   cancelButton: {
@@ -916,25 +974,36 @@ const styles = StyleSheet.create({
   },
 
   cancelText: {
-    color: "#333",
+    color: "#64748b",
     fontSize: 14,
     fontWeight: "600",
   },
 
   saveButton: {
     alignItems: "center",
-    backgroundColor: "#16803a",
-    borderRadius: 8,
+    backgroundColor: "#16a34a",
+    borderRadius: 10,
     flexDirection: "row",
     gap: 7,
     justifyContent: "center",
     marginLeft: 8,
-    paddingHorizontal: 16,
+    paddingHorizontal: 18,
     paddingVertical: 12,
+    minWidth: 140,
   },
 
   saveDueButton: {
     backgroundColor: "#dc2626",
+  },
+
+  saveButtonHighlight: {
+    borderWidth: 2,
+    borderColor: "#2563eb",
+    shadowColor: "#2563eb",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 2,
   },
 
   saveButtonDisabled: {

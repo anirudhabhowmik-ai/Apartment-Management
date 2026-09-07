@@ -20,7 +20,6 @@ import { useAccounts } from "../../hooks/useAccounts";
 import { useGroups } from "../../hooks/useGroups";
 import { generateBillPDF, sharePDF } from "../../services/pdfGenerator";
 import { useAttendanceStore } from "../../store/attendanceStore";
-import { useBillStore } from "../../store/billStore";
 import { useMemberStore } from "../../store/memberStore";
 import { GroupType } from "../../types";
 
@@ -616,8 +615,12 @@ export default function PeopleScreen() {
   };
 
   /* ================================================================
-   DOWNLOAD BILL - FIXED for your Account type
-=============================================================== */
+   DOWNLOAD BILL - FIXED with correct template structure
+  ================================================================ */
+
+  /* ================================================================
+   DOWNLOAD BILL - FIXED with correct template structure
+================================================================ */
 
   const handleDownloadBill = async (member: any) => {
     if (generatingBill) return;
@@ -637,12 +640,9 @@ export default function PeopleScreen() {
         return;
       }
 
-      // Get the bill template from store
-      const templates = useBillStore.getState().templates;
-      const selectedTemplate = templates[0] || {
-        id: "default",
-        name: "Default",
-        description: "Default template",
+      // Create a properly structured template that matches BillData's expected type
+      // This is the exact structure that generateBillPDF expects
+      const template = {
         colors: {
           primary: "#1a73e8",
           secondary: "#34a853",
@@ -652,7 +652,7 @@ export default function PeopleScreen() {
           headerBg: "#1a73e8",
           footerBg: "#f8f9fa",
         },
-        fontFamily: "Roboto",
+        fontFamily: "Roboto" as const,
         logoPosition: "top-left" as const,
         showBorder: true,
         borderColor: "#e0e0e0",
@@ -688,10 +688,11 @@ export default function PeopleScreen() {
       const societyName = selectedAccount?.name || "Apartment Society";
       const address = selectedAccount?.address || "Society Address";
 
-      // For phone and email, use defaults since Account type doesn't have these fields
-      const contactNumber = "+91 9876543210"; // Default contact number
-      const email = "society@example.com"; // Default email
+      // For phone and email, use defaults
+      const contactNumber = "+91 9876543210";
+      const email = "society@example.com";
 
+      // Build the bill data with the correctly typed template
       const billData = {
         billNumber,
         apartmentName: member.wing || "Apartment",
@@ -711,7 +712,7 @@ export default function PeopleScreen() {
         deductionNote: monthlyPayment.deductionNote,
         netAmount,
         signData: undefined,
-        template: selectedTemplate,
+        template: template,
         billType: isApartment ? ("maintenance" as const) : ("salary" as const),
         staffRole: isStaff ? member.role : undefined,
       };
