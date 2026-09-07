@@ -27,17 +27,6 @@ import { useAuthStore } from "../../store/useAuthStore";
 // ================================================================
 // REACT NATIVE WEB WARNING FILTER
 // ================================================================
-//
-// React Native Web may currently emit this internal warning:
-//
-// "props.pointerEvents is deprecated. Use style.pointerEvents"
-//
-// The warning is generated inside react-native-web's internal
-// touch/press implementation.
-//
-// We suppress ONLY this exact warning.
-// All other warnings and errors remain visible.
-// ================================================================
 
 if (
   Platform.OS === "web" &&
@@ -103,15 +92,6 @@ export default function LoginScreen() {
   // ==============================================================
   // BLUR BROWSER FOCUS
   // ==============================================================
-  //
-  // When navigating on Web, Expo Router hides the current screen.
-  // If a button/input still has browser focus, Chrome can report:
-  //
-  // "Blocked aria-hidden on an element because its descendant
-  // retained focus."
-  //
-  // We remove the browser focus before navigation.
-  // ==============================================================
 
   const blurWebFocus = () => {
     if (Platform.OS !== "web") {
@@ -143,15 +123,11 @@ export default function LoginScreen() {
       const result = await sendOtp(`+91${phone}`);
 
       if (result.success) {
-        // Save phone number before navigation.
         setPendingPhone(phone);
 
-        // IMPORTANT:
-        // Remove browser focus before Expo Router hides this page.
         blurWebFocus();
 
         if (Platform.OS === "web") {
-          // Allow the browser to process blur before navigation.
           requestAnimationFrame(() => {
             router.push("/(auth)/otp-verify");
           });
@@ -272,7 +248,6 @@ export default function LoginScreen() {
     setContactSearch("");
     setShowContactPicker(false);
 
-    // Make sure Web doesn't retain focus inside the modal.
     blurWebFocus();
   };
 
@@ -337,9 +312,7 @@ export default function LoginScreen() {
           <View style={styles.modalOverlay}>
             <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
               <View style={styles.modalContainer}>
-                {/* ==================================================
-                    MODAL HEADER
-                ================================================== */}
+                {/* MODAL HEADER */}
 
                 <View style={styles.modalHeader}>
                   <Text style={styles.modalTitle}>Select Contact</Text>
@@ -355,9 +328,7 @@ export default function LoginScreen() {
                   </Pressable>
                 </View>
 
-                {/* ==================================================
-                    SEARCH
-                ================================================== */}
+                {/* SEARCH */}
 
                 <View style={styles.modalSearchContainer}>
                   <Ionicons name="search" size={20} color="#999" />
@@ -392,9 +363,7 @@ export default function LoginScreen() {
                   )}
                 </View>
 
-                {/* ==================================================
-                    CONTACT LIST
-                ================================================== */}
+                {/* CONTACT LIST */}
 
                 <View style={styles.contactListWrapper}>
                   <ScrollView
@@ -419,6 +388,7 @@ export default function LoginScreen() {
                           onPress={() => selectContact(contact)}
                         >
                           {/* AVATAR */}
+
                           <View style={styles.contactAvatar}>
                             <Text style={styles.contactAvatarText}>
                               {contact.name
@@ -428,6 +398,7 @@ export default function LoginScreen() {
                           </View>
 
                           {/* CONTACT INFO */}
+
                           <View style={styles.contactInfo}>
                             <Text style={styles.contactName} numberOfLines={1}>
                               {contact.name || "Unknown"}
@@ -473,9 +444,7 @@ export default function LoginScreen() {
                   </ScrollView>
                 </View>
 
-                {/* ==================================================
-                    MODAL FOOTER
-                ================================================== */}
+                {/* MODAL FOOTER */}
 
                 <View style={styles.modalFooter}>
                   <Pressable
@@ -505,168 +474,180 @@ export default function LoginScreen() {
       style={[
         styles.container,
         {
-          paddingBottom: insets.bottom,
+          paddingBottom: Platform.OS === "ios" ? insets.bottom : 0,
         },
       ]}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={0}
     >
-      {/* ========================================================
-          HEADER
-      ======================================================== */}
+      <ScrollView
+        style={styles.screenScroll}
+        contentContainerStyle={[
+          styles.screenContent,
+          {
+            paddingBottom: Math.max(insets.bottom, 24),
+          },
+        ]}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="none"
+        showsVerticalScrollIndicator={false}
+        bounces={false}
+      >
+        {/* ========================================================
+            HEADER
+        ======================================================== */}
 
-      <View style={styles.header}>
-        <View style={styles.logoContainer}>
-          <View style={styles.logoCircle}>
-            <Ionicons name="business-outline" size={40} color="#1a73e8" />
-          </View>
-        </View>
-
-        <Text style={styles.title}>Property Manager</Text>
-
-        <Text style={styles.subtitle}>Manage your properties effortlessly</Text>
-      </View>
-
-      {/* ========================================================
-          LOGIN CARD
-      ======================================================== */}
-
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Welcome Back</Text>
-
-        <Text style={styles.cardSubtitle}>
-          Sign in to manage your properties, tenants, and expenses
-        </Text>
-
-        {/* ======================================================
-            PHONE INPUT
-        ====================================================== */}
-
-        <View style={styles.inputWrapper}>
-          <Text style={styles.inputLabel}>Phone Number</Text>
-
-          <View style={[styles.inputRow, isFocused && styles.inputRowFocused]}>
-            {/* COUNTRY CODE */}
-
-            <View style={styles.countryCode}>
-              <Text style={styles.prefix}>+91</Text>
-
-              <View style={styles.divider} />
+        <View style={styles.header}>
+          <View style={styles.logoContainer}>
+            <View style={styles.logoCircle}>
+              <Ionicons name="business-outline" size={40} color="#1a73e8" />
             </View>
-
-            {/* PHONE INPUT */}
-
-            <TextInput
-              style={styles.input}
-              placeholder="Phone number"
-              placeholderTextColor="#999"
-              keyboardType="number-pad"
-              maxLength={10}
-              value={phone}
-              onChangeText={(text) => setPhone(text.replace(/[^0-9]/g, ""))}
-              onFocus={() => setIsFocused(true)}
-              onBlur={() => setIsFocused(false)}
-              returnKeyType="done"
-              {...(Platform.OS === "web"
-                ? ({
-                    outlineStyle: "none",
-                  } as any)
-                : {})}
-            />
-
-            {/* CONTACT BUTTON */}
-
-            <Pressable
-              onPress={pickContact}
-              style={({ pressed }) => [
-                styles.contactIcon,
-                pressed && styles.pressed,
-              ]}
-            >
-              <Ionicons name="person-outline" size={22} color="#1a73e8" />
-            </Pressable>
           </View>
 
-          {/* ERROR */}
+          <Text style={styles.title}>Property Manager</Text>
 
-          {error ? <Text style={styles.error}>{error}</Text> : null}
+          <Text style={styles.subtitle}>
+            Manage your properties effortlessly
+          </Text>
         </View>
 
-        {/* ======================================================
-            CONTINUE BUTTON
-        ====================================================== */}
+        {/* ========================================================
+            LOGIN CARD
+        ======================================================== */}
 
-        <Pressable
-          style={({ pressed }) => [
-            styles.button,
-            loading && styles.buttonDisabled,
-            pressed && !loading && styles.buttonPressed,
-          ]}
-          onPress={handleSendOtp}
-          disabled={loading}
-        >
-          <Text style={styles.buttonText}>
-            {loading ? "Sending..." : "Continue with OTP"}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Welcome Back</Text>
+
+          <Text style={styles.cardSubtitle}>
+            Sign in to manage your properties, tenants, and expenses
           </Text>
 
-          {!loading && (
-            <Ionicons
-              name="arrow-forward"
-              size={20}
-              color="#fff"
-              style={styles.buttonIcon}
-            />
-          )}
-        </Pressable>
-      </View>
+          {/* PHONE INPUT */}
 
-      {/* ========================================================
-          FEATURES FOOTER
-      ======================================================== */}
+          <View style={styles.inputWrapper}>
+            <Text style={styles.inputLabel}>Phone Number</Text>
 
-      <View style={styles.footer}>
-        <View style={styles.featureRow}>
-          {/* PROPERTY */}
+            <View
+              style={[styles.inputRow, isFocused && styles.inputRowFocused]}
+            >
+              {/* COUNTRY CODE */}
 
-          <View style={styles.featureItem}>
-            <View style={styles.featureIcon}>
-              <Ionicons name="home-outline" size={20} color="#1a73e8" />
+              <View style={styles.countryCode}>
+                <Text style={styles.prefix}>+91</Text>
+
+                <View style={styles.divider} />
+              </View>
+
+              {/* PHONE INPUT */}
+
+              <TextInput
+                style={styles.input}
+                placeholder="Phone number"
+                placeholderTextColor="#999"
+                keyboardType="number-pad"
+                maxLength={10}
+                value={phone}
+                onChangeText={(text) => setPhone(text.replace(/[^0-9]/g, ""))}
+                onFocus={() => setIsFocused(true)}
+                onBlur={() => setIsFocused(false)}
+                returnKeyType="done"
+                {...(Platform.OS === "web"
+                  ? ({
+                      outlineStyle: "none",
+                    } as any)
+                  : {})}
+              />
+
+              {/* CONTACT BUTTON */}
+
+              <Pressable
+                onPress={pickContact}
+                style={({ pressed }) => [
+                  styles.contactIcon,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Ionicons name="person-outline" size={22} color="#1a73e8" />
+              </Pressable>
             </View>
 
-            <Text style={styles.featureText} numberOfLines={2}>
-              Manage{"\n"}Properties
-            </Text>
+            {/* ERROR */}
+
+            {error ? <Text style={styles.error}>{error}</Text> : null}
           </View>
 
-          {/* TENANTS */}
+          {/* CONTINUE BUTTON */}
 
-          <View style={styles.featureItem}>
-            <View style={styles.featureIcon}>
-              <Ionicons name="people-outline" size={20} color="#1a73e8" />
+          <Pressable
+            style={({ pressed }) => [
+              styles.button,
+              loading && styles.buttonDisabled,
+              pressed && !loading && styles.buttonPressed,
+            ]}
+            onPress={handleSendOtp}
+            disabled={loading}
+          >
+            <Text style={styles.buttonText}>
+              {loading ? "Sending..." : "Continue with OTP"}
+            </Text>
+
+            {!loading && (
+              <Ionicons
+                name="arrow-forward"
+                size={20}
+                color="#fff"
+                style={styles.buttonIcon}
+              />
+            )}
+          </Pressable>
+        </View>
+
+        {/* ========================================================
+            FEATURES FOOTER
+        ======================================================== */}
+
+        <View style={styles.footer}>
+          <View style={styles.featureRow}>
+            {/* PROPERTY */}
+
+            <View style={styles.featureItem}>
+              <View style={styles.featureIcon}>
+                <Ionicons name="home-outline" size={20} color="#1a73e8" />
+              </View>
+
+              <Text style={styles.featureText} numberOfLines={2}>
+                Manage{"\n"}Properties
+              </Text>
             </View>
 
-            <Text style={styles.featureText} numberOfLines={2}>
-              Tenant{"\n"}Management
-            </Text>
-          </View>
+            {/* TENANTS */}
 
-          {/* EXPENSES */}
+            <View style={styles.featureItem}>
+              <View style={styles.featureIcon}>
+                <Ionicons name="people-outline" size={20} color="#1a73e8" />
+              </View>
 
-          <View style={styles.featureItem}>
-            <View style={styles.featureIcon}>
-              <Ionicons name="cash-outline" size={20} color="#1a73e8" />
+              <Text style={styles.featureText} numberOfLines={2}>
+                Tenant{"\n"}Management
+              </Text>
             </View>
 
-            <Text style={styles.featureText} numberOfLines={2}>
-              Track{"\n"}Expenses
-            </Text>
+            {/* EXPENSES */}
+
+            <View style={styles.featureItem}>
+              <View style={styles.featureIcon}>
+                <Ionicons name="cash-outline" size={20} color="#1a73e8" />
+              </View>
+
+              <Text style={styles.featureText} numberOfLines={2}>
+                Track{"\n"}Expenses
+              </Text>
+            </View>
           </View>
         </View>
-      </View>
+      </ScrollView>
 
-      {/* ========================================================
-          CONTACT PICKER
-      ======================================================== */}
+      {/* CONTACT PICKER */}
 
       {renderContactPickerModal()}
     </KeyboardAvoidingView>
@@ -685,6 +666,18 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#f5f7fa",
+  },
+
+  // ==============================================================
+  // MAIN SCROLL
+  // ==============================================================
+
+  screenScroll: {
+    flex: 1,
+  },
+
+  screenContent: {
+    flexGrow: 1,
   },
 
   // ==============================================================

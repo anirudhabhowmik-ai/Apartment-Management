@@ -5,6 +5,7 @@ import {
   Dimensions,
   KeyboardAvoidingView,
   Platform,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -237,160 +238,184 @@ export default function OtpVerifyScreen() {
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={0}
     >
-      {/* HEADER */}
-      <View style={styles.header}>
-        <TouchableOpacity
-          style={styles.backButton}
-          onPress={() => router.back()}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="arrow-back" size={24} color="#333" />
-        </TouchableOpacity>
-
-        <View style={styles.headerContent}>
-          <View style={styles.logoCircle}>
-            <Ionicons
-              name="shield-checkmark-outline"
-              size={32}
-              color="#1a73e8"
-            />
-          </View>
-        </View>
-      </View>
-
-      {/* OTP CARD */}
-      <View style={styles.card}>
-        <Text style={styles.cardTitle}>Verify OTP</Text>
-
-        <Text style={styles.cardSubtitle}>Enter the 6-digit code sent to</Text>
-
-        {/* PHONE */}
-        <View style={styles.phoneContainer}>
-          <Ionicons name="call-outline" size={18} color="#1a73e8" />
-
-          <Text style={styles.phoneText}>+91 {pendingPhone}</Text>
-        </View>
-
-        {/* OTP INPUTS */}
-        <View style={styles.otpContainer}>
-          <View style={styles.otpRow}>
-            {otp.map((digit, index) => (
-              <TextInput
-                key={index}
-                ref={(ref) => {
-                  inputRefs.current[index] = ref;
-                }}
-                style={[
-                  styles.otpBox,
-                  {
-                    width: otpBoxSize.width,
-                    height: otpBoxSize.height,
-                    fontSize: Math.min(22, otpBoxSize.width * 0.5),
-                  },
-                  focusedIndex === index && styles.otpBoxFocused,
-                  digit && styles.otpBoxFilled,
-                  error && styles.otpBoxError,
-                ]}
-                keyboardType="number-pad"
-                maxLength={1}
-                value={digit}
-                onChangeText={(text) => handleChange(text, index)}
-                onKeyPress={(e) => handleKeyPress(e, index)}
-                onFocus={() => setFocusedIndex(index)}
-                onBlur={() => setFocusedIndex(null)}
-                selectionColor="#1a73e8"
-                editable={!loading}
-              />
-            ))}
-          </View>
-        </View>
-
-        {/* ERROR */}
-        {error ? (
-          <View style={styles.errorContainer}>
-            <Ionicons name="alert-circle-outline" size={18} color="#e53935" />
-
-            <Text style={styles.error}>{error}</Text>
-          </View>
-        ) : null}
-
-        {/* VERIFY BUTTON */}
-        <TouchableOpacity
-          style={[styles.button, loading && styles.buttonDisabled]}
-          onPress={handleVerify}
-          disabled={loading}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.buttonText}>
-            {loading ? "Verifying..." : "Verify & Continue"}
-          </Text>
-
-          {!loading && (
-            <Ionicons
-              name="arrow-forward"
-              size={20}
-              color="#fff"
-              style={styles.buttonIcon}
-            />
-          )}
-        </TouchableOpacity>
-
-        {/* RESEND */}
-        <View style={styles.resendContainer}>
-          <Text style={styles.resendLabel}>Didn't receive the code?</Text>
-
+      <ScrollView
+        style={styles.screenScroll}
+        contentContainerStyle={[
+          styles.screenContent,
+          {
+            paddingBottom: Math.max(insets.bottom, 24),
+          },
+        ]}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="none"
+        showsVerticalScrollIndicator={false}
+        bounces={false}
+      >
+        {/* HEADER */}
+        <View style={styles.header}>
           <TouchableOpacity
-            onPress={handleResend}
-            disabled={resendTimer > 0}
-            style={styles.resendButton}
+            style={styles.backButton}
+            onPress={() => router.back()}
             activeOpacity={0.7}
           >
-            <Text
-              style={[
-                styles.resendText,
-                resendTimer > 0 && styles.resendTextDisabled,
-              ]}
-            >
-              {resendTimer > 0 ? `Resend in ${resendTimer}s` : "Resend OTP"}
-            </Text>
+            <Ionicons name="arrow-back" size={24} color="#333" />
           </TouchableOpacity>
-        </View>
-      </View>
 
-      {/* FOOTER */}
-      <View style={styles.footer}>
-        <View style={styles.footerRow}>
-          <View style={styles.footerItem}>
-            <View style={styles.footerIcon}>
-              <Ionicons name="lock-closed-outline" size={16} color="#888" />
+          <View style={styles.headerContent}>
+            <View style={styles.logoCircle}>
+              <Ionicons
+                name="shield-checkmark-outline"
+                size={32}
+                color="#1a73e8"
+              />
             </View>
-
-            <Text style={styles.footerText}>Secure & Encrypted</Text>
-          </View>
-
-          <View style={styles.footerDivider} />
-
-          <View style={styles.footerItem}>
-            <View style={styles.footerIcon}>
-              <Ionicons name="time-outline" size={16} color="#888" />
-            </View>
-
-            <Text style={styles.footerText}>OTP expires in 5 min</Text>
           </View>
         </View>
-      </View>
+
+        {/* OTP CARD */}
+        <View style={styles.card}>
+          <Text style={styles.cardTitle}>Verify OTP</Text>
+
+          <Text style={styles.cardSubtitle}>
+            Enter the 6-digit code sent to
+          </Text>
+
+          {/* PHONE */}
+          <View style={styles.phoneContainer}>
+            <Ionicons name="call-outline" size={18} color="#1a73e8" />
+
+            <Text style={styles.phoneText}>+91 {pendingPhone}</Text>
+          </View>
+
+          {/* OTP INPUTS */}
+          <View style={styles.otpContainer}>
+            <View style={styles.otpRow}>
+              {otp.map((digit, index) => (
+                <TextInput
+                  key={index}
+                  ref={(ref) => {
+                    inputRefs.current[index] = ref;
+                  }}
+                  style={[
+                    styles.otpBox,
+                    {
+                      width: otpBoxSize.width,
+                      height: otpBoxSize.height,
+                      fontSize: Math.min(22, otpBoxSize.width * 0.5),
+                    },
+                    focusedIndex === index && styles.otpBoxFocused,
+                    digit && styles.otpBoxFilled,
+                    error && styles.otpBoxError,
+                  ]}
+                  keyboardType="number-pad"
+                  maxLength={1}
+                  value={digit}
+                  onChangeText={(text) => handleChange(text, index)}
+                  onKeyPress={(e) => handleKeyPress(e, index)}
+                  onFocus={() => setFocusedIndex(index)}
+                  onBlur={() => setFocusedIndex(null)}
+                  selectionColor="#1a73e8"
+                  editable={!loading}
+                />
+              ))}
+            </View>
+          </View>
+
+          {/* ERROR */}
+          {error ? (
+            <View style={styles.errorContainer}>
+              <Ionicons name="alert-circle-outline" size={18} color="#e53935" />
+
+              <Text style={styles.error}>{error}</Text>
+            </View>
+          ) : null}
+
+          {/* VERIFY BUTTON */}
+          <TouchableOpacity
+            style={[styles.button, loading && styles.buttonDisabled]}
+            onPress={handleVerify}
+            disabled={loading}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.buttonText}>
+              {loading ? "Verifying..." : "Verify & Continue"}
+            </Text>
+
+            {!loading && (
+              <Ionicons
+                name="arrow-forward"
+                size={20}
+                color="#fff"
+                style={styles.buttonIcon}
+              />
+            )}
+          </TouchableOpacity>
+
+          {/* RESEND */}
+          <View style={styles.resendContainer}>
+            <Text style={styles.resendLabel}>Didn't receive the code?</Text>
+
+            <TouchableOpacity
+              onPress={handleResend}
+              disabled={resendTimer > 0}
+              style={styles.resendButton}
+              activeOpacity={0.7}
+            >
+              <Text
+                style={[
+                  styles.resendText,
+                  resendTimer > 0 && styles.resendTextDisabled,
+                ]}
+              >
+                {resendTimer > 0 ? `Resend in ${resendTimer}s` : "Resend OTP"}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* FOOTER */}
+        <View style={styles.footer}>
+          <View style={styles.footerRow}>
+            <View style={styles.footerItem}>
+              <View style={styles.footerIcon}>
+                <Ionicons name="lock-closed-outline" size={16} color="#888" />
+              </View>
+
+              <Text style={styles.footerText}>Secure & Encrypted</Text>
+            </View>
+
+            <View style={styles.footerDivider} />
+
+            <View style={styles.footerItem}>
+              <View style={styles.footerIcon}>
+                <Ionicons name="time-outline" size={16} color="#888" />
+              </View>
+
+              <Text style={styles.footerText}>OTP expires in 5 min</Text>
+            </View>
+          </View>
+        </View>
+      </ScrollView>
     </KeyboardAvoidingView>
   );
 }
 
 // ================================================================
-// STYLES - All shadow* replaced with boxShadow
+// STYLES
 // ================================================================
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: "#f5f7fa",
+  },
+
+  screenScroll: {
+    flex: 1,
+  },
+
+  screenContent: {
+    flexGrow: 1,
   },
 
   /* HEADER */
