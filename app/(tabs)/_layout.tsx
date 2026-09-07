@@ -17,6 +17,15 @@ import AccountSwitcher from "../../components/AccountSwitcher";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useMaintenance } from "../../hooks/useMaintenance";
 import { usePayments } from "../../hooks/usePayments";
+import { useUserRole } from "../../hooks/useUserRole";
+
+// ---------------------------------------------------------------------------
+// ROLE-BASED TABS
+//
+// Admin: Home, Calendar, Finance, Management, Profile (everything)
+// Member: Home, Calendar, Finance (view-only), Profile - no Management
+// Staff: Home, Calendar, Profile - no Finance, no Management
+// ---------------------------------------------------------------------------
 
 const COLORS = {
   primary: "#2563EB",
@@ -44,14 +53,29 @@ export default function TabsLayout() {
   const insets = useSafeAreaInsets();
 
   const { selectedAccount } = useAccounts();
+  const { userRole, isAdmin, isMember, isStaff } = useUserRole();
   const { getPendingPayments } = usePayments(selectedAccount?.id);
   const { tasks } = useMaintenance(selectedAccount?.id);
 
   const [showNotifications, setShowNotifications] = useState(false);
-
   const [dismissedNotificationIds, setDismissedNotificationIds] = useState<
     string[]
   >([]);
+
+  // Debug logs
+  console.log("TabsLayout - userRole:", userRole);
+  console.log("TabsLayout - isAdmin:", isAdmin);
+  console.log("TabsLayout - isMember:", isMember);
+  console.log("TabsLayout - isStaff:", isStaff);
+
+  /*
+   * =========================================================
+   * ROLE-BASED VISIBILITY
+   * =========================================================
+   */
+
+  const canSeeFinance = isAdmin || isMember;
+  const canSeeManagement = isAdmin;
 
   /*
    * =========================================================
@@ -59,9 +83,12 @@ export default function TabsLayout() {
    * =========================================================
    */
 
-  const pendingPayments = (getPendingPayments?.() || []).filter(
-    (payment) => !dismissedNotificationIds.includes(`payment-${payment.id}`),
-  );
+  const pendingPayments = canSeeFinance
+    ? (getPendingPayments?.() || []).filter(
+        (payment) =>
+          !dismissedNotificationIds.includes(`payment-${payment.id}`),
+      )
+    : [];
 
   const pendingTasks = tasks.filter(
     (task) =>
@@ -72,7 +99,7 @@ export default function TabsLayout() {
   const notificationCount = pendingPayments.length + pendingTasks.length;
 
   const dismissNotification = (notificationId: string) => {
-    setDismissedNotificationIds((currentIds) => [
+    setDismissedNotificationIds((currentIds: string[]) => [
       ...currentIds,
       notificationId,
     ]);
@@ -151,7 +178,6 @@ export default function TabsLayout() {
                   onPress={(event) => event.stopPropagation()}
                 >
                   {/* Notification Header */}
-
                   <View style={styles.notificationHeader}>
                     <View style={styles.notificationHeaderTextContainer}>
                       <Text style={styles.notificationHeaderTitle}>
@@ -181,7 +207,6 @@ export default function TabsLayout() {
                   </View>
 
                   {/* Empty State */}
-
                   {notificationCount === 0 ? (
                     <View style={styles.emptyNotifications}>
                       <View style={styles.emptyNotificationIcon}>
@@ -197,7 +222,9 @@ export default function TabsLayout() {
                       </Text>
 
                       <Text style={styles.emptyNotificationsText}>
-                        There are no pending payments or maintenance tasks.
+                        {canSeeFinance
+                          ? "There are no pending payments or maintenance tasks."
+                          : "There are no pending maintenance tasks."}
                       </Text>
                     </View>
                   ) : (
@@ -206,7 +233,6 @@ export default function TabsLayout() {
                       contentContainerStyle={styles.notificationScrollContent}
                     >
                       {/* Payments */}
-
                       {pendingPayments.map((payment) => (
                         <View
                           key={`payment-${payment.id}`}
@@ -265,7 +291,6 @@ export default function TabsLayout() {
                       ))}
 
                       {/* Maintenance Tasks */}
-
                       {pendingTasks.map((task) => (
                         <View
                           key={`task-${task.id}`}
@@ -346,17 +371,12 @@ export default function TabsLayout() {
 
         tabBarStyle: {
           height: 64 + bottomInset,
-
           paddingTop: 5,
           paddingBottom: bottomInset + 5,
-
           paddingHorizontal: 8,
-
           backgroundColor: COLORS.white,
-
           borderTopWidth: 1,
           borderTopColor: COLORS.border,
-
           ...(Platform.OS === "android"
             ? {
                 elevation: 0,
@@ -373,37 +393,26 @@ export default function TabsLayout() {
         tabBarLabelStyle: {
           fontSize: 10,
           fontWeight: "600",
-
           marginTop: 1,
         },
 
         /*
          * =====================================================
          * TAB ITEM
-         *
-         * IMPORTANT:
-         *
-         * No large borderRadius.
-         * No background color.
-         * This prevents the large grey tab area.
          * =====================================================
          */
 
         tabBarItemStyle: {
           height: 44,
-
           marginHorizontal: 0,
-
           padding: 0,
-
           backgroundColor: "transparent",
-
           borderRadius: 0,
         },
       }}
     >
       {/* =====================================================
-          HOME
+          HOME - visible to everyone
           ===================================================== */}
 
       <Tabs.Screen
@@ -429,7 +438,7 @@ export default function TabsLayout() {
       />
 
       {/* =====================================================
-          CALENDAR
+          CALENDAR - visible to everyone
           ===================================================== */}
 
       <Tabs.Screen
@@ -455,13 +464,15 @@ export default function TabsLayout() {
       />
 
       {/* =====================================================
-          FINANCE
+          FINANCE - admin (full) + member (view-only).
+          Hidden entirely for staff.
           ===================================================== */}
 
       <Tabs.Screen
         name="finance"
         options={{
           title: "Finance",
+          href: canSeeFinance ? undefined : null,
 
           tabBarIcon: ({ color, focused }) => (
             <View
@@ -481,13 +492,14 @@ export default function TabsLayout() {
       />
 
       {/* =====================================================
-          MANAGEMENT
+          MANAGEMENT - admin only.
           ===================================================== */}
 
       <Tabs.Screen
         name="people"
         options={{
           title: "Management",
+          href: canSeeManagement ? undefined : null,
 
           tabBarIcon: ({ color, focused }) => (
             <View
@@ -507,7 +519,7 @@ export default function TabsLayout() {
       />
 
       {/* =====================================================
-          PROFILE
+          PROFILE - visible to everyone
           ===================================================== */}
 
       <Tabs.Screen
@@ -544,57 +556,44 @@ const styles = StyleSheet.create({
 
   accountSwitcherContainer: {
     flex: 1,
-
     maxWidth: 280,
   },
 
   notificationMenu: {
     position: "relative",
-
     zIndex: 100,
   },
 
   notificationButton: {
     marginRight: 12,
-
     padding: 5,
   },
 
   notificationIconWrapper: {
     width: 34,
     height: 34,
-
     alignItems: "center",
     justifyContent: "center",
-
     borderRadius: 17,
   },
 
   notificationBadge: {
     position: "absolute",
-
     top: -2,
     right: -5,
-
     minWidth: 18,
     height: 18,
-
     paddingHorizontal: 4,
-
     borderRadius: 9,
-
     backgroundColor: COLORS.danger,
-
     alignItems: "center",
     justifyContent: "center",
-
     borderWidth: 2,
     borderColor: COLORS.white,
   },
 
   notificationCount: {
     color: COLORS.white,
-
     fontSize: 9,
     fontWeight: "700",
   },
@@ -607,44 +606,30 @@ const styles = StyleSheet.create({
 
   notificationBackdrop: {
     flex: 1,
-
     backgroundColor: "rgba(15, 23, 42, 0.12)",
   },
 
   notificationPopover: {
     position: "absolute",
-
     top: Platform.OS === "ios" ? 94 : 60,
-
     right: 12,
-
     width: 350,
-
     maxWidth: "calc(100% - 24px)" as any,
-
     maxHeight: 430,
-
     backgroundColor: COLORS.white,
-
     borderRadius: 20,
-
     borderWidth: 1,
     borderColor: COLORS.border,
-
     overflow: "hidden",
   },
 
   notificationHeader: {
     flexDirection: "row",
-
     alignItems: "center",
-
     justifyContent: "space-between",
-
     paddingHorizontal: 18,
     paddingTop: 18,
     paddingBottom: 14,
-
     borderBottomWidth: 1,
     borderBottomColor: COLORS.border,
   },
@@ -655,31 +640,23 @@ const styles = StyleSheet.create({
 
   notificationHeaderTitle: {
     fontSize: 17,
-
     fontWeight: "700",
-
     color: COLORS.text,
   },
 
   notificationHeaderSubtitle: {
     fontSize: 12,
-
     color: COLORS.secondary,
-
     marginTop: 3,
   },
 
   closeNotificationButton: {
     width: 34,
     height: 34,
-
     borderRadius: 17,
-
     backgroundColor: COLORS.background,
-
     alignItems: "center",
     justifyContent: "center",
-
     marginLeft: 10,
   },
 
@@ -689,12 +666,9 @@ const styles = StyleSheet.create({
 
   notificationItem: {
     flexDirection: "row",
-
     alignItems: "center",
-
     paddingHorizontal: 16,
     paddingVertical: 14,
-
     borderBottomWidth: 1,
     borderBottomColor: "#F1F5F9",
   },
@@ -702,12 +676,9 @@ const styles = StyleSheet.create({
   notificationItemIcon: {
     width: 40,
     height: 40,
-
     borderRadius: 12,
-
     alignItems: "center",
     justifyContent: "center",
-
     marginRight: 12,
   },
 
@@ -721,43 +692,33 @@ const styles = StyleSheet.create({
 
   notificationContent: {
     flex: 1,
-
     minWidth: 0,
   },
 
   notificationTitle: {
     color: COLORS.text,
-
     fontSize: 13,
-
     fontWeight: "600",
   },
 
   notificationMeta: {
     flexDirection: "row",
-
     alignItems: "center",
-
     marginTop: 5,
   },
 
   notificationDetail: {
     color: COLORS.secondary,
-
     fontSize: 11,
-
     marginLeft: 4,
   },
 
   dismissButton: {
     width: 30,
     height: 30,
-
     borderRadius: 15,
-
     alignItems: "center",
     justifyContent: "center",
-
     marginLeft: 6,
   },
 
@@ -769,7 +730,6 @@ const styles = StyleSheet.create({
 
   emptyNotifications: {
     alignItems: "center",
-
     paddingHorizontal: 24,
     paddingVertical: 34,
   },
@@ -777,34 +737,24 @@ const styles = StyleSheet.create({
   emptyNotificationIcon: {
     width: 64,
     height: 64,
-
     borderRadius: 32,
-
     backgroundColor: COLORS.successLight,
-
     alignItems: "center",
     justifyContent: "center",
-
     marginBottom: 14,
   },
 
   emptyNotificationsTitle: {
     color: COLORS.text,
-
     fontSize: 15,
-
     fontWeight: "700",
   },
 
   emptyNotificationsText: {
     color: COLORS.secondary,
-
     fontSize: 12,
-
     textAlign: "center",
-
     lineHeight: 18,
-
     marginTop: 5,
   },
 
@@ -817,12 +767,9 @@ const styles = StyleSheet.create({
   tabIconContainer: {
     width: 38,
     height: 28,
-
     borderRadius: 14,
-
     alignItems: "center",
     justifyContent: "center",
-
     backgroundColor: "transparent",
   },
 

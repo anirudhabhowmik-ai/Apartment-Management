@@ -22,6 +22,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAccounts } from "../../hooks/useAccounts";
+import { useUserRole } from "../../hooks/useUserRole";
 import { useAccessStore } from "../../store/accessStore";
 import { useAccountStore } from "../../store/accountStore";
 import { useAuthStore } from "../../store/useAuthStore";
@@ -36,6 +37,9 @@ type SetupOptionId =
   | "join_staff_security";
 
 type TabId = "create" | "invitations";
+
+// Grant role types - must match what useAuthStore accepts
+type AuthGrantRole = "admin" | "member_visibility";
 
 interface SetupOption {
   id: SetupOptionId;
@@ -272,12 +276,13 @@ const DUMMY_INVITATIONS: any[] = [
     accountName: "Lake View Society",
     invitedByPhone: "+91 9876543212",
     invitedByName: "Amit Singh",
-    role: "sweeper",
+    role: "member_visibility",
     name: "Vikram",
     phone: "+91 9876543212",
     createdAt: new Date().toISOString(),
     acceptedAt: null,
     accessLevel: "staff",
+    staffTitle: "sweeper",
   },
 ];
 
@@ -791,6 +796,9 @@ export default function AddAccountScreen() {
   const acceptGrant = useAccessStore((s) => s.acceptGrant);
   const removeGrant = useAccessStore((s) => s.removeGrant);
 
+  // Use the centralized useUserRole hook
+  const { userRole } = useUserRole();
+
   const [step, setStep] = useState<1 | 2>(1);
   const [activeTab, setActiveTab] = useState<TabId>("create");
   const [selectedType, setSelectedType] = useState<AccountType | null>(null);
@@ -837,6 +845,14 @@ export default function AddAccountScreen() {
     );
   };
 
+  // Helper to determine if a grant role is staff (for display purposes)
+  const isStaffGrant = (invitation: any): boolean => {
+    return (
+      invitation.accessLevel === "staff" ||
+      (invitation.role === "member_visibility" && invitation.staffTitle)
+    );
+  };
+
   const handleSelectOption = async (option: SetupOption) => {
     setError("");
 
@@ -864,19 +880,25 @@ export default function AddAccountScreen() {
     try {
       const isFirstAccount = accounts.length === 0;
 
-      // Find matching grant based on role type
+      console.log("======= handleDirectJoin =======");
+      console.log("roleType:", roleType);
+      console.log("staffRoleId:", staffRoleId);
+
+      // For staff, we need to find invitations with staff access level
       const matchingGrant = pendingInvitations.find((g: any) => {
         if (roleType === "admin") {
           return g.role === "admin";
         }
         if (roleType === "member") {
-          return g.role === "member_visibility";
+          return g.role === "member_visibility" && !isStaffGrant(g);
         }
         if (roleType === "staff") {
-          return g.role !== "admin" && g.role !== "member_visibility";
+          return g.role === "member_visibility" && isStaffGrant(g);
         }
         return false;
       });
+
+      console.log("matchingGrant:", matchingGrant);
 
       if (matchingGrant) {
         if (matchingGrant.id?.startsWith("dummy_invite_")) {
@@ -886,32 +908,53 @@ export default function AddAccountScreen() {
           if (roleType === "admin") {
             defaultName = `${aptName} - Admin`;
           } else if (roleType === "member") {
-            defaultName = `${aptName} - Owner`;
+            defaultName = `${aptName} - Member`;
           } else if (roleType === "staff") {
             defaultName = `${aptName} - Staff`;
           }
 
+          console.log("Creating account with name:", defaultName);
           const newAccount = await createAccount("apartment", defaultName);
+          console.log("newAccount:", newAccount);
+
           if (newAccount) {
-            const role = roleType === "admin" ? "admin" : "member_visibility";
-            grantAccountRole(newAccount.id, role);
+            // Grant the appropriate role using useAuthStore
+            const grantRole: AuthGrantRole =
+              roleType === "admin" ? "admin" : "member_visibility";
+            console.log(
+              "Granting role:",
+              grantRole,
+              "for account:",
+              newAccount.id,
+            );
+            grantAccountRole(newAccount.id, grantRole);
+
+            console.log("Selecting account:", newAccount.id);
             selectAccount(newAccount.id);
             setShowDummyInvites(false);
           }
         } else {
-          const role =
+          // For real invitations, use the role from the grant
+          const grantRole: AuthGrantRole =
             matchingGrant.role === "admin" ? "admin" : "member_visibility";
+          console.log(
+            "Accepting real grant:",
+            matchingGrant.id,
+            "role:",
+            grantRole,
+          );
           acceptGrant(matchingGrant.id);
-          grantAccountRole(matchingGrant.accountId, role);
+          grantAccountRole(matchingGrant.accountId, grantRole);
           selectAccount(matchingGrant.accountId);
         }
       } else {
+        // No matching grant - create a new account
         let defaultName = "My Apartment";
 
         if (roleType === "admin") {
           defaultName = "My Apartment - Admin";
         } else if (roleType === "member") {
-          defaultName = "My Apartment - Owner";
+          defaultName = "My Apartment - Member";
         } else if (roleType === "staff" && staffRoleId) {
           const role = STAFF_ROLES.find((r) => r.id === staffRoleId);
           if (role) {
@@ -919,17 +962,35 @@ export default function AddAccountScreen() {
           }
         }
 
+        console.log(
+          "No matching grant. Creating account with name:",
+          defaultName,
+        );
         const newAccount = await createAccount("apartment", defaultName);
+        console.log("newAccount:", newAccount);
+
         if (newAccount) {
-          const role = roleType === "admin" ? "admin" : "member_visibility";
-          grantAccountRole(newAccount.id, role);
+          // Grant the appropriate role using useAuthStore
+          const grantRole: AuthGrantRole =
+            roleType === "admin" ? "admin" : "member_visibility";
+          console.log(
+            "Granting role:",
+            grantRole,
+            "for account:",
+            newAccount.id,
+          );
+          grantAccountRole(newAccount.id, grantRole);
+
+          console.log("Selecting account:", newAccount.id);
           selectAccount(newAccount.id);
         }
       }
 
       if (isFirstAccount) {
+        console.log("First account, redirecting to tabs");
         router.replace("/(tabs)");
       } else {
+        console.log("Not first account, going back");
         router.back();
       }
     } catch (err) {
@@ -1035,7 +1096,6 @@ export default function AddAccountScreen() {
 
       if (newAccount) {
         selectAccount(newAccount.id);
-        // Grant admin role to the creator
         grantAccountRole(newAccount.id, "admin");
         if (isFirstAccount) {
           router.replace("/(tabs)");
@@ -1063,21 +1123,25 @@ export default function AddAccountScreen() {
       const dummyInvite = DUMMY_INVITATIONS.find((inv) => inv.id === grantId);
       if (dummyInvite) {
         const aptName = dummyInvite.accountName || "Apartment Society";
-        const isOwner = role === "member_visibility";
+        const isOwner =
+          role === "member_visibility" && !isStaffGrant(dummyInvite);
         const isAdmin = role === "admin";
+        const isStaffInvite = isStaffGrant(dummyInvite);
         let defaultName = aptName;
 
         if (isAdmin) {
           defaultName = `${aptName} - Admin`;
         } else if (isOwner) {
-          defaultName = `${aptName} - Owner`;
-        } else {
+          defaultName = `${aptName} - Member`;
+        } else if (isStaffInvite) {
           defaultName = `${aptName} - Staff`;
         }
 
         createAccount("apartment", defaultName).then((newAccount) => {
           if (newAccount) {
-            const grantRole = role === "admin" ? "admin" : "member_visibility";
+            const grantRole: AuthGrantRole = isAdmin
+              ? "admin"
+              : "member_visibility";
             grantAccountRole(newAccount.id, grantRole);
             selectAccount(newAccount.id);
             setShowDummyInvites(false);
@@ -1092,7 +1156,9 @@ export default function AddAccountScreen() {
       }
     }
 
-    const grantRole = role === "admin" ? "admin" : "member_visibility";
+    // For real invitations, use the role from the grant
+    const grantRole: AuthGrantRole =
+      role === "admin" ? "admin" : "member_visibility";
     acceptGrant(grantId);
     grantAccountRole(accountId, grantRole);
     selectAccount(accountId);
@@ -1423,9 +1489,8 @@ export default function AddAccountScreen() {
 
                         {apartment.invitations.map((invitation: any) => {
                           const isAdmin = invitation.role === "admin";
-                          const isOwner =
-                            invitation.role === "member_visibility";
-                          const isStaff = !isAdmin && !isOwner;
+                          const isStaffInvite = isStaffGrant(invitation);
+                          const isOwner = !isAdmin && !isStaffInvite;
 
                           const inviterPhone =
                             invitation.invitedByPhone || "Secretary";
@@ -1460,48 +1525,28 @@ export default function AddAccountScreen() {
                               category: "join",
                               accessLevel: "admin",
                             };
-                          } else if (isOwner) {
-                            optionCard = {
-                              id: "join_owner",
-                              title: "Join as Apartment Owner",
-                              badge: "Member Access",
-                              badgeColor: "#7c3aed",
-                              badgeBg: "#f3e8ff",
-                              description:
-                                "Connect with this society to view monthly maintenance dues, payment receipts & society notices.",
-                              icon: "key",
-                              iconColor: "#7c3aed",
-                              iconBg: "#f3e8ff",
-                              category: "join",
-                              accessLevel: "member",
-                            };
-                          } else if (isStaff) {
+                          } else if (isStaffInvite) {
+                            const staffTitle = invitation.staffTitle ?? "staff";
                             const staffOption = STAFF_JOIN_OPTIONS.find((opt) =>
-                              invitation.role
+                              staffTitle
                                 ?.toLowerCase()
                                 .includes(opt.id.replace("join_staff_", "")),
                             );
-                            if (staffOption) {
-                              optionCard = staffOption;
-                            } else {
-                              optionCard = {
-                                id: "join_staff_sweeper",
-                                title: "Join as Staff",
-                                badge: "Staff Access",
-                                badgeColor: "#059669",
-                                badgeBg: "#ecfdf5",
-                                description:
-                                  "Track your daily tasks, attendance, and monthly salary payouts.",
-                                icon: "briefcase-outline",
-                                iconColor: "#059669",
-                                iconBg: "#ecfdf5",
-                                category: "join",
-                                accessLevel: "staff",
-                              };
-                            }
+                            optionCard = staffOption ?? {
+                              id: "join_staff_sweeper",
+                              title: "Join as Staff",
+                              badge: "Staff Access",
+                              badgeColor: "#059669",
+                              badgeBg: "#ecfdf5",
+                              description:
+                                "Track your daily tasks, attendance, and monthly salary payouts.",
+                              icon: "briefcase-outline",
+                              iconColor: "#059669",
+                              iconBg: "#ecfdf5",
+                              category: "join",
+                              accessLevel: "staff",
+                            };
                           }
-
-                          const accessInfo = getAccessLevelInfo(invitation);
 
                           return (
                             <View
