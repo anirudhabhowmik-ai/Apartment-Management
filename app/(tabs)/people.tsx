@@ -265,9 +265,7 @@ export default function PeopleScreen() {
 
   const [paymentMember, setPaymentMember] = useState<any>(null);
 
-  const [paymentStatus, setPaymentStatus] = useState<"paid" | "due">("due");
-
-  const [showChangeStatusModal, setShowChangeStatusModal] = useState(false);
+  const [selectedStatus, setSelectedStatus] = useState<"paid" | "due">("due");
 
   const [paidDate, setPaidDate] = useState(
     new Date().toISOString().slice(0, 10),
@@ -288,6 +286,8 @@ export default function PeopleScreen() {
   const [deductionNote, setDeductionNote] = useState("");
 
   const [refreshKey, setRefreshKey] = useState(0);
+
+  const [saving, setSaving] = useState(false);
 
   // Download bill states
   const [generatingBill, setGeneratingBill] = useState<string | null>(null);
@@ -464,9 +464,7 @@ export default function PeopleScreen() {
     const monthlyPayment = getPaymentForMonth(member, month);
 
     setPaymentMember(member);
-
-    setPaymentStatus(monthlyPayment.status === "paid" ? "paid" : "due");
-
+    setSelectedStatus(monthlyPayment.status === "paid" ? "paid" : "due");
     setPaidDate(
       monthlyPayment.paidDate ||
         (selectedMonth
@@ -479,7 +477,6 @@ export default function PeopleScreen() {
     );
 
     setAdditionalAmount(monthlyPayment.additionalAmount?.toString() || "");
-
     setAdditionalNote(monthlyPayment.additionalNote || "");
 
     setShowDeduction(
@@ -487,10 +484,7 @@ export default function PeopleScreen() {
     );
 
     setDeductionAmount(monthlyPayment.deductionAmount?.toString() || "");
-
     setDeductionNote(monthlyPayment.deductionNote || "");
-
-    setShowChangeStatusModal(false);
   };
 
   useEffect(() => {
@@ -511,25 +505,28 @@ export default function PeopleScreen() {
     }
   }, [groups, getMembersByGroup, memberId, tab]);
 
-  const markPaymentAsPaid = () => {
+  const handleSavePayment = () => {
     if (!paymentMember) return;
+
+    setSaving(true);
 
     const month = selectedMonth || paidDate.slice(0, 7);
 
+    const additionalAmt = showAdditionalAmount
+      ? Number(additionalAmount) || 0
+      : 0;
+    const deductionAmt = showDeduction ? Number(deductionAmount) || 0 : 0;
+
     updateMember(paymentMember.id, {
-      paymentStatus: "paid",
-      paidDate,
+      paymentStatus: selectedStatus,
+      paidDate: selectedStatus === "paid" ? paidDate : undefined,
 
-      additionalAmount: showAdditionalAmount
-        ? Number(additionalAmount) || 0
-        : 0,
-
+      additionalAmount: additionalAmt,
       additionalNote: showAdditionalAmount
         ? additionalNote.trim() || undefined
         : undefined,
 
-      deductionAmount: showDeduction ? Number(deductionAmount) || 0 : 0,
-
+      deductionAmount: deductionAmt,
       deductionNote: showDeduction
         ? deductionNote.trim() || undefined
         : undefined,
@@ -538,89 +535,39 @@ export default function PeopleScreen() {
         ...paymentMember.monthlyPayments,
 
         [month]: {
-          status: "paid",
-          paidDate,
+          status: selectedStatus,
+          ...(selectedStatus === "paid"
+            ? {
+                paidDate,
+              }
+            : {}),
 
-          additionalAmount: showAdditionalAmount
-            ? Number(additionalAmount) || 0
-            : 0,
-
+          additionalAmount: additionalAmt,
           additionalNote: showAdditionalAmount
             ? additionalNote.trim() || undefined
             : undefined,
 
-          deductionAmount: showDeduction ? Number(deductionAmount) || 0 : 0,
-
+          deductionAmount: deductionAmt,
           deductionNote: showDeduction
             ? deductionNote.trim() || undefined
             : undefined,
+
+          netAmount: netPaidAmount,
         },
       },
     });
 
-    setPaymentStatus("paid");
-    setShowChangeStatusModal(false);
     setRefreshKey((previous) => previous + 1);
-  };
 
-  const markPaymentAsDue = () => {
-    if (!paymentMember) return;
-
-    const month = selectedMonth || paidDate.slice(0, 7);
-
-    updateMember(paymentMember.id, {
-      paymentStatus: "due",
-      paidDate: undefined,
-
-      additionalAmount: showAdditionalAmount
-        ? Number(additionalAmount) || 0
-        : 0,
-
-      additionalNote: showAdditionalAmount
-        ? additionalNote.trim() || undefined
-        : undefined,
-
-      deductionAmount: showDeduction ? Number(deductionAmount) || 0 : 0,
-
-      deductionNote: showDeduction
-        ? deductionNote.trim() || undefined
-        : undefined,
-
-      monthlyPayments: {
-        ...paymentMember.monthlyPayments,
-
-        [month]: {
-          status: "due",
-
-          additionalAmount: showAdditionalAmount
-            ? Number(additionalAmount) || 0
-            : 0,
-
-          additionalNote: showAdditionalAmount
-            ? additionalNote.trim() || undefined
-            : undefined,
-
-          deductionAmount: showDeduction ? Number(deductionAmount) || 0 : 0,
-
-          deductionNote: showDeduction
-            ? deductionNote.trim() || undefined
-            : undefined,
-        },
-      },
-    });
-
-    setPaymentStatus("due");
-    setShowChangeStatusModal(false);
-    setRefreshKey((previous) => previous + 1);
+    setTimeout(() => {
+      setSaving(false);
+      setPaymentMember(null);
+    }, 300);
   };
 
   /* ================================================================
-   DOWNLOAD BILL - FIXED with correct template structure
+   DOWNLOAD BILL
   ================================================================ */
-
-  /* ================================================================
-   DOWNLOAD BILL - FIXED with correct template structure
-================================================================ */
 
   const handleDownloadBill = async (member: any) => {
     if (generatingBill) return;
@@ -640,8 +587,6 @@ export default function PeopleScreen() {
         return;
       }
 
-      // Create a properly structured template that matches BillData's expected type
-      // This is the exact structure that generateBillPDF expects
       const template = {
         colors: {
           primary: "#1a73e8",
@@ -662,7 +607,6 @@ export default function PeopleScreen() {
         watermarkText: "Society Management",
       };
 
-      // Calculate base amount
       const baseAmount = isApartment
         ? member.maintenanceAmount || 0
         : (() => {
@@ -681,18 +625,13 @@ export default function PeopleScreen() {
       const deductionAmount = monthlyPayment.deductionAmount || 0;
       const netAmount = baseAmount + additionalAmount - deductionAmount;
 
-      // Generate bill number
       const billNumber = `BILL-${member.id.slice(0, 4)}-${Date.now().toString().slice(-6)}`;
 
-      // Get society name from account or use default
       const societyName = selectedAccount?.name || "Apartment Society";
       const address = selectedAccount?.address || "Society Address";
-
-      // For phone and email, use defaults
       const contactNumber = "+91 9876543210";
       const email = "society@example.com";
 
-      // Build the bill data with the correctly typed template
       const billData = {
         billNumber,
         apartmentName: member.wing || "Apartment",
@@ -865,10 +804,6 @@ export default function PeopleScreen() {
                     : "Apartment members"}
             </Text>
           </View>
-
-          {/* ======================================================
-              ONE ADD BUTTON — ALWAYS VISIBLE
-          ====================================================== */}
 
           <Pressable
             style={({ pressed }) => [
@@ -1214,9 +1149,6 @@ export default function PeopleScreen() {
                         <Text style={styles.paymentActionText}>Payment</Text>
                       </Pressable>
 
-                      {/* ==================================================
-                          DOWNLOAD BILL BUTTON - Only shows when PAID
-                      ================================================== */}
                       {isPaidThisMonth && (
                         <Pressable
                           style={({ pressed }) => [
@@ -1251,8 +1183,6 @@ export default function PeopleScreen() {
                     </View>
                   )}
 
-                  {/* HISTORY */}
-
                   {(isApartment || isStaff) && hasMatchingHistory && (
                     <View style={styles.historyNotice}>
                       <Ionicons
@@ -1286,7 +1216,7 @@ export default function PeopleScreen() {
       />
 
       {/* ==========================================================
-          PAYMENT MODAL
+          PAYMENT MODAL - With Side-by-Side Radio Buttons
       ========================================================== */}
 
       <Modal
@@ -1294,7 +1224,6 @@ export default function PeopleScreen() {
         animationType="fade"
         visible={Boolean(paymentMember)}
         onRequestClose={() => {
-          setShowChangeStatusModal(false);
           setPaymentMember(null);
         }}
       >
@@ -1322,7 +1251,6 @@ export default function PeopleScreen() {
               <Pressable
                 style={styles.closeModalButton}
                 onPress={() => {
-                  setShowChangeStatusModal(false);
                   setPaymentMember(null);
                 }}
               >
@@ -1352,7 +1280,7 @@ export default function PeopleScreen() {
                 <View
                   style={[
                     styles.statusSmallBadge,
-                    paymentStatus === "paid"
+                    selectedStatus === "paid"
                       ? styles.statusSmallBadgePaid
                       : styles.statusSmallBadgeDue,
                   ]}
@@ -1360,64 +1288,117 @@ export default function PeopleScreen() {
                   <Text
                     style={[
                       styles.statusSmallText,
-                      paymentStatus === "paid"
+                      selectedStatus === "paid"
                         ? styles.statusSmallTextPaid
                         : styles.statusSmallTextDue,
                     ]}
                   >
-                    {paymentStatus === "paid" ? "PAID" : "DUE"}
+                    {selectedStatus === "paid" ? "PAID" : "DUE"}
                   </Text>
                 </View>
               </View>
 
-              {/* STATUS */}
+              {/* STATUS - Side-by-Side Radio Buttons */}
 
               <Text style={styles.sectionLabel}>Payment Status</Text>
 
-              <Pressable
-                style={({ pressed }) => [
-                  styles.statusSelector,
-                  pressed && styles.statusSelectorPressed,
-                ]}
-                onPress={() => setShowChangeStatusModal(true)}
-              >
-                <View
-                  style={[
-                    styles.statusSelectorIcon,
-                    paymentStatus === "paid"
-                      ? styles.statusSelectorIconPaid
-                      : styles.statusSelectorIconDue,
+              <View style={styles.statusRadioRow}>
+                {/* Paid Option */}
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.statusRadioOption,
+                    selectedStatus === "paid" &&
+                      styles.statusRadioOptionSelected,
+                    selectedStatus === "paid" && styles.statusRadioOptionPaid,
+                    pressed && styles.statusRadioOptionPressed,
                   ]}
+                  onPress={() => setSelectedStatus("paid")}
                 >
-                  <Ionicons
-                    name={
-                      paymentStatus === "paid" ? "checkmark" : "time-outline"
-                    }
-                    size={18}
-                    color={
-                      paymentStatus === "paid" ? COLORS.success : COLORS.danger
-                    }
-                  />
-                </View>
+                  <View
+                    style={[
+                      styles.radioOuter,
+                      selectedStatus === "paid" && styles.radioOuterSelected,
+                    ]}
+                  >
+                    {selectedStatus === "paid" && (
+                      <View style={styles.radioInner} />
+                    )}
+                  </View>
 
-                <View style={styles.statusSelectorInfo}>
-                  <Text style={styles.statusSelectorTitle}>
-                    {paymentStatus === "paid"
-                      ? "Payment received"
-                      : "Payment pending"}
-                  </Text>
+                  <View style={styles.statusRadioContent}>
+                    <View
+                      style={[
+                        styles.statusRadioIcon,
+                        styles.statusRadioIconPaid,
+                      ]}
+                    >
+                      <Ionicons
+                        name="checkmark-circle"
+                        size={18}
+                        color={COLORS.success}
+                      />
+                    </View>
 
-                  <Text style={styles.statusSelectorSubtitle}>
-                    Tap to change status
-                  </Text>
-                </View>
+                    <View>
+                      <Text
+                        style={[
+                          styles.statusRadioTitle,
+                          selectedStatus === "paid" &&
+                            styles.statusRadioTitlePaid,
+                        ]}
+                      >
+                        Paid
+                      </Text>
+                    </View>
+                  </View>
+                </Pressable>
 
-                <Ionicons
-                  name="chevron-forward"
-                  size={18}
-                  color={COLORS.muted}
-                />
-              </Pressable>
+                {/* Due Option */}
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.statusRadioOption,
+                    selectedStatus === "due" &&
+                      styles.statusRadioOptionSelected,
+                    selectedStatus === "due" && styles.statusRadioOptionDue,
+                    pressed && styles.statusRadioOptionPressed,
+                  ]}
+                  onPress={() => setSelectedStatus("due")}
+                >
+                  <View
+                    style={[
+                      styles.radioOuter,
+                      selectedStatus === "due" && styles.radioOuterSelected,
+                    ]}
+                  >
+                    {selectedStatus === "due" && (
+                      <View style={styles.radioInner} />
+                    )}
+                  </View>
+
+                  <View style={styles.statusRadioContent}>
+                    <View
+                      style={[
+                        styles.statusRadioIcon,
+                        styles.statusRadioIconDue,
+                      ]}
+                    >
+                      <Ionicons name="time" size={18} color={COLORS.danger} />
+                    </View>
+
+                    <View>
+                      <Text
+                        style={[
+                          styles.statusRadioTitle,
+                          selectedStatus === "due" &&
+                            styles.statusRadioTitleDue,
+                        ]}
+                      >
+                        Due
+                      </Text>
+                    </View>
+                  </View>
+                </Pressable>
+              </View>
 
               {/* BASE AMOUNT */}
 
@@ -1582,7 +1563,7 @@ export default function PeopleScreen() {
               <View style={styles.netAmountCard}>
                 <View>
                   <Text style={styles.netAmountLabel}>
-                    {paymentStatus === "paid" ? "NET PAID" : "AMOUNT TO PAY"}
+                    {selectedStatus === "paid" ? "NET PAID" : "AMOUNT TO PAY"}
                   </Text>
 
                   <Text style={styles.netAmountHint}>
@@ -1593,9 +1574,9 @@ export default function PeopleScreen() {
                 <Text style={styles.netAmountValue}>₹{netPaidAmount}</Text>
               </View>
 
-              {/* PAID DATE */}
+              {/* PAID DATE - Only shows when selectedStatus is "paid" */}
 
-              {paymentStatus === "paid" && (
+              {selectedStatus === "paid" && (
                 <>
                   <Text style={styles.sectionLabel}>Paid Date</Text>
 
@@ -1627,7 +1608,7 @@ export default function PeopleScreen() {
               <View style={styles.paymentBottomSpace} />
             </ScrollView>
 
-            {/* FOOTER */}
+            {/* FOOTER - Save and Cancel buttons */}
 
             <View style={styles.modalActions}>
               <Pressable
@@ -1636,9 +1617,9 @@ export default function PeopleScreen() {
                   pressed && styles.cancelButtonPressed,
                 ]}
                 onPress={() => {
-                  setShowChangeStatusModal(false);
                   setPaymentMember(null);
                 }}
+                disabled={saving}
               >
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </Pressable>
@@ -1646,18 +1627,16 @@ export default function PeopleScreen() {
               <Pressable
                 style={({ pressed }) => [
                   styles.saveButton,
-                  paymentStatus === "due" && styles.saveDueButton,
+                  selectedStatus === "due" && styles.saveDueButton,
                   pressed && styles.saveButtonPressed,
+                  saving && styles.saveButtonDisabled,
                 ]}
-                onPress={
-                  paymentStatus === "paid"
-                    ? markPaymentAsPaid
-                    : markPaymentAsDue
-                }
+                onPress={handleSavePayment}
+                disabled={saving}
               >
                 <Ionicons
                   name={
-                    paymentStatus === "paid"
+                    selectedStatus === "paid"
                       ? "checkmark-circle-outline"
                       : "time-outline"
                   }
@@ -1666,130 +1645,14 @@ export default function PeopleScreen() {
                 />
 
                 <Text style={styles.saveButtonText}>
-                  {paymentStatus === "paid" ? "Save as Paid" : "Save as Due"}
+                  {saving
+                    ? "Saving..."
+                    : selectedStatus === "paid"
+                      ? "Save as Paid"
+                      : "Save as Due"}
                 </Text>
               </Pressable>
             </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* ==========================================================
-          CHANGE STATUS MODAL
-      ========================================================== */}
-
-      <Modal
-        transparent
-        animationType="fade"
-        visible={showChangeStatusModal}
-        onRequestClose={() => setShowChangeStatusModal(false)}
-      >
-        <View style={styles.statusModalOverlay}>
-          <View style={styles.statusModal}>
-            <View style={styles.statusModalHeader}>
-              <View style={styles.statusModalIcon}>
-                <Ionicons
-                  name="swap-vertical"
-                  size={20}
-                  color={COLORS.primary}
-                />
-              </View>
-
-              <View style={styles.statusModalHeaderInfo}>
-                <Text style={styles.statusModalTitle}>Payment Status</Text>
-
-                <Text style={styles.statusModalSubtitle}>
-                  Choose the current status
-                </Text>
-              </View>
-
-              <Pressable
-                style={styles.closeModalButton}
-                onPress={() => setShowChangeStatusModal(false)}
-              >
-                <Ionicons name="close" size={20} color={COLORS.text} />
-              </Pressable>
-            </View>
-
-            {/* PAID */}
-
-            <Pressable
-              style={({ pressed }) => [
-                styles.statusOption,
-                styles.statusOptionPaid,
-                paymentStatus === "paid" && styles.statusOptionSelectedPaid,
-                pressed && styles.statusOptionPressed,
-              ]}
-              onPress={markPaymentAsPaid}
-            >
-              <View
-                style={[styles.statusOptionIcon, styles.statusOptionIconPaid]}
-              >
-                <Ionicons
-                  name="checkmark-circle"
-                  size={23}
-                  color={COLORS.success}
-                />
-              </View>
-
-              <View style={styles.statusOptionInfo}>
-                <Text style={styles.statusOptionTitle}>Mark as Paid</Text>
-
-                <Text style={styles.statusOptionSubtitle}>
-                  Payment has been received
-                </Text>
-              </View>
-
-              {paymentStatus === "paid" && (
-                <View style={styles.statusSelectedCheck}>
-                  <Ionicons name="checkmark" size={15} color={COLORS.white} />
-                </View>
-              )}
-            </Pressable>
-
-            {/* DUE */}
-
-            <Pressable
-              style={({ pressed }) => [
-                styles.statusOption,
-                styles.statusOptionDue,
-                paymentStatus === "due" && styles.statusOptionSelectedDue,
-                pressed && styles.statusOptionPressed,
-              ]}
-              onPress={markPaymentAsDue}
-            >
-              <View
-                style={[styles.statusOptionIcon, styles.statusOptionIconDue]}
-              >
-                <Ionicons name="time" size={23} color={COLORS.danger} />
-              </View>
-
-              <View style={styles.statusOptionInfo}>
-                <Text style={styles.statusOptionTitle}>Mark as Due</Text>
-
-                <Text style={styles.statusOptionSubtitle}>
-                  Payment is still pending
-                </Text>
-              </View>
-
-              {paymentStatus === "due" && (
-                <View
-                  style={[
-                    styles.statusSelectedCheck,
-                    styles.statusSelectedCheckDue,
-                  ]}
-                >
-                  <Ionicons name="checkmark" size={15} color={COLORS.white} />
-                </View>
-              )}
-            </Pressable>
-
-            <Pressable
-              style={styles.statusCancelButton}
-              onPress={() => setShowChangeStatusModal(false)}
-            >
-              <Text style={styles.statusCancelText}>Cancel</Text>
-            </Pressable>
           </View>
         </View>
       </Modal>
@@ -2473,7 +2336,104 @@ const styles = StyleSheet.create({
     color: COLORS.danger,
   },
 
-  /* PAYMENT STATUS */
+  /* PAYMENT STATUS - SIDE BY SIDE RADIO */
+
+  statusRadioRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 4,
+  },
+
+  statusRadioOption: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    borderColor: COLORS.border,
+    backgroundColor: COLORS.white,
+  },
+
+  statusRadioOptionSelected: {
+    borderColor: COLORS.primary,
+    backgroundColor: COLORS.primaryLight,
+  },
+
+  statusRadioOptionPaid: {
+    borderColor: COLORS.successBorder,
+  },
+
+  statusRadioOptionDue: {
+    borderColor: COLORS.dangerBorder,
+  },
+
+  statusRadioOptionPressed: {
+    opacity: 0.7,
+  },
+
+  radioOuter: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: COLORS.border,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 8,
+    flexShrink: 0,
+  },
+
+  radioOuterSelected: {
+    borderColor: COLORS.primary,
+  },
+
+  radioInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: COLORS.primary,
+  },
+
+  statusRadioContent: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+
+  statusRadioIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  statusRadioIconPaid: {
+    backgroundColor: COLORS.successLight,
+  },
+
+  statusRadioIconDue: {
+    backgroundColor: COLORS.dangerLight,
+  },
+
+  statusRadioTitle: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: COLORS.text,
+  },
+
+  statusRadioTitlePaid: {
+    color: COLORS.success,
+  },
+
+  statusRadioTitleDue: {
+    color: COLORS.danger,
+  },
+
+  /* AMOUNT */
 
   sectionLabel: {
     marginTop: 16,
@@ -2483,59 +2443,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: COLORS.textSoft,
   },
-
-  statusSelector: {
-    minHeight: 61,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 10,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    backgroundColor: COLORS.white,
-  },
-
-  statusSelectorPressed: {
-    opacity: 0.7,
-    backgroundColor: COLORS.background,
-  },
-
-  statusSelectorIcon: {
-    width: 39,
-    height: 39,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 9,
-    borderRadius: 11,
-  },
-
-  statusSelectorIconPaid: {
-    backgroundColor: COLORS.successLight,
-  },
-
-  statusSelectorIconDue: {
-    backgroundColor: COLORS.dangerLight,
-  },
-
-  statusSelectorInfo: {
-    flex: 1,
-  },
-
-  statusSelectorTitle: {
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: "700",
-    color: COLORS.text,
-  },
-
-  statusSelectorSubtitle: {
-    marginTop: 2,
-    fontSize: 10,
-    lineHeight: 15,
-    color: COLORS.secondary,
-  },
-
-  /* AMOUNT */
 
   amountCard: {
     minHeight: 59,
@@ -2739,155 +2646,14 @@ const styles = StyleSheet.create({
     opacity: 0.8,
   },
 
+  saveButtonDisabled: {
+    opacity: 0.6,
+  },
+
   saveButtonText: {
     marginLeft: 6,
     fontSize: 12,
     fontWeight: "700",
     color: COLORS.white,
-  },
-
-  /* STATUS MODAL */
-
-  statusModalOverlay: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 20,
-    backgroundColor: "rgba(15, 23, 42, 0.5)",
-  },
-
-  statusModal: {
-    width: "100%",
-    maxWidth: 380,
-    padding: 17,
-    borderRadius: 20,
-    backgroundColor: COLORS.white,
-  },
-
-  statusModalHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 15,
-  },
-
-  statusModalIcon: {
-    width: 41,
-    height: 41,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 10,
-    borderRadius: 12,
-    backgroundColor: COLORS.primaryLight,
-  },
-
-  statusModalHeaderInfo: {
-    flex: 1,
-  },
-
-  statusModalTitle: {
-    fontSize: 16,
-    lineHeight: 21,
-    fontWeight: "700",
-    color: COLORS.text,
-  },
-
-  statusModalSubtitle: {
-    marginTop: 2,
-    fontSize: 10,
-    lineHeight: 15,
-    color: COLORS.secondary,
-  },
-
-  statusOption: {
-    minHeight: 72,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 10,
-    paddingVertical: 9,
-    marginBottom: 8,
-    borderRadius: 13,
-    borderWidth: 1,
-  },
-
-  statusOptionPaid: {
-    backgroundColor: COLORS.successLight,
-    borderColor: COLORS.successBorder,
-  },
-
-  statusOptionDue: {
-    backgroundColor: COLORS.dangerLight,
-    borderColor: COLORS.dangerBorder,
-  },
-
-  statusOptionSelectedPaid: {
-    borderColor: COLORS.success,
-  },
-
-  statusOptionSelectedDue: {
-    borderColor: COLORS.danger,
-  },
-
-  statusOptionPressed: {
-    opacity: 0.7,
-  },
-
-  statusOptionIcon: {
-    width: 43,
-    height: 43,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 10,
-    borderRadius: 13,
-  },
-
-  statusOptionIconPaid: {
-    backgroundColor: "#DCFCE7",
-  },
-
-  statusOptionIconDue: {
-    backgroundColor: "#FEE2E2",
-  },
-
-  statusOptionInfo: {
-    flex: 1,
-  },
-
-  statusOptionTitle: {
-    fontSize: 13,
-    lineHeight: 18,
-    fontWeight: "700",
-    color: COLORS.text,
-  },
-
-  statusOptionSubtitle: {
-    marginTop: 2,
-    fontSize: 10,
-    lineHeight: 15,
-    color: COLORS.secondary,
-  },
-
-  statusSelectedCheck: {
-    width: 24,
-    height: 24,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 12,
-    backgroundColor: COLORS.success,
-  },
-
-  statusSelectedCheckDue: {
-    backgroundColor: COLORS.danger,
-  },
-
-  statusCancelButton: {
-    minHeight: 40,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
-  statusCancelText: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: COLORS.secondary,
   },
 });
