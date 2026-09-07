@@ -18,8 +18,9 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useAccessStore } from "../../store/accessStore";
 import { useAccountStore } from "../../store/accountStore";
@@ -211,22 +212,7 @@ const DUMMY_INVITATIONS: any[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Photo Adjust Modal - Fixed for Android
-//
-// FIX: The PanResponder here is built once via useRef, so its grant/move/
-// release handlers used to read `zoom`, `translate`, and `image` from the
-// very first render forever - meaning every drag/pinch after the first one
-// started from the wrong baseline and the image would jump back or ignore
-// further gestures.
-//
-// Now `zoomRef` / `translateRef` / `imageRef` / `baseScaleRef` are kept in
-// sync with state on every render, and the PanResponder handlers read from
-// those refs instead of the state variables directly.
-//
-// ZOOM IS NOW FINGER-ONLY: pinch with two fingers to zoom, drag with one
-// finger to reposition. The slider has been removed - onPanResponderMove
-// already computes the new zoom from the distance between two touches, so
-// no separate slider control is needed.
+// Photo Adjust Modal
 // ---------------------------------------------------------------------------
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -288,10 +274,8 @@ function PhotoAdjustModal({
 
   useEffect(() => {
     setTranslate((t) => clampTranslate(t, zoom));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zoom, image]);
 
-  // ----- Refs kept in sync with the latest state, for the PanResponder -----
   const zoomRef = useRef(zoom);
   const translateRef = useRef(translate);
   const imageRef = useRef(image);
@@ -329,31 +313,6 @@ function PhotoAdjustModal({
       y: clampNumber(t.y, -maxY, maxY),
     };
   };
-
-  // -------------------------------------------------------------------
-  // Gesture tracking
-  //
-  // FIX #1: touches are now tracked by `identifier`, sorted, instead of
-  // by raw array position. RN does not guarantee array order stays
-  // stable across move events as fingers lift/land, so array-index
-  // pairing could silently pick the wrong two points for the pinch
-  // distance calculation, producing jumpy/incorrect zoom.
-  //
-  // FIX #2: the gesture is now re-baselined any time the number of
-  // active touches changes (1->2 fingers, or 2->1), rather than only
-  // reacting to a fresh onPanResponderGrant. Previously, if the second
-  // finger touch wasn't captured cleanly as a "grant" (which can be
-  // unreliable, especially on Android), pinch would never engage until
-  // a later touch happened to trigger a clean grant again - which is
-  // what produced the "need three fingers" symptom.
-  //
-  // FIX #3: onPanResponderTerminationRequest now returns false, and
-  // onShouldBlockNativeResponder returns true. Without these, once a
-  // second finger touches down, a sibling/ancestor view can request (and
-  // win) responder control away from this gesture mid-touch, which
-  // resets tracking and causes exactly the flaky "needs an extra finger,
-  // not smooth" behavior being reported.
-  // -------------------------------------------------------------------
 
   type ActiveGesture =
     | {
@@ -424,9 +383,6 @@ function PhotoAdjustModal({
         const expectedCount =
           gesture?.mode === "pinch" ? 2 : gesture?.mode === "pan" ? 1 : 0;
 
-        // Finger count changed (added or lifted) - re-baseline cleanly
-        // instead of letting stale start values cause a jump or a dead
-        // gesture that silently does nothing.
         if (touches.length > 0 && touches.length !== expectedCount) {
           beginGesture(touches);
         }
@@ -473,9 +429,6 @@ function PhotoAdjustModal({
       onPanResponderRelease: (evt: GestureResponderEvent) => {
         const remaining = evt.nativeEvent.touches;
         if (remaining.length > 0) {
-          // A finger lifted but at least one is still down (e.g. pinch
-          // -> pan): re-baseline from the remaining touch(es) instead of
-          // clearing, so the gesture continues smoothly.
           beginGesture(remaining);
         } else {
           gestureRef.current = null;
@@ -635,17 +588,8 @@ function PhotoAdjustModal({
   );
 }
 
-// Helper functions
 function clampNumber(value: number, min: number, max: number) {
-  "worklet";
   return Math.min(Math.max(value, min), max);
-}
-
-function getTouchDistance(touches: any[]) {
-  const [a, b] = touches;
-  const dx = a.pageX - b.pageX;
-  const dy = a.pageY - b.pageY;
-  return Math.sqrt(dx * dx + dy * dy);
 }
 
 const adjustStyles = StyleSheet.create({
@@ -760,11 +704,13 @@ const adjustStyles = StyleSheet.create({
 });
 
 // ---------------------------------------------------------------------------
-// Main Screen
+// Main Screen - Fixed keyboard handling
 // ---------------------------------------------------------------------------
 
 export default function AddAccountScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
+
   const user = useAuthStore((s) => s.user);
   const grantAccountRole = useAuthStore((s) => s.grantAccountRole);
   const { createAccount, accounts } = useAccounts();
@@ -876,10 +822,6 @@ export default function AddAccountScreen() {
         if (newAccount) {
           const role = roleType === "owner" ? "member_visibility" : "admin";
           grantAccountRole(newAccount.id, role);
-
-          if (roleType === "staff" && staffRoleId) {
-            console.log(`Staff role selected: ${staffRoleId}`);
-          }
         }
       }
 
@@ -961,7 +903,7 @@ export default function AddAccountScreen() {
     setRawImage(null);
   };
 
-  const handlePickPhoto = async () => {
+  const handlePickPhoto = () => {
     showPhotoSelectionOptions();
   };
 
@@ -990,6 +932,7 @@ export default function AddAccountScreen() {
       );
 
       if (newAccount) {
+        selectAccount(newAccount.id);
         if (isFirstAccount) {
           router.replace("/(tabs)");
         } else {
@@ -1067,13 +1010,27 @@ export default function AddAccountScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
+      style={[
+        styles.container,
+        {
+          paddingBottom: insets.bottom,
+        },
+      ]}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={0}
     >
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        style={styles.screenScroll}
+        contentContainerStyle={[
+          styles.screenContent,
+          {
+            paddingBottom: Math.max(insets.bottom, 24),
+          },
+        ]}
         keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="none"
         showsVerticalScrollIndicator={false}
+        bounces={false}
       >
         {loading && (
           <View style={styles.loadingOverlay}>
@@ -1544,6 +1501,9 @@ export default function AddAccountScreen() {
                       setError("");
                     }}
                     autoFocus
+                    returnKeyType="done"
+                    blurOnSubmit={false}
+                    onSubmitEditing={handleCreate}
                   />
                   {name.length > 0 && (
                     <TouchableOpacity
@@ -1694,18 +1654,10 @@ export default function AddAccountScreen() {
                 style={styles.modalConfirmButton}
                 onPress={() => {
                   if (rejectingGrantId) {
-                    const realGrantIds = [
-                      "apartment",
-                      "home",
-                      "join_owner",
-                      "join_staff_sweeper",
-                      "join_staff_security",
-                    ];
-                    if (!realGrantIds.includes(rejectingGrantId)) {
-                      removeGrant(rejectingGrantId);
-                    }
                     if (rejectingGrantId.startsWith("dummy_invite_")) {
                       setShowDummyInvites(false);
+                    } else {
+                      removeGrant(rejectingGrantId);
                     }
                     setRejectingGrantId(null);
                   }
@@ -1724,7 +1676,7 @@ export default function AddAccountScreen() {
 }
 
 // ================================================================
-// STYLES - All shadow* replaced with boxShadow
+// STYLES
 // ================================================================
 
 const styles = StyleSheet.create({
@@ -1732,10 +1684,40 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#f8fafc",
   },
-  scrollContent: {
-    padding: 16,
-    paddingBottom: 40,
+
+  screenScroll: {
+    flex: 1,
   },
+
+  screenContent: {
+    flexGrow: 1,
+    paddingHorizontal: 16,
+    paddingTop: 8,
+  },
+
+  loadingOverlay: {
+    ...StyleSheet.absoluteFill,
+    backgroundColor: "rgba(255, 255, 255, 0.85)",
+    zIndex: 999,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+
+  loadingCard: {
+    backgroundColor: "#ffffff",
+    borderRadius: 16,
+    padding: 24,
+    alignItems: "center",
+    boxShadow: "0px 4px 12px rgba(0, 0, 0, 0.1)",
+    gap: 12,
+  },
+
+  loadingText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: "#334155",
+  },
+
   progressTrack: {
     height: 4,
     backgroundColor: "#e2e8f0",
@@ -1744,15 +1726,18 @@ const styles = StyleSheet.create({
     marginTop: 2,
     overflow: "hidden",
   },
+
   progressFill: {
     height: "100%",
     backgroundColor: "#1a73e8",
     borderRadius: 2,
   },
+
   header: {
     marginBottom: 16,
     marginTop: 4,
   },
+
   stepBadge: {
     fontSize: 11,
     fontWeight: "800",
@@ -1760,17 +1745,20 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     marginBottom: 4,
   },
+
   title: {
     fontSize: 22,
     fontWeight: "800",
     color: "#0f172a",
     marginBottom: 4,
   },
+
   subtitle: {
     fontSize: 13.5,
     color: "#64748b",
     lineHeight: 19,
   },
+
   backButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -1782,11 +1770,13 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     gap: 6,
   },
+
   backButtonText: {
     fontSize: 13,
     fontWeight: "600",
     color: "#1a73e8",
   },
+
   tabSwitcher: {
     flexDirection: "row",
     backgroundColor: "#eef1f6",
@@ -1795,6 +1785,7 @@ const styles = StyleSheet.create({
     marginBottom: 18,
     gap: 4,
   },
+
   tabButton: {
     flex: 1,
     flexDirection: "row",
@@ -1804,25 +1795,31 @@ const styles = StyleSheet.create({
     borderRadius: 9,
     gap: 6,
   },
+
   tabButtonActiveBlue: {
     backgroundColor: "#ffffff",
     boxShadow: "0px 1px 3px rgba(0, 0, 0, 0.06)",
   },
+
   tabButtonActivePurple: {
     backgroundColor: "#ffffff",
     boxShadow: "0px 1px 3px rgba(0, 0, 0, 0.06)",
   },
+
   tabButtonText: {
     fontSize: 13.5,
     fontWeight: "700",
     color: "#94a3b8",
   },
+
   tabButtonTextActiveBlue: {
     color: "#1a73e8",
   },
+
   tabButtonTextActivePurple: {
     color: "#7c3aed",
   },
+
   invitationBadge: {
     backgroundColor: "#ef4444",
     borderRadius: 10,
@@ -1830,17 +1827,21 @@ const styles = StyleSheet.create({
     paddingVertical: 1,
     marginLeft: 4,
   },
+
   invitationBadgeText: {
     color: "#ffffff",
     fontSize: 10,
     fontWeight: "700",
   },
+
   section: {
     marginBottom: 20,
   },
+
   optionsList: {
     gap: 10,
   },
+
   card: {
     backgroundColor: "#ffffff",
     borderRadius: 14,
@@ -1849,12 +1850,14 @@ const styles = StyleSheet.create({
     borderColor: "#e2e8f0",
     boxShadow: "0px 1px 4px rgba(0, 0, 0, 0.04)",
   },
+
   cardHeader: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
     marginBottom: 6,
   },
+
   cardIconContainer: {
     width: 44,
     height: 44,
@@ -1862,17 +1865,20 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+
   cardHeaderInfo: {
     flex: 1,
     flexDirection: "column",
     justifyContent: "center",
   },
+
   cardTitle: {
     fontSize: 15.5,
     fontWeight: "700",
     color: "#0f172a",
     lineHeight: 20,
   },
+
   cardBadgeRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1880,22 +1886,26 @@ const styles = StyleSheet.create({
     gap: 6,
     marginTop: 3,
   },
+
   cardBadge: {
     alignSelf: "flex-start",
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 5,
   },
+
   cardBadgeText: {
     fontSize: 10.5,
     fontWeight: "700",
   },
+
   cardDescription: {
     fontSize: 12.5,
     color: "#64748b",
     lineHeight: 17,
     marginTop: 4,
   },
+
   arrowCircle: {
     width: 28,
     height: 28,
@@ -1905,10 +1915,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
 
-  // Invitations Styles
   invitationsContainer: {
     gap: 16,
   },
+
   apartmentGroup: {
     backgroundColor: "#ffffff",
     borderRadius: 16,
@@ -1917,6 +1927,7 @@ const styles = StyleSheet.create({
     borderColor: "#e2e8f0",
     boxShadow: "0px 2px 8px rgba(0, 0, 0, 0.04)",
   },
+
   apartmentHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -1926,6 +1937,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#f1f5f9",
   },
+
   apartmentIconContainer: {
     width: 36,
     height: 36,
@@ -1934,23 +1946,27 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+
   apartmentName: {
     fontSize: 16,
     fontWeight: "700",
     color: "#0f172a",
     flex: 1,
   },
+
   invitationCountBadge: {
     backgroundColor: "#e2e8f0",
     borderRadius: 12,
     paddingHorizontal: 8,
     paddingVertical: 2,
   },
+
   invitationCountText: {
     fontSize: 11,
     fontWeight: "600",
     color: "#475569",
   },
+
   invitationCard: {
     backgroundColor: "#f8fafc",
     borderRadius: 12,
@@ -1959,12 +1975,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e2e8f0",
   },
+
   invitationCardHeader: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
     marginBottom: 8,
   },
+
   invitationCardIcon: {
     width: 44,
     height: 44,
@@ -1972,14 +1990,17 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+
   invitationCardInfo: {
     flex: 1,
   },
+
   invitationCardTitle: {
     fontSize: 14,
     fontWeight: "600",
     color: "#0f172a",
   },
+
   invitationBadgeRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1987,15 +2008,18 @@ const styles = StyleSheet.create({
     gap: 6,
     marginTop: 2,
   },
+
   invitationRoleBadge: {
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 6,
   },
+
   invitationRoleBadgeText: {
     fontSize: 10,
     fontWeight: "600",
   },
+
   inviterPillSmall: {
     flexDirection: "row",
     alignItems: "center",
@@ -2007,23 +2031,27 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e2e8f0",
   },
+
   inviterPillTextSmall: {
     fontSize: 9,
     color: "#475569",
     fontWeight: "500",
   },
+
   invitationCardDescription: {
     fontSize: 12.5,
     color: "#64748b",
     lineHeight: 17,
     marginBottom: 12,
   },
+
   invitationActions: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 8,
   },
+
   invitationRejectButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -2035,11 +2063,13 @@ const styles = StyleSheet.create({
     borderColor: "#fecaca",
     backgroundColor: "#fff5f5",
   },
+
   invitationRejectText: {
     fontSize: 12,
     fontWeight: "600",
     color: "#dc2626",
   },
+
   invitationAcceptButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -2048,13 +2078,13 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 8,
   },
+
   invitationAcceptText: {
     fontSize: 12,
     fontWeight: "700",
     color: "#ffffff",
   },
 
-  // Empty State
   emptyStateContainer: {
     alignItems: "center",
     paddingVertical: 40,
@@ -2065,6 +2095,7 @@ const styles = StyleSheet.create({
     borderColor: "#e2e8f0",
     borderStyle: "dashed",
   },
+
   emptyStateIcon: {
     width: 80,
     height: 80,
@@ -2074,12 +2105,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 16,
   },
+
   emptyStateTitle: {
     fontSize: 18,
     fontWeight: "700",
     color: "#0f172a",
     marginBottom: 4,
   },
+
   emptyStateSubtitle: {
     fontSize: 13,
     color: "#64748b",
@@ -2087,7 +2120,6 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
 
-  // Step 2 Styles
   formCard: {
     backgroundColor: "#ffffff",
     borderRadius: 18,
@@ -2095,11 +2127,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e2e8f0",
     boxShadow: "0px 2px 8px rgba(0, 0, 0, 0.04)",
+    marginBottom: 20,
   },
+
   photoSection: {
     alignItems: "center",
     marginVertical: 14,
   },
+
   photoCircle: {
     width: 90,
     height: 90,
@@ -2112,11 +2147,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     position: "relative",
   },
+
   photoPlaceholder: {
     justifyContent: "center",
     alignItems: "center",
     position: "relative",
   },
+
   cameraIconBadge: {
     position: "absolute",
     bottom: -4,
@@ -2127,45 +2164,54 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: "#fff",
   },
+
   photoImage: {
     width: 90,
     height: 90,
     borderRadius: 45,
   },
+
   photoActionButtons: {
     flexDirection: "row",
     alignItems: "center",
     marginTop: 8,
     gap: 12,
   },
+
   photoButton: {
     paddingVertical: 4,
     paddingHorizontal: 8,
   },
+
   photoButtonText: {
     fontSize: 13,
     fontWeight: "600",
     color: "#1a73e8",
   },
+
   removePhotoButton: {
     paddingVertical: 4,
     paddingHorizontal: 8,
   },
+
   removePhotoText: {
     fontSize: 13,
     fontWeight: "600",
     color: "#ef4444",
   },
+
   inputGroup: {
     marginBottom: 18,
     marginTop: 6,
   },
+
   inputLabel: {
     fontSize: 13,
     fontWeight: "700",
     color: "#334155",
     marginBottom: 7,
   },
+
   inputWrapper: {
     flexDirection: "row",
     alignItems: "center",
@@ -2177,9 +2223,11 @@ const styles = StyleSheet.create({
     height: 48,
     boxShadow: "0px 1px 3px rgba(0, 0, 0, 0.03)",
   },
+
   inputIcon: {
     marginRight: 8,
   },
+
   input: {
     flex: 1,
     fontSize: 15,
@@ -2187,9 +2235,11 @@ const styles = StyleSheet.create({
     height: "100%",
     ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as any) : {}),
   },
+
   clearInput: {
     padding: 4,
   },
+
   errorContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -2199,11 +2249,13 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     gap: 6,
   },
+
   error: {
     color: "#dc2626",
     fontSize: 13,
     fontWeight: "500",
   },
+
   submitButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -2215,43 +2267,25 @@ const styles = StyleSheet.create({
     gap: 8,
     boxShadow: "0px 4px 6px rgba(26, 115, 232, 0.25)",
   },
+
   submitButtonDisabled: {
     backgroundColor: "#93c5fd",
     boxShadow: "none",
   },
+
   submitButtonText: {
     color: "#ffffff",
     fontSize: 15.5,
     fontWeight: "700",
   },
-  loadingOverlay: {
-    ...StyleSheet.absoluteFill,
-    backgroundColor: "rgba(255, 255, 255, 0.85)",
-    zIndex: 999,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  loadingCard: {
-    backgroundColor: "#ffffff",
-    borderRadius: 16,
-    padding: 24,
-    alignItems: "center",
-    boxShadow: "0px 4px 12px rgba(0, 0, 0, 0.1)",
-    gap: 12,
-  },
-  loadingText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#334155",
-  },
 
-  // Photo Options Modal
   modalBackdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.45)",
     justifyContent: "flex-end",
     alignItems: "center",
   },
+
   modalHandle: {
     width: 40,
     height: 4,
@@ -2260,6 +2294,7 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     marginBottom: 16,
   },
+
   photoOptionsModal: {
     backgroundColor: "#ffffff",
     borderTopLeftRadius: 24,
@@ -2269,6 +2304,7 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 480,
   },
+
   photoOptionsTitle: {
     fontSize: 20,
     fontWeight: "700",
@@ -2276,12 +2312,14 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     textAlign: "center",
   },
+
   photoOptionsSubtitle: {
     fontSize: 13,
     color: "#64748b",
     textAlign: "center",
     marginBottom: 20,
   },
+
   photoOptionButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -2293,6 +2331,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e2e8f0",
   },
+
   photoOptionIcon: {
     width: 44,
     height: 44,
@@ -2302,19 +2341,23 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginRight: 14,
   },
+
   photoOptionTextContainer: {
     flex: 1,
   },
+
   photoOptionTitle: {
     fontSize: 15,
     fontWeight: "600",
     color: "#0f172a",
   },
+
   photoOptionDescription: {
     fontSize: 12,
     color: "#64748b",
     marginTop: 1,
   },
+
   photoOptionsCancel: {
     paddingVertical: 14,
     alignItems: "center",
@@ -2322,13 +2365,13 @@ const styles = StyleSheet.create({
     backgroundColor: "#f8fafc",
     borderRadius: 12,
   },
+
   photoOptionsCancelText: {
     fontSize: 15,
     fontWeight: "700",
     color: "#dc2626",
   },
 
-  // Reject Modal - Centered
   modalBackdropCenter: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.5)",
@@ -2336,6 +2379,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 24,
   },
+
   modalCardCenter: {
     backgroundColor: "#ffffff",
     borderRadius: 22,
@@ -2345,6 +2389,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     boxShadow: "0px 6px 16px rgba(0, 0, 0, 0.15)",
   },
+
   modalIconCircle: {
     width: 56,
     height: 56,
@@ -2354,6 +2399,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 8,
   },
+
   modalTitle: {
     fontSize: 18,
     fontWeight: "800",
@@ -2361,6 +2407,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     textAlign: "center",
   },
+
   modalMessage: {
     fontSize: 13,
     color: "#64748b",
@@ -2368,11 +2415,13 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginBottom: 16,
   },
+
   modalButtonRow: {
     flexDirection: "row",
     gap: 10,
     width: "100%",
   },
+
   modalCancelButton: {
     flex: 1,
     paddingVertical: 12,
@@ -2382,11 +2431,13 @@ const styles = StyleSheet.create({
     backgroundColor: "#f8fafc",
     alignItems: "center",
   },
+
   modalCancelText: {
     fontSize: 14,
     fontWeight: "600",
     color: "#475569",
   },
+
   modalConfirmButton: {
     flex: 1,
     flexDirection: "row",
@@ -2397,6 +2448,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#dc2626",
     gap: 6,
   },
+
   modalConfirmText: {
     fontSize: 14,
     fontWeight: "700",
