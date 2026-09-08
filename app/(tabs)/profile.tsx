@@ -1566,7 +1566,7 @@ const styles = StyleSheet.create({
   },
 
   // ============================================================
-  // HISTORY MODAL - With date/month/year grouping
+  // HISTORY MODAL - Updated styles
   // ============================================================
 
   historyModalOverlay: {
@@ -1583,7 +1583,13 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 26,
     paddingHorizontal: 18,
     paddingTop: 20,
+    // Increase max height for better visibility
     maxHeight: "92%",
+    // Add min height to ensure content is visible
+    minHeight: "50%",
+    // Use flex layout
+    display: "flex",
+    flexDirection: "column",
   },
 
   historyModalHeader: {
@@ -1591,6 +1597,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 12,
+    flexShrink: 0,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F1F5F9",
   },
 
   historyModalTitle: {
@@ -1623,12 +1633,15 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
 
+  // CRITICAL: ScrollView must have flex:1
   historyModalScroll: {
     flex: 1,
+    minHeight: 200,
   },
 
   historyModalContent: {
     paddingBottom: 20,
+    paddingTop: 4,
   },
 
   // Month/Year Group
@@ -3892,7 +3905,7 @@ export default function ProfileScreen() {
   };
 
   // ============================================================
-  // HISTORY MODAL
+  // HISTORY MODAL - FIXED FOR MOBILE
   // ============================================================
 
   const renderHistoryModal = () => {
@@ -3905,153 +3918,141 @@ export default function ProfileScreen() {
         animationType="slide"
         onRequestClose={() => setShowHistoryModal(false)}
       >
-        <TouchableWithoutFeedback onPress={() => setShowHistoryModal(false)}>
-          <View style={styles.historyModalOverlay}>
-            <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
-              <View style={styles.historyModalCard}>
-                <View style={styles.historyModalHandle} />
+        <View style={styles.historyModalOverlay}>
+          <View style={styles.historyModalCard}>
+            <View style={styles.historyModalHandle} />
 
-                <View style={styles.historyModalHeader}>
-                  <View>
-                    <Text style={styles.historyModalTitle}>
-                      Activity History
-                    </Text>
-                    <Text style={styles.historyModalSubtitle}>
-                      {history.length} events recorded
-                    </Text>
-                  </View>
-                  <TouchableOpacity
-                    style={styles.historyModalCloseButton}
-                    onPress={() => setShowHistoryModal(false)}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name="close" size={22} color="#475569" />
-                  </TouchableOpacity>
-                </View>
+            <View style={styles.historyModalHeader}>
+              <View>
+                <Text style={styles.historyModalTitle}>Activity History</Text>
+                <Text style={styles.historyModalSubtitle}>
+                  {history.length} events recorded
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={styles.historyModalCloseButton}
+                onPress={() => setShowHistoryModal(false)}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="close" size={22} color="#475569" />
+              </TouchableOpacity>
+            </View>
 
-                {/* History List with Month/Year Grouping */}
-                <ScrollView
-                  style={styles.historyModalScroll}
-                  showsVerticalScrollIndicator={true}
-                  contentContainerStyle={styles.historyModalContent}
-                >
-                  {groupedHistory.length > 0 ? (
-                    groupedHistory.map((group) => (
-                      <View key={group.key}>
-                        <View style={styles.historyGroupHeader}>
-                          <Text style={styles.historyGroupMonth}>
-                            {group.month}
-                          </Text>
-                          <Text style={styles.historyGroupYear}>
-                            {group.year}
-                          </Text>
-                          <Text style={styles.historyGroupCount}>
-                            {group.entries.length}
-                          </Text>
-                        </View>
-
-                        {group.entries.map((item, index) => {
-                          const iconInfo = getHistoryIcon(item.type);
-                          const isLast = index === group.entries.length - 1;
-
-                          return (
-                            <View
-                              key={item.id}
-                              style={[
-                                styles.historyItem,
-                                isLast && styles.historyItemLast,
-                              ]}
-                            >
-                              <View style={styles.historyItemHeader}>
-                                <View
-                                  style={[
-                                    styles.historyIconContainer,
-                                    { backgroundColor: iconInfo.bg },
-                                  ]}
-                                >
-                                  <Ionicons
-                                    name={iconInfo.icon as any}
-                                    size={18}
-                                    color={iconInfo.color}
-                                  />
-                                </View>
-                                <View style={styles.historyItemContent}>
-                                  <Text style={styles.historyItemTitle}>
-                                    {item.title}
-                                  </Text>
-                                  <Text style={styles.historyItemDescription}>
-                                    {item.description}
-                                  </Text>
-                                  <View style={styles.historyItemMeta}>
-                                    <Text style={styles.historyItemDate}>
-                                      {formatDate(item.date)}
-                                    </Text>
-                                    {item.status && (
-                                      <View
-                                        style={[
-                                          styles.historyStatusBadge,
-                                          item.status === "paid"
-                                            ? styles.historyStatusBadgePaid
-                                            : styles.historyStatusBadgeDue,
-                                        ]}
-                                      >
-                                        <Text
-                                          style={[
-                                            styles.historyStatusText,
-                                            item.status === "paid"
-                                              ? styles.historyStatusTextPaid
-                                              : styles.historyStatusTextDue,
-                                          ]}
-                                        >
-                                          {item.status === "paid"
-                                            ? "Paid"
-                                            : "Due"}
-                                        </Text>
-                                      </View>
-                                    )}
-                                    {item.amount && (
-                                      <Text
-                                        style={[
-                                          styles.historyItemAmount,
-                                          { fontSize: 12 },
-                                        ]}
-                                      >
-                                        {formatCurrency(item.amount)}
-                                      </Text>
-                                    )}
-                                    <Text style={styles.historyItemMarkedBy}>
-                                      by {item.markedBy}
-                                    </Text>
-                                  </View>
-                                </View>
-                              </View>
-                            </View>
-                          );
-                        })}
-                      </View>
-                    ))
-                  ) : (
-                    <View style={styles.noHistoryContainer}>
-                      <View style={styles.noHistoryIcon}>
-                        <Ionicons
-                          name="time-outline"
-                          size={28}
-                          color="#94A3B8"
-                        />
-                      </View>
-                      <Text style={styles.noHistoryTitle}>
-                        No history found
+            {/* History List with Month/Year Grouping */}
+            <ScrollView
+              style={styles.historyModalScroll}
+              showsVerticalScrollIndicator={true}
+              contentContainerStyle={styles.historyModalContent}
+              nestedScrollEnabled={true}
+              overScrollMode="always"
+              bounces={true}
+              keyboardShouldPersistTaps="handled"
+            >
+              {groupedHistory.length > 0 ? (
+                groupedHistory.map((group) => (
+                  <View key={group.key}>
+                    <View style={styles.historyGroupHeader}>
+                      <Text style={styles.historyGroupMonth}>
+                        {group.month}
                       </Text>
-                      <Text style={styles.noHistoryText}>
-                        No events match the selected filter.
+                      <Text style={styles.historyGroupYear}>{group.year}</Text>
+                      <Text style={styles.historyGroupCount}>
+                        {group.entries.length}
                       </Text>
                     </View>
-                  )}
-                </ScrollView>
-              </View>
-            </TouchableWithoutFeedback>
+
+                    {group.entries.map((item, index) => {
+                      const iconInfo = getHistoryIcon(item.type);
+                      const isLast = index === group.entries.length - 1;
+
+                      return (
+                        <View
+                          key={item.id}
+                          style={[
+                            styles.historyItem,
+                            isLast && styles.historyItemLast,
+                          ]}
+                        >
+                          <View style={styles.historyItemHeader}>
+                            <View
+                              style={[
+                                styles.historyIconContainer,
+                                { backgroundColor: iconInfo.bg },
+                              ]}
+                            >
+                              <Ionicons
+                                name={iconInfo.icon as any}
+                                size={18}
+                                color={iconInfo.color}
+                              />
+                            </View>
+                            <View style={styles.historyItemContent}>
+                              <Text style={styles.historyItemTitle}>
+                                {item.title}
+                              </Text>
+                              <Text style={styles.historyItemDescription}>
+                                {item.description}
+                              </Text>
+                              <View style={styles.historyItemMeta}>
+                                <Text style={styles.historyItemDate}>
+                                  {formatDate(item.date)}
+                                </Text>
+                                {item.status && (
+                                  <View
+                                    style={[
+                                      styles.historyStatusBadge,
+                                      item.status === "paid"
+                                        ? styles.historyStatusBadgePaid
+                                        : styles.historyStatusBadgeDue,
+                                    ]}
+                                  >
+                                    <Text
+                                      style={[
+                                        styles.historyStatusText,
+                                        item.status === "paid"
+                                          ? styles.historyStatusTextPaid
+                                          : styles.historyStatusTextDue,
+                                      ]}
+                                    >
+                                      {item.status === "paid" ? "Paid" : "Due"}
+                                    </Text>
+                                  </View>
+                                )}
+                                {item.amount && (
+                                  <Text
+                                    style={[
+                                      styles.historyItemAmount,
+                                      { fontSize: 12 },
+                                    ]}
+                                  >
+                                    {formatCurrency(item.amount)}
+                                  </Text>
+                                )}
+                                <Text style={styles.historyItemMarkedBy}>
+                                  by {item.markedBy}
+                                </Text>
+                              </View>
+                            </View>
+                          </View>
+                        </View>
+                      );
+                    })}
+                  </View>
+                ))
+              ) : (
+                <View style={styles.noHistoryContainer}>
+                  <View style={styles.noHistoryIcon}>
+                    <Ionicons name="time-outline" size={28} color="#94A3B8" />
+                  </View>
+                  <Text style={styles.noHistoryTitle}>No history found</Text>
+                  <Text style={styles.noHistoryText}>
+                    No events match the selected filter.
+                  </Text>
+                </View>
+              )}
+            </ScrollView>
           </View>
-        </TouchableWithoutFeedback>
+        </View>
       </Modal>
     );
   };
