@@ -557,6 +557,7 @@ const styles = StyleSheet.create({
   accountSwitcherContainer: {
     flex: 1,
     maxWidth: 280,
+    justifyContent: "center",
   },
 
   notificationMenu: {
