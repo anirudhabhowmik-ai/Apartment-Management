@@ -70,7 +70,7 @@ const getTabLabel = (
   }
 
   if (type === "staff") return "Staff";
-  if (type === "expense") return "Expenses";
+  if (type === "expense") return "Transactions";
 
   return "Group";
 };
@@ -103,7 +103,7 @@ const getAddButtonLabel = (
   }
 
   if (type === "staff") return "Add Staff";
-  if (type === "expense") return "Add Expense";
+  if (type === "expense") return "Add Transaction";
 
   return "Add";
 };

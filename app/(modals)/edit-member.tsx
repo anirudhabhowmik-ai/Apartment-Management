@@ -1,6 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as Contacts from "expo-contacts";
-import { Contact, ContactField, ContactsSortOrder } from "expo-contacts";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
@@ -30,11 +29,17 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import DatePickerModal from "../../components/DatePickerModal";
 import { useMembers } from "../../hooks/useMembers";
-import { BillAttachment, GroupType, MemberRole } from "../../types";
+import {
+  BillAttachment,
+  GroupType,
+  MemberRole,
+  TransactionKind,
+} from "../../types";
 
 interface RoleOption {
   role: MemberRole;
   label: string;
+  icon: keyof typeof Ionicons.glyphMap;
 }
 
 interface ContactData {
@@ -46,27 +51,52 @@ interface ContactData {
   }[];
 }
 
+const BLUE = "#2563EB";
+const BLUE_LIGHT = "#EFF6FF";
+const TEXT = "#111827";
+const TEXT_SECONDARY = "#6B7280";
+const BORDER = "#E5E7EB";
+const BACKGROUND = "#F8FAFC";
+const RED = "#DC2626";
+const GREEN = "#16A34A";
+
 const FLAT_ROLES: RoleOption[] = [
-  { role: "owner", label: "Owner" },
-  { role: "secretary", label: "Secretary" },
-  { role: "tenant", label: "Tenant" },
+  { role: "owner", label: "Owner", icon: "home-outline" },
+  { role: "secretary", label: "Secretary", icon: "shield-checkmark-outline" },
+  { role: "tenant", label: "Tenant", icon: "person-outline" },
 ];
 
 const SERVANT_ROLES: RoleOption[] = [
-  { role: "sweeper", label: "Sweeper" },
-  { role: "security", label: "Security" },
-  { role: "maintenance", label: "Maintenance" },
+  { role: "sweeper", label: "Sweeper", icon: "sparkles-outline" },
+  { role: "security", label: "Security", icon: "shield-outline" },
+  { role: "maintenance", label: "Maintenance", icon: "construct-outline" },
 ];
 
 const EXPENSE_ROLES: RoleOption[] = [
-  { role: "electricity", label: "Electricity" },
-  { role: "water", label: "Water" },
-  { role: "maintenance", label: "Maintenance" },
-  { role: "other", label: "Other" },
+  { role: "electricity", label: "Electricity", icon: "flash-outline" },
+  { role: "water", label: "Water", icon: "water-outline" },
+  { role: "maintenance", label: "Maintenance", icon: "construct-outline" },
+  { role: "other", label: "Other", icon: "ellipsis-horizontal-circle-outline" },
+];
+
+const INCOME_SOURCES: RoleOption[] = [
+  { role: "hall_rent", label: "Community Hall Rent", icon: "business-outline" },
+  { role: "parking_rent", label: "Parking Rent", icon: "car-outline" },
+  { role: "advertisement", label: "Advertisement", icon: "megaphone-outline" },
+  {
+    role: "interest",
+    label: "Interest / Deposit",
+    icon: "trending-up-outline",
+  },
+  {
+    role: "other_income",
+    label: "Other Income",
+    icon: "ellipsis-horizontal-circle-outline",
+  },
 ];
 
 // ---------------------------------------------------------------------------
-// Photo Adjust Modal - Same as in AddAccountScreen
+// Photo Adjust Modal
 // ---------------------------------------------------------------------------
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -133,10 +163,8 @@ function PhotoAdjustModal({
 
   useEffect(() => {
     setTranslate((t) => clampTranslate(t, zoom));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zoom, image]);
 
-  // ----- Refs kept in sync with the latest state, for the PanResponder -----
   const zoomRef = useRef(zoom);
   const translateRef = useRef(translate);
   const imageRef = useRef(image);
@@ -174,10 +202,6 @@ function PhotoAdjustModal({
       y: clampNumber(t.y, -maxY, maxY),
     };
   };
-
-  // -------------------------------------------------------------------
-  // Gesture tracking - fixed for proper two-finger pinch
-  // -------------------------------------------------------------------
 
   type ActiveGesture =
     | {
@@ -585,23 +609,6 @@ export default function EditMemberScreen() {
   const member = getMemberById(memberId);
 
   // ==================================================
-  // GET HEADER TITLE
-  // ==================================================
-
-  const getHeaderTitle = () => {
-    if (groupType === "expense") {
-      return "Edit Expense";
-    }
-    if (groupType === "staff") {
-      return "Edit Staff";
-    }
-    if (groupType === "apartment") {
-      return "Edit Member";
-    }
-    return "Edit Member";
-  };
-
-  // ==================================================
   // ROLE OPTIONS
   // ==================================================
 
@@ -641,6 +648,14 @@ export default function EditMemberScreen() {
   const [dueDate, setDueDate] = useState("");
   const [billAttachments, setBillAttachments] = useState<BillAttachment[]>([]);
 
+  // NEW: Transaction kind state
+  const [transactionKind, setTransactionKind] =
+    useState<TransactionKind>("expense");
+  const isIncome = transactionKind === "income";
+
+  // Get active category options
+  const activeCategoryOptions = isIncome ? INCOME_SOURCES : EXPENSE_ROLES;
+
   const [showDatePicker, setShowDatePicker] = useState(false);
 
   const [loading, setLoading] = useState(false);
@@ -657,6 +672,7 @@ export default function EditMemberScreen() {
   const [showPhotoOptions, setShowPhotoOptions] = useState(false);
   const [rawImage, setRawImage] = useState<RawImage | null>(null);
   const [showAdjustModal, setShowAdjustModal] = useState(false);
+  const [isBillPhotoMode, setIsBillPhotoMode] = useState(false);
 
   // ==================================================
   // CONTACT PICKER STATE
@@ -668,6 +684,23 @@ export default function EditMemberScreen() {
   const [loadingContacts, setLoadingContacts] = useState(false);
 
   const hasFieldErrors = Object.values(fieldErrors).some(Boolean);
+
+  // ==================================================
+  // GET HEADER TITLE - UPDATED with dynamic titles
+  // ==================================================
+
+  const getHeaderTitle = () => {
+    if (groupType === "expense") {
+      return "Edit Transaction";
+    }
+    if (groupType === "staff") {
+      return "Edit Staff";
+    }
+    if (groupType === "apartment") {
+      return "Edit Member";
+    }
+    return "Edit Member";
+  };
 
   // ==================================================
   // FILTER CONTACTS
@@ -692,7 +725,7 @@ export default function EditMemberScreen() {
   }, [contactsList, contactSearch]);
 
   // ==================================================
-  // LOAD MEMBER
+  // LOAD MEMBER - UPDATED with transactionKind
   // ==================================================
 
   useEffect(() => {
@@ -718,7 +751,7 @@ export default function EditMemberScreen() {
 
     if (!roleOptions.some((option) => option.role === member.role)) {
       setIsCustomRole(true);
-      setCustomRole(member.role);
+      setCustomRole(member.role || "");
     } else {
       setIsCustomRole(false);
       setCustomRole("");
@@ -736,12 +769,18 @@ export default function EditMemberScreen() {
       setMonthlySalary(member.monthlySalary?.toString() || "");
     }
 
+    // UPDATED: Load transaction kind for expenses
     if (groupType === "expense" && "amount" in member) {
+      // Legacy entries without transactionType default to "expense"
+      setTransactionKind(
+        member.transactionType === "income" ? "income" : "expense",
+      );
       setExpenseAmount(member.amount?.toString() || "");
       setExpenseStatus(member.status || "paid");
       setReminderEnabled(member.reminderEnabled || false);
       setDueDate(member.dueDate || "");
       setExpenseDescription(member.description || "");
+      setRole(member.role || null);
 
       setBillAttachments(
         member.billAttachments ||
@@ -758,10 +797,11 @@ export default function EditMemberScreen() {
   }, [member, groupType]);
 
   // ==================================================
-  // PICK PROFILE PHOTO - Updated with photo options modal
+  // PICK PHOTO - For profile photos only (members/staff)
   // ==================================================
 
-  const showPhotoSelectionOptions = () => {
+  const showPhotoSelectionOptions = (forBill: boolean = false) => {
+    setIsBillPhotoMode(forBill);
     setShowPhotoOptions(true);
   };
 
@@ -781,12 +821,24 @@ export default function EditMemberScreen() {
 
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];
-      setRawImage({
-        uri: asset.uri,
-        width: asset.width,
-        height: asset.height,
-      });
-      setShowAdjustModal(true);
+
+      if (isBillPhotoMode) {
+        setBillAttachments((currentAttachments) => [
+          ...currentAttachments,
+          {
+            uri: asset.uri,
+            name: asset.fileName || "Bill image",
+            mimeType: asset.mimeType,
+          },
+        ]);
+      } else {
+        setRawImage({
+          uri: asset.uri,
+          width: asset.width,
+          height: asset.height,
+        });
+        setShowAdjustModal(true);
+      }
     }
   };
 
@@ -802,16 +854,30 @@ export default function EditMemberScreen() {
       mediaTypes: ["images"],
       allowsEditing: false,
       quality: 1,
+      allowsMultipleSelection: isBillPhotoMode,
     });
 
     if (!result.canceled && result.assets[0]) {
-      const asset = result.assets[0];
-      setRawImage({
-        uri: asset.uri,
-        width: asset.width,
-        height: asset.height,
-      });
-      setShowAdjustModal(true);
+      const assets = result.assets;
+
+      if (isBillPhotoMode) {
+        setBillAttachments((currentAttachments) => [
+          ...currentAttachments,
+          ...assets.map((asset) => ({
+            uri: asset.uri,
+            name: asset.fileName || "Bill image",
+            mimeType: asset.mimeType,
+          })),
+        ]);
+      } else {
+        const asset = assets[0];
+        setRawImage({
+          uri: asset.uri,
+          width: asset.width,
+          height: asset.height,
+        });
+        setShowAdjustModal(true);
+      }
     }
   };
 
@@ -827,7 +893,7 @@ export default function EditMemberScreen() {
   };
 
   // ==================================================
-  // CONTACT PICKER
+  // CONTACT PICKER - FIXED
   // ==================================================
 
   const pickContact = async () => {
@@ -866,25 +932,25 @@ export default function EditMemberScreen() {
         return;
       }
 
-      const contactDetails = await Contact.getAllDetails(
-        [ContactField.FULL_NAME, ContactField.PHONES],
-        {
-          sortOrder: ContactsSortOrder.GivenName,
-        },
-      );
+      const { data } = await Contacts.getContactsAsync({
+        fields: [Contacts.Fields.Name, Contacts.Fields.PhoneNumbers],
+        sort: Contacts.SortTypes.FirstName,
+      });
 
-      if (contactDetails.length === 0) {
+      if (data.length === 0) {
         setError("No contacts found on your device");
         return;
       }
 
-      const mappedContacts: ContactData[] = contactDetails
-        .filter((contact) => contact.phones && contact.phones.length > 0)
+      const mappedContacts: ContactData[] = data
+        .filter(
+          (contact) => contact.phoneNumbers && contact.phoneNumbers.length > 0,
+        )
         .map((contact) => ({
           id: contact.id || `contact-${Math.random()}`,
-          name: contact.fullName || "Unknown",
+          name: contact.name || "Unknown",
           phoneNumbers:
-            contact.phones?.map((phone) => ({
+            contact.phoneNumbers?.map((phone) => ({
               number: phone.number || "",
               label: phone.label || undefined,
             })) || [],
@@ -961,36 +1027,7 @@ export default function EditMemberScreen() {
   };
 
   // ==================================================
-  // PICK BILL
-  // ==================================================
-
-  const handlePickBill = async () => {
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      setError("Permission to access photos is required");
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      allowsMultipleSelection: true,
-      quality: 0.8,
-    });
-
-    if (!result.canceled) {
-      setBillAttachments((currentAttachments) => [
-        ...currentAttachments,
-        ...result.assets.map((asset) => ({
-          uri: asset.uri,
-          name: asset.fileName || "Bill image",
-          mimeType: asset.mimeType,
-        })),
-      ]);
-    }
-  };
-
-  // ==================================================
-  // UPDATE MEMBER
+  // UPDATE MEMBER - UPDATED with transaction type
   // ==================================================
 
   const handleUpdate = async () => {
@@ -1034,11 +1071,15 @@ export default function EditMemberScreen() {
       }
     }
 
+    // UPDATED: Expense validation with category required
     if (groupType === "expense") {
       if (!expenseAmount.trim()) {
-        errors.expenseAmount = "Expense amount is required";
+        errors.expenseAmount = "Amount is required";
       } else if (isNaN(Number(expenseAmount))) {
-        errors.expenseAmount = "Expense amount must be a number";
+        errors.expenseAmount = "Amount must be a number";
+      }
+      if (!role) {
+        errors.role = "Please choose a category";
       }
     }
 
@@ -1055,7 +1096,7 @@ export default function EditMemberScreen() {
       const updateData: any = {
         name: name.trim(),
         phone: groupType === "expense" ? "" : `+91${phone}`,
-        role: groupType === "expense" ? "expense" : role,
+        role: groupType === "expense" ? role : role,
         photoUri: photoUri ?? undefined,
       };
 
@@ -1078,13 +1119,14 @@ export default function EditMemberScreen() {
         updateData.monthlySalary = Number(monthlySalary);
       }
 
+      // UPDATED: Include transaction type for expenses
       if (groupType === "expense") {
         updateData.amount = Number(expenseAmount);
+        updateData.role = role;
+        updateData.transactionType = transactionKind;
         updateData.status = expenseStatus;
-
         updateData.reminderEnabled =
           expenseStatus === "due" ? reminderEnabled : false;
-
         updateData.dueDate = dueDate || undefined;
         updateData.description = expenseDescription.trim() || undefined;
         updateData.billAttachments = billAttachments;
@@ -1196,14 +1238,14 @@ export default function EditMemberScreen() {
         bounces={false}
       >
         {/* ==================================================
-            PROFILE CARD
+            PROFILE CARD - Only for members/staff (not expenses)
         ================================================== */}
 
         {groupType !== "expense" ? (
           <View style={styles.profileCard}>
             <TouchableOpacity
               style={styles.profileAvatarWrapper}
-              onPress={showPhotoSelectionOptions}
+              onPress={() => showPhotoSelectionOptions(false)}
               activeOpacity={0.8}
             >
               {photoUri ? (
@@ -1232,7 +1274,7 @@ export default function EditMemberScreen() {
               </Text>
 
               <TouchableOpacity
-                onPress={showPhotoSelectionOptions}
+                onPress={() => showPhotoSelectionOptions(false)}
                 activeOpacity={0.7}
               >
                 <Text style={styles.changePhotoText}>
@@ -1633,19 +1675,168 @@ export default function EditMemberScreen() {
         )}
 
         {/* ==================================================
-            EXPENSE DETAILS
+            EXPENSE/INCOME DETAILS - UPDATED with radio selector and category picker
         ================================================== */}
 
         {groupType === "expense" && (
           <View style={styles.card}>
             <SectionHeader
-              icon="receipt-outline"
-              title="Expense Details"
-              subtitle="Update expense and payment information"
+              icon={isIncome ? "trending-up-outline" : "receipt-outline"}
+              title={isIncome ? "Income Details" : "Expense Details"}
+              subtitle={
+                isIncome
+                  ? "Update income information"
+                  : "Update expense and payment information"
+              }
             />
 
+            {/* Type Radio Selector */}
+            <View style={styles.fieldContainer}>
+              <Text style={styles.fieldLabel}>Type</Text>
+
+              <View style={styles.kindRadioRow}>
+                <TouchableOpacity
+                  style={[
+                    styles.kindRadioOption,
+                    !isIncome && styles.kindRadioOptionExpense,
+                  ]}
+                  onPress={() => {
+                    setTransactionKind("expense");
+                    setRole(null);
+                    if (fieldErrors.role) {
+                      setFieldErrors({ ...fieldErrors, role: "" });
+                    }
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <View
+                    style={[
+                      styles.radioOuter,
+                      !isIncome && styles.radioOuterExpense,
+                    ]}
+                  >
+                    {!isIncome && (
+                      <View
+                        style={[styles.radioInner, { backgroundColor: RED }]}
+                      />
+                    )}
+                  </View>
+                  <Ionicons
+                    name="arrow-down-circle-outline"
+                    size={17}
+                    color={!isIncome ? RED : "#94A3B8"}
+                  />
+                  <Text
+                    style={[
+                      styles.kindRadioText,
+                      !isIncome && { color: RED, fontWeight: "800" },
+                    ]}
+                  >
+                    Expense
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.kindRadioOption,
+                    isIncome && styles.kindRadioOptionIncome,
+                  ]}
+                  onPress={() => {
+                    setTransactionKind("income");
+                    setRole(null);
+                    if (fieldErrors.role) {
+                      setFieldErrors({ ...fieldErrors, role: "" });
+                    }
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <View
+                    style={[
+                      styles.radioOuter,
+                      isIncome && styles.radioOuterIncome,
+                    ]}
+                  >
+                    {isIncome && (
+                      <View
+                        style={[styles.radioInner, { backgroundColor: GREEN }]}
+                      />
+                    )}
+                  </View>
+                  <Ionicons
+                    name="arrow-up-circle-outline"
+                    size={17}
+                    color={isIncome ? GREEN : "#94A3B8"}
+                  />
+                  <Text
+                    style={[
+                      styles.kindRadioText,
+                      isIncome && { color: GREEN, fontWeight: "800" },
+                    ]}
+                  >
+                    Income
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+
+            {/* Category Picker */}
+            <View style={styles.fieldContainer}>
+              <View style={styles.labelRow}>
+                <Text
+                  style={[
+                    styles.fieldLabel,
+                    fieldErrors.role ? styles.fieldLabelError : undefined,
+                  ]}
+                >
+                  Category
+                </Text>
+              </View>
+
+              <View style={styles.roleGrid}>
+                {activeCategoryOptions.map((option) => {
+                  const selected = role === option.role;
+                  return (
+                    <TouchableOpacity
+                      key={option.role}
+                      style={[
+                        styles.roleOption,
+                        selected && styles.roleOptionSelected,
+                      ]}
+                      onPress={() => {
+                        setRole(option.role);
+                        if (fieldErrors.role) {
+                          setFieldErrors({ ...fieldErrors, role: "" });
+                        }
+                      }}
+                      activeOpacity={0.75}
+                    >
+                      <View
+                        style={[
+                          styles.roleRadio,
+                          selected && styles.roleRadioSelected,
+                        ]}
+                      >
+                        {selected ? <View style={styles.roleRadioDot} /> : null}
+                      </View>
+
+                      <Text
+                        style={[
+                          styles.roleOptionText,
+                          selected && styles.roleOptionTextSelected,
+                        ]}
+                      >
+                        {option.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {fieldErrors.role ? <FieldError text={fieldErrors.role} /> : null}
+            </View>
+
             <FieldLabel
-              label="Expense Name"
+              label={isIncome ? "Income Name" : "Expense Name"}
               required
               error={fieldErrors.name}
             />
@@ -1656,7 +1847,11 @@ export default function EditMemberScreen() {
             >
               <TextInput
                 style={styles.input}
-                placeholder="Water bill, Lift repair"
+                placeholder={
+                  isIncome
+                    ? "e.g. Hall booking - Sharma wedding"
+                    : "Water bill, Lift repair"
+                }
                 placeholderTextColor="#9ca3af"
                 value={name}
                 onChangeText={(text) => {
@@ -1675,7 +1870,7 @@ export default function EditMemberScreen() {
             {fieldErrors.name ? <FieldError text={fieldErrors.name} /> : null}
 
             <FieldLabel
-              label="Amount"
+              label={isIncome ? "Income Amount" : "Amount"}
               required
               error={fieldErrors.expenseAmount}
             />
@@ -1708,7 +1903,7 @@ export default function EditMemberScreen() {
               <FieldError text={fieldErrors.expenseAmount} />
             ) : null}
 
-            {/* PAYMENT STATUS */}
+            {/* PAYMENT STATUS - UPDATED with dynamic text */}
 
             <Text style={styles.fieldLabel}>Payment Status</Text>
 
@@ -1744,10 +1939,12 @@ export default function EditMemberScreen() {
                       expenseStatus === "paid" && styles.paymentTitlePaid,
                     ]}
                   >
-                    Paid
+                    {isIncome ? "Received" : "Paid"}
                   </Text>
 
-                  <Text style={styles.paymentSubtitle}>Payment completed</Text>
+                  <Text style={styles.paymentSubtitle}>
+                    {isIncome ? "Payment collected" : "Payment completed"}
+                  </Text>
                 </View>
 
                 {expenseStatus === "paid" ? (
@@ -1783,10 +1980,12 @@ export default function EditMemberScreen() {
                       expenseStatus === "due" && styles.paymentTitleDue,
                     ]}
                   >
-                    Due
+                    {isIncome ? "Pending" : "Due"}
                   </Text>
 
-                  <Text style={styles.paymentSubtitle}>Payment pending</Text>
+                  <Text style={styles.paymentSubtitle}>
+                    {isIncome ? "Payment awaited" : "Payment pending"}
+                  </Text>
                 </View>
 
                 {expenseStatus === "due" ? (
@@ -1851,7 +2050,7 @@ export default function EditMemberScreen() {
               <Ionicons name="chevron-forward" size={18} color="#9ca3af" />
             </TouchableOpacity>
 
-            {/* ATTACHMENTS */}
+            {/* ATTACHMENTS - Bill upload section for expenses */}
 
             <Text style={styles.fieldLabel}>
               Bill Attachments
@@ -1932,7 +2131,7 @@ export default function EditMemberScreen() {
 
             <TouchableOpacity
               style={styles.attachButton}
-              onPress={handlePickBill}
+              onPress={() => showPhotoSelectionOptions(true)}
               activeOpacity={0.75}
             >
               <Ionicons name="add" size={21} color="#2563eb" />
@@ -1982,7 +2181,7 @@ export default function EditMemberScreen() {
         ) : null}
 
         {/* ==================================================
-            UPDATE BUTTON
+            UPDATE BUTTON - UPDATED with dynamic text
         ================================================== */}
 
         <TouchableOpacity
@@ -2001,7 +2200,9 @@ export default function EditMemberScreen() {
             {loading
               ? "Saving Changes..."
               : groupType === "expense"
-                ? "Save Expense"
+                ? isIncome
+                  ? "Save Income"
+                  : "Save Expense"
                 : "Save Changes"}
           </Text>
         </TouchableOpacity>
@@ -2259,7 +2460,7 @@ export default function EditMemberScreen() {
       </Modal>
 
       {/* ==================================================
-          PHOTO OPTIONS MODAL - Matches AddAccountScreen
+          PHOTO OPTIONS MODAL - UPDATED with dynamic titles
       ================================================== */}
 
       <Modal
@@ -2274,9 +2475,13 @@ export default function EditMemberScreen() {
         >
           <Pressable style={styles.photoOptionsModal} onPress={() => {}}>
             <View style={styles.modalHandle} />
-            <Text style={styles.photoOptionsTitle}>Upload Photo</Text>
+            <Text style={styles.photoOptionsTitle}>
+              {isBillPhotoMode ? "Add Bill / Receipt" : "Upload Photo"}
+            </Text>
             <Text style={styles.photoOptionsSubtitle}>
-              Choose how you want to add a photo
+              {isBillPhotoMode
+                ? "Choose how you want to add a bill or receipt"
+                : "Choose how you want to add a photo"}
             </Text>
 
             <TouchableOpacity
@@ -2290,7 +2495,9 @@ export default function EditMemberScreen() {
               <View style={styles.photoOptionTextContainer}>
                 <Text style={styles.photoOptionTitle}>Take Photo</Text>
                 <Text style={styles.photoOptionDescription}>
-                  Capture a photo using your camera
+                  {isBillPhotoMode
+                    ? "Capture a photo of the bill or receipt"
+                    : "Capture a photo using your camera"}
                 </Text>
               </View>
               <Ionicons name="chevron-forward" size={20} color="#ccc" />
@@ -2309,7 +2516,9 @@ export default function EditMemberScreen() {
               <View style={styles.photoOptionTextContainer}>
                 <Text style={styles.photoOptionTitle}>Choose from Gallery</Text>
                 <Text style={styles.photoOptionDescription}>
-                  Select a photo from your device
+                  {isBillPhotoMode
+                    ? "Select a bill or receipt from your device"
+                    : "Select a photo from your device"}
                 </Text>
               </View>
               <Ionicons name="chevron-forward" size={20} color="#ccc" />
@@ -2433,7 +2642,7 @@ function InputContainer({
 }
 
 // ==================================================
-// STYLES - All shadow* replaced with boxShadow
+// STYLES
 // ==================================================
 
 const styles = StyleSheet.create({
@@ -2499,7 +2708,7 @@ const styles = StyleSheet.create({
   },
 
   // ==================================================
-  // PROFILE
+  // PROFILE - Only for members/staff
   // ==================================================
 
   profileCard: {
@@ -2757,6 +2966,8 @@ const styles = StyleSheet.create({
   roleGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
+    marginTop: 8,
+    marginBottom: 14,
     gap: 9,
   },
 
@@ -2984,6 +3195,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 11,
+    marginTop: 8,
     marginBottom: 15,
   },
 
@@ -3021,6 +3233,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e2e8f0",
     overflow: "hidden",
+    marginTop: 8,
     marginBottom: 10,
   },
 
@@ -3078,6 +3291,7 @@ const styles = StyleSheet.create({
     borderColor: "#cbd5e1",
     borderRadius: 13,
     backgroundColor: "#fafcff",
+    marginTop: 8,
     marginBottom: 10,
   },
 
@@ -3136,6 +3350,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "flex-start",
     padding: 12,
+    marginTop: 8,
   },
 
   noteIcon: {
@@ -3509,7 +3724,7 @@ const styles = StyleSheet.create({
   },
 
   // ==================================================
-  // PHOTO OPTIONS MODAL - Matches AddAccountScreen
+  // PHOTO OPTIONS MODAL
   // ==================================================
 
   modalBackdrop: {
@@ -3594,5 +3809,69 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: "700",
     color: "#dc2626",
+  },
+
+  // ==================================================
+  // KINDS (NEW)
+  // ==================================================
+
+  kindRadioRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 8,
+    marginBottom: 14,
+  },
+
+  kindRadioOption: {
+    flex: 1,
+    minHeight: 50,
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: BORDER,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    gap: 8,
+    backgroundColor: "#fff",
+  },
+
+  kindRadioOptionExpense: {
+    borderColor: "#FCA5A5",
+    backgroundColor: "#FEF2F2",
+  },
+
+  kindRadioOptionIncome: {
+    borderColor: "#86EFAC",
+    backgroundColor: "#F0FDF4",
+  },
+
+  radioOuter: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    borderWidth: 1.5,
+    borderColor: "#CBD5E1",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  radioOuterExpense: {
+    borderColor: RED,
+  },
+
+  radioOuterIncome: {
+    borderColor: GREEN,
+  },
+
+  radioInner: {
+    width: 9,
+    height: 9,
+    borderRadius: 4.5,
+  },
+
+  kindRadioText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#64748B",
   },
 }) as any;

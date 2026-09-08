@@ -1,3 +1,8 @@
+// types/member.ts
+
+// NEW: Transaction type for income/expense distinction
+export type TransactionKind = "expense" | "income";
+
 export type MemberRole = string;
 
 export interface BillAttachment {
@@ -75,10 +80,27 @@ export interface Staff extends BaseMember {
   monthlySalary: number;
 }
 
+// UPDATED: ExpenseEntry now supports both expense and income
 export interface ExpenseEntry extends BaseMember {
-  role: "electricity" | "water" | "maintenance" | "other";
+  // Updated role to include both expense and income categories
+  role: // Expense categories
+    | "electricity"
+    | "water"
+    | "maintenance"
+    | "other"
+    // Income categories
+    | "hall_rent"
+    | "parking_rent"
+    | "advertisement"
+    | "interest"
+    | "other_income"
+    // Keep string for custom values
+    | string;
 
   amount: number;
+
+  // NEW: Transaction type to distinguish income from expense
+  transactionType?: TransactionKind;
 
   dueDate?: string;
 
