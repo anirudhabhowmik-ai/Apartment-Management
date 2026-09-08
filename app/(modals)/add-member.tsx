@@ -1,5 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
-import * as Contacts from "expo-contacts";
+import {
+  Contact,
+  ContactField,
+  ContactsSortOrder,
+  requestPermissionsAsync,
+} from "expo-contacts";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
@@ -713,7 +718,7 @@ export default function AddMemberScreen() {
     return "Add Apartment";
   };
 
-  // PICK PHOTO - Updated to handle both profile and bill photos
+  // PICK PHOTO
   const showPhotoSelectionOptions = (forBill: boolean = false) => {
     setIsBillPhotoMode(forBill);
     setShowPhotoOptions(true);
@@ -806,23 +811,27 @@ export default function AddMemberScreen() {
     setRawImage(null);
   };
 
-  // PICK CONTACT
+  // ================================================================
+  // PICK CONTACT - FIXED to match login page
+  // ================================================================
+
   const pickContact = async () => {
     if (Platform.OS === "web") {
       Alert.alert(
         "Not Available",
-        "Contact picker is only available on mobile devices.",
+        "Contact picker is only available on mobile devices. Please enter your phone number manually.",
+        [{ text: "OK" }],
       );
       return;
     }
 
     try {
-      const { status } = await Contacts.requestPermissionsAsync();
+      const { status } = await requestPermissionsAsync();
 
       if (status !== "granted") {
         Alert.alert(
           "Permission Required",
-          "Allow contact access to quickly select a phone number.",
+          "We need access to your contacts to help you quickly add phone numbers.",
           [
             {
               text: "Cancel",
@@ -833,33 +842,32 @@ export default function AddMemberScreen() {
             },
           ],
         );
-
         setError("Permission to access contacts is required");
         return;
       }
 
-      const { data } = await Contacts.getContactsAsync({
-        fields: [Contacts.Fields.Name, Contacts.Fields.PhoneNumbers],
-        sort: Contacts.SortTypes.FirstName,
-      });
+      // Use the same API as login page
+      const contacts = await Contact.getAllDetails(
+        [ContactField.FULL_NAME, ContactField.PHONES],
+        {
+          sortOrder: ContactsSortOrder.GivenName,
+        },
+      );
 
-      if (data.length === 0) {
+      if (contacts.length === 0) {
         setError("No contacts found on your device");
         return;
       }
 
-      const mappedContacts: ContactData[] = data
-        .filter(
-          (contact) => contact.phoneNumbers && contact.phoneNumbers.length > 0,
-        )
+      const mappedContacts: ContactData[] = contacts
+        .filter((contact) => contact.phones && contact.phones.length > 0)
         .map((contact) => ({
-          id: contact.id || `contact-${Math.random()}`,
-          name: contact.name || "Unknown",
-          phoneNumbers:
-            contact.phoneNumbers?.map((item) => ({
-              number: item.number || "",
-              label: item.label || undefined,
-            })) || [],
+          id: contact.id,
+          name: contact.fullName || "Unknown",
+          phoneNumbers: contact.phones.map((phone) => ({
+            number: phone.number || "",
+            label: phone.label || undefined,
+          })),
         }));
 
       if (mappedContacts.length === 0) {
@@ -871,8 +879,8 @@ export default function AddMemberScreen() {
       setContactsList(mappedContacts);
       setShowContactPicker(true);
       setError("");
-    } catch (e) {
-      console.error("Error fetching contacts:", e);
+    } catch (error) {
+      console.error("Error fetching contacts:", error);
       setError("Failed to fetch contacts. Please try again.");
     }
   };
@@ -3045,7 +3053,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 26,
     paddingHorizontal: 18,
     paddingTop: 10,
-    maxHeight: "88%",
+    maxHeight: "65%",
     minHeight: "55%",
   },
 

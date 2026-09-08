@@ -1,5 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
-import * as Contacts from "expo-contacts";
+import {
+  Contact,
+  ContactField,
+  ContactsSortOrder,
+  requestPermissionsAsync,
+} from "expo-contacts";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
@@ -686,7 +691,7 @@ export default function EditMemberScreen() {
   const hasFieldErrors = Object.values(fieldErrors).some(Boolean);
 
   // ==================================================
-  // GET HEADER TITLE - UPDATED with dynamic titles
+  // GET HEADER TITLE
   // ==================================================
 
   const getHeaderTitle = () => {
@@ -725,7 +730,7 @@ export default function EditMemberScreen() {
   }, [contactsList, contactSearch]);
 
   // ==================================================
-  // LOAD MEMBER - UPDATED with transactionKind
+  // LOAD MEMBER
   // ==================================================
 
   useEffect(() => {
@@ -769,9 +774,7 @@ export default function EditMemberScreen() {
       setMonthlySalary(member.monthlySalary?.toString() || "");
     }
 
-    // UPDATED: Load transaction kind for expenses
     if (groupType === "expense" && "amount" in member) {
-      // Legacy entries without transactionType default to "expense"
       setTransactionKind(
         member.transactionType === "income" ? "income" : "expense",
       );
@@ -797,7 +800,7 @@ export default function EditMemberScreen() {
   }, [member, groupType]);
 
   // ==================================================
-  // PICK PHOTO - For profile photos only (members/staff)
+  // PICK PHOTO
   // ==================================================
 
   const showPhotoSelectionOptions = (forBill: boolean = false) => {
@@ -893,7 +896,7 @@ export default function EditMemberScreen() {
   };
 
   // ==================================================
-  // CONTACT PICKER - FIXED
+  // CONTACT PICKER - FIXED to match login page
   // ==================================================
 
   const pickContact = async () => {
@@ -903,7 +906,6 @@ export default function EditMemberScreen() {
         "Contact picker is only available on mobile devices. Please enter the phone number manually.",
         [{ text: "OK" }],
       );
-
       return;
     }
 
@@ -911,7 +913,7 @@ export default function EditMemberScreen() {
       setLoadingContacts(true);
       setError("");
 
-      const { status } = await Contacts.requestPermissionsAsync();
+      const { status } = await requestPermissionsAsync();
 
       if (status !== "granted") {
         Alert.alert(
@@ -927,33 +929,32 @@ export default function EditMemberScreen() {
             },
           ],
         );
-
         setError("Permission to access contacts is required");
         return;
       }
 
-      const { data } = await Contacts.getContactsAsync({
-        fields: [Contacts.Fields.Name, Contacts.Fields.PhoneNumbers],
-        sort: Contacts.SortTypes.FirstName,
-      });
+      // Use the same API as login page
+      const contacts = await Contact.getAllDetails(
+        [ContactField.FULL_NAME, ContactField.PHONES],
+        {
+          sortOrder: ContactsSortOrder.GivenName,
+        },
+      );
 
-      if (data.length === 0) {
+      if (contacts.length === 0) {
         setError("No contacts found on your device");
         return;
       }
 
-      const mappedContacts: ContactData[] = data
-        .filter(
-          (contact) => contact.phoneNumbers && contact.phoneNumbers.length > 0,
-        )
+      const mappedContacts: ContactData[] = contacts
+        .filter((contact) => contact.phones && contact.phones.length > 0)
         .map((contact) => ({
-          id: contact.id || `contact-${Math.random()}`,
-          name: contact.name || "Unknown",
-          phoneNumbers:
-            contact.phoneNumbers?.map((phone) => ({
-              number: phone.number || "",
-              label: phone.label || undefined,
-            })) || [],
+          id: contact.id,
+          name: contact.fullName || "Unknown",
+          phoneNumbers: contact.phones.map((phone) => ({
+            number: phone.number || "",
+            label: phone.label || undefined,
+          })),
         }));
 
       if (mappedContacts.length === 0) {
@@ -1027,7 +1028,7 @@ export default function EditMemberScreen() {
   };
 
   // ==================================================
-  // UPDATE MEMBER - UPDATED with transaction type
+  // UPDATE MEMBER
   // ==================================================
 
   const handleUpdate = async () => {
@@ -1071,7 +1072,6 @@ export default function EditMemberScreen() {
       }
     }
 
-    // UPDATED: Expense validation with category required
     if (groupType === "expense") {
       if (!expenseAmount.trim()) {
         errors.expenseAmount = "Amount is required";
@@ -1119,7 +1119,6 @@ export default function EditMemberScreen() {
         updateData.monthlySalary = Number(monthlySalary);
       }
 
-      // UPDATED: Include transaction type for expenses
       if (groupType === "expense") {
         updateData.amount = Number(expenseAmount);
         updateData.role = role;
@@ -1675,7 +1674,7 @@ export default function EditMemberScreen() {
         )}
 
         {/* ==================================================
-            EXPENSE/INCOME DETAILS - UPDATED with radio selector and category picker
+            EXPENSE/INCOME DETAILS
         ================================================== */}
 
         {groupType === "expense" && (
@@ -1903,7 +1902,7 @@ export default function EditMemberScreen() {
               <FieldError text={fieldErrors.expenseAmount} />
             ) : null}
 
-            {/* PAYMENT STATUS - UPDATED with dynamic text */}
+            {/* PAYMENT STATUS */}
 
             <Text style={styles.fieldLabel}>Payment Status</Text>
 
@@ -2181,7 +2180,7 @@ export default function EditMemberScreen() {
         ) : null}
 
         {/* ==================================================
-            UPDATE BUTTON - UPDATED with dynamic text
+            UPDATE BUTTON
         ================================================== */}
 
         <TouchableOpacity
@@ -2228,7 +2227,7 @@ export default function EditMemberScreen() {
       </ScrollView>
 
       {/* ==================================================
-          CONTACT PICKER
+          CONTACT PICKER MODAL
       ================================================== */}
 
       <Modal
@@ -2460,7 +2459,7 @@ export default function EditMemberScreen() {
       </Modal>
 
       {/* ==================================================
-          PHOTO OPTIONS MODAL - UPDATED with dynamic titles
+          PHOTO OPTIONS MODAL
       ================================================== */}
 
       <Modal
@@ -2536,7 +2535,7 @@ export default function EditMemberScreen() {
       </Modal>
 
       {/* ==================================================
-          PHOTO ADJUST MODAL - Pinch to zoom / drag
+          PHOTO ADJUST MODAL
       ================================================== */}
 
       <PhotoAdjustModal
@@ -3453,7 +3452,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 25,
     paddingHorizontal: 18,
     paddingTop: 10,
-    maxHeight: "88%",
+    maxHeight: "60%",
     minHeight: "45%",
   },
 
@@ -3812,7 +3811,7 @@ const styles = StyleSheet.create({
   },
 
   // ==================================================
-  // KINDS (NEW)
+  // KINDS
   // ==================================================
 
   kindRadioRow: {

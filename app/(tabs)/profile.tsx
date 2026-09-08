@@ -923,13 +923,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
 
-  plansModal: {
+  // NEW: Container for the modal with proper flex layout
+  plansModalContainer: {
     width: "100%",
     maxWidth: 420,
     backgroundColor: "#FFFFFF",
     borderRadius: 24,
     padding: 20,
-    maxHeight: "90%",
+    // Critical for mobile scrolling
+    maxHeight: "85%",
+    minHeight: 500,
+    // Use flex layout
+    display: "flex",
+    flexDirection: "column",
   },
 
   plansModalHeader: {
@@ -937,12 +943,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 16,
+    flexShrink: 0,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F1F5F9",
   },
 
   plansModalTitle: {
     fontSize: 20,
     fontWeight: "800",
     color: "#0F172A",
+  },
+
+  modalSubtitle: {
+    color: "#64748B",
+    fontSize: 11,
+    marginTop: 3,
   },
 
   plansModalCloseButton: {
@@ -954,12 +970,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
+  // CRITICAL: ScrollView must have flex:1
   plansScroll: {
     flex: 1,
+    minHeight: 200,
   },
 
   plansList: {
-    paddingBottom: 12,
+    paddingBottom: 20,
+    paddingTop: 4,
   },
 
   planCard: {
@@ -1876,12 +1895,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 
-  modalSubtitle: {
-    color: "#64748B",
-    fontSize: 11,
-    marginTop: 3,
-  },
-
   modalCloseButton: {
     width: 35,
     height: 35,
@@ -2788,7 +2801,7 @@ export default function ProfileScreen() {
       case "plan_upgraded":
       case "plan_downgraded":
         return {
-          icon: "crown-outline",
+          icon: "ribbon-outline",
           color: "#D97706",
           bg: "#FEF3C7",
         };
@@ -3688,7 +3701,7 @@ export default function ProfileScreen() {
   ];
 
   // ============================================================
-  // RENDER PLANS MODAL
+  // RENDER PLANS MODAL - FIXED FOR MOBILE
   // ============================================================
 
   const renderPlansModal = () => {
@@ -3700,181 +3713,180 @@ export default function ProfileScreen() {
     return (
       <Modal
         transparent
-        animationType="fade"
+        animationType="slide"
         visible={showPlansModal}
         onRequestClose={() => setShowPlansModal(false)}
       >
-        <TouchableWithoutFeedback onPress={() => setShowPlansModal(false)}>
-          <View style={styles.plansModalOverlay}>
-            <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
-              <View style={styles.plansModal}>
-                <View style={styles.plansModalHeader}>
-                  <View>
-                    <Text style={styles.plansModalTitle}>Choose Your Plan</Text>
-                    <Text style={styles.modalSubtitle}>
-                      {activePlan !== "free"
-                        ? `Current: ${currentPlanName}`
-                        : "Select a plan that fits your needs"}
-                    </Text>
-                  </View>
-                  <TouchableOpacity
-                    style={styles.plansModalCloseButton}
-                    onPress={() => setShowPlansModal(false)}
-                    activeOpacity={0.7}
+        <View style={styles.plansModalOverlay}>
+          <View style={styles.plansModalContainer}>
+            <View style={styles.plansModalHeader}>
+              <View>
+                <Text style={styles.plansModalTitle}>Choose Your Plan</Text>
+                <Text style={styles.modalSubtitle}>
+                  {activePlan !== "free"
+                    ? `Current: ${currentPlanName}`
+                    : "Select a plan that fits your needs"}
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={styles.plansModalCloseButton}
+                onPress={() => setShowPlansModal(false)}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="close" size={22} color="#475569" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              style={styles.plansScroll}
+              showsVerticalScrollIndicator={true}
+              contentContainerStyle={styles.plansList}
+              nestedScrollEnabled={true}
+              overScrollMode="always"
+              bounces={true}
+              keyboardShouldPersistTaps="handled"
+            >
+              {plans.map((plan) => {
+                const isActive = activePlan === plan.id;
+                const isPopular = plan.popular;
+
+                return (
+                  <View
+                    key={plan.id}
+                    style={[
+                      styles.planCard,
+                      isPopular && styles.planCardPopular,
+                      isActive && styles.planCardActive,
+                    ]}
                   >
-                    <Ionicons name="close" size={22} color="#475569" />
-                  </TouchableOpacity>
-                </View>
-
-                <ScrollView
-                  style={styles.plansScroll}
-                  showsVerticalScrollIndicator={false}
-                  contentContainerStyle={styles.plansList}
-                >
-                  {plans.map((plan) => {
-                    const isActive = activePlan === plan.id;
-                    const isPopular = plan.popular;
-
-                    return (
+                    <View style={styles.planCardHeader}>
+                      <View style={styles.planCardLeft}>
+                        <View
+                          style={{
+                            flexDirection: "row",
+                            alignItems: "center",
+                            flexWrap: "wrap",
+                          }}
+                        >
+                          <Text style={styles.planCardName}>{plan.name}</Text>
+                          {isPopular && (
+                            <View style={styles.planCardPopularBadge}>
+                              <Text style={styles.planCardPopularText}>
+                                POPULAR
+                              </Text>
+                            </View>
+                          )}
+                          {isActive && (
+                            <View style={styles.planCardActiveBadge}>
+                              <Text style={styles.planCardActiveText}>
+                                ACTIVE
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+                        <View
+                          style={{
+                            flexDirection: "row",
+                            alignItems: "baseline",
+                            flexWrap: "wrap",
+                          }}
+                        >
+                          <Text style={styles.planCardPrice}>
+                            {plan.price === 0 ? "Free" : `₹${plan.price}`}
+                          </Text>
+                          {plan.price > 0 && (
+                            <Text style={styles.planCardPeriod}>
+                              /{plan.period}
+                            </Text>
+                          )}
+                        </View>
+                      </View>
                       <View
-                        key={plan.id}
                         style={[
-                          styles.planCard,
-                          isPopular && styles.planCardPopular,
-                          isActive && styles.planCardActive,
+                          styles.planCardIcon,
+                          { backgroundColor: plan.color + "15" },
                         ]}
                       >
-                        <View style={styles.planCardHeader}>
-                          <View style={styles.planCardLeft}>
-                            <View
-                              style={{
-                                flexDirection: "row",
-                                alignItems: "center",
-                              }}
-                            >
-                              <Text style={styles.planCardName}>
-                                {plan.name}
-                              </Text>
-                              {isPopular && (
-                                <View style={styles.planCardPopularBadge}>
-                                  <Text style={styles.planCardPopularText}>
-                                    POPULAR
-                                  </Text>
-                                </View>
-                              )}
-                              {isActive && (
-                                <View style={styles.planCardActiveBadge}>
-                                  <Text style={styles.planCardActiveText}>
-                                    ACTIVE
-                                  </Text>
-                                </View>
-                              )}
-                            </View>
-                            <View
-                              style={{
-                                flexDirection: "row",
-                                alignItems: "baseline",
-                              }}
-                            >
-                              <Text style={styles.planCardPrice}>
-                                {plan.price === 0 ? "Free" : `₹${plan.price}`}
-                              </Text>
-                              {plan.price > 0 && (
-                                <Text style={styles.planCardPeriod}>
-                                  /{plan.period}
-                                </Text>
-                              )}
-                            </View>
-                          </View>
-                          <View
-                            style={[
-                              styles.planCardIcon,
-                              { backgroundColor: plan.color + "15" },
-                            ]}
-                          >
-                            <Ionicons
-                              name={plan.icon}
-                              size={22}
-                              color={plan.color}
-                            />
-                          </View>
-                        </View>
-
-                        <View style={styles.planCardFeatures}>
-                          {plan.features.map((feature, index) => (
-                            <View key={index} style={styles.planCardFeature}>
-                              <Ionicons
-                                name="checkmark-circle"
-                                size={14}
-                                color="#16A34A"
-                              />
-                              <Text style={styles.planCardFeatureText}>
-                                {feature}
-                              </Text>
-                            </View>
-                          ))}
-                        </View>
-
-                        <TouchableOpacity
-                          style={[
-                            styles.planCardAction,
-                            isActive && styles.planCardActionActive,
-                            !isActive && styles.planCardActionButton,
-                          ]}
-                          onPress={() => handleSelectPlan(plan.id)}
-                          activeOpacity={0.8}
-                          disabled={isActive}
-                        >
-                          <Text
-                            style={[
-                              styles.planCardActionText,
-                              isActive && styles.planCardActionActiveText,
-                              !isActive && { color: "#FFFFFF" },
-                            ]}
-                          >
-                            {isActive
-                              ? "Current Plan"
-                              : `Switch to ${plan.name}`}
-                          </Text>
-                        </TouchableOpacity>
+                        <Ionicons
+                          name={plan.icon}
+                          size={22}
+                          color={plan.color}
+                        />
                       </View>
-                    );
-                  })}
+                    </View>
 
-                  {/* Cancel Subscription option */}
-                  {activePlan !== "free" && (
+                    <View style={styles.planCardFeatures}>
+                      {plan.features.map((feature, index) => (
+                        <View key={index} style={styles.planCardFeature}>
+                          <Ionicons
+                            name="checkmark-circle"
+                            size={14}
+                            color="#16A34A"
+                          />
+                          <Text style={styles.planCardFeatureText}>
+                            {feature}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
+
                     <TouchableOpacity
-                      style={{
-                        flexDirection: "row",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        paddingVertical: 12,
-                        gap: 6,
-                      }}
-                      onPress={handleCancelSubscription}
-                      activeOpacity={0.7}
+                      style={[
+                        styles.planCardAction,
+                        isActive && styles.planCardActionActive,
+                        !isActive && styles.planCardActionButton,
+                      ]}
+                      onPress={() => handleSelectPlan(plan.id)}
+                      activeOpacity={0.8}
+                      disabled={isActive}
                     >
-                      <Ionicons
-                        name="close-circle-outline"
-                        size={18}
-                        color="#DC2626"
-                      />
                       <Text
-                        style={{
-                          color: "#DC2626",
-                          fontSize: 13,
-                          fontWeight: "600",
-                        }}
+                        style={[
+                          styles.planCardActionText,
+                          isActive && styles.planCardActionActiveText,
+                          !isActive && { color: "#FFFFFF" },
+                        ]}
                       >
-                        Cancel Subscription
+                        {isActive ? "Current Plan" : `Switch to ${plan.name}`}
                       </Text>
                     </TouchableOpacity>
-                  )}
-                </ScrollView>
-              </View>
-            </TouchableWithoutFeedback>
+                  </View>
+                );
+              })}
+
+              {activePlan !== "free" && (
+                <TouchableOpacity
+                  style={{
+                    flexDirection: "row",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    paddingVertical: 12,
+                    gap: 6,
+                    marginTop: 4,
+                    marginBottom: 8,
+                  }}
+                  onPress={handleCancelSubscription}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons
+                    name="close-circle-outline"
+                    size={18}
+                    color="#DC2626"
+                  />
+                  <Text
+                    style={{
+                      color: "#DC2626",
+                      fontSize: 13,
+                      fontWeight: "600",
+                    }}
+                  >
+                    Cancel Subscription
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </ScrollView>
           </View>
-        </TouchableWithoutFeedback>
+        </View>
       </Modal>
     );
   };
