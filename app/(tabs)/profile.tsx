@@ -70,7 +70,11 @@ interface HistoryEntry {
     | "role_changed"
     | "bill_generated"
     | "staff_added"
-    | "staff_removed";
+    | "staff_removed"
+    | "subscription_changed"
+    | "plan_upgraded"
+    | "plan_downgraded"
+    | "subscription_cancelled";
   title: string;
   description: string;
   amount?: number;
@@ -82,6 +86,17 @@ interface HistoryEntry {
   details?: Record<string, any>;
   oldValue?: string;
   newValue?: string;
+}
+
+interface SubscriptionPlan {
+  id: string;
+  name: string;
+  price: number;
+  period: "monthly" | "yearly";
+  features: string[];
+  popular?: boolean;
+  color: string;
+  icon: keyof typeof Ionicons.glyphMap;
 }
 
 // ---------------------------------------------------------------------------
@@ -775,6 +790,302 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
     marginLeft: 7,
+  },
+
+  // ============================================================
+  // SUBSCRIPTION CARD
+  // ============================================================
+
+  subscriptionCard: {
+    backgroundColor: "#1E3A5F",
+    borderRadius: 18,
+    padding: 18,
+    marginBottom: 14,
+    overflow: "hidden",
+  },
+
+  subscriptionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+
+  subscriptionBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.15)",
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+
+  subscriptionBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 10,
+    fontWeight: "700",
+    marginLeft: 4,
+  },
+
+  subscriptionPlanName: {
+    color: "#FFFFFF",
+    fontSize: 18,
+    fontWeight: "700",
+    marginTop: 8,
+  },
+
+  subscriptionPriceRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    marginTop: 2,
+  },
+
+  subscriptionPrice: {
+    color: "#FFFFFF",
+    fontSize: 26,
+    fontWeight: "800",
+  },
+
+  subscriptionPeriod: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 13,
+    fontWeight: "600",
+    marginLeft: 4,
+  },
+
+  subscriptionFeatures: {
+    marginTop: 12,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+
+  subscriptionFeature: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255,255,255,0.1)",
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+  },
+
+  subscriptionFeatureText: {
+    color: "rgba(255,255,255,0.9)",
+    fontSize: 10,
+    fontWeight: "600",
+    marginLeft: 4,
+  },
+
+  subscriptionAction: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: 14,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: "rgba(255,255,255,0.15)",
+  },
+
+  subscriptionActionButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+
+  subscriptionActionText: {
+    color: "#2563EB",
+    fontSize: 13,
+    fontWeight: "700",
+    marginLeft: 6,
+  },
+
+  subscriptionExpiry: {
+    color: "rgba(255,255,255,0.7)",
+    fontSize: 11,
+  },
+
+  subscriptionExpiryStrong: {
+    color: "#FFFFFF",
+    fontWeight: "700",
+  },
+
+  // ============================================================
+  // SUBSCRIPTION PLANS MODAL
+  // ============================================================
+
+  plansModalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.58)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 16,
+  },
+
+  plansModal: {
+    width: "100%",
+    maxWidth: 420,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 24,
+    padding: 20,
+    maxHeight: "90%",
+  },
+
+  plansModalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 16,
+  },
+
+  plansModalTitle: {
+    fontSize: 20,
+    fontWeight: "800",
+    color: "#0F172A",
+  },
+
+  plansModalCloseButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#F1F5F9",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  plansScroll: {
+    flex: 1,
+  },
+
+  plansList: {
+    paddingBottom: 12,
+  },
+
+  planCard: {
+    borderRadius: 16,
+    borderWidth: 2,
+    borderColor: "#E2E8F0",
+    padding: 16,
+    marginBottom: 12,
+    backgroundColor: "#FFFFFF",
+  },
+
+  planCardPopular: {
+    borderColor: "#2563EB",
+    backgroundColor: "#EFF6FF",
+  },
+
+  planCardActive: {
+    borderColor: "#16A34A",
+    backgroundColor: "#F0FDF4",
+  },
+
+  planCardHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+  },
+
+  planCardLeft: {
+    flex: 1,
+  },
+
+  planCardName: {
+    fontSize: 16,
+    fontWeight: "700",
+    color: "#0F172A",
+  },
+
+  planCardPrice: {
+    fontSize: 24,
+    fontWeight: "800",
+    color: "#0F172A",
+    marginTop: 2,
+  },
+
+  planCardPeriod: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#64748B",
+  },
+
+  planCardPopularBadge: {
+    backgroundColor: "#2563EB",
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    marginLeft: 8,
+  },
+
+  planCardPopularText: {
+    color: "#FFFFFF",
+    fontSize: 9,
+    fontWeight: "700",
+  },
+
+  planCardActiveBadge: {
+    backgroundColor: "#16A34A",
+    borderRadius: 20,
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+  },
+
+  planCardActiveText: {
+    color: "#FFFFFF",
+    fontSize: 9,
+    fontWeight: "700",
+  },
+
+  planCardIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 8,
+  },
+
+  planCardFeatures: {
+    marginTop: 10,
+    gap: 4,
+  },
+
+  planCardFeature: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+
+  planCardFeatureText: {
+    fontSize: 12,
+    color: "#475569",
+  },
+
+  planCardAction: {
+    marginTop: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  planCardActionActive: {
+    backgroundColor: "#F1F5F9",
+  },
+
+  planCardActionButton: {
+    backgroundColor: "#2563EB",
+  },
+
+  planCardActionText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+
+  planCardActionActiveText: {
+    color: "#475569",
   },
 
   // ============================================================
@@ -2255,6 +2566,54 @@ export default function ProfileScreen() {
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [historyFilter, setHistoryFilter] = useState<string>("all");
 
+  // Subscription states
+  const [showPlansModal, setShowPlansModal] = useState(false);
+  const [activePlan, setActivePlan] = useState<string>("pro");
+
+  // Plans
+  const plans: SubscriptionPlan[] = [
+    {
+      id: "free",
+      name: "Free",
+      price: 0,
+      period: "monthly",
+      features: ["Up to 10 members", "Basic bill generation", "Email support"],
+      color: "#64748B",
+      icon: "people-outline",
+    },
+    {
+      id: "pro",
+      name: "Pro",
+      price: 499,
+      period: "monthly",
+      features: [
+        "Unlimited members",
+        "Advanced bill generation",
+        "Priority support",
+        "Custom templates",
+        "Multiple accounts",
+      ],
+      popular: true,
+      color: "#2563EB",
+      icon: "star-outline",
+    },
+    {
+      id: "business",
+      name: "Business",
+      price: 999,
+      period: "monthly",
+      features: [
+        "Everything in Pro",
+        "Dedicated account manager",
+        "API access",
+        "Advanced analytics",
+        "White-label branding",
+      ],
+      color: "#7C3AED",
+      icon: "business-outline",
+    },
+  ];
+
   // OTP refs
   const otpInputs = useRef<(TextInput | null)[]>([]);
   const timerInterval = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -2425,6 +2784,20 @@ export default function ProfileScreen() {
         return { icon: "receipt-outline", color: "#D97706", bg: "#FEF3C7" };
       case "role_changed":
         return { icon: "shield-outline", color: "#7C3AED", bg: "#F3E8FF" };
+      case "subscription_changed":
+      case "plan_upgraded":
+      case "plan_downgraded":
+        return {
+          icon: "crown-outline",
+          color: "#D97706",
+          bg: "#FEF3C7",
+        };
+      case "subscription_cancelled":
+        return {
+          icon: "close-circle-outline",
+          color: "#DC2626",
+          bg: "#FEE2E2",
+        };
       default:
         return {
           icon: "information-circle-outline",
@@ -2494,6 +2867,108 @@ export default function ProfileScreen() {
         entries: groups[key].sort((a, b) => b.timestamp - a.timestamp),
       };
     });
+  };
+
+  // ============================================================
+  // SUBSCRIPTION FUNCTIONS
+  // ============================================================
+
+  const handleSelectPlan = (planId: string) => {
+    const selectedPlan = plans.find((p) => p.id === planId);
+    const currentPlan = plans.find((p) => p.id === activePlan);
+
+    if (!selectedPlan) return;
+
+    if (activePlan === planId) {
+      setShowPlansModal(false);
+      return;
+    }
+
+    // Check if downgrading
+    const planIndex = plans.findIndex((p) => p.id === planId);
+    const currentIndex = plans.findIndex((p) => p.id === activePlan);
+
+    let actionType: HistoryEntry["type"] = "subscription_changed";
+
+    if (planIndex > currentIndex) {
+      actionType = "plan_upgraded";
+    } else if (planIndex < currentIndex) {
+      actionType = "plan_downgraded";
+    }
+
+    const actionTitle =
+      actionType === "plan_upgraded"
+        ? "Plan Upgraded"
+        : actionType === "plan_downgraded"
+          ? "Plan Downgraded"
+          : "Plan Changed";
+
+    const actionDescription =
+      actionType === "plan_upgraded"
+        ? `Upgraded from ${currentPlan?.name ?? "Unknown"} to ${selectedPlan.name}`
+        : actionType === "plan_downgraded"
+          ? `Downgraded from ${currentPlan?.name ?? "Unknown"} to ${selectedPlan.name}`
+          : `Changed plan from ${currentPlan?.name ?? "Unknown"} to ${selectedPlan.name}`;
+
+    addHistoryEntry(actionType, actionTitle, actionDescription, {
+      amount: selectedPlan.price,
+      oldValue: currentPlan?.name ?? "Unknown",
+      newValue: selectedPlan.name,
+      details: {
+        from: currentPlan?.name ?? "Unknown",
+        to: selectedPlan.name,
+        price: selectedPlan.price,
+        period: selectedPlan.period,
+      },
+    });
+
+    setActivePlan(planId);
+
+    // Show success message
+    Alert.alert(
+      "Plan Updated!",
+      `You have successfully ${actionType === "plan_upgraded" ? "upgraded to" : actionType === "plan_downgraded" ? "downgraded to" : "switched to"} ${selectedPlan.name} plan.`,
+      [{ text: "OK" }],
+    );
+
+    setShowPlansModal(false);
+  };
+
+  const handleCancelSubscription = () => {
+    Alert.alert(
+      "Cancel Subscription",
+      "Are you sure you want to cancel your subscription? You will lose access to premium features.",
+      [
+        {
+          text: "Keep Plan",
+          style: "cancel",
+        },
+        {
+          text: "Cancel",
+          style: "destructive",
+          onPress: () => {
+            const currentPlan = plans.find((p) => p.id === activePlan);
+            addHistoryEntry(
+              "subscription_cancelled",
+              "Subscription Cancelled",
+              `Cancelled ${currentPlan?.name ?? "current"} plan`,
+              {
+                details: {
+                  plan: currentPlan?.name ?? "Unknown",
+                  cancelledAt: new Date().toISOString(),
+                },
+              },
+            );
+            setActivePlan("free");
+            Alert.alert(
+              "Subscription Cancelled",
+              "Your subscription has been cancelled. You will be moved to the Free plan.",
+              [{ text: "OK" }],
+            );
+          },
+        },
+      ],
+    );
   };
 
   // ============================================================
@@ -3211,6 +3686,198 @@ export default function ProfileScreen() {
       ],
     },
   ];
+
+  // ============================================================
+  // RENDER PLANS MODAL
+  // ============================================================
+
+  const renderPlansModal = () => {
+    if (!showPlansModal) return null;
+
+    const currentPlan = plans.find((p) => p.id === activePlan);
+    const currentPlanName = currentPlan?.name ?? "Free";
+
+    return (
+      <Modal
+        transparent
+        animationType="fade"
+        visible={showPlansModal}
+        onRequestClose={() => setShowPlansModal(false)}
+      >
+        <TouchableWithoutFeedback onPress={() => setShowPlansModal(false)}>
+          <View style={styles.plansModalOverlay}>
+            <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
+              <View style={styles.plansModal}>
+                <View style={styles.plansModalHeader}>
+                  <View>
+                    <Text style={styles.plansModalTitle}>Choose Your Plan</Text>
+                    <Text style={styles.modalSubtitle}>
+                      {activePlan !== "free"
+                        ? `Current: ${currentPlanName}`
+                        : "Select a plan that fits your needs"}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.plansModalCloseButton}
+                    onPress={() => setShowPlansModal(false)}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="close" size={22} color="#475569" />
+                  </TouchableOpacity>
+                </View>
+
+                <ScrollView
+                  style={styles.plansScroll}
+                  showsVerticalScrollIndicator={false}
+                  contentContainerStyle={styles.plansList}
+                >
+                  {plans.map((plan) => {
+                    const isActive = activePlan === plan.id;
+                    const isPopular = plan.popular;
+
+                    return (
+                      <View
+                        key={plan.id}
+                        style={[
+                          styles.planCard,
+                          isPopular && styles.planCardPopular,
+                          isActive && styles.planCardActive,
+                        ]}
+                      >
+                        <View style={styles.planCardHeader}>
+                          <View style={styles.planCardLeft}>
+                            <View
+                              style={{
+                                flexDirection: "row",
+                                alignItems: "center",
+                              }}
+                            >
+                              <Text style={styles.planCardName}>
+                                {plan.name}
+                              </Text>
+                              {isPopular && (
+                                <View style={styles.planCardPopularBadge}>
+                                  <Text style={styles.planCardPopularText}>
+                                    POPULAR
+                                  </Text>
+                                </View>
+                              )}
+                              {isActive && (
+                                <View style={styles.planCardActiveBadge}>
+                                  <Text style={styles.planCardActiveText}>
+                                    ACTIVE
+                                  </Text>
+                                </View>
+                              )}
+                            </View>
+                            <View
+                              style={{
+                                flexDirection: "row",
+                                alignItems: "baseline",
+                              }}
+                            >
+                              <Text style={styles.planCardPrice}>
+                                {plan.price === 0 ? "Free" : `₹${plan.price}`}
+                              </Text>
+                              {plan.price > 0 && (
+                                <Text style={styles.planCardPeriod}>
+                                  /{plan.period}
+                                </Text>
+                              )}
+                            </View>
+                          </View>
+                          <View
+                            style={[
+                              styles.planCardIcon,
+                              { backgroundColor: plan.color + "15" },
+                            ]}
+                          >
+                            <Ionicons
+                              name={plan.icon}
+                              size={22}
+                              color={plan.color}
+                            />
+                          </View>
+                        </View>
+
+                        <View style={styles.planCardFeatures}>
+                          {plan.features.map((feature, index) => (
+                            <View key={index} style={styles.planCardFeature}>
+                              <Ionicons
+                                name="checkmark-circle"
+                                size={14}
+                                color="#16A34A"
+                              />
+                              <Text style={styles.planCardFeatureText}>
+                                {feature}
+                              </Text>
+                            </View>
+                          ))}
+                        </View>
+
+                        <TouchableOpacity
+                          style={[
+                            styles.planCardAction,
+                            isActive && styles.planCardActionActive,
+                            !isActive && styles.planCardActionButton,
+                          ]}
+                          onPress={() => handleSelectPlan(plan.id)}
+                          activeOpacity={0.8}
+                          disabled={isActive}
+                        >
+                          <Text
+                            style={[
+                              styles.planCardActionText,
+                              isActive && styles.planCardActionActiveText,
+                              !isActive && { color: "#FFFFFF" },
+                            ]}
+                          >
+                            {isActive
+                              ? "Current Plan"
+                              : `Switch to ${plan.name}`}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    );
+                  })}
+
+                  {/* Cancel Subscription option */}
+                  {activePlan !== "free" && (
+                    <TouchableOpacity
+                      style={{
+                        flexDirection: "row",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        paddingVertical: 12,
+                        gap: 6,
+                      }}
+                      onPress={handleCancelSubscription}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons
+                        name="close-circle-outline"
+                        size={18}
+                        color="#DC2626"
+                      />
+                      <Text
+                        style={{
+                          color: "#DC2626",
+                          fontSize: 13,
+                          fontWeight: "600",
+                        }}
+                      >
+                        Cancel Subscription
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+                </ScrollView>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+    );
+  };
 
   // ============================================================
   // HISTORY MODAL
@@ -4011,26 +4678,94 @@ export default function ProfileScreen() {
         </View>
 
         {/* ======================================================
-            ACCESS SUMMARY
+            SUBSCRIPTION CARD
         ====================================================== */}
 
-        <View style={styles.summaryCard}>
-          <View style={styles.summaryIcon}>
-            <Ionicons name="people-outline" size={22} color="#2563EB" />
-          </View>
+        {(() => {
+          const currentPlan = plans.find((p) => p.id === activePlan);
+          const isFree = activePlan === "free";
+          const planPrice = currentPlan?.price ?? 0;
+          const planName = currentPlan?.name ?? "Free";
+          const planPeriod = currentPlan?.period ?? "monthly";
+          const planFeatures = currentPlan?.features ?? ["Basic features"];
 
-          <View style={styles.summaryContent}>
-            <Text style={styles.summaryTitle}>People with access</Text>
+          return (
+            <View style={styles.subscriptionCard}>
+              <View style={styles.subscriptionHeader}>
+                <View style={styles.subscriptionBadge}>
+                  <Ionicons
+                    name={isFree ? "people-outline" : "star"}
+                    size={12}
+                    color="#FFD700"
+                  />
+                  <Text style={styles.subscriptionBadgeText}>
+                    {isFree ? "Free" : "Active"}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  onPress={() => setShowPlansModal(true)}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons
+                    name="ellipsis-vertical"
+                    size={18}
+                    color="rgba(255,255,255,0.6)"
+                  />
+                </TouchableOpacity>
+              </View>
 
-            <Text style={styles.summaryDescription}>
-              Manage admins, members and pending invitations
-            </Text>
-          </View>
+              <Text style={styles.subscriptionPlanName}>{planName} Plan</Text>
+              <View style={styles.subscriptionPriceRow}>
+                <Text style={styles.subscriptionPrice}>
+                  {planPrice === 0 ? "Free" : `₹${planPrice}`}
+                </Text>
+                {planPrice > 0 && (
+                  <Text style={styles.subscriptionPeriod}>/ {planPeriod}</Text>
+                )}
+              </View>
 
-          <View style={styles.summaryCount}>
-            <Text style={styles.summaryCountText}>{totalPeopleWithAccess}</Text>
-          </View>
-        </View>
+              <View style={styles.subscriptionFeatures}>
+                {planFeatures.slice(0, 3).map((feature, index) => (
+                  <View key={index} style={styles.subscriptionFeature}>
+                    <Ionicons
+                      name="checkmark-circle"
+                      size={12}
+                      color="#34D399"
+                    />
+                    <Text style={styles.subscriptionFeatureText}>
+                      {feature}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+
+              <View style={styles.subscriptionAction}>
+                <TouchableOpacity
+                  style={styles.subscriptionActionButton}
+                  onPress={() => setShowPlansModal(true)}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons
+                    name={isFree ? "arrow-forward-outline" : "refresh-outline"}
+                    size={18}
+                    color="#2563EB"
+                  />
+                  <Text style={styles.subscriptionActionText}>
+                    {isFree ? "Upgrade Now" : "Manage Plan"}
+                  </Text>
+                </TouchableOpacity>
+                {!isFree && (
+                  <Text style={styles.subscriptionExpiry}>
+                    Next billing:{" "}
+                    <Text style={styles.subscriptionExpiryStrong}>
+                      Dec 15, 2024
+                    </Text>
+                  </Text>
+                )}
+              </View>
+            </View>
+          );
+        })()}
 
         {/* ======================================================
             SETTINGS
@@ -4348,6 +5083,7 @@ export default function ProfileScreen() {
         {renderDeleteInvitationModal()}
         {renderContactPickerModal()}
         {renderHistoryModal()}
+        {renderPlansModal()}
       </ScrollView>
 
       {/* =========================================================
