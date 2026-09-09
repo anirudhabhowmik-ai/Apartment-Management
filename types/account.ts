@@ -14,7 +14,6 @@ export interface ApartmentAccount extends BaseAccount {
   type: "apartment";
   address?: string;
   totalFlats?: number;
-  secretaryId: string; // user managing maintenance
 }
 
 export interface HomeAccount extends BaseAccount {

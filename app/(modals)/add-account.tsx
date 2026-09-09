@@ -27,6 +27,8 @@ import { useAccessStore } from "../../store/accessStore";
 import { useAccountStore } from "../../store/accountStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { AccountType } from "../../types";
+// Admin | Member_Visibility | Staff_Visibility
+import { AccountAccessRole } from "../../types/access";
 
 type SetupOptionId =
   | "apartment"
@@ -37,9 +39,6 @@ type SetupOptionId =
   | "join_staff_security";
 
 type TabId = "create" | "invitations";
-
-// Grant role types - must match what useAuthStore accepts
-type AuthGrantRole = "admin" | "member_visibility";
 
 interface SetupOption {
   id: SetupOptionId;
@@ -847,11 +846,24 @@ export default function AddAccountScreen() {
   };
 
   // Helper to determine if a grant role is staff (for display purposes)
+  // FIXED: Check for staff_visibility role explicitly
   const isStaffGrant = (invitation: any): boolean => {
-    return (
-      invitation.accessLevel === "staff" ||
-      (invitation.role === "member_visibility" && invitation.staffTitle)
-    );
+    // Check if the role is explicitly staff_visibility
+    if (invitation.role === "staff_visibility") {
+      return true;
+    }
+
+    // Check if accessLevel indicates staff
+    if (invitation.accessLevel === "staff") {
+      return true;
+    }
+
+    // Check for legacy pattern: member_visibility with staffTitle
+    if (invitation.role === "member_visibility" && invitation.staffTitle) {
+      return true;
+    }
+
+    return false;
   };
 
   const handleSelectOption = async (option: SetupOption) => {
@@ -885,7 +897,7 @@ export default function AddAccountScreen() {
       console.log("roleType:", roleType);
       console.log("staffRoleId:", staffRoleId);
 
-      // For staff, we need to find invitations with staff access level
+      // FIXED: For staff, check for staff_visibility role OR legacy pattern
       const matchingGrant = pendingInvitations.find((g: any) => {
         if (roleType === "admin") {
           return g.role === "admin";
@@ -894,7 +906,11 @@ export default function AddAccountScreen() {
           return g.role === "member_visibility" && !isStaffGrant(g);
         }
         if (roleType === "staff") {
-          return g.role === "member_visibility" && isStaffGrant(g);
+          // Check for staff_visibility or legacy staff pattern
+          return (
+            g.role === "staff_visibility" ||
+            (g.role === "member_visibility" && isStaffGrant(g))
+          );
         }
         return false;
       });
@@ -920,8 +936,12 @@ export default function AddAccountScreen() {
 
           if (newAccount) {
             // Grant the appropriate role using useAuthStore
-            const grantRole: AuthGrantRole =
-              roleType === "admin" ? "admin" : "member_visibility";
+            let grantRole: AccountAccessRole = "member_visibility";
+            if (roleType === "admin") {
+              grantRole = "admin";
+            } else if (roleType === "staff") {
+              grantRole = "staff_visibility";
+            }
             console.log(
               "Granting role:",
               grantRole,
@@ -935,9 +955,16 @@ export default function AddAccountScreen() {
             setShowDummyInvites(false);
           }
         } else {
-          // For real invitations, use the role from the grant
-          const grantRole: AuthGrantRole =
-            matchingGrant.role === "admin" ? "admin" : "member_visibility";
+          // FIXED: For real invitations, use the correct role
+          let grantRole: AccountAccessRole = "member_visibility";
+          if (matchingGrant.role === "admin") {
+            grantRole = "admin";
+          } else if (
+            matchingGrant.role === "staff_visibility" ||
+            isStaffGrant(matchingGrant)
+          ) {
+            grantRole = "staff_visibility";
+          }
           console.log(
             "Accepting real grant:",
             matchingGrant.id,
@@ -971,9 +998,13 @@ export default function AddAccountScreen() {
         console.log("newAccount:", newAccount);
 
         if (newAccount) {
-          // Grant the appropriate role using useAuthStore
-          const grantRole: AuthGrantRole =
-            roleType === "admin" ? "admin" : "member_visibility";
+          // FIXED: Grant the appropriate role using useAuthStore
+          let grantRole: AccountAccessRole = "member_visibility";
+          if (roleType === "admin") {
+            grantRole = "admin";
+          } else if (roleType === "staff") {
+            grantRole = "staff_visibility";
+          }
           console.log(
             "Granting role:",
             grantRole,
@@ -1140,9 +1171,12 @@ export default function AddAccountScreen() {
 
         createAccount("apartment", defaultName).then((newAccount) => {
           if (newAccount) {
-            const grantRole: AuthGrantRole = isAdmin
-              ? "admin"
-              : "member_visibility";
+            let grantRole: AccountAccessRole = "member_visibility";
+            if (isAdmin) {
+              grantRole = "admin";
+            } else if (isStaffInvite) {
+              grantRole = "staff_visibility";
+            }
             grantAccountRole(newAccount.id, grantRole);
             selectAccount(newAccount.id);
             setShowDummyInvites(false);
@@ -1158,8 +1192,15 @@ export default function AddAccountScreen() {
     }
 
     // For real invitations, use the role from the grant
-    const grantRole: AuthGrantRole =
-      role === "admin" ? "admin" : "member_visibility";
+    let grantRole: AccountAccessRole = "member_visibility";
+    if (role === "admin") {
+      grantRole = "admin";
+    } else if (
+      role === "staff_visibility" ||
+      (invitation && isStaffGrant(invitation))
+    ) {
+      grantRole = "staff_visibility";
+    }
     acceptGrant(grantId);
     grantAccountRole(accountId, grantRole);
     selectAccount(accountId);

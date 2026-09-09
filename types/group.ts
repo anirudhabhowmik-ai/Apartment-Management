@@ -18,9 +18,9 @@ export interface StaffGroup extends BaseGroup {
   type: "staff";
 }
 
-export interface ExpenseGroup extends BaseGroup {
+export interface TransactionGroup extends BaseGroup {
   type: "expense";
   expenseTypes: string[];
 }
 
-export type Group = ApartmentGroup | StaffGroup | ExpenseGroup;
+export type Group = ApartmentGroup | StaffGroup | TransactionGroup;

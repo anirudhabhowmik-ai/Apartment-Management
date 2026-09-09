@@ -19,10 +19,7 @@ interface AuthState {
   setUser: (user: AuthUser | null) => void;
   setIsLoading: (loading: boolean) => void;
   setPendingPhone: (phone: string | null) => void;
-  grantAccountRole: (
-    accountId: string,
-    role: AccountAccessRole,
-  ) => void;
+  grantAccountRole: (accountId: string, role: AccountAccessRole) => void;
   removeAccountRole: (accountId: string) => void;
   logout: () => void;
 }
@@ -35,10 +32,7 @@ export const useAuthStore = create<AuthState>()(
       pendingPhone: null,
 
       setUser: (user) => {
-        console.log("======= setUser =======");
-        console.log("Setting user:", user);
         set({ user });
-        console.log("======= setUser END =======");
       },
 
       setIsLoading: (isLoading) => set({ isLoading }),
@@ -46,32 +40,20 @@ export const useAuthStore = create<AuthState>()(
       setPendingPhone: (pendingPhone) => set({ pendingPhone }),
 
       grantAccountRole: (accountId, role) => {
-        console.log("======= 🔐 grantAccountRole CALLED =======");
-        console.log("📌 accountId:", accountId);
-        console.log("📌 role:", role);
-
         const { user } = get();
         if (!user) {
-          console.log("❌ No user found, cannot grant role");
           return;
         }
-
-        console.log("👤 Current user:", JSON.stringify(user, null, 2));
-        console.log("📋 Current accountRoles:", user.accountRoles);
 
         const updatedAccountRoles = {
           ...(user.accountRoles || {}),
           [accountId]: role,
         };
 
-        console.log("📝 Updated accountRoles:", updatedAccountRoles);
-
         const updatedUser = {
           ...user,
           accountRoles: updatedAccountRoles,
         };
-
-        console.log("👤 Updated user:", JSON.stringify(updatedUser, null, 2));
 
         set({ user: updatedUser });
 
@@ -80,7 +62,6 @@ export const useAuthStore = create<AuthState>()(
           "✅ Final user after set:",
           JSON.stringify(finalUser, null, 2),
         );
-        console.log("======= 🔐 grantAccountRole END =======");
       },
 
       removeAccountRole: (accountId) => {
@@ -97,9 +78,7 @@ export const useAuthStore = create<AuthState>()(
       },
 
       logout: () => {
-        console.log("======= logout =======");
         set({ user: null });
-        console.log("======= logout END =======");
       },
     }),
     {

@@ -104,16 +104,6 @@ export function useUserRole() {
   const user = useAuthStore((state) => state.user);
   const grants = useAccessStore((state) => state.grants);
 
-  console.log("========== useUserRole DEBUG ==========");
-  console.log("1. selectedAccount:", selectedAccount);
-  console.log("2. selectedAccount?.id:", selectedAccount?.id);
-  console.log("3. user:", user);
-  console.log("4. user?.id:", user?.id);
-  console.log("5. user?.name:", user?.name);
-  console.log("6. user?.accountRoles:", user?.accountRoles);
-  console.log("7. grants (from accessStore):", grants);
-  console.log("8. grants length:", grants.length);
-
   const accountMembers = useMemo(() => {
     const accountGroupIds = new Set(groups.map((group) => group.id));
     const filtered = members.filter((member) =>
@@ -244,15 +234,6 @@ export function useUserRole() {
     console.log("No role found, returning member as default");
     return "member";
   }, [selectedAccount, user, grants, userMemberProfile]);
-
-  console.log("===== FINAL RESULT =====");
-  console.log("userRole:", userRole);
-  console.log("staffInfo:", staffInfo);
-  console.log("userMemberProfile:", userMemberProfile);
-  console.log("isAdmin:", userRole === "admin");
-  console.log("isStaff:", userRole === "staff");
-  console.log("isMember:", userRole === "member");
-  console.log("========== END DEBUG ==========\n");
 
   return {
     userRole,
