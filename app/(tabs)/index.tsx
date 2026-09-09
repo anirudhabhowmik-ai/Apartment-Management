@@ -534,7 +534,12 @@ export default function HomeScreen() {
                   styles.primaryButton,
                   pressed && styles.pressed,
                 ]}
-                onPress={() => router.push("/(modals)/add-account")}
+                onPress={() =>
+                  router.push({
+                    pathname: "/(modals)/add-account",
+                    params: { mode: "create" },
+                  })
+                }
               >
                 <Ionicons name="add" size={20} color="#FFFFFF" />
 
@@ -546,7 +551,12 @@ export default function HomeScreen() {
                   styles.secondaryActionButton,
                   pressed && styles.pressed,
                 ]}
-                onPress={() => router.push("/(modals)/add-account")}
+                onPress={() =>
+                  router.push({
+                    pathname: "/(modals)/add-account",
+                    params: { mode: "create" },
+                  })
+                }
               >
                 <Ionicons name="add-outline" size={18} color="#2563EB" />
 

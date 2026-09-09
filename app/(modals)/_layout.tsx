@@ -3,7 +3,7 @@ import { Stack } from "expo-router";
 // Local type documenting what each modal route expects as params —
 // helps when navigating with router.push({ pathname, params })
 export type ModalRouteParams = {
-  "add-account": undefined;
+  "add-account": { mode?: string } | undefined;
   "switch-account": undefined;
   "create-group": { accountId: string };
   "add-member": {
@@ -27,7 +27,8 @@ export type ModalRouteParams = {
   "edit-expense": { accountId: string; paymentId: string };
   "grant-access": {
     accountId: string;
-    role: "admin" | "member_visibility";
+    role: "admin" | "member_visibility" | "staff_visibility";
+    memberType?: "owner" | "staff";
   };
   "join-account": undefined;
 };

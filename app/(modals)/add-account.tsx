@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -784,6 +784,7 @@ const adjustStyles = StyleSheet.create({
 
 export default function AddAccountScreen() {
   const router = useRouter();
+  const { mode } = useLocalSearchParams<{ mode?: string }>();
   const insets = useSafeAreaInsets();
 
   const user = useAuthStore((s) => s.user);
@@ -1323,60 +1324,62 @@ export default function AddAccountScreen() {
               </Text>
             </View>
 
-            <View style={styles.tabSwitcher}>
-              <TouchableOpacity
-                style={[
-                  styles.tabButton,
-                  activeTab === "create" && styles.tabButtonActiveBlue,
-                ]}
-                onPress={() => setActiveTab("create")}
-                activeOpacity={0.8}
-              >
-                <Ionicons
-                  name="add-circle"
-                  size={16}
-                  color={activeTab === "create" ? "#1a73e8" : "#94a3b8"}
-                />
-                <Text
+            {mode !== "create" && (
+              <View style={styles.tabSwitcher}>
+                <TouchableOpacity
                   style={[
-                    styles.tabButtonText,
-                    activeTab === "create" && styles.tabButtonTextActiveBlue,
+                    styles.tabButton,
+                    activeTab === "create" && styles.tabButtonActiveBlue,
                   ]}
+                  onPress={() => setActiveTab("create")}
+                  activeOpacity={0.8}
                 >
-                  Create New
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.tabButton,
-                  activeTab === "invitations" && styles.tabButtonActivePurple,
-                ]}
-                onPress={() => setActiveTab("invitations")}
-                activeOpacity={0.8}
-              >
-                <Ionicons
-                  name="mail-open"
-                  size={16}
-                  color={activeTab === "invitations" ? "#7c3aed" : "#94a3b8"}
-                />
-                <Text
+                  <Ionicons
+                    name="add-circle"
+                    size={16}
+                    color={activeTab === "create" ? "#1a73e8" : "#94a3b8"}
+                  />
+                  <Text
+                    style={[
+                      styles.tabButtonText,
+                      activeTab === "create" && styles.tabButtonTextActiveBlue,
+                    ]}
+                  >
+                    Create New
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
                   style={[
-                    styles.tabButtonText,
-                    activeTab === "invitations" &&
-                      styles.tabButtonTextActivePurple,
+                    styles.tabButton,
+                    activeTab === "invitations" && styles.tabButtonActivePurple,
                   ]}
+                  onPress={() => setActiveTab("invitations")}
+                  activeOpacity={0.8}
                 >
-                  Invitations
-                  {pendingInvitations.length > 0 && (
-                    <View style={styles.invitationBadge}>
-                      <Text style={styles.invitationBadgeText}>
-                        {pendingInvitations.length}
-                      </Text>
-                    </View>
-                  )}
-                </Text>
-              </TouchableOpacity>
-            </View>
+                  <Ionicons
+                    name="mail-open"
+                    size={16}
+                    color={activeTab === "invitations" ? "#7c3aed" : "#94a3b8"}
+                  />
+                  <Text
+                    style={[
+                      styles.tabButtonText,
+                      activeTab === "invitations" &&
+                        styles.tabButtonTextActivePurple,
+                    ]}
+                  >
+                    Invitations
+                    {pendingInvitations.length > 0 && (
+                      <View style={styles.invitationBadge}>
+                        <Text style={styles.invitationBadgeText}>
+                          {pendingInvitations.length}
+                        </Text>
+                      </View>
+                    )}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
 
             {activeTab === "create" && (
               <View style={styles.section}>

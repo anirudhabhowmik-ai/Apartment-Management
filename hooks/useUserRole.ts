@@ -172,6 +172,10 @@ export function useUserRole() {
         console.log("accountRole is admin → Returning admin");
         return "admin";
       }
+      if (accountRole === "staff_visibility") {
+        console.log("accountRole is staff_visibility → Returning staff");
+        return "staff";
+      }
       if (accountRole === "member_visibility") {
         // Check if the user is a staff member
         if (userMemberProfile && isStaffMember(userMemberProfile)) {
@@ -200,6 +204,10 @@ export function useUserRole() {
       if (userGrant.role === "admin") {
         console.log("Grant role is admin → Returning admin");
         return "admin";
+      }
+      if (userGrant.role === "staff_visibility") {
+        console.log("Grant role is staff_visibility → Returning staff");
+        return "staff";
       }
       if (userGrant.role === "member_visibility") {
         if (userMemberProfile && isStaffMember(userMemberProfile)) {

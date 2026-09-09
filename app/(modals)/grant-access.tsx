@@ -1,5 +1,10 @@
 import { Ionicons } from "@expo/vector-icons";
-import * as Contacts from "expo-contacts";
+import {
+  Contact,
+  ContactField,
+  ContactsSortOrder,
+  requestPermissionsAsync,
+} from "expo-contacts";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useMemo, useState } from "react";
 import {
@@ -145,14 +150,19 @@ export default function GrantAccessScreen() {
   // FLOW
   // ============================================================
 
-  const isVisibilityFlow = memberType === "owner" || memberType === "staff";
+  const isVisibilityFlow =
+    memberType === "owner" ||
+    memberType === "staff" ||
+    role === "member_visibility" ||
+    role === "staff_visibility";
+
+  const effectiveMemberType: MemberType =
+    memberType || (role === "staff_visibility" ? "staff" : "owner");
 
   const visibilityTitle =
-    memberType === "owner"
-      ? "Invite Member"
-      : memberType === "staff"
-        ? "Invite Staff"
-        : "";
+    effectiveMemberType === "owner"
+      ? "Manage Apartment Owner Visibility"
+      : "Manage Staff Visibility";
 
   const title = ACCESS_ROLE_LABEL[role || "member_visibility"];
 
@@ -172,7 +182,7 @@ export default function GrantAccessScreen() {
     }
 
     try {
-      const { status } = await Contacts.requestPermissionsAsync();
+      const { status } = await requestPermissionsAsync();
 
       if (status !== "granted") {
         Alert.alert(
@@ -194,10 +204,10 @@ export default function GrantAccessScreen() {
         return;
       }
 
-      const contacts = await Contacts.Contact.getAllDetails(
-        [Contacts.ContactField.FULL_NAME, Contacts.ContactField.PHONES],
+      const contacts = await Contact.getAllDetails(
+        [ContactField.FULL_NAME, ContactField.PHONES],
         {
-          sortOrder: Contacts.ContactsSortOrder.GivenName,
+          sortOrder: ContactsSortOrder.GivenName,
         },
       );
 
@@ -316,8 +326,8 @@ export default function GrantAccessScreen() {
       setError(
         useExisting
           ? isVisibilityFlow
-            ? memberType === "owner"
-              ? "Please select a member."
+            ? effectiveMemberType === "owner"
+              ? "Please select an apartment owner."
               : "Please select a staff member."
             : "Please select a member or staff member."
           : "Please enter a valid 10-digit phone number.",
@@ -332,7 +342,11 @@ export default function GrantAccessScreen() {
       accountName: account?.name || "Apartment",
       invitedByPhone: currentUser?.phone || "+91 98765 43210",
       invitedByName: currentUser?.name || "Secretary",
-      role: role || "member_visibility",
+      role:
+        role ||
+        (effectiveMemberType === "staff"
+          ? "staff_visibility"
+          : "member_visibility"),
       name: recipientName,
       phone: recipientPhone,
       memberId: selectedMember?.id,
@@ -357,7 +371,7 @@ export default function GrantAccessScreen() {
 
     let meta = "";
 
-    if (memberType === "owner") {
+    if (effectiveMemberType === "owner") {
       const parts: string[] = [];
 
       if (wing) {
@@ -369,7 +383,7 @@ export default function GrantAccessScreen() {
       }
 
       meta = parts.join("  •  ");
-    } else if (memberType === "staff") {
+    } else if (effectiveMemberType === "staff") {
       meta = staffRole || "Staff";
     }
 
@@ -619,9 +633,9 @@ export default function GrantAccessScreen() {
 
   const getEmptyStateText = () => {
     if (isVisibilityFlow) {
-      return memberType === "owner"
-        ? "No members available to invite."
-        : "No staff members available to invite.";
+      return effectiveMemberType === "owner"
+        ? "No apartment owners available to select."
+        : "No staff members available to select.";
     }
 
     return "No members or staff are available.";
@@ -661,7 +675,7 @@ export default function GrantAccessScreen() {
             <Ionicons
               name={
                 isVisibilityFlow
-                  ? memberType === "owner"
+                  ? effectiveMemberType === "owner"
                     ? "person-add-outline"
                     : "briefcase-outline"
                   : "shield-checkmark-outline"
@@ -678,9 +692,9 @@ export default function GrantAccessScreen() {
 
             <Text style={styles.introDescription}>
               {isVisibilityFlow
-                ? memberType === "owner"
-                  ? "Select an apartment member to send an invitation."
-                  : "Select a staff member to send an invitation."
+                ? effectiveMemberType === "owner"
+                  ? "Select an apartment owner to grant visibility access."
+                  : "Select a staff member to grant visibility access."
                 : "Choose who should receive access to this account."}
             </Text>
           </View>
@@ -990,7 +1004,7 @@ export default function GrantAccessScreen() {
                     setError("");
                   }}
                   placeholder={
-                    memberType === "owner"
+                    effectiveMemberType === "owner"
                       ? "Search name, phone, apartment or wing"
                       : "Search name, phone or role"
                   }
@@ -1009,7 +1023,7 @@ export default function GrantAccessScreen() {
               </View>
             ) : null}
 
-            {memberType === "owner" ? (
+            {effectiveMemberType === "owner" ? (
               filteredMembers.length === 0 ? (
                 <View style={styles.emptyCard}>
                   <View style={styles.emptyIcon}>
@@ -1018,13 +1032,13 @@ export default function GrantAccessScreen() {
 
                   <Text style={styles.emptyTitle}>
                     {apartmentMembers.length === 0
-                      ? "No members available"
-                      : "No matching members"}
+                      ? "No apartment owners available"
+                      : "No matching apartment owners"}
                   </Text>
 
                   <Text style={styles.emptyDescription}>
                     {apartmentMembers.length === 0
-                      ? "There are currently no apartment members available to invite."
+                      ? "There are currently no apartment owners available to select."
                       : "Try searching with another name, phone number, apartment or wing."}
                   </Text>
                 </View>
@@ -1049,7 +1063,7 @@ export default function GrantAccessScreen() {
 
                 <Text style={styles.emptyDescription}>
                   {staffMembers.length === 0
-                    ? "There are currently no staff members available to invite."
+                    ? "There are currently no staff members available to select."
                     : "Try searching with another name, phone number or role."}
                 </Text>
               </View>
@@ -1089,14 +1103,14 @@ export default function GrantAccessScreen() {
           >
             <Ionicons
               name={
-                isVisibilityFlow ? "send-outline" : "shield-checkmark-outline"
+                isVisibilityFlow ? "shield-checkmark-outline" : "shield-checkmark-outline"
               }
               size={20}
               color="#FFFFFF"
             />
 
             <Text style={styles.saveText}>
-              {isVisibilityFlow ? "Send Invite" : `Grant ${title} Access`}
+              {isVisibilityFlow ? `Grant ${visibilityTitle.replace("Manage ", "")}` : `Grant ${title} Access`}
             </Text>
           </TouchableOpacity>
 

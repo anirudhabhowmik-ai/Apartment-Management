@@ -1351,6 +1351,10 @@ const styles = StyleSheet.create({
     color: "#16A34A",
   },
 
+  staffAvatarText: {
+    color: "#0284C7",
+  },
+
   accessInfo: {
     flex: 1,
     minWidth: 0,
@@ -1420,6 +1424,16 @@ const styles = StyleSheet.create({
 
   memberBadgeText: {
     color: "#16A34A",
+    fontSize: 9,
+    fontWeight: "700",
+  },
+
+  staffBadge: {
+    backgroundColor: "#E0F2FE",
+  },
+
+  staffBadgeText: {
+    color: "#0284C7",
     fontSize: 9,
     fontWeight: "700",
   },
@@ -2667,9 +2681,14 @@ export default function ProfileScreen() {
     (grant) => grant.acceptedAt && grant.role === "member_visibility",
   );
 
+  const visibleStaff = accountGrants.filter(
+    (grant) => grant.acceptedAt && grant.role === "staff_visibility",
+  );
+
   const totalPeopleWithAccess =
     acceptedAdmins.length +
     visibleMembers.length +
+    visibleStaff.length +
     pendingInvitations.length +
     (selectedAccount?.ownerId === user?.id ? 1 : 0);
 
@@ -3550,8 +3569,8 @@ export default function ProfileScreen() {
 
     {
       id: "invite_member",
-      title: "Invite Member",
-      description: "Invite an apartment owner or resident",
+      title: "Manage Apartment Owner Visibility",
+      description: "Give visibility access to apartment owners",
       icon: "person-add-outline",
       color: "#16A34A",
       onPress: () =>
@@ -3567,8 +3586,8 @@ export default function ProfileScreen() {
 
     {
       id: "invite_staff",
-      title: "Invite Staff",
-      description: "Give access to a society staff member",
+      title: "Manage Staff Visibility",
+      description: "Give visibility access to society staff members",
       icon: "briefcase-outline",
       color: "#0891B2",
       onPress: () =>
@@ -3576,7 +3595,7 @@ export default function ProfileScreen() {
           pathname: "/(modals)/grant-access",
           params: {
             accountId: selectedAccount?.id || "",
-            role: "member_visibility",
+            role: "staff_visibility",
             memberType: "staff",
           },
         }),
@@ -4927,6 +4946,43 @@ export default function ProfileScreen() {
 
                   <View style={[styles.accessBadge, styles.memberBadge]}>
                     <Text style={styles.memberBadgeText}>Member</Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
+
+          {/* Staff */}
+          {visibleStaff.length > 0 && (
+            <View style={styles.accessGroup}>
+              <Text style={styles.accessHeading}>Staff</Text>
+
+              {visibleStaff.map((grant, index) => (
+                <View
+                  key={grant.id}
+                  style={[
+                    styles.accessRow,
+                    index === visibleStaff.length - 1 &&
+                      pendingInvitations.length === 0 &&
+                      styles.lastAccessRow,
+                  ]}
+                >
+                  <View style={[styles.accessAvatar, styles.staffBadge]}>
+                    <Text
+                      style={[styles.accessAvatarText, styles.staffAvatarText]}
+                    >
+                      {grant.name.charAt(0).toUpperCase()}
+                    </Text>
+                  </View>
+
+                  <View style={styles.accessInfo}>
+                    <Text style={styles.accessName}>{grant.name}</Text>
+
+                    <Text style={styles.accessPhone}>{grant.phone}</Text>
+                  </View>
+
+                  <View style={[styles.accessBadge, styles.staffBadge]}>
+                    <Text style={styles.staffBadgeText}>Staff</Text>
                   </View>
                 </View>
               ))}

@@ -21,6 +21,7 @@ import * as XLSX from "xlsx";
 
 import { useAccounts } from "../../hooks/useAccounts";
 import { useGroups } from "../../hooks/useGroups";
+import { useAccountStore } from "../../store/accountStore";
 import { useFinanceBalanceStore } from "../../store/financeBalanceStore";
 import { useMemberStore } from "../../store/memberStore";
 
@@ -279,6 +280,9 @@ export default function FinanceScreen() {
   const { groups } = useGroups(selectedAccount?.id || null);
 
   const members = useMemberStore((state) => state.members);
+  const setAccountSwitcherOpen = useAccountStore(
+    (state) => state.setAccountSwitcherOpen,
+  );
 
   const openingBalances = useFinanceBalanceStore(
     (state) => state.openingBalances,
@@ -710,13 +714,16 @@ export default function FinanceScreen() {
 
           <TouchableOpacity
             style={styles.selectButton}
-            onPress={() =>
-              router.push(
-                accounts.length > 0
-                  ? "/(modals)/switch-account"
-                  : "/(modals)/add-account",
-              )
-            }
+            onPress={() => {
+              if (accounts.length > 0) {
+                setAccountSwitcherOpen(true);
+              } else {
+                router.push({
+                  pathname: "/(modals)/add-account",
+                  params: { mode: "create" },
+                });
+              }
+            }}
           >
             <Ionicons
               name={accounts.length > 0 ? "business-outline" : "add"}

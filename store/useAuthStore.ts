@@ -3,11 +3,13 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 
+import { AccountAccessRole } from "../types/access";
+
 export interface AuthUser {
   id: string;
   phone: string;
   name?: string;
-  accountRoles?: Record<string, "admin" | "member_visibility">;
+  accountRoles?: Record<string, AccountAccessRole>;
 }
 
 interface AuthState {
@@ -19,7 +21,7 @@ interface AuthState {
   setPendingPhone: (phone: string | null) => void;
   grantAccountRole: (
     accountId: string,
-    role: "admin" | "member_visibility",
+    role: AccountAccessRole,
   ) => void;
   removeAccountRole: (accountId: string) => void;
   logout: () => void;

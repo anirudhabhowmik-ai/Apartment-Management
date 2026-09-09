@@ -575,7 +575,10 @@ export default function AccountSwitcher() {
 
   const handleAddNew = () => {
     setAccountSwitcherOpen(false);
-    router.push("/(modals)/add-account");
+    router.push({
+      pathname: "/(modals)/add-account",
+      params: { mode: "create" },
+    });
   };
 
   // Photo picker functions - exactly matching AddAccountScreen
