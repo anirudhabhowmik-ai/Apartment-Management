@@ -34,6 +34,7 @@ import GenerateBillModal from "../../components/GenerateBillModal";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useUserRole } from "../../hooks/useUserRole";
 import { sendOtp, verifyOtp } from "../../services/otpService";
+import { startRazorpayPayment } from "../../services/paymentService"; // ✅ NEW
 import { useAccessStore } from "../../store/accessStore";
 import { useAccountStore } from "../../store/accountStore";
 import { BillMemberType, SavedBillConfig } from "../../store/billStore";
@@ -595,7 +596,7 @@ const adjustStyles = StyleSheet.create({
 });
 
 // ============================================================
-// STYLES  (unchanged — same as your original file)
+// STYLES
 // ============================================================
 
 const styles = StyleSheet.create({
@@ -603,13 +604,11 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#F8FAFC",
   },
-
   scrollContent: {
     paddingHorizontal: 16,
     paddingTop: 16,
     paddingBottom: 35,
   },
-
   profileCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 22,
@@ -618,12 +617,10 @@ const styles = StyleSheet.create({
     overflow: "hidden",
     marginBottom: 14,
   },
-
   profileAccent: {
     height: 5,
     backgroundColor: "#2563EB",
   },
-
   profileCardContent: {
     flexDirection: "row",
     alignItems: "center",
@@ -631,30 +628,25 @@ const styles = StyleSheet.create({
     paddingTop: 20,
     paddingBottom: 18,
   },
-
   avatarContainer: {
     position: "relative",
     marginRight: 15,
   },
-
   avatar: {
     width: 76,
     height: 76,
     borderRadius: 22,
   },
-
   avatarPlaceholder: {
     backgroundColor: "#2563EB",
     alignItems: "center",
     justifyContent: "center",
   },
-
   avatarText: {
     color: "#FFFFFF",
     fontSize: 27,
     fontWeight: "700",
   },
-
   cameraButton: {
     position: "absolute",
     right: -5,
@@ -668,25 +660,21 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   profileDetails: {
     flex: 1,
     minWidth: 0,
   },
-
   nameDisplayContainer: {
     flexDirection: "row",
     alignItems: "center",
     maxWidth: "100%",
   },
-
   userName: {
     flexShrink: 1,
     color: "#0F172A",
     fontSize: 20,
     fontWeight: "700",
   },
-
   editButton: {
     width: 28,
     height: 28,
@@ -696,19 +684,16 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginLeft: 7,
   },
-
   phoneDisplayRow: {
     flexDirection: "row",
     alignItems: "center",
     marginTop: 6,
   },
-
   userPhone: {
     color: "#64748B",
     fontSize: 13,
     marginLeft: 6,
   },
-
   accountTypeBadge: {
     flexDirection: "row",
     alignItems: "center",
@@ -719,7 +704,6 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     marginTop: 9,
   },
-
   accountTypeDot: {
     width: 6,
     height: 6,
@@ -727,18 +711,15 @@ const styles = StyleSheet.create({
     backgroundColor: "#16A34A",
     marginRight: 6,
   },
-
   accountTypeText: {
     color: "#475569",
     fontSize: 10,
     fontWeight: "700",
   },
-
   nameEditContainer: {
     flexDirection: "row",
     alignItems: "center",
   },
-
   inlineNameInput: {
     flex: 1,
     maxWidth: 190,
@@ -757,7 +738,6 @@ const styles = StyleSheet.create({
         } as any)
       : {}),
   },
-
   saveNameButton: {
     width: 35,
     height: 35,
@@ -767,7 +747,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginLeft: 7,
   },
-
   logoutButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -776,14 +755,12 @@ const styles = StyleSheet.create({
     borderTopColor: "#F1F5F9",
     paddingVertical: 12,
   },
-
   logoutText: {
     color: "#DC2626",
     fontSize: 13,
     fontWeight: "700",
     marginLeft: 7,
   },
-
   subscriptionCard: {
     backgroundColor: "#1E3A5F",
     borderRadius: 18,
@@ -791,13 +768,11 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     overflow: "hidden",
   },
-
   subscriptionHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-
   subscriptionBadge: {
     flexDirection: "row",
     alignItems: "center",
@@ -806,47 +781,40 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 4,
   },
-
   subscriptionBadgeText: {
     color: "#FFFFFF",
     fontSize: 10,
     fontWeight: "700",
     marginLeft: 4,
   },
-
   subscriptionPlanName: {
     color: "#FFFFFF",
     fontSize: 18,
     fontWeight: "700",
     marginTop: 8,
   },
-
   subscriptionPriceRow: {
     flexDirection: "row",
     alignItems: "baseline",
     marginTop: 2,
   },
-
   subscriptionPrice: {
     color: "#FFFFFF",
     fontSize: 26,
     fontWeight: "800",
   },
-
   subscriptionPeriod: {
     color: "rgba(255,255,255,0.7)",
     fontSize: 13,
     fontWeight: "600",
     marginLeft: 4,
   },
-
   subscriptionFeatures: {
     marginTop: 12,
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 6,
   },
-
   subscriptionFeature: {
     flexDirection: "row",
     alignItems: "center",
@@ -855,14 +823,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 5,
   },
-
   subscriptionFeatureText: {
     color: "rgba(255,255,255,0.9)",
     fontSize: 10,
     fontWeight: "600",
     marginLeft: 4,
   },
-
   subscriptionAction: {
     flexDirection: "row",
     alignItems: "center",
@@ -872,7 +838,6 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: "rgba(255,255,255,0.15)",
   },
-
   subscriptionActionButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -881,24 +846,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
   },
-
   subscriptionActionText: {
     color: "#2563EB",
     fontSize: 13,
     fontWeight: "700",
     marginLeft: 6,
   },
-
   subscriptionExpiry: {
     color: "rgba(255,255,255,0.7)",
     fontSize: 11,
   },
-
   subscriptionExpiryStrong: {
     color: "#FFFFFF",
     fontWeight: "700",
   },
-
   plansModalOverlay: {
     flex: 1,
     backgroundColor: "rgba(15, 23, 42, 0.58)",
@@ -906,7 +867,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 16,
   },
-
   plansModalContainer: {
     width: "100%",
     maxWidth: 420,
@@ -918,7 +878,6 @@ const styles = StyleSheet.create({
     display: "flex",
     flexDirection: "column",
   },
-
   plansModalHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -929,19 +888,16 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#F1F5F9",
   },
-
   plansModalTitle: {
     fontSize: 20,
     fontWeight: "800",
     color: "#0F172A",
   },
-
   modalSubtitle: {
     color: "#64748B",
     fontSize: 11,
     marginTop: 3,
   },
-
   plansModalCloseButton: {
     width: 36,
     height: 36,
@@ -950,17 +906,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   plansScroll: {
     flex: 1,
     minHeight: 200,
   },
-
   plansList: {
     paddingBottom: 20,
     paddingTop: 4,
   },
-
   planCard: {
     borderRadius: 16,
     borderWidth: 2,
@@ -969,46 +922,38 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     backgroundColor: "#FFFFFF",
   },
-
   planCardPopular: {
     borderColor: "#2563EB",
     backgroundColor: "#EFF6FF",
   },
-
   planCardActive: {
     borderColor: "#16A34A",
     backgroundColor: "#F0FDF4",
   },
-
   planCardHeader: {
     flexDirection: "row",
     alignItems: "flex-start",
     justifyContent: "space-between",
   },
-
   planCardLeft: {
     flex: 1,
   },
-
   planCardName: {
     fontSize: 16,
     fontWeight: "700",
     color: "#0F172A",
   },
-
   planCardPrice: {
     fontSize: 24,
     fontWeight: "800",
     color: "#0F172A",
     marginTop: 2,
   },
-
   planCardPeriod: {
     fontSize: 12,
     fontWeight: "600",
     color: "#64748B",
   },
-
   planCardPopularBadge: {
     backgroundColor: "#2563EB",
     borderRadius: 20,
@@ -1016,26 +961,22 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
     marginLeft: 8,
   },
-
   planCardPopularText: {
     color: "#FFFFFF",
     fontSize: 9,
     fontWeight: "700",
   },
-
   planCardActiveBadge: {
     backgroundColor: "#16A34A",
     borderRadius: 20,
     paddingHorizontal: 10,
     paddingVertical: 3,
   },
-
   planCardActiveText: {
     color: "#FFFFFF",
     fontSize: 9,
     fontWeight: "700",
   },
-
   planCardIcon: {
     width: 40,
     height: 40,
@@ -1044,23 +985,19 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginLeft: 8,
   },
-
   planCardFeatures: {
     marginTop: 10,
     gap: 4,
   },
-
   planCardFeature: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
   },
-
   planCardFeatureText: {
     fontSize: 12,
     color: "#475569",
   },
-
   planCardAction: {
     marginTop: 12,
     paddingVertical: 10,
@@ -1068,25 +1005,20 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   planCardActionActive: {
     backgroundColor: "#F1F5F9",
   },
-
   planCardActionButton: {
     backgroundColor: "#2563EB",
   },
-
   planCardActionText: {
     fontSize: 13,
     fontWeight: "700",
     color: "#FFFFFF",
   },
-
   planCardActionActiveText: {
     color: "#475569",
   },
-
   summaryCard: {
     flexDirection: "row",
     alignItems: "center",
@@ -1097,7 +1029,6 @@ const styles = StyleSheet.create({
     padding: 14,
     marginBottom: 7,
   },
-
   summaryIcon: {
     width: 44,
     height: 44,
@@ -1107,24 +1038,20 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginRight: 12,
   },
-
   summaryContent: {
     flex: 1,
   },
-
   summaryTitle: {
     color: "#1E3A8A",
     fontSize: 14,
     fontWeight: "700",
   },
-
   summaryDescription: {
     color: "#64748B",
     fontSize: 11,
     lineHeight: 16,
     marginTop: 3,
   },
-
   summaryCount: {
     minWidth: 34,
     height: 34,
@@ -1134,17 +1061,14 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginLeft: 8,
   },
-
   summaryCountText: {
     color: "#FFFFFF",
     fontSize: 13,
     fontWeight: "700",
   },
-
   menuSection: {
     marginTop: 14,
   },
-
   menuSectionTitle: {
     color: "#64748B",
     fontSize: 10,
@@ -1153,7 +1077,6 @@ const styles = StyleSheet.create({
     marginLeft: 4,
     marginBottom: 7,
   },
-
   menuCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 17,
@@ -1161,7 +1084,6 @@ const styles = StyleSheet.create({
     borderColor: "#E2E8F0",
     overflow: "hidden",
   },
-
   menuItem: {
     minHeight: 62,
     flexDirection: "row",
@@ -1172,18 +1094,15 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#F1F5F9",
   },
-
   menuItemLast: {
     borderBottomWidth: 0,
   },
-
   menuItemLeft: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
     minWidth: 0,
   },
-
   menuIcon: {
     width: 39,
     height: 39,
@@ -1192,24 +1111,20 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginRight: 11,
   },
-
   menuItemContent: {
     flex: 1,
     minWidth: 0,
   },
-
   menuItemTitle: {
     color: "#1E293B",
     fontSize: 14,
     fontWeight: "600",
   },
-
   menuItemDescription: {
     color: "#94A3B8",
     fontSize: 10,
     marginTop: 3,
   },
-
   accessOverview: {
     backgroundColor: "#FFFFFF",
     borderRadius: 18,
@@ -1218,7 +1133,6 @@ const styles = StyleSheet.create({
     marginTop: 14,
     overflow: "hidden",
   },
-
   accessHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -1227,19 +1141,16 @@ const styles = StyleSheet.create({
     paddingTop: 15,
     paddingBottom: 12,
   },
-
   accessTitle: {
     color: "#0F172A",
     fontSize: 15,
     fontWeight: "700",
   },
-
   accessSubtitle: {
     color: "#64748B",
     fontSize: 11,
     marginTop: 3,
   },
-
   accessTotalBadge: {
     minWidth: 34,
     height: 34,
@@ -1248,18 +1159,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   accessTotalText: {
     color: "#2563EB",
     fontSize: 13,
     fontWeight: "700",
   },
-
   accessGroup: {
     borderTopWidth: 1,
     borderTopColor: "#F1F5F9",
   },
-
   accessHeading: {
     color: "#94A3B8",
     fontSize: 10,
@@ -1270,7 +1178,6 @@ const styles = StyleSheet.create({
     paddingTop: 13,
     paddingBottom: 5,
   },
-
   accessRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1279,11 +1186,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#F1F5F9",
   },
-
   lastAccessRow: {
     borderBottomWidth: 0,
   },
-
   accessAvatar: {
     width: 41,
     height: 41,
@@ -1292,59 +1197,47 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginRight: 11,
   },
-
   ownerAvatar: {
     backgroundColor: "#DBEAFE",
   },
-
   adminAvatar: {
     backgroundColor: "#EDE9FE",
   },
-
   memberAvatar: {
     backgroundColor: "#DCFCE7",
   },
-
   pendingAvatar: {
     backgroundColor: "#FEF3C7",
   },
-
   accessAvatarText: {
     color: "#2563EB",
     fontSize: 15,
     fontWeight: "700",
   },
-
   memberAvatarText: {
     color: "#16A34A",
   },
-
   staffAvatarText: {
     color: "#0284C7",
   },
-
   accessInfo: {
     flex: 1,
     minWidth: 0,
   },
-
   accessNameRow: {
     flexDirection: "row",
     alignItems: "center",
   },
-
   accessName: {
     color: "#1E293B",
     fontSize: 13,
     fontWeight: "700",
   },
-
   accessPhone: {
     color: "#94A3B8",
     fontSize: 11,
     marginTop: 3,
   },
-
   youBadge: {
     backgroundColor: "#EFF6FF",
     borderRadius: 6,
@@ -1352,60 +1245,49 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     marginLeft: 6,
   },
-
   youBadgeText: {
     color: "#2563EB",
     fontSize: 8,
     fontWeight: "700",
   },
-
   accessBadge: {
     borderRadius: 9,
     paddingHorizontal: 9,
     paddingVertical: 5,
     marginLeft: 8,
   },
-
   ownerBadge: {
     backgroundColor: "#DBEAFE",
   },
-
   ownerBadgeText: {
     color: "#1D4ED8",
     fontSize: 9,
     fontWeight: "700",
   },
-
   adminBadge: {
     backgroundColor: "#EDE9FE",
   },
-
   adminBadgeText: {
     color: "#7C3AED",
     fontSize: 9,
     fontWeight: "700",
   },
-
   memberBadge: {
     backgroundColor: "#DCFCE7",
   },
-
   memberBadgeText: {
     color: "#16A34A",
     fontSize: 9,
     fontWeight: "700",
   },
-
   staffBadge: {
     backgroundColor: "#E0F2FE",
   },
-
   staffBadgeText: {
     color: "#0284C7",
     fontSize: 9,
     fontWeight: "700",
   },
-
   pendingStatus: {
     backgroundColor: "#FEF3C7",
     borderRadius: 9,
@@ -1413,18 +1295,15 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     marginLeft: 7,
   },
-
   pendingStatusText: {
     color: "#B45309",
     fontSize: 9,
     fontWeight: "700",
   },
-
   pendingHeader: {
     flexDirection: "row",
     alignItems: "center",
   },
-
   pendingCountBadge: {
     minWidth: 21,
     height: 21,
@@ -1435,13 +1314,11 @@ const styles = StyleSheet.create({
     marginLeft: 5,
     marginTop: 7,
   },
-
   pendingCountText: {
     color: "#B45309",
     fontSize: 9,
     fontWeight: "700",
   },
-
   deleteInvitationButton: {
     width: 35,
     height: 35,
@@ -1451,13 +1328,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginLeft: 6,
   },
-
   noAccessContainer: {
     alignItems: "center",
     paddingHorizontal: 25,
     paddingVertical: 28,
   },
-
   noAccessIcon: {
     width: 54,
     height: 54,
@@ -1467,13 +1342,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 10,
   },
-
   noAccessTitle: {
     color: "#334155",
     fontSize: 14,
     fontWeight: "700",
   },
-
   noAccessText: {
     color: "#94A3B8",
     fontSize: 11,
@@ -1481,7 +1354,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: 4,
   },
-
   historyCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 18,
@@ -1490,7 +1362,6 @@ const styles = StyleSheet.create({
     marginTop: 14,
     overflow: "hidden",
   },
-
   historyHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -1499,19 +1370,16 @@ const styles = StyleSheet.create({
     paddingTop: 15,
     paddingBottom: 12,
   },
-
   historyTitle: {
     color: "#0F172A",
     fontSize: 15,
     fontWeight: "700",
   },
-
   historySubtitle: {
     color: "#64748B",
     fontSize: 11,
     marginTop: 3,
   },
-
   historyTotalBadge: {
     minWidth: 34,
     height: 34,
@@ -1520,13 +1388,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   historyTotalText: {
     color: "#2563EB",
     fontSize: 13,
     fontWeight: "700",
   },
-
   viewAllHistoryButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -1536,20 +1402,17 @@ const styles = StyleSheet.create({
     borderTopColor: "#F1F5F9",
     gap: 6,
   },
-
   viewAllHistoryText: {
     color: "#2563EB",
     fontSize: 13,
     fontWeight: "700",
   },
-
   historyModalOverlay: {
     flex: 1,
     backgroundColor: "rgba(15, 23, 42, 0.58)",
     justifyContent: "flex-end",
     alignItems: "center",
   },
-
   historyModalCard: {
     width: "100%",
     backgroundColor: "#FFFFFF",
@@ -1562,7 +1425,6 @@ const styles = StyleSheet.create({
     display: "flex",
     flexDirection: "column",
   },
-
   historyModalHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -1573,19 +1435,16 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#F1F5F9",
   },
-
   historyModalTitle: {
     fontSize: 18,
     fontWeight: "800",
     color: "#0F172A",
   },
-
   historyModalSubtitle: {
     fontSize: 12,
     color: "#64748B",
     marginTop: 2,
   },
-
   historyModalCloseButton: {
     width: 36,
     height: 36,
@@ -1594,7 +1453,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   historyModalHandle: {
     width: 42,
     height: 4,
@@ -1603,17 +1461,14 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     marginBottom: 16,
   },
-
   historyModalScroll: {
     flex: 1,
     minHeight: 200,
   },
-
   historyModalContent: {
     paddingBottom: 20,
     paddingTop: 4,
   },
-
   historyGroupHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -1622,20 +1477,17 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#F1F5F9",
   },
-
   historyGroupMonth: {
     fontSize: 14,
     fontWeight: "700",
     color: "#0F172A",
   },
-
   historyGroupYear: {
     fontSize: 13,
     fontWeight: "600",
     color: "#64748B",
     marginLeft: 6,
   },
-
   historyGroupCount: {
     marginLeft: 8,
     paddingHorizontal: 6,
@@ -1646,24 +1498,20 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#2563EB",
   },
-
   historyItem: {
     paddingVertical: 12,
     paddingHorizontal: 4,
     borderBottomWidth: 1,
     borderBottomColor: "#F5F7FA",
   },
-
   historyItemLast: {
     borderBottomWidth: 0,
   },
-
   historyItemHeader: {
     flexDirection: "row",
     alignItems: "flex-start",
     gap: 10,
   },
-
   historyIconContainer: {
     width: 36,
     height: 36,
@@ -1672,23 +1520,19 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     flexShrink: 0,
   },
-
   historyItemContent: {
     flex: 1,
   },
-
   historyItemTitle: {
     fontSize: 14,
     fontWeight: "700",
     color: "#0F172A",
   },
-
   historyItemDescription: {
     fontSize: 12,
     color: "#64748B",
     marginTop: 2,
   },
-
   historyItemMeta: {
     flexDirection: "row",
     alignItems: "center",
@@ -1696,56 +1540,45 @@ const styles = StyleSheet.create({
     marginTop: 4,
     flexWrap: "wrap",
   },
-
   historyItemDate: {
     fontSize: 10,
     color: "#94A3B8",
   },
-
   historyStatusBadge: {
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 4,
   },
-
   historyStatusBadgePaid: {
     backgroundColor: "#DCFCE7",
   },
-
   historyStatusBadgeDue: {
     backgroundColor: "#FEE2E2",
   },
-
   historyStatusText: {
     fontSize: 9,
     fontWeight: "600",
   },
-
   historyStatusTextPaid: {
     color: "#16A34A",
   },
-
   historyStatusTextDue: {
     color: "#DC2626",
   },
-
   historyItemAmount: {
     fontSize: 14,
     fontWeight: "700",
     color: "#0F172A",
   },
-
   historyItemMarkedBy: {
     fontSize: 10,
     color: "#94A3B8",
   },
-
   noHistoryContainer: {
     alignItems: "center",
     paddingVertical: 40,
     paddingHorizontal: 20,
   },
-
   noHistoryIcon: {
     width: 60,
     height: 60,
@@ -1755,13 +1588,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 12,
   },
-
   noHistoryTitle: {
     fontSize: 16,
     fontWeight: "700",
     color: "#334155",
   },
-
   noHistoryText: {
     fontSize: 13,
     color: "#94A3B8",
@@ -1769,13 +1600,11 @@ const styles = StyleSheet.create({
     marginTop: 4,
     lineHeight: 18,
   },
-
   footer: {
     alignItems: "center",
     paddingTop: 24,
     paddingBottom: 8,
   },
-
   footerLogo: {
     width: 30,
     height: 30,
@@ -1785,19 +1614,16 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 7,
   },
-
   versionText: {
     color: "#64748B",
     fontSize: 11,
     fontWeight: "600",
   },
-
   versionNumber: {
     color: "#CBD5E1",
     fontSize: 10,
     marginTop: 3,
   },
-
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(15, 23, 42, 0.58)",
@@ -1805,12 +1631,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 18,
   },
-
   keyboardView: {
     width: "100%",
     alignItems: "center",
   },
-
   editModal: {
     width: "100%",
     maxWidth: 420,
@@ -1818,13 +1642,11 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     padding: 20,
   },
-
   modalTopRow: {
     flexDirection: "row",
     alignItems: "center",
     marginBottom: 20,
   },
-
   modalTitleIcon: {
     width: 42,
     height: 42,
@@ -1834,17 +1656,14 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginRight: 11,
   },
-
   modalTitleContent: {
     flex: 1,
   },
-
   editModalTitle: {
     color: "#0F172A",
     fontSize: 17,
     fontWeight: "700",
   },
-
   modalCloseButton: {
     width: 35,
     height: 35,
@@ -1853,14 +1672,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   fieldLabel: {
     color: "#334155",
     fontSize: 12,
     fontWeight: "700",
     marginBottom: 7,
   },
-
   phoneInputRow: {
     height: 51,
     flexDirection: "row",
@@ -1872,7 +1689,6 @@ const styles = StyleSheet.create({
     paddingLeft: 4,
     paddingRight: 5,
   },
-
   phonePrefixBox: {
     height: 41,
     minWidth: 55,
@@ -1881,13 +1697,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   phonePrefix: {
     color: "#334155",
     fontSize: 14,
     fontWeight: "700",
   },
-
   phoneInput: {
     flex: 1,
     height: "100%",
@@ -1900,7 +1714,6 @@ const styles = StyleSheet.create({
         } as any)
       : {}),
   },
-
   phoneContactButton: {
     width: 39,
     height: 39,
@@ -1909,14 +1722,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   inputHint: {
     color: "#94A3B8",
     fontSize: 10,
     lineHeight: 15,
     marginTop: 7,
   },
-
   validationBox: {
     flexDirection: "row",
     alignItems: "center",
@@ -1929,14 +1740,12 @@ const styles = StyleSheet.create({
     marginTop: 10,
     gap: 7,
   },
-
   validationText: {
     flex: 1,
     color: "#B91C1C",
     fontSize: 11,
     lineHeight: 16,
   },
-
   modalActions: {
     flexDirection: "row",
     justifyContent: "flex-end",
@@ -1944,7 +1753,6 @@ const styles = StyleSheet.create({
     marginTop: 20,
     gap: 8,
   },
-
   cancelModalButton: {
     minHeight: 45,
     paddingHorizontal: 17,
@@ -1953,13 +1761,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   cancelButtonText: {
     color: "#475569",
     fontSize: 13,
     fontWeight: "700",
   },
-
   saveButton: {
     minHeight: 45,
     paddingHorizontal: 17,
@@ -1970,17 +1776,14 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 7,
   },
-
   saveButtonDisabled: {
     backgroundColor: "#CBD5E1",
   },
-
   saveButtonText: {
     color: "#FFFFFF",
     fontSize: 13,
     fontWeight: "700",
   },
-
   otpMessageContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -1990,7 +1793,6 @@ const styles = StyleSheet.create({
     borderRadius: 13,
     padding: 11,
   },
-
   otpSuccessIcon: {
     width: 31,
     height: 31,
@@ -2000,29 +1802,24 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginRight: 9,
   },
-
   otpMessageContent: {
     flex: 1,
   },
-
   otpMessageTitle: {
     color: "#166534",
     fontSize: 12,
     fontWeight: "700",
   },
-
   otpMessageText: {
     color: "#15803D",
     fontSize: 10,
     marginTop: 2,
   },
-
   otpContainer: {
     flexDirection: "row",
     justifyContent: "space-between",
     marginTop: 4,
   },
-
   otpInput: {
     width: 43,
     height: 53,
@@ -2040,33 +1837,27 @@ const styles = StyleSheet.create({
         } as any)
       : {}),
   },
-
   otpInputFilled: {
     borderColor: "#2563EB",
     backgroundColor: "#EFF6FF",
   },
-
   timerContainer: {
     alignItems: "center",
     marginTop: 12,
   },
-
   timerText: {
     color: "#64748B",
     fontSize: 11,
   },
-
   timerStrong: {
     color: "#334155",
     fontWeight: "700",
   },
-
   resendOtpText: {
     color: "#2563EB",
     fontSize: 12,
     fontWeight: "700",
   },
-
   deleteModal: {
     width: "100%",
     maxWidth: 380,
@@ -2075,7 +1866,6 @@ const styles = StyleSheet.create({
     padding: 22,
     alignItems: "center",
   },
-
   deleteIcon: {
     width: 55,
     height: 55,
@@ -2085,14 +1875,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 13,
   },
-
   deleteModalTitle: {
     color: "#0F172A",
     fontSize: 17,
     fontWeight: "700",
     textAlign: "center",
   },
-
   deleteModalDescription: {
     color: "#64748B",
     fontSize: 12,
@@ -2101,7 +1889,6 @@ const styles = StyleSheet.create({
     marginTop: 7,
     maxWidth: 290,
   },
-
   deleteModalActions: {
     flexDirection: "row",
     width: "100%",
@@ -2109,7 +1896,6 @@ const styles = StyleSheet.create({
     marginTop: 20,
     gap: 9,
   },
-
   deleteConfirmButton: {
     minHeight: 45,
     paddingHorizontal: 17,
@@ -2120,19 +1906,16 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 7,
   },
-
   deleteConfirmText: {
     color: "#FFFFFF",
     fontSize: 13,
     fontWeight: "700",
   },
-
   contactModalOverlay: {
     flex: 1,
     backgroundColor: "rgba(15, 23, 42, 0.58)",
     justifyContent: "flex-end",
   },
-
   contactModalContainer: {
     backgroundColor: "#FFFFFF",
     borderTopLeftRadius: 26,
@@ -2143,26 +1926,22 @@ const styles = StyleSheet.create({
     maxHeight: "88%",
     minHeight: "52%",
   },
-
   contactModalHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 15,
   },
-
   contactModalTitle: {
     color: "#0F172A",
     fontSize: 18,
     fontWeight: "700",
   },
-
   contactModalSubtitle: {
     color: "#64748B",
     fontSize: 11,
     marginTop: 3,
   },
-
   contactModalCloseButton: {
     width: 36,
     height: 36,
@@ -2171,7 +1950,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   contactModalSearchContainer: {
     height: 48,
     flexDirection: "row",
@@ -2182,7 +1960,6 @@ const styles = StyleSheet.create({
     borderRadius: 13,
     paddingHorizontal: 12,
   },
-
   contactModalSearchInput: {
     flex: 1,
     height: "100%",
@@ -2195,30 +1972,24 @@ const styles = StyleSheet.create({
         } as any)
       : {}),
   },
-
   contactCountRow: {
     paddingVertical: 9,
   },
-
   contactCount: {
     color: "#64748B",
     fontSize: 10,
     fontWeight: "700",
   },
-
   contactListWrapper: {
     flex: 1,
     minHeight: 220,
   },
-
   contactListContainer: {
     flex: 1,
   },
-
   contactListContent: {
     paddingBottom: 5,
   },
-
   contactItem: {
     flexDirection: "row",
     alignItems: "center",
@@ -2226,7 +1997,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#F1F5F9",
   },
-
   contactAvatar: {
     width: 43,
     height: 43,
@@ -2236,30 +2006,25 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginRight: 11,
   },
-
   contactAvatarText: {
     color: "#2563EB",
     fontSize: 16,
     fontWeight: "700",
   },
-
   contactInfo: {
     flex: 1,
     minWidth: 0,
   },
-
   contactName: {
     color: "#1E293B",
     fontSize: 13,
     fontWeight: "700",
   },
-
   contactPhone: {
     color: "#64748B",
     fontSize: 11,
     marginTop: 3,
   },
-
   contactArrow: {
     width: 30,
     height: 30,
@@ -2269,14 +2034,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginLeft: 7,
   },
-
   noContactsContainer: {
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 42,
     paddingHorizontal: 25,
   },
-
   noContactsIcon: {
     width: 58,
     height: 58,
@@ -2286,13 +2049,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 11,
   },
-
   noContactsTitle: {
     color: "#334155",
     fontSize: 14,
     fontWeight: "700",
   },
-
   noContactsText: {
     color: "#94A3B8",
     fontSize: 11,
@@ -2300,7 +2061,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: 4,
   },
-
   contactModalCancelButton: {
     minHeight: 47,
     borderRadius: 13,
@@ -2309,20 +2069,17 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginTop: 12,
   },
-
   contactModalCancelButtonText: {
     color: "#475569",
     fontSize: 13,
     fontWeight: "700",
   },
-
   modalBackdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.45)",
     justifyContent: "flex-end",
     alignItems: "center",
   },
-
   modalHandle: {
     width: 40,
     height: 4,
@@ -2331,7 +2088,6 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     marginBottom: 16,
   },
-
   photoOptionsModal: {
     backgroundColor: "#ffffff",
     borderTopLeftRadius: 24,
@@ -2341,7 +2097,6 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 480,
   },
-
   photoOptionsTitle: {
     fontSize: 20,
     fontWeight: "700",
@@ -2349,14 +2104,12 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     textAlign: "center",
   },
-
   photoOptionsSubtitle: {
     fontSize: 13,
     color: "#64748b",
     textAlign: "center",
     marginBottom: 20,
   },
-
   photoOptionButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -2368,7 +2121,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e2e8f0",
   },
-
   photoOptionIcon: {
     width: 44,
     height: 44,
@@ -2378,23 +2130,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginRight: 14,
   },
-
   photoOptionTextContainer: {
     flex: 1,
   },
-
   photoOptionTitle: {
     fontSize: 15,
     fontWeight: "600",
     color: "#0f172a",
   },
-
   photoOptionDescription: {
     fontSize: 12,
     color: "#64748b",
     marginTop: 1,
   },
-
   photoOptionsCancel: {
     paddingVertical: 14,
     alignItems: "center",
@@ -2402,13 +2150,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#f8fafc",
     borderRadius: 12,
   },
-
   photoOptionsCancelText: {
     fontSize: 15,
     fontWeight: "700",
     color: "#dc2626",
   },
-
   generateBillButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -2418,7 +2164,6 @@ const styles = StyleSheet.create({
     marginTop: 14,
     gap: 12,
   },
-
   generateBillIcon: {
     width: 44,
     height: 44,
@@ -2427,23 +2172,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   generateBillContent: {
     flex: 1,
   },
-
   generateBillTitle: {
     fontSize: 14,
     fontWeight: "700",
     color: "#0F172A",
   },
-
   generateBillSubtitle: {
     fontSize: 12,
     color: "#64748B",
     marginTop: 2,
   },
-
   generateBillArrow: {
     width: 30,
     height: 30,
@@ -2472,19 +2213,10 @@ export default function ProfileScreen() {
   const grants = useAccessStore((state) => state.grants);
   const removeGrant = useAccessStore((state) => state.removeGrant);
 
-  /* ----------------------------------------------------------------
-     ROLE
-  ---------------------------------------------------------------- */
-
   const { isAdmin, isMember, isStaff } = useUserRole();
 
-  // Only admin can edit the account (name, photo, phone)
   const canEditAccount = isAdmin;
-
-  // Admin + Member can see the subscription card. Staff cannot.
   const canSeeSubscription = isAdmin || isMember;
-
-  // Only admin can manage (switch/cancel) the subscription.
   const canManageSubscription = isAdmin;
 
   const [notifications, setNotifications] = useState(true);
@@ -2496,9 +2228,7 @@ export default function ProfileScreen() {
   const [editingName, setEditingName] = useState(false);
 
   const [showPhoneModal, setShowPhoneModal] = useState(false);
-
   const [phoneOtp, setPhoneOtp] = useState(["", "", "", "", "", ""]);
-
   const [phoneOtpSent, setPhoneOtpSent] = useState(false);
   const [phoneError, setPhoneError] = useState("");
   const [otpMessage, setOtpMessage] = useState("");
@@ -2523,6 +2253,7 @@ export default function ProfileScreen() {
 
   const [showPlansModal, setShowPlansModal] = useState(false);
   const [activePlan, setActivePlan] = useState<string>("pro");
+  const [isPaymentProcessing, setIsPaymentProcessing] = useState(false); // ✅ NEW
 
   const plans: SubscriptionPlan[] = [
     {
@@ -2818,29 +2549,18 @@ export default function ProfileScreen() {
   // SUBSCRIPTION FUNCTIONS
   // ============================================================
 
-  const handleSelectPlan = (planId: string) => {
-    if (!canManageSubscription) return;
-
-    const selectedPlan = plans.find((p) => p.id === planId);
-    const currentPlan = plans.find((p) => p.id === activePlan);
-
-    if (!selectedPlan) return;
-
-    if (activePlan === planId) {
-      setShowPlansModal(false);
-      return;
-    }
-
-    const planIndex = plans.findIndex((p) => p.id === planId);
+  // ✅ NEW: Reusable finalize function (called after successful payment OR free plan switch)
+  const finalizePlanSwitch = (
+    selectedPlan: SubscriptionPlan,
+    currentPlan: SubscriptionPlan | undefined,
+    paymentId?: string,
+  ) => {
+    const planIndex = plans.findIndex((p) => p.id === selectedPlan.id);
     const currentIndex = plans.findIndex((p) => p.id === activePlan);
 
     let actionType: HistoryEntry["type"] = "subscription_changed";
-
-    if (planIndex > currentIndex) {
-      actionType = "plan_upgraded";
-    } else if (planIndex < currentIndex) {
-      actionType = "plan_downgraded";
-    }
+    if (planIndex > currentIndex) actionType = "plan_upgraded";
+    else if (planIndex < currentIndex) actionType = "plan_downgraded";
 
     const actionTitle =
       actionType === "plan_upgraded"
@@ -2865,18 +2585,81 @@ export default function ProfileScreen() {
         to: selectedPlan.name,
         price: selectedPlan.price,
         period: selectedPlan.period,
+        paymentId: paymentId ?? null,
       },
     });
 
-    setActivePlan(planId);
+    setActivePlan(selectedPlan.id);
 
     Alert.alert(
       "Plan Updated!",
-      `You have successfully ${actionType === "plan_upgraded" ? "upgraded to" : actionType === "plan_downgraded" ? "downgraded to" : "switched to"} ${selectedPlan.name} plan.`,
+      `You have successfully ${
+        actionType === "plan_upgraded"
+          ? "upgraded to"
+          : actionType === "plan_downgraded"
+            ? "downgraded to"
+            : "switched to"
+      } ${selectedPlan.name} plan.`,
       [{ text: "OK" }],
     );
 
     setShowPlansModal(false);
+  };
+
+  // ✅ REPLACED: Now async and integrates Razorpay default UI
+  const handleSelectPlan = async (planId: string) => {
+    if (!canManageSubscription) return;
+
+    const selectedPlan = plans.find((p) => p.id === planId);
+    const currentPlan = plans.find((p) => p.id === activePlan);
+
+    if (!selectedPlan) return;
+
+    // Already on this plan — just close
+    if (activePlan === planId) {
+      setShowPlansModal(false);
+      return;
+    }
+
+    // FREE plan — no payment needed
+    if (selectedPlan.price === 0) {
+      finalizePlanSwitch(selectedPlan, currentPlan);
+      return;
+    }
+
+    // PAID plan — trigger Razorpay default UI
+    setShowPlansModal(false); // Close plan modal first
+    setIsPaymentProcessing(true);
+
+    try {
+      const result = await startRazorpayPayment(
+        selectedPlan.price,
+        selectedPlan.name,
+        {
+          name: user?.name,
+          phone: user?.phone,
+        },
+      );
+
+      if (result.success) {
+        finalizePlanSwitch(selectedPlan, currentPlan, result.paymentId);
+      } else {
+        Alert.alert(
+          "Payment Failed",
+          result.error || "Payment was not completed. Please try again.",
+          [{ text: "OK" }],
+        );
+      }
+    } catch (error) {
+      console.error("Payment error:", error);
+      Alert.alert(
+        "Payment Error",
+        "Something went wrong while processing the payment.",
+        [{ text: "OK" }],
+      );
+    } finally {
+      setIsPaymentProcessing(false);
+    }
   };
 
   const handleCancelSubscription = () => {
@@ -3435,7 +3218,6 @@ export default function ProfileScreen() {
       color: "#2563EB",
       onPress: () => setAccountSwitcherOpen(true),
     },
-
     {
       id: "generate_bill",
       title: "Generate Bill",
@@ -3447,7 +3229,6 @@ export default function ProfileScreen() {
         setShowGenerateBill(true);
       },
     },
-
     {
       id: "add_admin",
       title: "Add Admin",
@@ -3463,7 +3244,6 @@ export default function ProfileScreen() {
           },
         }),
     },
-
     {
       id: "invite_member",
       title: "Manage Apartment Owner Visibility",
@@ -3480,7 +3260,6 @@ export default function ProfileScreen() {
           },
         }),
     },
-
     {
       id: "invite_staff",
       title: "Manage Staff Visibility",
@@ -3497,7 +3276,6 @@ export default function ProfileScreen() {
           },
         }),
     },
-
     {
       id: "notifications",
       title: "Notifications",
@@ -3507,7 +3285,6 @@ export default function ProfileScreen() {
       onPress: () => setNotifications((enabled) => !enabled),
       showArrow: false,
     },
-
     {
       id: "dark_mode",
       title: "Dark Mode",
@@ -3517,7 +3294,6 @@ export default function ProfileScreen() {
       onPress: () => setDarkMode((enabled) => !enabled),
       showArrow: false,
     },
-
     {
       id: "delete_account",
       title: "Delete Account",
@@ -3526,7 +3302,6 @@ export default function ProfileScreen() {
       color: "#DC2626",
       onPress: handleDeleteAccount,
     },
-
     {
       id: "privacy_policy",
       title: "Privacy Policy",
@@ -3541,7 +3316,6 @@ export default function ProfileScreen() {
           },
         }),
     },
-
     {
       id: "terms_conditions",
       title: "Terms & Conditions",
@@ -3556,7 +3330,6 @@ export default function ProfileScreen() {
           },
         }),
     },
-
     {
       id: "about_us",
       title: "About Us",
@@ -3571,7 +3344,6 @@ export default function ProfileScreen() {
           },
         }),
     },
-
     {
       id: "help_support",
       title: "Help & Support",
@@ -3586,7 +3358,6 @@ export default function ProfileScreen() {
           },
         }),
     },
-
     {
       id: "rate_app",
       title: "Rate the App",
@@ -3595,17 +3366,6 @@ export default function ProfileScreen() {
       onPress: () => {},
     },
   ];
-
-  /* ----------------------------------------------------------------
-     ROLE-FILTERED SETTINGS SECTIONS
-
-     Only these are role-gated:
-       - BILLING (Generate Bill) → admin only
-       - ACCESS & ROLES         → admin only
-
-     Everything else (ACCOUNT, PREFERENCES, LEGAL & SUPPORT) shows
-     for all three roles.
-  ---------------------------------------------------------------- */
 
   const settingsSections = useMemo(() => {
     const sections = [
@@ -3637,7 +3397,6 @@ export default function ProfileScreen() {
       },
     ];
 
-    // Strip BILLING and ACCESS & ROLES for non-admins
     if (isAdmin) return sections;
 
     return sections.filter(
@@ -3775,7 +3534,6 @@ export default function ProfileScreen() {
                       ))}
                     </View>
 
-                    {/* Action button — hidden for members (view-only) */}
                     {canManageSubscription ? (
                       <TouchableOpacity
                         style={[
@@ -3785,7 +3543,7 @@ export default function ProfileScreen() {
                         ]}
                         onPress={() => handleSelectPlan(plan.id)}
                         activeOpacity={0.8}
-                        disabled={isActive}
+                        disabled={isActive || isPaymentProcessing}
                       >
                         <Text
                           style={[
@@ -4528,7 +4286,6 @@ export default function ProfileScreen() {
           <View style={styles.profileAccent} />
 
           <View style={styles.profileCardContent}>
-            {/* Avatar — camera button only for admin */}
             <View style={styles.avatarContainer}>
               {selectedAccount?.photoUri ? (
                 <Image
@@ -4558,7 +4315,6 @@ export default function ProfileScreen() {
               )}
             </View>
 
-            {/* Account details */}
             <View style={styles.profileDetails}>
               {editingName ? (
                 <View style={styles.nameEditContainer}>
@@ -4586,7 +4342,6 @@ export default function ProfileScreen() {
                     {selectedAccount?.name || "Apartment"}
                   </Text>
 
-                  {/* Edit name — admin only */}
                   {canEditAccount && (
                     <TouchableOpacity
                       style={styles.editButton}
@@ -4610,7 +4365,6 @@ export default function ProfileScreen() {
                   {user?.phone || "+91 9876543210"}
                 </Text>
 
-                {/* Edit phone — admin only */}
                 {canEditAccount && (
                   <TouchableOpacity
                     style={styles.editButton}
@@ -4630,7 +4384,6 @@ export default function ProfileScreen() {
             </View>
           </View>
 
-          {/* Logout */}
           <TouchableOpacity
             style={styles.logoutButton}
             onPress={handleLogout}
@@ -4642,7 +4395,7 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* SUBSCRIPTION CARD — hidden for staff */}
+        {/* SUBSCRIPTION CARD */}
         {canSeeSubscription &&
           (() => {
             const currentPlan = plans.find((p) => p.id === activePlan);
@@ -4666,7 +4419,6 @@ export default function ProfileScreen() {
                     </Text>
                   </View>
 
-                  {/* Ellipsis — admin only */}
                   {canManageSubscription && (
                     <TouchableOpacity
                       onPress={() => setShowPlansModal(true)}
@@ -4708,7 +4460,6 @@ export default function ProfileScreen() {
                   ))}
                 </View>
 
-                {/* Manage button — admin only */}
                 {canManageSubscription ? (
                   <View style={styles.subscriptionAction}>
                     <TouchableOpacity
@@ -4791,7 +4542,6 @@ export default function ProfileScreen() {
             </View>
           </View>
 
-          {/* Owner */}
           {selectedAccount?.ownerId === user?.id && (
             <View style={styles.accessGroup}>
               <Text style={styles.accessHeading}>Account Owner</Text>
@@ -4830,7 +4580,6 @@ export default function ProfileScreen() {
             </View>
           )}
 
-          {/* Admins */}
           {acceptedAdmins.length > 0 && (
             <View style={styles.accessGroup}>
               <Text style={styles.accessHeading}>Admins</Text>
@@ -4866,7 +4615,6 @@ export default function ProfileScreen() {
             </View>
           )}
 
-          {/* Members */}
           {visibleMembers.length > 0 && (
             <View style={styles.accessGroup}>
               <Text style={styles.accessHeading}>Members</Text>
@@ -4903,7 +4651,6 @@ export default function ProfileScreen() {
             </View>
           )}
 
-          {/* Staff */}
           {visibleStaff.length > 0 && (
             <View style={styles.accessGroup}>
               <Text style={styles.accessHeading}>Staff</Text>
@@ -4940,7 +4687,6 @@ export default function ProfileScreen() {
             </View>
           )}
 
-          {/* Pending */}
           {pendingInvitations.length > 0 && (
             <View style={styles.accessGroup}>
               <View style={styles.pendingHeader}>
@@ -4988,7 +4734,6 @@ export default function ProfileScreen() {
             </View>
           )}
 
-          {/* Empty */}
           {selectedAccount?.ownerId !== user?.id &&
             acceptedAdmins.length === 0 &&
             visibleMembers.length === 0 &&
@@ -5190,6 +4935,37 @@ export default function ProfileScreen() {
           memberType={billMemberType}
           onSaved={handleBillSaved}
         />
+      )}
+
+      {/* PAYMENT PROCESSING OVERLAY — shows while Razorpay opens */}
+      {isPaymentProcessing && (
+        <View
+          style={{
+            position: "absolute",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(15, 23, 42, 0.6)",
+            alignItems: "center",
+            justifyContent: "center",
+          }}
+        >
+          <View
+            style={{
+              backgroundColor: "#FFFFFF",
+              borderRadius: 16,
+              padding: 24,
+              alignItems: "center",
+              gap: 12,
+            }}
+          >
+            <ActivityIndicator size="large" color="#2563EB" />
+            <Text style={{ fontSize: 14, fontWeight: "700", color: "#0F172A" }}>
+              Opening payment…
+            </Text>
+          </View>
+        </View>
       )}
     </View>
   );
