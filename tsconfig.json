@@ -7,7 +7,9 @@
     "ignoreDeprecations": "6.0",
     "skipLibCheck": true,
     "paths": {
-      "@/*": ["./*"]
+      "@/*": [
+        "./*"
+      ]
     }
   },
   "include": [
@@ -30,5 +32,11 @@
     ".expo/types/**/*.ts",
     "expo-env.d.ts"
   ],
-  "exclude": ["node_modules", "dist", "build", ".expo"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "build",
+    ".expo"
+  ],
+  "extends": "expo/tsconfig.base"
 }

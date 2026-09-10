@@ -22,9 +22,9 @@ import { useUserRole } from "../../hooks/useUserRole";
 // ---------------------------------------------------------------------------
 // ROLE-BASED TABS
 //
-// Admin: Home, Calendar, Finance, Management, Profile (everything)
-// Member: Home, Calendar, Finance (view-only), Profile - no Management
-// Staff: Home, Calendar, Profile - no Finance, no Management
+// Admin:     Home, Calendar, Finance, Management, Profile (everything)
+// Member:    Home, Calendar, Finance (view-only), Management (view-only), Profile
+// Staff:     Home, Calendar, Profile (no Finance, no Management)
 // ---------------------------------------------------------------------------
 
 const COLORS = {
@@ -62,20 +62,18 @@ export default function TabsLayout() {
     string[]
   >([]);
 
-  // Debug logs
-  console.log("TabsLayout - userRole:", userRole);
-  console.log("TabsLayout - isAdmin:", isAdmin);
-  console.log("TabsLayout - isMember:", isMember);
-  console.log("TabsLayout - isStaff:", isStaff);
-
   /*
    * =========================================================
    * ROLE-BASED VISIBILITY
+   *
+   * Admin  → finance + management (full)
+   * Member → finance (view-only) + management (view-only)
+   * Staff  → no finance, no management
    * =========================================================
    */
 
   const canSeeFinance = isAdmin || isMember;
-  const canSeeManagement = isAdmin;
+  const canSeeManagement = isAdmin || isMember || isStaff;
 
   /*
    * =========================================================
@@ -177,7 +175,6 @@ export default function TabsLayout() {
                   style={styles.notificationPopover}
                   onPress={(event) => event.stopPropagation()}
                 >
-                  {/* Notification Header */}
                   <View style={styles.notificationHeader}>
                     <View style={styles.notificationHeaderTextContainer}>
                       <Text style={styles.notificationHeaderTitle}>
@@ -206,7 +203,6 @@ export default function TabsLayout() {
                     </TouchableOpacity>
                   </View>
 
-                  {/* Empty State */}
                   {notificationCount === 0 ? (
                     <View style={styles.emptyNotifications}>
                       <View style={styles.emptyNotificationIcon}>
@@ -232,7 +228,6 @@ export default function TabsLayout() {
                       showsVerticalScrollIndicator={false}
                       contentContainerStyle={styles.notificationScrollContent}
                     >
-                      {/* Payments */}
                       {pendingPayments.map((payment) => (
                         <View
                           key={`payment-${payment.id}`}
@@ -290,7 +285,6 @@ export default function TabsLayout() {
                         </View>
                       ))}
 
-                      {/* Maintenance Tasks */}
                       {pendingTasks.map((task) => (
                         <View
                           key={`task-${task.id}`}
@@ -384,23 +378,11 @@ export default function TabsLayout() {
             : {}),
         },
 
-        /*
-         * =====================================================
-         * TAB LABEL
-         * =====================================================
-         */
-
         tabBarLabelStyle: {
           fontSize: 10,
           fontWeight: "600",
           marginTop: 1,
         },
-
-        /*
-         * =====================================================
-         * TAB ITEM
-         * =====================================================
-         */
 
         tabBarItemStyle: {
           height: 44,
@@ -464,8 +446,7 @@ export default function TabsLayout() {
       />
 
       {/* =====================================================
-          FINANCE - admin (full) + member (view-only).
-          Hidden entirely for staff.
+          FINANCE - admin (full) + member (view-only). Hidden for staff.
           ===================================================== */}
 
       <Tabs.Screen
@@ -492,7 +473,8 @@ export default function TabsLayout() {
       />
 
       {/* =====================================================
-          MANAGEMENT - admin only.
+          MANAGEMENT - admin (full) + member (view-only). Hidden for staff.
+          Members can view other members, staff, and their own profile.
           ===================================================== */}
 
       <Tabs.Screen
@@ -548,12 +530,6 @@ export default function TabsLayout() {
 }
 
 const styles = StyleSheet.create({
-  /*
-   * =========================================================
-   * HEADER
-   * =========================================================
-   */
-
   accountSwitcherContainer: {
     flex: 1,
     maxWidth: 280,
@@ -598,12 +574,6 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: "700",
   },
-
-  /*
-   * =========================================================
-   * NOTIFICATION POPUP
-   * =========================================================
-   */
 
   notificationBackdrop: {
     flex: 1,
@@ -723,12 +693,6 @@ const styles = StyleSheet.create({
     marginLeft: 6,
   },
 
-  /*
-   * =========================================================
-   * EMPTY NOTIFICATIONS
-   * =========================================================
-   */
-
   emptyNotifications: {
     alignItems: "center",
     paddingHorizontal: 24,
@@ -758,12 +722,6 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginTop: 5,
   },
-
-  /*
-   * =========================================================
-   * TAB ICON
-   * =========================================================
-   */
 
   tabIconContainer: {
     width: 38,
