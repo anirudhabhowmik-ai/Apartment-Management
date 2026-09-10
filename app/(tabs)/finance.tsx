@@ -21,6 +21,7 @@ import * as XLSX from "xlsx";
 
 import { useAccounts } from "../../hooks/useAccounts";
 import { useGroups } from "../../hooks/useGroups";
+import { useUserRole } from "../../hooks/useUserRole";
 import { useAccountStore } from "../../store/accountStore";
 import { useFinanceBalanceStore } from "../../store/financeBalanceStore";
 import { useMemberStore } from "../../store/memberStore";
@@ -292,6 +293,15 @@ export default function FinanceScreen() {
     (state) => state.setOpeningBalance,
   );
 
+  /* ------------------------------------------------------------------------ */
+  /* ROLE - admin: edit + download; member: view + download; staff: no access */
+  /* ------------------------------------------------------------------------ */
+
+  const { isAdmin, isMember } = useUserRole();
+
+  const canEditBalance = isAdmin; // opening balance edit — admin only
+  const canDownloadReport = isAdmin || isMember; // reports — admin + member
+
   const [refreshing, setRefreshing] = useState(false);
 
   const [filter, setFilter] = useState<FilterType>("all");
@@ -380,6 +390,8 @@ export default function FinanceScreen() {
   // ============================================================
 
   const openOpeningBalanceEditor = () => {
+    if (!canEditBalance) return;
+
     setOpeningBalanceInput(
       initialOpeningBalance ? initialOpeningBalance.toString() : "",
     );
@@ -388,7 +400,7 @@ export default function FinanceScreen() {
   };
 
   const saveOpeningBalance = () => {
-    if (!selectedAccount) return;
+    if (!selectedAccount || !canEditBalance) return;
 
     setOpeningBalance(selectedAccount.id, Number(openingBalanceInput) || 0);
 
@@ -510,6 +522,8 @@ export default function FinanceScreen() {
   // ============================================================
 
   const handleDownloadExcel = async () => {
+    if (!canDownloadReport) return;
+
     const { monthKey, reportSummary, transactions } = getReportData();
 
     const maintenance = transactions.filter(
@@ -651,6 +665,8 @@ export default function FinanceScreen() {
   // ============================================================
 
   const handleDownloadPdf = async () => {
+    if (!canDownloadReport) return;
+
     const { monthKey, reportSummary, transactions } = getReportData();
 
     try {
@@ -757,6 +773,16 @@ export default function FinanceScreen() {
         }
         showsVerticalScrollIndicator={false}
       >
+        {/* VIEW-ONLY BANNER (members only) */}
+        {isMember && (
+          <View style={styles.viewOnlyBanner}>
+            <Ionicons name="eye-outline" size={16} color="#2563EB" />
+            <Text style={styles.viewOnlyText}>
+              View-only access · Contact admin to edit opening balance
+            </Text>
+          </View>
+        )}
+
         {/* HEADER */}
 
         <View style={styles.header}>
@@ -801,14 +827,16 @@ export default function FinanceScreen() {
               </Text>
             </View>
 
-            <TouchableOpacity
-              style={styles.heroEditButton}
-              onPress={openOpeningBalanceEditor}
-            >
-              <Ionicons name="create-outline" size={16} color="#fff" />
+            {canEditBalance && (
+              <TouchableOpacity
+                style={styles.heroEditButton}
+                onPress={openOpeningBalanceEditor}
+              >
+                <Ionicons name="create-outline" size={16} color="#fff" />
 
-              <Text style={styles.heroEditText}>Edit</Text>
-            </TouchableOpacity>
+                <Text style={styles.heroEditText}>Edit</Text>
+              </TouchableOpacity>
+            )}
           </View>
 
           <View style={styles.heroDivider} />
@@ -875,14 +903,16 @@ export default function FinanceScreen() {
               <Ionicons name="chevron-forward" size={19} color="#334155" />
             </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.reportButton}
-              onPress={() => setShowReportOptions(true)}
-            >
-              <Ionicons name="document-text-outline" size={16} color="#fff" />
+            {canDownloadReport && (
+              <TouchableOpacity
+                style={styles.reportButton}
+                onPress={() => setShowReportOptions(true)}
+              >
+                <Ionicons name="document-text-outline" size={16} color="#fff" />
 
-              <Text style={styles.reportButtonText}>Report</Text>
-            </TouchableOpacity>
+                <Text style={styles.reportButtonText}>Report</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
 
@@ -1017,200 +1047,196 @@ export default function FinanceScreen() {
         <View style={styles.bottomPadding} />
       </ScrollView>
 
-      {/* REPORT MODAL */}
+      {/* REPORT MODAL - admin + member */}
 
-      <Modal
-        transparent
-        animationType="slide"
-        visible={showReportOptions}
-        onRequestClose={() => setShowReportOptions(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.bottomSheet}>
-            <View style={styles.sheetHandle} />
+      {canDownloadReport && (
+        <Modal
+          transparent
+          animationType="slide"
+          visible={showReportOptions}
+          onRequestClose={() => setShowReportOptions(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.bottomSheet}>
+              <View style={styles.sheetHandle} />
 
-            <View style={styles.sheetHeader}>
-              <View>
-                <Text style={styles.sheetTitle}>Download Report</Text>
+              <View style={styles.sheetHeader}>
+                <View>
+                  <Text style={styles.sheetTitle}>Download Report</Text>
 
-                <Text style={styles.sheetSubtitle}>
-                  Choose a format for{" "}
-                  {selectedMonth.toLocaleString("default", {
-                    month: "long",
-                    year: "numeric",
-                  })}
-                </Text>
+                  <Text style={styles.sheetSubtitle}>
+                    Choose a format for{" "}
+                    {selectedMonth.toLocaleString("default", {
+                      month: "long",
+                      year: "numeric",
+                    })}
+                  </Text>
+                </View>
+
+                <TouchableOpacity
+                  style={styles.sheetCloseButton}
+                  onPress={() => setShowReportOptions(false)}
+                >
+                  <Ionicons name="close" size={20} color="#64748B" />
+                </TouchableOpacity>
               </View>
+
+              {/* EXCEL */}
 
               <TouchableOpacity
-                style={styles.sheetCloseButton}
+                style={styles.reportOption}
+                onPress={() => {
+                  setShowReportOptions(false);
+                  handleDownloadExcel();
+                }}
+              >
+                <View
+                  style={[
+                    styles.reportOptionIcon,
+                    {
+                      backgroundColor: "#ECFDF3",
+                    },
+                  ]}
+                >
+                  <Ionicons name="grid-outline" size={22} color="#16A34A" />
+                </View>
+
+                <View style={styles.reportOptionInfo}>
+                  <Text style={styles.reportOptionTitle}>Excel Report</Text>
+
+                  <Text style={styles.reportOptionSubtitle}>
+                    Detailed spreadsheet with transactions
+                  </Text>
+                </View>
+
+                <Ionicons name="chevron-forward" size={19} color="#94A3B8" />
+              </TouchableOpacity>
+
+              {/* PDF */}
+
+              <TouchableOpacity
+                style={styles.reportOption}
+                onPress={handleDownloadPdf}
+              >
+                <View
+                  style={[
+                    styles.reportOptionIcon,
+                    {
+                      backgroundColor: "#FEF2F2",
+                    },
+                  ]}
+                >
+                  <Ionicons
+                    name="document-text-outline"
+                    size={22}
+                    color="#DC2626"
+                  />
+                </View>
+
+                <View style={styles.reportOptionInfo}>
+                  <Text style={styles.reportOptionTitle}>PDF Report</Text>
+
+                  <Text style={styles.reportOptionSubtitle}>
+                    Share a clean financial summary
+                  </Text>
+                </View>
+
+                <Ionicons name="chevron-forward" size={19} color="#94A3B8" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.cancelButton}
                 onPress={() => setShowReportOptions(false)}
               >
-                <Ionicons name="close" size={20} color="#64748B" />
+                <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
             </View>
+          </View>
+        </Modal>
+      )}
 
-            {/* EXCEL */}
+      {/* OPENING BALANCE MODAL - admin only */}
 
-            <TouchableOpacity
-              style={styles.reportOption}
-              onPress={() => {
-                setShowReportOptions(false);
-                handleDownloadExcel();
-              }}
-            >
-              <View
-                style={[
-                  styles.reportOptionIcon,
-                  {
-                    backgroundColor: "#ECFDF3",
-                  },
-                ]}
-              >
-                <Ionicons name="grid-outline" size={22} color="#16A34A" />
+      {canEditBalance && (
+        <Modal
+          transparent
+          animationType="slide"
+          visible={showOpeningBalanceEditor}
+          onRequestClose={() => setShowOpeningBalanceEditor(false)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.bottomSheet}>
+              <View style={styles.sheetHandle} />
+
+              <View style={styles.sheetHeader}>
+                <View>
+                  <Text style={styles.sheetTitle}>Opening Balance</Text>
+
+                  <Text style={styles.sheetSubtitle}>
+                    Set the starting balance for this property.
+                  </Text>
+                </View>
+
+                <TouchableOpacity
+                  style={styles.sheetCloseButton}
+                  onPress={() => setShowOpeningBalanceEditor(false)}
+                >
+                  <Ionicons name="close" size={20} color="#64748B" />
+                </TouchableOpacity>
               </View>
 
-              <View style={styles.reportOptionInfo}>
-                <Text style={styles.reportOptionTitle}>Excel Report</Text>
+              <Text style={styles.inputLabel}>Starting balance</Text>
 
-                <Text style={styles.reportOptionSubtitle}>
-                  Detailed spreadsheet with transactions
-                </Text>
-              </View>
+              <View style={styles.amountInputContainer}>
+                <Text style={styles.currencySymbol}>₹</Text>
 
-              <Ionicons name="chevron-forward" size={19} color="#94A3B8" />
-            </TouchableOpacity>
-
-            {/* PDF */}
-
-            <TouchableOpacity
-              style={styles.reportOption}
-              onPress={handleDownloadPdf}
-            >
-              <View
-                style={[
-                  styles.reportOptionIcon,
-                  {
-                    backgroundColor: "#FEF2F2",
-                  },
-                ]}
-              >
-                <Ionicons
-                  name="document-text-outline"
-                  size={22}
-                  color="#DC2626"
+                <TextInput
+                  autoFocus
+                  keyboardType="numeric"
+                  placeholder="0"
+                  placeholderTextColor="#94A3B8"
+                  style={styles.openingBalanceInput}
+                  value={openingBalanceInput}
+                  onChangeText={(value) =>
+                    setOpeningBalanceInput(value.replace(/[^0-9]/g, ""))
+                  }
                 />
               </View>
 
-              <View style={styles.reportOptionInfo}>
-                <Text style={styles.reportOptionTitle}>PDF Report</Text>
+              <Text style={styles.inputHint}>
+                This balance will be carried forward to future months
+                automatically.
+              </Text>
 
-                <Text style={styles.reportOptionSubtitle}>
-                  Share a clean financial summary
-                </Text>
+              <View style={styles.openingBalanceActions}>
+                <TouchableOpacity
+                  style={styles.cancelOutlineButton}
+                  onPress={() => setShowOpeningBalanceEditor(false)}
+                >
+                  <Text style={styles.cancelOutlineText}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.saveOpeningBalanceButton}
+                  onPress={saveOpeningBalance}
+                >
+                  <Ionicons name="checkmark" size={18} color="#fff" />
+
+                  <Text style={styles.saveOpeningBalanceText}>
+                    Save Balance
+                  </Text>
+                </TouchableOpacity>
               </View>
-
-              <Ionicons name="chevron-forward" size={19} color="#94A3B8" />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.cancelButton}
-              onPress={() => setShowReportOptions(false)}
-            >
-              <Text style={styles.cancelButtonText}>Cancel</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-
-      {/* OPENING BALANCE MODAL */}
-
-      <Modal
-        transparent
-        animationType="slide"
-        visible={showOpeningBalanceEditor}
-        onRequestClose={() => setShowOpeningBalanceEditor(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.bottomSheet}>
-            <View style={styles.sheetHandle} />
-
-            <View style={styles.sheetHeader}>
-              <View>
-                <Text style={styles.sheetTitle}>Opening Balance</Text>
-
-                <Text style={styles.sheetSubtitle}>
-                  Set the starting balance for this property.
-                </Text>
-              </View>
-
-              <TouchableOpacity
-                style={styles.sheetCloseButton}
-                onPress={() => setShowOpeningBalanceEditor(false)}
-              >
-                <Ionicons name="close" size={20} color="#64748B" />
-              </TouchableOpacity>
-            </View>
-
-            <Text style={styles.inputLabel}>Starting balance</Text>
-
-            <View style={styles.amountInputContainer}>
-              <Text style={styles.currencySymbol}>₹</Text>
-
-              <TextInput
-                autoFocus
-                keyboardType="numeric"
-                placeholder="0"
-                placeholderTextColor="#94A3B8"
-                style={styles.openingBalanceInput}
-                value={openingBalanceInput}
-                onChangeText={(value) =>
-                  setOpeningBalanceInput(value.replace(/[^0-9]/g, ""))
-                }
-              />
-            </View>
-
-            <Text style={styles.inputHint}>
-              This balance will be carried forward to future months
-              automatically.
-            </Text>
-
-            <View style={styles.openingBalanceActions}>
-              <TouchableOpacity
-                style={styles.cancelOutlineButton}
-                onPress={() => setShowOpeningBalanceEditor(false)}
-              >
-                <Text style={styles.cancelOutlineText}>Cancel</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.saveOpeningBalanceButton}
-                onPress={saveOpeningBalance}
-              >
-                <Ionicons name="checkmark" size={18} color="#fff" />
-
-                <Text style={styles.saveOpeningBalanceText}>Save Balance</Text>
-              </TouchableOpacity>
             </View>
           </View>
-        </View>
-      </Modal>
+        </Modal>
+      )}
     </View>
   );
 }
 
 // ============================================================
 // STYLES
-//
-// IMPORTANT:
-// `as any` here is intentional.
-//
-// React Native's current TypeScript definitions can sometimes
-// infer StyleSheet entries as ViewStyle | TextStyle | ImageStyle
-// when they are later used in style arrays.
-//
-// This does NOT change runtime styling or finance logic.
-// It only prevents those incorrect overload errors.
 // ============================================================
 
 const styles = StyleSheet.create({
@@ -1227,6 +1253,27 @@ const styles = StyleSheet.create({
 
   bottomPadding: {
     height: 30,
+  },
+
+  // VIEW-ONLY BANNER
+  viewOnlyBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#EFF6FF",
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    marginBottom: 14,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: "#DBEAFE",
+  },
+
+  viewOnlyText: {
+    color: "#1D4ED8",
+    fontSize: 11.5,
+    fontWeight: "600",
+    flex: 1,
   },
 
   // HEADER

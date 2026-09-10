@@ -22,9 +22,16 @@ import { useUserRole } from "../../hooks/useUserRole";
 // ---------------------------------------------------------------------------
 // ROLE-BASED TABS
 //
-// Admin:     Home, Calendar, Finance, Management, Profile (everything)
-// Member:    Home, Calendar, Finance (view-only), Management (view-only), Profile
-// Staff:     Home, Calendar, Profile (no Finance, no Management)
+// Admin:     Home, Calendar, Finance, Management, Profile
+// Member:    Home, Calendar, Finance (view-only), Residents (view-only), Profile
+// Staff:     Home, Calendar, Directory (view-only), Profile
+//
+// Tab labels adapt to role:
+//   Admin  → "Management"  (full CRUD, briefcase icon)
+//   Member → "Residents"   (view-only, business/building icon)
+//   Staff  → "Directory"   (view-only, people icon)
+//
+// Icons are distinct so users can tell Home apart from the people tab.
 // ---------------------------------------------------------------------------
 
 const COLORS = {
@@ -67,13 +74,48 @@ export default function TabsLayout() {
    * ROLE-BASED VISIBILITY
    *
    * Admin  → finance + management (full)
-   * Member → finance (view-only) + management (view-only)
-   * Staff  → no finance, no management
+   * Member → finance (view-only) + residents (view-only)
+   * Staff  → directory (view-only), no finance
    * =========================================================
    */
 
   const canSeeFinance = isAdmin || isMember;
+  const canSeeCalendar = isAdmin || isMember;
   const canSeeManagement = isAdmin || isMember || isStaff;
+
+  /*
+   * =========================================================
+   * ROLE-BASED TAB LABEL + ICON
+   *
+   * The people tab means different things to different roles:
+   *   Admin  → manage members + staff (briefcase)
+   *   Member → view society residents (business/building)
+   *   Staff  → view members + staff directory (people)
+   * =========================================================
+   */
+
+  const peopleTabTitle = isAdmin
+    ? "Management"
+    : isMember
+      ? "Residents"
+      : isStaff
+        ? "Directory"
+        : "Management";
+
+  const peopleTabIcon = (focused: boolean): keyof typeof Ionicons.glyphMap => {
+    if (isAdmin) {
+      return focused ? "briefcase" : "briefcase-outline";
+    }
+    if (isMember) {
+      // Building icon — differentiates the society directory
+      // from the personal Home tab (which uses the home icon).
+      return focused ? "business" : "business-outline";
+    }
+    if (isStaff) {
+      return focused ? "people" : "people-outline";
+    }
+    return focused ? "briefcase" : "briefcase-outline";
+  };
 
   /*
    * =========================================================
@@ -394,7 +436,7 @@ export default function TabsLayout() {
       }}
     >
       {/* =====================================================
-          HOME - visible to everyone
+          HOME - visible to everyone (home icon)
           ===================================================== */}
 
       <Tabs.Screen
@@ -427,7 +469,7 @@ export default function TabsLayout() {
         name="calendar"
         options={{
           title: "Calendar",
-
+          href: canSeeCalendar ? undefined : null,
           tabBarIcon: ({ color, focused }) => (
             <View
               style={[
@@ -473,14 +515,16 @@ export default function TabsLayout() {
       />
 
       {/* =====================================================
-          MANAGEMENT - admin (full) + member (view-only). Hidden for staff.
-          Members can view other members, staff, and their own profile.
+          PEOPLE
+          - Admin  → "Management"  (briefcase icon, full CRUD)
+          - Member → "Residents"   (business icon, view-only)
+          - Staff  → "Directory"   (people icon, view-only)
           ===================================================== */}
 
       <Tabs.Screen
         name="people"
         options={{
-          title: "Management",
+          title: peopleTabTitle,
           href: canSeeManagement ? undefined : null,
 
           tabBarIcon: ({ color, focused }) => (
@@ -490,11 +534,7 @@ export default function TabsLayout() {
                 focused && styles.tabIconContainerActive,
               ]}
             >
-              <Ionicons
-                name={focused ? "briefcase" : "briefcase-outline"}
-                color={color}
-                size={22}
-              />
+              <Ionicons name={peopleTabIcon(focused)} color={color} size={22} />
             </View>
           ),
         }}

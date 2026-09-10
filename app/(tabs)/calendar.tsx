@@ -13,7 +13,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
-import { useAccessStore } from "../../store/accessStore";
+import { useUserRole } from "../../hooks/useUserRole";
 import { useAccountStore } from "../../store/accountStore";
 import {
   CalendarEvent,
@@ -23,38 +23,6 @@ import {
   useCalendarStore,
 } from "../../store/calendarStore";
 import { useAuthStore } from "../../store/useAuthStore";
-
-// ---------------------------------------------------------------------------
-// Helper to get current account and user role
-// ---------------------------------------------------------------------------
-function useCurrentAccountAndRole() {
-  const user = useAuthStore((s) => s.user);
-  const selectedAccountId = useAccountStore((s) => s.selectedAccountId);
-  const accounts = useAccountStore((s) => s.accounts);
-  const grants = useAccessStore((s) => s.grants);
-
-  const selectedAccount = accounts.find((a) => a.id === selectedAccountId);
-  const accountId = selectedAccountId ?? "";
-
-  const role: "admin" | "owner" = useMemo(() => {
-    if (!selectedAccount) return "owner";
-
-    if (selectedAccount.ownerId === user?.id) {
-      return "admin";
-    }
-
-    const grant = grants.find(
-      (g) => g.accountId === accountId && g.acceptedAt && g.role === "admin",
-    );
-    if (grant) {
-      return "admin";
-    }
-
-    return "owner";
-  }, [user, selectedAccount, accountId, grants]);
-
-  return { user, accountId, role };
-}
 
 const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
 const MONTH_NAMES = [
@@ -117,7 +85,18 @@ const STATUS_META: Record<
 };
 
 export default function CalendarScreen() {
-  const { user, accountId, role } = useCurrentAccountAndRole();
+  // ── Centralized role hook (same source of truth as Finance / People / _layout) ──
+  const { isAdmin, isMember, isStaff } = useUserRole();
+
+  const user = useAuthStore((s) => s.user);
+  const accountId = useAccountStore((s) => s.selectedAccountId) ?? "";
+
+  // Only admin and member can open the Add modal (request a booking or post)
+  const canOpenAddModal = isAdmin || isMember;
+
+  // Only admin can post notices
+  const canPostNotice = isAdmin;
+
   const events = useCalendarStore((s) => s.events);
   const addEvent = useCalendarStore((s) => s.addEvent);
   const editEvent = useCalendarStore((s) => s.editEvent);
@@ -217,10 +196,12 @@ export default function CalendarScreen() {
   };
 
   const openAddModal = () => {
+    if (!canOpenAddModal) return;
+
     setEditingEvent(null);
     setTitle("");
     setDescription("");
-    setType(role === "admin" ? "notice" : "event");
+    setType(isAdmin ? "notice" : "event");
     setResource(null);
     setStartTime("");
     setEndTime("");
@@ -254,12 +235,18 @@ export default function CalendarScreen() {
   };
 
   const handleSubmit = () => {
+    if (!canOpenAddModal) return;
+
     if (!title.trim()) {
       setFormError("Please enter a title");
       return;
     }
     if (type === "event" && !resource) {
       setFormError("Please select a venue for this event");
+      return;
+    }
+    if (type === "notice" && !canPostNotice) {
+      setFormError("Only the secretary can post notices");
       return;
     }
 
@@ -286,7 +273,7 @@ export default function CalendarScreen() {
         createdById: user?.id ?? "unknown",
         createdByName: user?.name ?? "You",
         createdByPhone: user?.phone,
-        createdByRole: role,
+        createdByRole: isAdmin ? "admin" : "owner",
       });
     }
 
@@ -312,15 +299,13 @@ export default function CalendarScreen() {
 
   const canEdit = (item: CalendarEvent) => {
     return (
-      role === "admin" ||
-      (item.createdById === user?.id && item.status === "pending")
+      isAdmin || (item.createdById === user?.id && item.status === "pending")
     );
   };
 
   const canDelete = (item: CalendarEvent) => {
     return (
-      role === "admin" ||
-      (item.createdById === user?.id && item.status !== "approved")
+      isAdmin || (item.createdById === user?.id && item.status !== "approved")
     );
   };
 
@@ -399,7 +384,7 @@ export default function CalendarScreen() {
 
           <View style={styles.eventActionsRow}>
             {context === "approvals" &&
-              role === "admin" &&
+              isAdmin &&
               item.status === "pending" && (
                 <>
                   <TouchableOpacity
@@ -474,7 +459,8 @@ export default function CalendarScreen() {
           </Text>
         </View>
 
-        {role === "admin" && (
+        {/* Tab switcher — admin only */}
+        {isAdmin && (
           <View style={styles.tabSwitcher}>
             <TouchableOpacity
               style={[
@@ -714,8 +700,8 @@ export default function CalendarScreen() {
         )}
       </ScrollView>
 
-      {/* FAB Button */}
-      {activeView === "calendar" && (
+      {/* FAB Button — admin + member */}
+      {activeView === "calendar" && canOpenAddModal && (
         <TouchableOpacity
           style={styles.fab}
           onPress={openAddModal}
@@ -755,7 +741,7 @@ export default function CalendarScreen() {
               <Text style={styles.addModalTitle}>
                 {editingEvent
                   ? "Edit Event"
-                  : role === "admin"
+                  : isAdmin
                     ? "Add to Calendar"
                     : "Request Event Booking"}
               </Text>
@@ -781,7 +767,8 @@ export default function CalendarScreen() {
                 <Ionicons name="chevron-down" size={18} color="#94a3b8" />
               </TouchableOpacity>
 
-              {role === "admin" && (
+              {/* Type switcher — admin only (members always create events) */}
+              {isAdmin && (
                 <View style={styles.typeSwitcher}>
                   <TouchableOpacity
                     style={[
@@ -918,7 +905,8 @@ export default function CalendarScreen() {
                 </View>
               ) : null}
 
-              {role === "owner" && type === "event" && !editingEvent && (
+              {/* Info box for members requesting bookings */}
+              {isMember && type === "event" && !editingEvent && (
                 <View style={styles.infoBox}>
                   <Ionicons
                     name="information-circle"
@@ -951,7 +939,7 @@ export default function CalendarScreen() {
                   <Text style={styles.modalSubmitText}>
                     {editingEvent
                       ? "Save Changes"
-                      : role === "admin"
+                      : isAdmin
                         ? "Add"
                         : "Request Booking"}
                   </Text>
@@ -977,7 +965,6 @@ export default function CalendarScreen() {
           <Pressable style={styles.datePickerCard} onPress={() => {}}>
             <Text style={styles.datePickerTitle}>Select Date</Text>
 
-            {/* Mini calendar for date selection */}
             <View style={styles.miniCalendarHeader}>
               <TouchableOpacity
                 onPress={() => {
@@ -1734,7 +1721,6 @@ const styles = StyleSheet.create({
   },
   modalSubmitText: { fontSize: 14, fontWeight: "700", color: "#ffffff" },
 
-  // Date Picker Modal Styles
   datePickerCard: {
     backgroundColor: "#ffffff",
     borderRadius: 22,
@@ -1875,7 +1861,6 @@ const styles = StyleSheet.create({
     width: "100%",
     marginTop: 6,
   },
-
   modalConfirmButton: {
     flex: 1,
     flexDirection: "row",
@@ -1909,7 +1894,6 @@ const styles = StyleSheet.create({
   },
   deleteConfirmText: { fontSize: 14, fontWeight: "700", color: "#ffffff" },
 
-  // View Event Modal Styles
   viewHeader: {
     flexDirection: "row",
     alignItems: "center",
