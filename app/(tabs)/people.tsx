@@ -18,8 +18,8 @@ import DatePickerModal from "../../components/DatePickerModal";
 import MonthYearPickerModal from "../../components/MonthYearPickerModal";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useGroups } from "../../hooks/useGroups";
+import { useUserRole } from "../../hooks/useUserRole";
 import { generateBillPDF, sharePDF } from "../../services/pdfGenerator";
-import { useAccountStore } from "../../store/accountStore";
 import { useAttendanceStore } from "../../store/attendanceStore";
 import { useMemberStore } from "../../store/memberStore";
 import { GroupType } from "../../types";
@@ -254,6 +254,31 @@ export default function PeopleScreen() {
 
   const getAttendanceRecord = useAttendanceStore((state) => state.getRecord);
 
+  /* ----------------------------------------------------------------
+     ROLE (from centralized hook)
+  ---------------------------------------------------------------- */
+
+  const { isAdmin, isMember, isStaff: isStaffRole } = useUserRole();
+
+  // Admin can add / edit / pay / bill / attendance
+  const canEdit = isAdmin;
+
+  // Admin and Member see finance; Staff does not
+  const canSeeFinance = isAdmin || isMember;
+
+  // Only admin sees the Expense tab
+  const canSeeExpenseTab = isAdmin;
+
+  // Everyone sees Member and Staff tabs
+  const canSeeMemberTab = true;
+  const canSeeStaffTab = true;
+
+  // Visible tabs by role
+  const visibleTabTypes: GroupType[] = [];
+  if (canSeeMemberTab) visibleTabTypes.push("apartment");
+  if (canSeeStaffTab) visibleTabTypes.push("staff");
+  if (canSeeExpenseTab) visibleTabTypes.push("expense");
+
   const tabTypes: GroupType[] = ["apartment", "staff", "expense"];
 
   const [activeTab, setActiveTab] = useState<GroupType>("apartment");
@@ -290,12 +315,15 @@ export default function PeopleScreen() {
 
   const [saving, setSaving] = useState(false);
 
-  // Download bill states
   const [generatingBill, setGeneratingBill] = useState<string | null>(null);
 
   useEffect(() => {
     if (tab === "apartment" || tab === "staff" || tab === "expense") {
-      setActiveTab(tab);
+      if (!visibleTabTypes.includes(tab)) {
+        setActiveTab("apartment");
+      } else {
+        setActiveTab(tab);
+      }
     }
   }, [tab]);
 
@@ -304,6 +332,8 @@ export default function PeopleScreen() {
   ================================================================ */
 
   const handleAdd = async (type: GroupType) => {
+    if (!canEdit) return;
+
     const existingGroup = groups.find((group) => group.type === type);
 
     if (existingGroup) {
@@ -374,29 +404,31 @@ export default function PeopleScreen() {
               : "Create a property first to start managing your apartment or home."}
           </Text>
 
-          <Pressable
-            style={({ pressed }) => [
-              styles.createButton,
-              pressed && styles.pressedButton,
-            ]}
-            onPress={() =>
-              router.push(
-                groups.length > 0
-                  ? "/(modals)/switch-account"
-                  : "/(modals)/add-account",
-              )
-            }
-          >
-            <Ionicons
-              name={groups.length > 0 ? "swap-horizontal" : "add"}
-              size={18}
-              color={COLORS.white}
-            />
+          {canEdit && (
+            <Pressable
+              style={({ pressed }) => [
+                styles.createButton,
+                pressed && styles.pressedButton,
+              ]}
+              onPress={() =>
+                router.push(
+                  groups.length > 0
+                    ? "/(modals)/switch-account"
+                    : "/(modals)/add-account",
+                )
+              }
+            >
+              <Ionicons
+                name={groups.length > 0 ? "swap-horizontal" : "add"}
+                size={18}
+                color={COLORS.white}
+              />
 
-            <Text style={styles.createButtonText}>
-              {groups.length > 0 ? "Select Property" : "Create Property"}
-            </Text>
-          </Pressable>
+              <Text style={styles.createButtonText}>
+                {groups.length > 0 ? "Select Property" : "Create Property"}
+              </Text>
+            </Pressable>
+          )}
         </View>
       </View>
     );
@@ -427,16 +459,20 @@ export default function PeopleScreen() {
         .map((member) => getDetailsForMonth(member, selectedMonth))
     : membersInActiveGroup;
 
-  const isApartment = activeTab === "apartment";
-  const isStaff = activeTab === "staff";
-  const isExpense = activeTab === "expense";
+  const isApartmentTab = activeTab === "apartment";
+  const isStaffTab = activeTab === "staff";
+  const isExpenseTab = activeTab === "expense";
+
+  // Whether finance should be shown in the current tab
+  const showFinancialInfo =
+    canSeeFinance && (isApartmentTab || isStaffTab || isExpenseTab);
 
   /* ================================================================
      PAYMENT
   ================================================================ */
 
   const paymentAmount = paymentMember
-    ? isApartment
+    ? isApartmentTab
       ? paymentMember.maintenanceAmount
       : (() => {
           const month = selectedMonth || new Date().toISOString().slice(0, 7);
@@ -460,6 +496,8 @@ export default function PeopleScreen() {
     (showDeduction ? Number(deductionAmount) || 0 : 0);
 
   const openPaymentModal = (member: any) => {
+    if (!canEdit) return;
+
     const month = selectedMonth || new Date().toISOString().slice(0, 7);
 
     const monthlyPayment = getPaymentForMonth(member, month);
@@ -493,6 +531,8 @@ export default function PeopleScreen() {
       return;
     }
 
+    if (!canEdit) return;
+
     const group = groups.find((currentGroup) => currentGroup.type === tab);
 
     const member = group
@@ -504,10 +544,10 @@ export default function PeopleScreen() {
     if (member) {
       openPaymentModal(member);
     }
-  }, [groups, getMembersByGroup, memberId, tab]);
+  }, [groups, getMembersByGroup, memberId, tab, canEdit]);
 
   const handleSavePayment = () => {
-    if (!paymentMember) return;
+    if (!paymentMember || !canEdit) return;
 
     setSaving(true);
 
@@ -567,11 +607,11 @@ export default function PeopleScreen() {
   };
 
   /* ================================================================
-   DOWNLOAD BILL
+     DOWNLOAD BILL
   ================================================================ */
 
   const handleDownloadBill = async (member: any) => {
-    if (generatingBill) return;
+    if (generatingBill || !canEdit) return;
 
     try {
       setGeneratingBill(member.id);
@@ -608,7 +648,7 @@ export default function PeopleScreen() {
         watermarkText: "Society Management",
       };
 
-      const baseAmount = isApartment
+      const baseAmount = isApartmentTab
         ? member.maintenanceAmount || 0
         : (() => {
             const record = getAttendanceRecord(member.id, month);
@@ -653,8 +693,10 @@ export default function PeopleScreen() {
         netAmount,
         signData: undefined,
         template: template,
-        billType: isApartment ? ("maintenance" as const) : ("salary" as const),
-        staffRole: isStaff ? member.role : undefined,
+        billType: isApartmentTab
+          ? ("maintenance" as const)
+          : ("salary" as const),
+        staffRole: isStaffTab ? member.role : undefined,
       };
 
       const pdfUri = await generateBillPDF(billData);
@@ -686,13 +728,13 @@ export default function PeopleScreen() {
 
   return (
     <View style={styles.container}>
-      {/* ==========================================================
-          HEADER
-      ========================================================== */}
+      {/* HEADER */}
 
       <View style={styles.header}>
         <View style={styles.headerTitleArea}>
-          <Text style={styles.title}>Management</Text>
+          <Text style={styles.title}>
+            {isAdmin ? "Management" : isMember ? "Residents" : "Directory"}
+          </Text>
 
           <Text style={styles.headerSubtitle} numberOfLines={1}>
             {selectedAccount?.name || "Your property"}
@@ -740,51 +782,47 @@ export default function PeopleScreen() {
         </View>
       </View>
 
-      {/* ==========================================================
-          TABS
-      ========================================================== */}
+      {/* TABS */}
 
       <View style={styles.tabsContainer}>
-        {tabTypes.map((type) => {
-          const isActive = activeTab === type;
+        {tabTypes
+          .filter((type) => visibleTabTypes.includes(type))
+          .map((type) => {
+            const isActive = activeTab === type;
 
-          return (
-            <Pressable
-              key={type}
-              style={({ pressed }) => [
-                styles.tab,
-                isActive && styles.tabActive,
-                pressed && styles.tabPressed,
-              ]}
-              onPress={() => setActiveTab(type)}
-            >
-              <Ionicons
-                name={getTabIcon(type)}
-                size={16}
-                color={isActive ? COLORS.primary : COLORS.secondary}
-              />
-
-              <Text
-                style={[styles.tabText, isActive && styles.tabTextActive]}
-                numberOfLines={1}
+            return (
+              <Pressable
+                key={type}
+                style={({ pressed }) => [
+                  styles.tab,
+                  isActive && styles.tabActive,
+                  pressed && styles.tabPressed,
+                ]}
+                onPress={() => setActiveTab(type)}
               >
-                {getTabLabel(type, selectedAccount?.type)}
-              </Text>
-            </Pressable>
-          );
-        })}
+                <Ionicons
+                  name={getTabIcon(type)}
+                  size={16}
+                  color={isActive ? COLORS.primary : COLORS.secondary}
+                />
+
+                <Text
+                  style={[styles.tabText, isActive && styles.tabTextActive]}
+                  numberOfLines={1}
+                >
+                  {getTabLabel(type, selectedAccount?.type)}
+                </Text>
+              </Pressable>
+            );
+          })}
       </View>
 
-      {/* ==========================================================
-          CONTENT
-      ========================================================== */}
+      {/* CONTENT */}
 
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.listContent}
       >
-        {/* LIST HEADER */}
-
         <View style={styles.listHeader}>
           <View style={styles.countArea}>
             <Text style={styles.countTitle}>
@@ -796,9 +834,9 @@ export default function PeopleScreen() {
             </Text>
 
             <Text style={styles.countSubtitle}>
-              {isExpense
+              {isExpenseTab
                 ? "Property expenses"
-                : isStaff
+                : isStaffTab
                   ? "Staff and salary"
                   : selectedAccount?.type === "home"
                     ? "Your tenants"
@@ -806,41 +844,39 @@ export default function PeopleScreen() {
             </Text>
           </View>
 
-          <Pressable
-            style={({ pressed }) => [
-              styles.addButton,
-              pressed && styles.addButtonPressed,
-            ]}
-            onPress={() => handleAdd(activeTab)}
-          >
-            <Ionicons name="add" size={18} color={COLORS.white} />
+          {canEdit && (
+            <Pressable
+              style={({ pressed }) => [
+                styles.addButton,
+                pressed && styles.addButtonPressed,
+              ]}
+              onPress={() => handleAdd(activeTab)}
+            >
+              <Ionicons name="add" size={18} color={COLORS.white} />
 
-            <Text style={styles.addButtonText}>
-              {getAddButtonLabel(activeTab, selectedAccount?.type)}
-            </Text>
-          </Pressable>
+              <Text style={styles.addButtonText}>
+                {getAddButtonLabel(activeTab, selectedAccount?.type)}
+              </Text>
+            </Pressable>
+          )}
         </View>
-
-        {/* ========================================================
-            EMPTY
-        ======================================================== */}
 
         {activeMembers.length === 0 ? (
           <View style={styles.emptyCard}>
             <View
               style={[
                 styles.emptyIcon,
-                isStaff && styles.emptyIconStaff,
-                isExpense && styles.emptyIconExpense,
+                isStaffTab && styles.emptyIconStaff,
+                isExpenseTab && styles.emptyIconExpense,
               ]}
             >
               <Ionicons
                 name={getTabIcon(activeTab)}
                 size={31}
                 color={
-                  isStaff
+                  isStaffTab
                     ? COLORS.purple
-                    : isExpense
+                    : isExpenseTab
                       ? COLORS.success
                       : COLORS.primary
                 }
@@ -853,9 +889,9 @@ export default function PeopleScreen() {
             </Text>
 
             <Text style={styles.emptySubtitle}>
-              {isExpense
+              {isExpenseTab
                 ? "Add your first expense to start tracking property spending."
-                : isStaff
+                : isStaffTab
                   ? "Add staff members to manage attendance and salary."
                   : selectedAccount?.type === "home"
                     ? "Add tenants to start managing your property."
@@ -863,10 +899,6 @@ export default function PeopleScreen() {
             </Text>
           </View>
         ) : (
-          /* ========================================================
-             MEMBER LIST
-          ======================================================== */
-
           <View>
             {activeMembers.map((member: any) => {
               const month =
@@ -876,7 +908,7 @@ export default function PeopleScreen() {
 
               const monthlyPayment = member.monthlyPayments?.[month];
 
-              const basePaymentAmount = isApartment
+              const basePaymentAmount = isApartmentTab
                 ? member.maintenanceAmount || 0
                 : (() => {
                     if (monthlyPayment?.payableSalary) {
@@ -921,16 +953,18 @@ export default function PeopleScreen() {
                     styles.memberCard,
                     pressed && styles.memberCardPressed,
                   ]}
-                  onPress={() =>
-                    router.push({
-                      pathname: "/(modals)/edit-member",
-                      params: {
-                        memberId: member.id,
-                        groupId: member.groupId,
-                        groupType: activeTab,
-                      },
-                    })
-                  }
+                  onPress={() => {
+                    if (canEdit) {
+                      router.push({
+                        pathname: "/(modals)/edit-member",
+                        params: {
+                          memberId: member.id,
+                          groupId: member.groupId,
+                          groupType: activeTab,
+                        },
+                      });
+                    }
+                  }}
                 >
                   {/* TOP */}
 
@@ -938,11 +972,11 @@ export default function PeopleScreen() {
                     <View
                       style={[
                         styles.memberAvatar,
-                        isStaff && styles.memberAvatarStaff,
-                        isExpense && styles.memberAvatarExpense,
+                        isStaffTab && styles.memberAvatarStaff,
+                        isExpenseTab && styles.memberAvatarExpense,
                       ]}
                     >
-                      {isExpense ? (
+                      {isExpenseTab ? (
                         <Ionicons
                           name="wallet-outline"
                           size={19}
@@ -965,7 +999,7 @@ export default function PeopleScreen() {
                     <View style={styles.memberInfo}>
                       <View style={styles.memberNameRow}>
                         <Text style={styles.memberName} numberOfLines={1}>
-                          {isExpense
+                          {isExpenseTab
                             ? member.category || member.name
                             : member.name}
                         </Text>
@@ -980,7 +1014,7 @@ export default function PeopleScreen() {
                         )}
                       </View>
 
-                      {isApartment && (
+                      {isApartmentTab && (
                         <Text style={styles.memberSubtitle} numberOfLines={1}>
                           {member.wing ? `${member.wing} • ` : ""}
                           {member.flatNumber
@@ -989,13 +1023,13 @@ export default function PeopleScreen() {
                         </Text>
                       )}
 
-                      {isStaff && (
+                      {isStaffTab && (
                         <Text style={styles.memberSubtitle} numberOfLines={1}>
                           {member.phone || "Staff member"}
                         </Text>
                       )}
 
-                      {isExpense && (
+                      {isExpenseTab && (
                         <Text style={styles.memberSubtitle} numberOfLines={1}>
                           {member.dueDate
                             ? `Due ${formatFullDate(member.dueDate)}`
@@ -1004,11 +1038,13 @@ export default function PeopleScreen() {
                       )}
                     </View>
 
-                    <Ionicons
-                      name="chevron-forward"
-                      size={17}
-                      color={COLORS.muted}
-                    />
+                    {canEdit && (
+                      <Ionicons
+                        name="chevron-forward"
+                        size={17}
+                        color={COLORS.muted}
+                      />
+                    )}
                   </View>
 
                   {/* DETAILS */}
@@ -1022,16 +1058,29 @@ export default function PeopleScreen() {
                       />
 
                       <Text style={styles.detailText}>
-                        {isApartment &&
-                          `₹${member.maintenanceAmount || 0} /month`}
+                        {showFinancialInfo ? (
+                          <>
+                            {isApartmentTab &&
+                              `₹${member.maintenanceAmount || 0} /month`}
 
-                        {isStaff && `₹${member.monthlySalary || 0} /month`}
+                            {isStaffTab &&
+                              `₹${member.monthlySalary || 0} /month`}
 
-                        {isExpense && `₹${member.amount || 0}`}
+                            {isExpenseTab && `₹${member.amount || 0}`}
+                          </>
+                        ) : (
+                          <>
+                            {isApartmentTab && "Maintenance tracked by admin"}
+
+                            {isStaffTab && "Salary tracked by admin"}
+
+                            {isExpenseTab && "Expense tracked by admin"}
+                          </>
+                        )}
                       </Text>
                     </View>
 
-                    {(isApartment || isStaff) && (
+                    {showFinancialInfo && (isApartmentTab || isStaffTab) && (
                       <View
                         style={[
                           styles.paymentBadge,
@@ -1064,7 +1113,7 @@ export default function PeopleScreen() {
                       </View>
                     )}
 
-                    {isExpense && member.status && (
+                    {showFinancialInfo && isExpenseTab && member.status && (
                       <View
                         style={[
                           styles.paymentBadge,
@@ -1096,11 +1145,11 @@ export default function PeopleScreen() {
                     )}
                   </View>
 
-                  {/* ACTIONS */}
+                  {/* ACTIONS — admin only */}
 
-                  {(isApartment || isStaff) && (
+                  {canEdit && (isApartmentTab || isStaffTab) && (
                     <View style={styles.actionButtons}>
-                      {isStaff && (
+                      {isStaffTab && (
                         <Pressable
                           style={({ pressed }) => [
                             styles.secondaryAction,
@@ -1184,20 +1233,22 @@ export default function PeopleScreen() {
                     </View>
                   )}
 
-                  {(isApartment || isStaff) && hasMatchingHistory && (
-                    <View style={styles.historyNotice}>
-                      <Ionicons
-                        name="information-circle-outline"
-                        size={14}
-                        color={COLORS.secondary}
-                      />
+                  {canEdit &&
+                    (isApartmentTab || isStaffTab) &&
+                    hasMatchingHistory && (
+                      <View style={styles.historyNotice}>
+                        <Ionicons
+                          name="information-circle-outline"
+                          size={14}
+                          color={COLORS.secondary}
+                        />
 
-                      <Text style={styles.historyText}>
-                        Payment details updated on{" "}
-                        {formatFullDate(`${selectedMonth}-01`)}
-                      </Text>
-                    </View>
-                  )}
+                        <Text style={styles.historyText}>
+                          Payment details updated on{" "}
+                          {formatFullDate(`${selectedMonth}-01`)}
+                        </Text>
+                      </View>
+                    )}
                 </Pressable>
               );
             })}
@@ -1205,9 +1256,7 @@ export default function PeopleScreen() {
         )}
       </ScrollView>
 
-      {/* ==========================================================
-          MONTH PICKER
-      ========================================================== */}
+      {/* MONTH PICKER */}
 
       <MonthYearPickerModal
         visible={showMonthPicker}
@@ -1216,451 +1265,427 @@ export default function PeopleScreen() {
         onSelect={setSelectedMonth}
       />
 
-      {/* ==========================================================
-          PAYMENT MODAL - With Side-by-Side Radio Buttons
-      ========================================================== */}
+      {/* PAYMENT MODAL — admin only */}
 
-      <Modal
-        transparent
-        animationType="fade"
-        visible={Boolean(paymentMember)}
-        onRequestClose={() => {
-          setPaymentMember(null);
-        }}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.paymentModal}>
-            {/* HEADER */}
-
-            <View style={styles.paymentModalHeader}>
-              <View style={styles.paymentHeaderIcon}>
-                <Ionicons
-                  name={isApartment ? "home-outline" : "wallet-outline"}
-                  size={20}
-                  color={COLORS.primary}
-                />
-              </View>
-
-              <View style={styles.paymentHeaderInfo}>
-                <Text style={styles.paymentTitle}>Payment Details</Text>
-
-                <Text style={styles.paymentMemberName} numberOfLines={1}>
-                  {paymentMember?.name}
-                </Text>
-              </View>
-
-              <Pressable
-                style={styles.closeModalButton}
-                onPress={() => {
-                  setPaymentMember(null);
-                }}
-              >
-                <Ionicons name="close" size={20} color={COLORS.text} />
-              </Pressable>
-            </View>
-
-            {/* CONTENT */}
-
-            <ScrollView
-              style={styles.paymentScroll}
-              contentContainerStyle={styles.paymentScrollContent}
-              showsVerticalScrollIndicator={false}
-              keyboardShouldPersistTaps="handled"
-            >
-              {/* PAYMENT MONTH */}
-
-              <View style={styles.paymentMonthRow}>
-                <View>
-                  <Text style={styles.paymentMonthLabel}>PAYMENT FOR</Text>
-
-                  <Text style={styles.paymentMonthText}>
-                    {formatMonthLong(selectedMonth || paidDate.slice(0, 7))}
-                  </Text>
-                </View>
-
-                <View
-                  style={[
-                    styles.statusSmallBadge,
-                    selectedStatus === "paid"
-                      ? styles.statusSmallBadgePaid
-                      : styles.statusSmallBadgeDue,
-                  ]}
-                >
-                  <Text
-                    style={[
-                      styles.statusSmallText,
-                      selectedStatus === "paid"
-                        ? styles.statusSmallTextPaid
-                        : styles.statusSmallTextDue,
-                    ]}
-                  >
-                    {selectedStatus === "paid" ? "PAID" : "DUE"}
-                  </Text>
-                </View>
-              </View>
-
-              {/* STATUS - Side-by-Side Radio Buttons */}
-
-              <Text style={styles.sectionLabel}>Payment Status</Text>
-
-              <View style={styles.statusRadioRow}>
-                {/* Paid Option */}
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.statusRadioOption,
-                    selectedStatus === "paid" &&
-                      styles.statusRadioOptionSelected,
-                    selectedStatus === "paid" && styles.statusRadioOptionPaid,
-                    pressed && styles.statusRadioOptionPressed,
-                  ]}
-                  onPress={() => setSelectedStatus("paid")}
-                >
-                  <View
-                    style={[
-                      styles.radioOuter,
-                      selectedStatus === "paid" && styles.radioOuterSelected,
-                    ]}
-                  >
-                    {selectedStatus === "paid" && (
-                      <View style={styles.radioInner} />
-                    )}
-                  </View>
-
-                  <View style={styles.statusRadioContent}>
-                    <View
-                      style={[
-                        styles.statusRadioIcon,
-                        styles.statusRadioIconPaid,
-                      ]}
-                    >
-                      <Ionicons
-                        name="checkmark-circle"
-                        size={18}
-                        color={COLORS.success}
-                      />
-                    </View>
-
-                    <View>
-                      <Text
-                        style={[
-                          styles.statusRadioTitle,
-                          selectedStatus === "paid" &&
-                            styles.statusRadioTitlePaid,
-                        ]}
-                      >
-                        Paid
-                      </Text>
-                    </View>
-                  </View>
-                </Pressable>
-
-                {/* Due Option */}
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.statusRadioOption,
-                    selectedStatus === "due" &&
-                      styles.statusRadioOptionSelected,
-                    selectedStatus === "due" && styles.statusRadioOptionDue,
-                    pressed && styles.statusRadioOptionPressed,
-                  ]}
-                  onPress={() => setSelectedStatus("due")}
-                >
-                  <View
-                    style={[
-                      styles.radioOuter,
-                      selectedStatus === "due" && styles.radioOuterSelected,
-                    ]}
-                  >
-                    {selectedStatus === "due" && (
-                      <View style={styles.radioInner} />
-                    )}
-                  </View>
-
-                  <View style={styles.statusRadioContent}>
-                    <View
-                      style={[
-                        styles.statusRadioIcon,
-                        styles.statusRadioIconDue,
-                      ]}
-                    >
-                      <Ionicons name="time" size={18} color={COLORS.danger} />
-                    </View>
-
-                    <View>
-                      <Text
-                        style={[
-                          styles.statusRadioTitle,
-                          selectedStatus === "due" &&
-                            styles.statusRadioTitleDue,
-                        ]}
-                      >
-                        Due
-                      </Text>
-                    </View>
-                  </View>
-                </Pressable>
-              </View>
-
-              {/* BASE AMOUNT */}
-
-              <Text style={styles.sectionLabel}>
-                {isApartment ? "Maintenance Amount" : "Salary Amount"}
-              </Text>
-
-              <View style={styles.amountCard}>
-                <View style={styles.amountLeft}>
+      {canEdit && (
+        <Modal
+          transparent
+          animationType="fade"
+          visible={Boolean(paymentMember)}
+          onRequestClose={() => {
+            setPaymentMember(null);
+          }}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.paymentModal}>
+              <View style={styles.paymentModalHeader}>
+                <View style={styles.paymentHeaderIcon}>
                   <Ionicons
-                    name="cash-outline"
-                    size={19}
+                    name={isApartmentTab ? "home-outline" : "wallet-outline"}
+                    size={20}
                     color={COLORS.primary}
                   />
-
-                  <Text style={styles.amountLabel}>Base amount</Text>
                 </View>
 
-                <Text style={styles.amountValue}>₹{paymentAmount || 0}</Text>
-              </View>
+                <View style={styles.paymentHeaderInfo}>
+                  <Text style={styles.paymentTitle}>Payment Details</Text>
 
-              {/* ADDITIONAL */}
-
-              <Pressable
-                style={styles.modifierButton}
-                onPress={() => {
-                  setShowAdditionalAmount(!showAdditionalAmount);
-
-                  if (showAdditionalAmount) {
-                    setAdditionalAmount("");
-                    setAdditionalNote("");
-                  }
-                }}
-              >
-                <View
-                  style={[
-                    styles.modifierIcon,
-                    showAdditionalAmount
-                      ? styles.modifierIconRemove
-                      : styles.modifierIconAdd,
-                  ]}
-                >
-                  <Ionicons
-                    name={showAdditionalAmount ? "remove" : "add"}
-                    size={16}
-                    color={
-                      showAdditionalAmount ? COLORS.danger : COLORS.primary
-                    }
-                  />
-                </View>
-
-                <Text
-                  style={[
-                    styles.modifierText,
-                    showAdditionalAmount && styles.modifierTextRemove,
-                  ]}
-                >
-                  {showAdditionalAmount
-                    ? "Remove additional amount"
-                    : "Add additional amount"}
-                </Text>
-
-                <Ionicons
-                  name={showAdditionalAmount ? "chevron-up" : "chevron-down"}
-                  size={16}
-                  color={COLORS.muted}
-                />
-              </Pressable>
-
-              {showAdditionalAmount && (
-                <View style={styles.inputGroup}>
-                  <TextInput
-                    style={styles.modalInput}
-                    placeholder="Additional amount"
-                    placeholderTextColor={COLORS.muted}
-                    keyboardType="numeric"
-                    value={additionalAmount}
-                    onChangeText={(value) =>
-                      setAdditionalAmount(value.replace(/[^0-9]/g, ""))
-                    }
-                  />
-
-                  <TextInput
-                    style={styles.modalInput}
-                    placeholder="Note, e.g. bonus or event work"
-                    placeholderTextColor={COLORS.muted}
-                    value={additionalNote}
-                    onChangeText={setAdditionalNote}
-                  />
-                </View>
-              )}
-
-              {/* DEDUCTION */}
-
-              <Pressable
-                style={styles.modifierButton}
-                onPress={() => {
-                  setShowDeduction(!showDeduction);
-
-                  if (showDeduction) {
-                    setDeductionAmount("");
-                    setDeductionNote("");
-                  }
-                }}
-              >
-                <View
-                  style={[
-                    styles.modifierIcon,
-                    showDeduction
-                      ? styles.modifierIconRemove
-                      : styles.modifierIconAdd,
-                  ]}
-                >
-                  <Ionicons
-                    name="remove"
-                    size={16}
-                    color={showDeduction ? COLORS.danger : COLORS.primary}
-                  />
-                </View>
-
-                <Text
-                  style={[
-                    styles.modifierText,
-                    showDeduction && styles.modifierTextRemove,
-                  ]}
-                >
-                  {showDeduction ? "Remove deduction" : "Less deduction"}
-                </Text>
-
-                <Ionicons
-                  name={showDeduction ? "chevron-up" : "chevron-down"}
-                  size={16}
-                  color={COLORS.muted}
-                />
-              </Pressable>
-
-              {showDeduction && (
-                <View style={styles.inputGroup}>
-                  <TextInput
-                    style={styles.modalInput}
-                    placeholder="Deduction amount"
-                    placeholderTextColor={COLORS.muted}
-                    keyboardType="numeric"
-                    value={deductionAmount}
-                    onChangeText={(value) =>
-                      setDeductionAmount(value.replace(/[^0-9]/g, ""))
-                    }
-                  />
-
-                  <TextInput
-                    style={styles.modalInput}
-                    placeholder="Note, e.g. advance or absence"
-                    placeholderTextColor={COLORS.muted}
-                    value={deductionNote}
-                    onChangeText={setDeductionNote}
-                  />
-                </View>
-              )}
-
-              {/* NET */}
-
-              <View style={styles.netAmountCard}>
-                <View>
-                  <Text style={styles.netAmountLabel}>
-                    {selectedStatus === "paid" ? "NET PAID" : "AMOUNT TO PAY"}
-                  </Text>
-
-                  <Text style={styles.netAmountHint}>
-                    Base + additions − deductions
+                  <Text style={styles.paymentMemberName} numberOfLines={1}>
+                    {paymentMember?.name}
                   </Text>
                 </View>
 
-                <Text style={styles.netAmountValue}>₹{netPaidAmount}</Text>
+                <Pressable
+                  style={styles.closeModalButton}
+                  onPress={() => {
+                    setPaymentMember(null);
+                  }}
+                >
+                  <Ionicons name="close" size={20} color={COLORS.text} />
+                </Pressable>
               </View>
 
-              {/* PAID DATE - Only shows when selectedStatus is "paid" */}
+              <ScrollView
+                style={styles.paymentScroll}
+                contentContainerStyle={styles.paymentScrollContent}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+              >
+                <View style={styles.paymentMonthRow}>
+                  <View>
+                    <Text style={styles.paymentMonthLabel}>PAYMENT FOR</Text>
 
-              {selectedStatus === "paid" && (
-                <>
-                  <Text style={styles.sectionLabel}>Paid Date</Text>
+                    <Text style={styles.paymentMonthText}>
+                      {formatMonthLong(selectedMonth || paidDate.slice(0, 7))}
+                    </Text>
+                  </View>
 
-                  <Pressable
-                    style={styles.dateSelector}
-                    onPress={() => setShowPaidDatePicker(true)}
+                  <View
+                    style={[
+                      styles.statusSmallBadge,
+                      selectedStatus === "paid"
+                        ? styles.statusSmallBadgePaid
+                        : styles.statusSmallBadgeDue,
+                    ]}
                   >
-                    <View style={styles.dateIcon}>
-                      <Ionicons
-                        name="calendar-outline"
-                        size={17}
-                        color={COLORS.primary}
-                      />
+                    <Text
+                      style={[
+                        styles.statusSmallText,
+                        selectedStatus === "paid"
+                          ? styles.statusSmallTextPaid
+                          : styles.statusSmallTextDue,
+                      ]}
+                    >
+                      {selectedStatus === "paid" ? "PAID" : "DUE"}
+                    </Text>
+                  </View>
+                </View>
+
+                <Text style={styles.sectionLabel}>Payment Status</Text>
+
+                <View style={styles.statusRadioRow}>
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.statusRadioOption,
+                      selectedStatus === "paid" &&
+                        styles.statusRadioOptionSelected,
+                      selectedStatus === "paid" && styles.statusRadioOptionPaid,
+                      pressed && styles.statusRadioOptionPressed,
+                    ]}
+                    onPress={() => setSelectedStatus("paid")}
+                  >
+                    <View
+                      style={[
+                        styles.radioOuter,
+                        selectedStatus === "paid" && styles.radioOuterSelected,
+                      ]}
+                    >
+                      {selectedStatus === "paid" && (
+                        <View style={styles.radioInner} />
+                      )}
                     </View>
 
-                    <Text style={styles.dateText}>
-                      {formatFullDate(paidDate)}
+                    <View style={styles.statusRadioContent}>
+                      <View
+                        style={[
+                          styles.statusRadioIcon,
+                          styles.statusRadioIconPaid,
+                        ]}
+                      >
+                        <Ionicons
+                          name="checkmark-circle"
+                          size={18}
+                          color={COLORS.success}
+                        />
+                      </View>
+
+                      <View>
+                        <Text
+                          style={[
+                            styles.statusRadioTitle,
+                            selectedStatus === "paid" &&
+                              styles.statusRadioTitlePaid,
+                          ]}
+                        >
+                          Paid
+                        </Text>
+                      </View>
+                    </View>
+                  </Pressable>
+
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.statusRadioOption,
+                      selectedStatus === "due" &&
+                        styles.statusRadioOptionSelected,
+                      selectedStatus === "due" && styles.statusRadioOptionDue,
+                      pressed && styles.statusRadioOptionPressed,
+                    ]}
+                    onPress={() => setSelectedStatus("due")}
+                  >
+                    <View
+                      style={[
+                        styles.radioOuter,
+                        selectedStatus === "due" && styles.radioOuterSelected,
+                      ]}
+                    >
+                      {selectedStatus === "due" && (
+                        <View style={styles.radioInner} />
+                      )}
+                    </View>
+
+                    <View style={styles.statusRadioContent}>
+                      <View
+                        style={[
+                          styles.statusRadioIcon,
+                          styles.statusRadioIconDue,
+                        ]}
+                      >
+                        <Ionicons name="time" size={18} color={COLORS.danger} />
+                      </View>
+
+                      <View>
+                        <Text
+                          style={[
+                            styles.statusRadioTitle,
+                            selectedStatus === "due" &&
+                              styles.statusRadioTitleDue,
+                          ]}
+                        >
+                          Due
+                        </Text>
+                      </View>
+                    </View>
+                  </Pressable>
+                </View>
+
+                <Text style={styles.sectionLabel}>
+                  {isApartmentTab ? "Maintenance Amount" : "Salary Amount"}
+                </Text>
+
+                <View style={styles.amountCard}>
+                  <View style={styles.amountLeft}>
+                    <Ionicons
+                      name="cash-outline"
+                      size={19}
+                      color={COLORS.primary}
+                    />
+
+                    <Text style={styles.amountLabel}>Base amount</Text>
+                  </View>
+
+                  <Text style={styles.amountValue}>₹{paymentAmount || 0}</Text>
+                </View>
+
+                <Pressable
+                  style={styles.modifierButton}
+                  onPress={() => {
+                    setShowAdditionalAmount(!showAdditionalAmount);
+
+                    if (showAdditionalAmount) {
+                      setAdditionalAmount("");
+                      setAdditionalNote("");
+                    }
+                  }}
+                >
+                  <View
+                    style={[
+                      styles.modifierIcon,
+                      showAdditionalAmount
+                        ? styles.modifierIconRemove
+                        : styles.modifierIconAdd,
+                    ]}
+                  >
+                    <Ionicons
+                      name={showAdditionalAmount ? "remove" : "add"}
+                      size={16}
+                      color={
+                        showAdditionalAmount ? COLORS.danger : COLORS.primary
+                      }
+                    />
+                  </View>
+
+                  <Text
+                    style={[
+                      styles.modifierText,
+                      showAdditionalAmount && styles.modifierTextRemove,
+                    ]}
+                  >
+                    {showAdditionalAmount
+                      ? "Remove additional amount"
+                      : "Add additional amount"}
+                  </Text>
+
+                  <Ionicons
+                    name={showAdditionalAmount ? "chevron-up" : "chevron-down"}
+                    size={16}
+                    color={COLORS.muted}
+                  />
+                </Pressable>
+
+                {showAdditionalAmount && (
+                  <View style={styles.inputGroup}>
+                    <TextInput
+                      style={styles.modalInput}
+                      placeholder="Additional amount"
+                      placeholderTextColor={COLORS.muted}
+                      keyboardType="numeric"
+                      value={additionalAmount}
+                      onChangeText={(value) =>
+                        setAdditionalAmount(value.replace(/[^0-9]/g, ""))
+                      }
+                    />
+
+                    <TextInput
+                      style={styles.modalInput}
+                      placeholder="Note, e.g. bonus or event work"
+                      placeholderTextColor={COLORS.muted}
+                      value={additionalNote}
+                      onChangeText={setAdditionalNote}
+                    />
+                  </View>
+                )}
+
+                <Pressable
+                  style={styles.modifierButton}
+                  onPress={() => {
+                    setShowDeduction(!showDeduction);
+
+                    if (showDeduction) {
+                      setDeductionAmount("");
+                      setDeductionNote("");
+                    }
+                  }}
+                >
+                  <View
+                    style={[
+                      styles.modifierIcon,
+                      showDeduction
+                        ? styles.modifierIconRemove
+                        : styles.modifierIconAdd,
+                    ]}
+                  >
+                    <Ionicons
+                      name="remove"
+                      size={16}
+                      color={showDeduction ? COLORS.danger : COLORS.primary}
+                    />
+                  </View>
+
+                  <Text
+                    style={[
+                      styles.modifierText,
+                      showDeduction && styles.modifierTextRemove,
+                    ]}
+                  >
+                    {showDeduction ? "Remove deduction" : "Less deduction"}
+                  </Text>
+
+                  <Ionicons
+                    name={showDeduction ? "chevron-up" : "chevron-down"}
+                    size={16}
+                    color={COLORS.muted}
+                  />
+                </Pressable>
+
+                {showDeduction && (
+                  <View style={styles.inputGroup}>
+                    <TextInput
+                      style={styles.modalInput}
+                      placeholder="Deduction amount"
+                      placeholderTextColor={COLORS.muted}
+                      keyboardType="numeric"
+                      value={deductionAmount}
+                      onChangeText={(value) =>
+                        setDeductionAmount(value.replace(/[^0-9]/g, ""))
+                      }
+                    />
+
+                    <TextInput
+                      style={styles.modalInput}
+                      placeholder="Note, e.g. advance or absence"
+                      placeholderTextColor={COLORS.muted}
+                      value={deductionNote}
+                      onChangeText={setDeductionNote}
+                    />
+                  </View>
+                )}
+
+                <View style={styles.netAmountCard}>
+                  <View>
+                    <Text style={styles.netAmountLabel}>
+                      {selectedStatus === "paid" ? "NET PAID" : "AMOUNT TO PAY"}
                     </Text>
 
-                    <Ionicons
-                      name="chevron-forward"
-                      size={17}
-                      color={COLORS.muted}
-                    />
-                  </Pressable>
-                </>
-              )}
+                    <Text style={styles.netAmountHint}>
+                      Base + additions − deductions
+                    </Text>
+                  </View>
 
-              <View style={styles.paymentBottomSpace} />
-            </ScrollView>
+                  <Text style={styles.netAmountValue}>₹{netPaidAmount}</Text>
+                </View>
 
-            {/* FOOTER - Save and Cancel buttons */}
+                {selectedStatus === "paid" && (
+                  <>
+                    <Text style={styles.sectionLabel}>Paid Date</Text>
 
-            <View style={styles.modalActions}>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.cancelButton,
-                  pressed && styles.cancelButtonPressed,
-                ]}
-                onPress={() => {
-                  setPaymentMember(null);
-                }}
-                disabled={saving}
-              >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </Pressable>
+                    <Pressable
+                      style={styles.dateSelector}
+                      onPress={() => setShowPaidDatePicker(true)}
+                    >
+                      <View style={styles.dateIcon}>
+                        <Ionicons
+                          name="calendar-outline"
+                          size={17}
+                          color={COLORS.primary}
+                        />
+                      </View>
 
-              <Pressable
-                style={({ pressed }) => [
-                  styles.saveButton,
-                  selectedStatus === "due" && styles.saveDueButton,
-                  pressed && styles.saveButtonPressed,
-                  saving && styles.saveButtonDisabled,
-                ]}
-                onPress={handleSavePayment}
-                disabled={saving}
-              >
-                <Ionicons
-                  name={
-                    selectedStatus === "paid"
-                      ? "checkmark-circle-outline"
-                      : "time-outline"
-                  }
-                  size={18}
-                  color={COLORS.white}
-                />
+                      <Text style={styles.dateText}>
+                        {formatFullDate(paidDate)}
+                      </Text>
 
-                <Text style={styles.saveButtonText}>
-                  {saving
-                    ? "Saving..."
-                    : selectedStatus === "paid"
-                      ? "Save as Paid"
-                      : "Save as Due"}
-                </Text>
-              </Pressable>
+                      <Ionicons
+                        name="chevron-forward"
+                        size={17}
+                        color={COLORS.muted}
+                      />
+                    </Pressable>
+                  </>
+                )}
+
+                <View style={styles.paymentBottomSpace} />
+              </ScrollView>
+
+              <View style={styles.modalActions}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.cancelButton,
+                    pressed && styles.cancelButtonPressed,
+                  ]}
+                  onPress={() => {
+                    setPaymentMember(null);
+                  }}
+                  disabled={saving}
+                >
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                </Pressable>
+
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.saveButton,
+                    selectedStatus === "due" && styles.saveDueButton,
+                    pressed && styles.saveButtonPressed,
+                    saving && styles.saveButtonDisabled,
+                  ]}
+                  onPress={handleSavePayment}
+                  disabled={saving}
+                >
+                  <Ionicons
+                    name={
+                      selectedStatus === "paid"
+                        ? "checkmark-circle-outline"
+                        : "time-outline"
+                    }
+                    size={18}
+                    color={COLORS.white}
+                  />
+
+                  <Text style={styles.saveButtonText}>
+                    {saving
+                      ? "Saving..."
+                      : selectedStatus === "paid"
+                        ? "Save as Paid"
+                        : "Save as Due"}
+                  </Text>
+                </Pressable>
+              </View>
             </View>
           </View>
-        </View>
-      </Modal>
+        </Modal>
+      )}
 
-      {/* ==========================================================
-          DATE PICKER
-      ========================================================== */}
+      {/* DATE PICKER */}
 
       <DatePickerModal
         visible={showPaidDatePicker}
@@ -1829,8 +1854,6 @@ const styles = StyleSheet.create({
     lineHeight: 15,
     color: COLORS.secondary,
   },
-
-  /* THIS IS THE ONLY ADD BUTTON */
 
   addButton: {
     height: 40,
@@ -2282,8 +2305,6 @@ const styles = StyleSheet.create({
     paddingTop: 14,
   },
 
-  /* PAYMENT MONTH */
-
   paymentMonthRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -2336,8 +2357,6 @@ const styles = StyleSheet.create({
   statusSmallTextDue: {
     color: COLORS.danger,
   },
-
-  /* PAYMENT STATUS - SIDE BY SIDE RADIO */
 
   statusRadioRow: {
     flexDirection: "row",
@@ -2434,8 +2453,6 @@ const styles = StyleSheet.create({
     color: COLORS.danger,
   },
 
-  /* AMOUNT */
-
   sectionLabel: {
     marginTop: 16,
     marginBottom: 7,
@@ -2474,8 +2491,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: COLORS.text,
   },
-
-  /* MODIFIERS */
 
   modifierButton: {
     minHeight: 42,
@@ -2527,8 +2542,6 @@ const styles = StyleSheet.create({
     color: COLORS.text,
   },
 
-  /* NET */
-
   netAmountCard: {
     minHeight: 69,
     flexDirection: "row",
@@ -2563,8 +2576,6 @@ const styles = StyleSheet.create({
     color: COLORS.white,
   },
 
-  /* PAID DATE */
-
   dateSelector: {
     minHeight: 49,
     flexDirection: "row",
@@ -2596,8 +2607,6 @@ const styles = StyleSheet.create({
   paymentBottomSpace: {
     height: 17,
   },
-
-  /* PAYMENT FOOTER */
 
   modalActions: {
     flexDirection: "row",
