@@ -50,14 +50,7 @@ function validateEmail(email: string): boolean {
 /**
  * Keep only numbers and limit the value to 10 digits.
  *
- * This also handles pasted values such as:
- * +91 98765 43210
- *
- * Result:
- * 9198765432
- *
- * The field itself is limited to 10 digits, so only the first
- * 10 numeric characters are kept.
+ * Empty value is allowed because the field is optional.
  */
 function sanitizeContactNumber(value: string): string {
   return value.replace(/\D/g, "").slice(0, 10);
@@ -161,7 +154,6 @@ export default function GenerateBillModal({
       setSwatch(cfg?.accentColor ?? templates[0].colors.primary);
 
       setSocietyName(cfg?.societyName ?? "");
-
       setAddress(cfg?.address ?? "");
 
       // Sanitize saved contact number as well.
@@ -195,7 +187,11 @@ export default function GenerateBillModal({
   };
 
   /**
-   * Validate all common details before moving to the signature step.
+   * Validate details before moving to the signature step.
+   *
+   * - Society name: required
+   * - Contact number: OPTIONAL, but if entered must be exactly 10 digits
+   * - Email: OPTIONAL, but if entered must be valid
    */
   const handleDetailsNext = () => {
     // Society name required
@@ -204,13 +200,15 @@ export default function GenerateBillModal({
       return;
     }
 
-    // Contact number required and must contain exactly 10 digits
-    if (contactNumber.length !== 10) {
-      setFormError("Please enter a valid 10-digit contact number");
+    // Contact number optional — but if entered, must be exactly 10 digits
+    if (contactNumber.length > 0 && contactNumber.length !== 10) {
+      setFormError(
+        "Contact number must be exactly 10 digits, or leave it empty",
+      );
       return;
     }
 
-    // Email is optional, but if entered it must be valid
+    // Email optional, but if entered it must be valid
     if (!validateEmail(email)) {
       setFormError("Please enter a valid email address");
       return;
@@ -313,6 +311,11 @@ export default function GenerateBillModal({
 
     const displaySignature = useRealCommonDetails ? signature : undefined;
 
+    // Only show the "contact • email" line if at least one of them is present.
+    const hasContactOrEmail =
+      Boolean(displayContact && displayContact.trim()) ||
+      Boolean(displayEmail && displayEmail.trim());
+
     return (
       <View style={styles.previewCard}>
         <View style={[styles.previewHeader, { backgroundColor: swatch }]}>
@@ -330,10 +333,15 @@ export default function GenerateBillModal({
             <Text style={styles.previewSub}>{displayAddress}</Text>
           ) : null}
 
-          {(displayContact || displayEmail) && (
+          {hasContactOrEmail && (
             <Text style={styles.previewSub}>
               {displayContact}
-              {displayContact && displayEmail ? "  •  " : ""}
+              {displayContact &&
+              displayContact.trim() &&
+              displayEmail &&
+              displayEmail.trim()
+                ? "  •  "
+                : ""}
               {displayEmail}
             </Text>
           )}
@@ -585,10 +593,10 @@ export default function GenerateBillModal({
                 {/* Contact + Email */}
 
                 <View style={styles.rowGroup}>
-                  {/* CONTACT NUMBER */}
+                  {/* CONTACT NUMBER — OPTIONAL */}
 
                   <View style={[styles.inputGroup, { flex: 1 }]}>
-                    <Text style={styles.label}>Contact Number</Text>
+                    <Text style={styles.label}>Society Number</Text>
 
                     <TextInput
                       style={[
@@ -637,12 +645,18 @@ export default function GenerateBillModal({
                         </Text>
                       </View>
                     )}
+
+                    {/* Optional hint when empty */}
+
+                    {contactNumber.length === 0 && (
+                      <Text style={styles.optionalHint}>Optional</Text>
+                    )}
                   </View>
 
                   {/* EMAIL */}
 
                   <View style={[styles.inputGroup, { flex: 1 }]}>
-                    <Text style={styles.label}>Email</Text>
+                    <Text style={styles.label}>Society Email</Text>
 
                     <TextInput
                       style={[
@@ -687,6 +701,12 @@ export default function GenerateBillModal({
                         <Text style={styles.validFieldText}>Valid email</Text>
                       </View>
                     ) : null}
+
+                    {/* Optional hint when empty */}
+
+                    {email.length === 0 && (
+                      <Text style={styles.optionalHint}>Optional</Text>
+                    )}
                   </View>
                 </View>
 
@@ -1068,6 +1088,14 @@ const styles = StyleSheet.create({
     color: "#dc2626",
     marginTop: 4,
     marginLeft: 2,
+  },
+
+  optionalHint: {
+    fontSize: 10.5,
+    color: "#94a3b8",
+    marginTop: 4,
+    marginLeft: 2,
+    fontStyle: "italic",
   },
 
   validFieldRow: {
