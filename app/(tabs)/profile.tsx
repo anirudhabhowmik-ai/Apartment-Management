@@ -32,6 +32,7 @@ import {
 
 import GenerateBillModal from "../../components/GenerateBillModal";
 import { useAccounts } from "../../hooks/useAccounts";
+import { useUserRole } from "../../hooks/useUserRole";
 import { sendOtp, verifyOtp } from "../../services/otpService";
 import { useAccessStore } from "../../store/accessStore";
 import { useAccountStore } from "../../store/accountStore";
@@ -100,7 +101,7 @@ interface SubscriptionPlan {
 }
 
 // ---------------------------------------------------------------------------
-// Photo Adjust Modal - Same as in AddAccountScreen
+// Photo Adjust Modal
 // ---------------------------------------------------------------------------
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -170,7 +171,6 @@ function PhotoAdjustModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zoom, image]);
 
-  // ----- Refs kept in sync with the latest state, for the PanResponder -----
   const zoomRef = useRef(zoom);
   const translateRef = useRef(translate);
   const imageRef = useRef(image);
@@ -208,10 +208,6 @@ function PhotoAdjustModal({
       y: clampNumber(t.y, -maxY, maxY),
     };
   };
-
-  // -------------------------------------------------------------------
-  // Gesture tracking - fixed for proper two-finger pinch
-  // -------------------------------------------------------------------
 
   type ActiveGesture =
     | {
@@ -599,7 +595,7 @@ const adjustStyles = StyleSheet.create({
 });
 
 // ============================================================
-// STYLES
+// STYLES  (unchanged — same as your original file)
 // ============================================================
 
 const styles = StyleSheet.create({
@@ -613,10 +609,6 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 35,
   },
-
-  // ============================================================
-  // PROFILE
-  // ============================================================
 
   profileCard: {
     backgroundColor: "#FFFFFF",
@@ -792,10 +784,6 @@ const styles = StyleSheet.create({
     marginLeft: 7,
   },
 
-  // ============================================================
-  // SUBSCRIPTION CARD
-  // ============================================================
-
   subscriptionCard: {
     backgroundColor: "#1E3A5F",
     borderRadius: 18,
@@ -911,10 +899,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 
-  // ============================================================
-  // SUBSCRIPTION PLANS MODAL
-  // ============================================================
-
   plansModalOverlay: {
     flex: 1,
     backgroundColor: "rgba(15, 23, 42, 0.58)",
@@ -923,17 +907,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
 
-  // NEW: Container for the modal with proper flex layout
   plansModalContainer: {
     width: "100%",
     maxWidth: 420,
     backgroundColor: "#FFFFFF",
     borderRadius: 24,
     padding: 20,
-    // Critical for mobile scrolling
     maxHeight: "85%",
     minHeight: 500,
-    // Use flex layout
     display: "flex",
     flexDirection: "column",
   },
@@ -970,7 +951,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  // CRITICAL: ScrollView must have flex:1
   plansScroll: {
     flex: 1,
     minHeight: 200,
@@ -1107,10 +1087,6 @@ const styles = StyleSheet.create({
     color: "#475569",
   },
 
-  // ============================================================
-  // SUMMARY
-  // ============================================================
-
   summaryCard: {
     flexDirection: "row",
     alignItems: "center",
@@ -1164,10 +1140,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
   },
-
-  // ============================================================
-  // MENU
-  // ============================================================
 
   menuSection: {
     marginTop: 14,
@@ -1237,10 +1209,6 @@ const styles = StyleSheet.create({
     fontSize: 10,
     marginTop: 3,
   },
-
-  // ============================================================
-  // ACCESS
-  // ============================================================
 
   accessOverview: {
     backgroundColor: "#FFFFFF",
@@ -1514,10 +1482,6 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 
-  // ============================================================
-  // HISTORY CARD - At bottom
-  // ============================================================
-
   historyCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 18,
@@ -1579,10 +1543,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 
-  // ============================================================
-  // HISTORY MODAL - Updated styles
-  // ============================================================
-
   historyModalOverlay: {
     flex: 1,
     backgroundColor: "rgba(15, 23, 42, 0.58)",
@@ -1597,11 +1557,8 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 26,
     paddingHorizontal: 18,
     paddingTop: 20,
-    // Increase max height for better visibility
     maxHeight: "92%",
-    // Add min height to ensure content is visible
     minHeight: "50%",
-    // Use flex layout
     display: "flex",
     flexDirection: "column",
   },
@@ -1647,7 +1604,6 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
 
-  // CRITICAL: ScrollView must have flex:1
   historyModalScroll: {
     flex: 1,
     minHeight: 200,
@@ -1658,7 +1614,6 @@ const styles = StyleSheet.create({
     paddingTop: 4,
   },
 
-  // Month/Year Group
   historyGroupHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -1716,30 +1671,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     flexShrink: 0,
-  },
-
-  historyIconPaid: {
-    backgroundColor: "#DCFCE7",
-  },
-
-  historyIconDue: {
-    backgroundColor: "#FEE2E2",
-  },
-
-  historyIconChanged: {
-    backgroundColor: "#EFF6FF",
-  },
-
-  historyIconTemplate: {
-    backgroundColor: "#F3E8FF",
-  },
-
-  historyIconMember: {
-    backgroundColor: "#DBEAFE",
-  },
-
-  historyIconBill: {
-    backgroundColor: "#FEF3C7",
   },
 
   historyItemContent: {
@@ -1839,10 +1770,6 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
 
-  // ============================================================
-  // FOOTER
-  // ============================================================
-
   footer: {
     alignItems: "center",
     paddingTop: 24,
@@ -1870,10 +1797,6 @@ const styles = StyleSheet.create({
     fontSize: 10,
     marginTop: 3,
   },
-
-  // ============================================================
-  // COMMON MODAL
-  // ============================================================
 
   modalOverlay: {
     flex: 1,
@@ -2058,10 +1981,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 
-  // ============================================================
-  // OTP
-  // ============================================================
-
   otpMessageContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -2148,10 +2067,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 
-  // ============================================================
-  // DELETE MODAL
-  // ============================================================
-
   deleteModal: {
     width: "100%",
     maxWidth: 380,
@@ -2211,10 +2126,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
   },
-
-  // ============================================================
-  // CONTACT MODAL
-  // ============================================================
 
   contactModalOverlay: {
     flex: 1,
@@ -2405,10 +2316,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 
-  // ============================================================
-  // PHOTO OPTIONS MODAL
-  // ============================================================
-
   modalBackdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.45)",
@@ -2502,10 +2409,6 @@ const styles = StyleSheet.create({
     color: "#dc2626",
   },
 
-  // ============================================================
-  // GENERATE BILL
-  // ============================================================
-
   generateBillButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -2569,6 +2472,21 @@ export default function ProfileScreen() {
   const grants = useAccessStore((state) => state.grants);
   const removeGrant = useAccessStore((state) => state.removeGrant);
 
+  /* ----------------------------------------------------------------
+     ROLE
+  ---------------------------------------------------------------- */
+
+  const { isAdmin, isMember, isStaff } = useUserRole();
+
+  // Only admin can edit the account (name, photo, phone)
+  const canEditAccount = isAdmin;
+
+  // Admin + Member can see the subscription card. Staff cannot.
+  const canSeeSubscription = isAdmin || isMember;
+
+  // Only admin can manage (switch/cancel) the subscription.
+  const canManageSubscription = isAdmin;
+
   const [notifications, setNotifications] = useState(true);
   const [darkMode, setDarkMode] = useState(false);
 
@@ -2592,25 +2510,20 @@ export default function ProfileScreen() {
     null,
   );
 
-  // Photo upload states
   const [showPhotoOptions, setShowPhotoOptions] = useState(false);
   const [rawImage, setRawImage] = useState<RawImage | null>(null);
   const [showAdjustModal, setShowAdjustModal] = useState(false);
 
-  // Bill generation states
   const [showGenerateBill, setShowGenerateBill] = useState(false);
   const [billMemberType, setBillMemberType] = useState<BillMemberType>("owner");
 
-  // History states
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
   const [historyFilter, setHistoryFilter] = useState<string>("all");
 
-  // Subscription states
   const [showPlansModal, setShowPlansModal] = useState(false);
   const [activePlan, setActivePlan] = useState<string>("pro");
 
-  // Plans
   const plans: SubscriptionPlan[] = [
     {
       id: "free",
@@ -2654,18 +2567,12 @@ export default function ProfileScreen() {
     },
   ];
 
-  // OTP refs
   const otpInputs = useRef<(TextInput | null)[]>([]);
   const timerInterval = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Contacts
   const [showContactPicker, setShowContactPicker] = useState(false);
   const [contactsList, setContactsList] = useState<ContactData[]>([]);
   const [contactSearch, setContactSearch] = useState("");
-
-  // ============================================================
-  // ACCESS DATA
-  // ============================================================
 
   const accountGrants = grants.filter(
     (grant) => grant.accountId === selectedAccount?.id,
@@ -2691,10 +2598,6 @@ export default function ProfileScreen() {
     visibleStaff.length +
     pendingInvitations.length +
     (selectedAccount?.ownerId === user?.id ? 1 : 0);
-
-  // ============================================================
-  // HISTORY FUNCTIONS
-  // ============================================================
 
   const addHistoryEntry = (
     type: HistoryEntry["type"],
@@ -2722,7 +2625,6 @@ export default function ProfileScreen() {
     setHistory((prev) => [newEntry, ...prev]);
   };
 
-  // Add sample history entries
   useEffect(() => {
     const sampleHistory: HistoryEntry[] = [
       {
@@ -2867,7 +2769,6 @@ export default function ProfileScreen() {
     return `₹${amount.toLocaleString("en-IN")}`;
   };
 
-  // Group history by month/year
   const getGroupedHistory = () => {
     const filtered = getFilteredHistory();
     const groups: { [key: string]: HistoryEntry[] } = {};
@@ -2881,7 +2782,6 @@ export default function ProfileScreen() {
       groups[key].push(item);
     });
 
-    // Sort groups by date (newest first)
     const sortedKeys = Object.keys(groups).sort((a, b) => {
       const [yearA, monthA] = a.split("-").map(Number);
       const [yearB, monthB] = b.split("-").map(Number);
@@ -2919,6 +2819,8 @@ export default function ProfileScreen() {
   // ============================================================
 
   const handleSelectPlan = (planId: string) => {
+    if (!canManageSubscription) return;
+
     const selectedPlan = plans.find((p) => p.id === planId);
     const currentPlan = plans.find((p) => p.id === activePlan);
 
@@ -2929,7 +2831,6 @@ export default function ProfileScreen() {
       return;
     }
 
-    // Check if downgrading
     const planIndex = plans.findIndex((p) => p.id === planId);
     const currentIndex = plans.findIndex((p) => p.id === activePlan);
 
@@ -2969,7 +2870,6 @@ export default function ProfileScreen() {
 
     setActivePlan(planId);
 
-    // Show success message
     Alert.alert(
       "Plan Updated!",
       `You have successfully ${actionType === "plan_upgraded" ? "upgraded to" : actionType === "plan_downgraded" ? "downgraded to" : "switched to"} ${selectedPlan.name} plan.`,
@@ -2980,6 +2880,8 @@ export default function ProfileScreen() {
   };
 
   const handleCancelSubscription = () => {
+    if (!canManageSubscription) return;
+
     Alert.alert(
       "Cancel Subscription",
       "Are you sure you want to cancel your subscription? You will lose access to premium features.",
@@ -3103,10 +3005,13 @@ export default function ProfileScreen() {
   // ============================================================
 
   const showPhotoSelectionOptions = () => {
+    if (!canEditAccount) return;
     setShowPhotoOptions(true);
   };
 
   const takePhoto = async () => {
+    if (!canEditAccount) return;
+
     setShowPhotoOptions(false);
     const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) {
@@ -3135,6 +3040,8 @@ export default function ProfileScreen() {
   };
 
   const choosePhoto = async () => {
+    if (!canEditAccount) return;
+
     setShowPhotoOptions(false);
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
@@ -3163,6 +3070,8 @@ export default function ProfileScreen() {
   };
 
   const handleAdjustConfirm = async (uri: string) => {
+    if (!canEditAccount) return;
+
     if (selectedAccount) {
       try {
         await editAccount(selectedAccount.id, {
@@ -3186,12 +3095,15 @@ export default function ProfileScreen() {
   // ============================================================
 
   const startEditingName = () => {
-    setPropertyName(selectedAccount?.name || "");
+    if (!canEditAccount) return;
 
+    setPropertyName(selectedAccount?.name || "");
     setEditingName(true);
   };
 
   const savePropertyName = async () => {
+    if (!canEditAccount) return;
+
     const trimmedName = propertyName.trim();
 
     if (!trimmedName || !selectedAccount) {
@@ -3210,6 +3122,8 @@ export default function ProfileScreen() {
   // ============================================================
 
   const openPhoneEditor = () => {
+    if (!canEditAccount) return;
+
     setPhone("");
     setPhoneOtp(["", "", "", "", "", ""]);
     setPhoneError("");
@@ -3430,10 +3344,6 @@ export default function ProfileScreen() {
     }
   };
 
-  // ============================================================
-  // FILTER CONTACTS
-  // ============================================================
-
   const filteredContacts = contactsList.filter((contact) => {
     const search = contactSearch.toLowerCase().trim();
 
@@ -3454,10 +3364,6 @@ export default function ProfileScreen() {
     setContactSearch("");
     setShowContactPicker(false);
   };
-
-  // ============================================================
-  // SELECT CONTACT
-  // ============================================================
 
   const selectContact = (contact: ContactData) => {
     if (
@@ -3496,10 +3402,6 @@ export default function ProfileScreen() {
     setShowContactPicker(false);
   };
 
-  // ============================================================
-  // INITIALS
-  // ============================================================
-
   const getInitials = (name: string) => {
     return name
       .split(" ")
@@ -3509,12 +3411,7 @@ export default function ProfileScreen() {
       .slice(0, 2);
   };
 
-  // ============================================================
-  // HANDLE BILL SAVED
-  // ============================================================
-
   const handleBillSaved = (config: SavedBillConfig) => {
-    // Add to history
     addHistoryEntry(
       "template_saved",
       "Bill Template Saved",
@@ -3699,41 +3596,57 @@ export default function ProfileScreen() {
     },
   ];
 
-  const settingsSections = [
-    {
-      title: "ACCOUNT",
-      itemIds: ["switch_account", "delete_account"],
-    },
+  /* ----------------------------------------------------------------
+     ROLE-FILTERED SETTINGS SECTIONS
 
-    {
-      title: "BILLING",
-      itemIds: ["generate_bill"],
-    },
+     Only these are role-gated:
+       - BILLING (Generate Bill) → admin only
+       - ACCESS & ROLES         → admin only
 
-    {
-      title: "ACCESS & ROLES",
-      itemIds: ["add_admin", "invite_member", "invite_staff"],
-    },
+     Everything else (ACCOUNT, PREFERENCES, LEGAL & SUPPORT) shows
+     for all three roles.
+  ---------------------------------------------------------------- */
 
-    {
-      title: "PREFERENCES",
-      itemIds: ["notifications", "dark_mode"],
-    },
+  const settingsSections = useMemo(() => {
+    const sections = [
+      {
+        title: "ACCOUNT",
+        itemIds: ["switch_account", "delete_account"],
+      },
+      {
+        title: "BILLING",
+        itemIds: ["generate_bill"],
+      },
+      {
+        title: "ACCESS & ROLES",
+        itemIds: ["add_admin", "invite_member", "invite_staff"],
+      },
+      {
+        title: "PREFERENCES",
+        itemIds: ["notifications", "dark_mode"],
+      },
+      {
+        title: "LEGAL & SUPPORT",
+        itemIds: [
+          "privacy_policy",
+          "terms_conditions",
+          "about_us",
+          "help_support",
+          "rate_app",
+        ],
+      },
+    ];
 
-    {
-      title: "LEGAL & SUPPORT",
-      itemIds: [
-        "privacy_policy",
-        "terms_conditions",
-        "about_us",
-        "help_support",
-        "rate_app",
-      ],
-    },
-  ];
+    // Strip BILLING and ACCESS & ROLES for non-admins
+    if (isAdmin) return sections;
+
+    return sections.filter(
+      (s) => s.title !== "BILLING" && s.title !== "ACCESS & ROLES",
+    );
+  }, [isAdmin]);
 
   // ============================================================
-  // RENDER PLANS MODAL - FIXED FOR MOBILE
+  // PLANS MODAL
   // ============================================================
 
   const renderPlansModal = () => {
@@ -3862,31 +3775,47 @@ export default function ProfileScreen() {
                       ))}
                     </View>
 
-                    <TouchableOpacity
-                      style={[
-                        styles.planCardAction,
-                        isActive && styles.planCardActionActive,
-                        !isActive && styles.planCardActionButton,
-                      ]}
-                      onPress={() => handleSelectPlan(plan.id)}
-                      activeOpacity={0.8}
-                      disabled={isActive}
-                    >
-                      <Text
+                    {/* Action button — hidden for members (view-only) */}
+                    {canManageSubscription ? (
+                      <TouchableOpacity
                         style={[
-                          styles.planCardActionText,
-                          isActive && styles.planCardActionActiveText,
-                          !isActive && { color: "#FFFFFF" },
+                          styles.planCardAction,
+                          isActive && styles.planCardActionActive,
+                          !isActive && styles.planCardActionButton,
                         ]}
+                        onPress={() => handleSelectPlan(plan.id)}
+                        activeOpacity={0.8}
+                        disabled={isActive}
                       >
-                        {isActive ? "Current Plan" : `Switch to ${plan.name}`}
-                      </Text>
-                    </TouchableOpacity>
+                        <Text
+                          style={[
+                            styles.planCardActionText,
+                            isActive && styles.planCardActionActiveText,
+                            !isActive && { color: "#FFFFFF" },
+                          ]}
+                        >
+                          {isActive ? "Current Plan" : `Switch to ${plan.name}`}
+                        </Text>
+                      </TouchableOpacity>
+                    ) : (
+                      isActive && (
+                        <View
+                          style={[
+                            styles.planCardAction,
+                            styles.planCardActionActive,
+                          ]}
+                        >
+                          <Text style={styles.planCardActionActiveText}>
+                            Current Plan
+                          </Text>
+                        </View>
+                      )
+                    )}
                   </View>
                 );
               })}
 
-              {activePlan !== "free" && (
+              {activePlan !== "free" && canManageSubscription && (
                 <TouchableOpacity
                   style={{
                     flexDirection: "row",
@@ -3924,7 +3853,7 @@ export default function ProfileScreen() {
   };
 
   // ============================================================
-  // HISTORY MODAL - FIXED FOR MOBILE
+  // HISTORY MODAL
   // ============================================================
 
   const renderHistoryModal = () => {
@@ -3957,7 +3886,6 @@ export default function ProfileScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* History List with Month/Year Grouping */}
             <ScrollView
               style={styles.historyModalScroll}
               showsVerticalScrollIndicator={true}
@@ -4167,7 +4095,6 @@ export default function ProfileScreen() {
                 style={styles.keyboardView}
               >
                 <View style={styles.editModal}>
-                  {/* Modal header */}
                   <View style={styles.modalTopRow}>
                     <View style={styles.modalTitleIcon}>
                       <Ionicons name="call-outline" size={20} color="#2563EB" />
@@ -4449,7 +4376,6 @@ export default function ProfileScreen() {
               onPress={(event) => event.stopPropagation()}
             >
               <View style={styles.contactModalContainer}>
-                {/* Header */}
                 <View style={styles.contactModalHeader}>
                   <View>
                     <Text style={styles.contactModalTitle}>Select Contact</Text>
@@ -4468,7 +4394,6 @@ export default function ProfileScreen() {
                   </TouchableOpacity>
                 </View>
 
-                {/* Search */}
                 <View style={styles.contactModalSearchContainer}>
                   <Ionicons name="search-outline" size={19} color="#64748B" />
 
@@ -4500,7 +4425,6 @@ export default function ProfileScreen() {
                   </Text>
                 </View>
 
-                {/* List */}
                 <View style={styles.contactListWrapper}>
                   <ScrollView
                     style={styles.contactListContainer}
@@ -4598,16 +4522,13 @@ export default function ProfileScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-        {/* ======================================================
-            PROFILE CARD
-        ====================================================== */}
+        {/* PROFILE CARD */}
 
         <View style={styles.profileCard}>
-          {/* Accent */}
           <View style={styles.profileAccent} />
 
           <View style={styles.profileCardContent}>
-            {/* Avatar */}
+            {/* Avatar — camera button only for admin */}
             <View style={styles.avatarContainer}>
               {selectedAccount?.photoUri ? (
                 <Image
@@ -4626,13 +4547,15 @@ export default function ProfileScreen() {
                 </View>
               )}
 
-              <TouchableOpacity
-                style={styles.cameraButton}
-                onPress={showPhotoSelectionOptions}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="camera-outline" size={16} color="#FFFFFF" />
-              </TouchableOpacity>
+              {canEditAccount && (
+                <TouchableOpacity
+                  style={styles.cameraButton}
+                  onPress={showPhotoSelectionOptions}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="camera-outline" size={16} color="#FFFFFF" />
+                </TouchableOpacity>
+              )}
             </View>
 
             {/* Account details */}
@@ -4663,13 +4586,20 @@ export default function ProfileScreen() {
                     {selectedAccount?.name || "Apartment"}
                   </Text>
 
-                  <TouchableOpacity
-                    style={styles.editButton}
-                    onPress={startEditingName}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name="create-outline" size={15} color="#2563EB" />
-                  </TouchableOpacity>
+                  {/* Edit name — admin only */}
+                  {canEditAccount && (
+                    <TouchableOpacity
+                      style={styles.editButton}
+                      onPress={startEditingName}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons
+                        name="create-outline"
+                        size={15}
+                        color="#2563EB"
+                      />
+                    </TouchableOpacity>
+                  )}
                 </View>
               )}
 
@@ -4680,13 +4610,16 @@ export default function ProfileScreen() {
                   {user?.phone || "+91 9876543210"}
                 </Text>
 
-                <TouchableOpacity
-                  style={styles.editButton}
-                  onPress={openPhoneEditor}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="create-outline" size={14} color="#2563EB" />
-                </TouchableOpacity>
+                {/* Edit phone — admin only */}
+                {canEditAccount && (
+                  <TouchableOpacity
+                    style={styles.editButton}
+                    onPress={openPhoneEditor}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="create-outline" size={14} color="#2563EB" />
+                  </TouchableOpacity>
+                )}
               </View>
 
               <View style={styles.accountTypeBadge}>
@@ -4709,104 +4642,124 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* ======================================================
-            SUBSCRIPTION CARD
-        ====================================================== */}
+        {/* SUBSCRIPTION CARD — hidden for staff */}
+        {canSeeSubscription &&
+          (() => {
+            const currentPlan = plans.find((p) => p.id === activePlan);
+            const isFree = activePlan === "free";
+            const planPrice = currentPlan?.price ?? 0;
+            const planName = currentPlan?.name ?? "Free";
+            const planPeriod = currentPlan?.period ?? "monthly";
+            const planFeatures = currentPlan?.features ?? ["Basic features"];
 
-        {(() => {
-          const currentPlan = plans.find((p) => p.id === activePlan);
-          const isFree = activePlan === "free";
-          const planPrice = currentPlan?.price ?? 0;
-          const planName = currentPlan?.name ?? "Free";
-          const planPeriod = currentPlan?.period ?? "monthly";
-          const planFeatures = currentPlan?.features ?? ["Basic features"];
-
-          return (
-            <View style={styles.subscriptionCard}>
-              <View style={styles.subscriptionHeader}>
-                <View style={styles.subscriptionBadge}>
-                  <Ionicons
-                    name={isFree ? "people-outline" : "star"}
-                    size={12}
-                    color="#FFD700"
-                  />
-                  <Text style={styles.subscriptionBadgeText}>
-                    {isFree ? "Free" : "Active"}
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  onPress={() => setShowPlansModal(true)}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons
-                    name="ellipsis-vertical"
-                    size={18}
-                    color="rgba(255,255,255,0.6)"
-                  />
-                </TouchableOpacity>
-              </View>
-
-              <Text style={styles.subscriptionPlanName}>{planName} Plan</Text>
-              <View style={styles.subscriptionPriceRow}>
-                <Text style={styles.subscriptionPrice}>
-                  {planPrice === 0 ? "Free" : `₹${planPrice}`}
-                </Text>
-                {planPrice > 0 && (
-                  <Text style={styles.subscriptionPeriod}>/ {planPeriod}</Text>
-                )}
-              </View>
-
-              <View style={styles.subscriptionFeatures}>
-                {planFeatures.slice(0, 3).map((feature, index) => (
-                  <View key={index} style={styles.subscriptionFeature}>
+            return (
+              <View style={styles.subscriptionCard}>
+                <View style={styles.subscriptionHeader}>
+                  <View style={styles.subscriptionBadge}>
                     <Ionicons
-                      name="checkmark-circle"
+                      name={isFree ? "people-outline" : "star"}
                       size={12}
-                      color="#34D399"
+                      color="#FFD700"
                     />
-                    <Text style={styles.subscriptionFeatureText}>
-                      {feature}
+                    <Text style={styles.subscriptionBadgeText}>
+                      {isFree ? "Free" : "Active"}
                     </Text>
                   </View>
-                ))}
-              </View>
 
-              <View style={styles.subscriptionAction}>
-                <TouchableOpacity
-                  style={styles.subscriptionActionButton}
-                  onPress={() => setShowPlansModal(true)}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons
-                    name={isFree ? "arrow-forward-outline" : "refresh-outline"}
-                    size={18}
-                    color="#2563EB"
-                  />
-                  <Text style={styles.subscriptionActionText}>
-                    {isFree ? "Upgrade Now" : "Manage Plan"}
+                  {/* Ellipsis — admin only */}
+                  {canManageSubscription && (
+                    <TouchableOpacity
+                      onPress={() => setShowPlansModal(true)}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons
+                        name="ellipsis-vertical"
+                        size={18}
+                        color="rgba(255,255,255,0.6)"
+                      />
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                <Text style={styles.subscriptionPlanName}>{planName} Plan</Text>
+                <View style={styles.subscriptionPriceRow}>
+                  <Text style={styles.subscriptionPrice}>
+                    {planPrice === 0 ? "Free" : `₹${planPrice}`}
                   </Text>
-                </TouchableOpacity>
-                {!isFree && (
-                  <Text style={styles.subscriptionExpiry}>
-                    Next billing:{" "}
-                    <Text style={styles.subscriptionExpiryStrong}>
-                      Dec 15, 2024
+                  {planPrice > 0 && (
+                    <Text style={styles.subscriptionPeriod}>
+                      / {planPeriod}
                     </Text>
-                  </Text>
+                  )}
+                </View>
+
+                <View style={styles.subscriptionFeatures}>
+                  {planFeatures.slice(0, 3).map((feature, index) => (
+                    <View key={index} style={styles.subscriptionFeature}>
+                      <Ionicons
+                        name="checkmark-circle"
+                        size={12}
+                        color="#34D399"
+                      />
+                      <Text style={styles.subscriptionFeatureText}>
+                        {feature}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
+
+                {/* Manage button — admin only */}
+                {canManageSubscription ? (
+                  <View style={styles.subscriptionAction}>
+                    <TouchableOpacity
+                      style={styles.subscriptionActionButton}
+                      onPress={() => setShowPlansModal(true)}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons
+                        name={
+                          isFree ? "arrow-forward-outline" : "refresh-outline"
+                        }
+                        size={18}
+                        color="#2563EB"
+                      />
+                      <Text style={styles.subscriptionActionText}>
+                        {isFree ? "Upgrade Now" : "Manage Plan"}
+                      </Text>
+                    </TouchableOpacity>
+                    {!isFree && (
+                      <Text style={styles.subscriptionExpiry}>
+                        Next billing:{" "}
+                        <Text style={styles.subscriptionExpiryStrong}>
+                          Dec 15, 2024
+                        </Text>
+                      </Text>
+                    )}
+                  </View>
+                ) : (
+                  <View
+                    style={[
+                      styles.subscriptionAction,
+                      { justifyContent: "center" },
+                    ]}
+                  >
+                    <Text style={styles.subscriptionExpiry}>
+                      Managed by the society admin
+                    </Text>
+                  </View>
                 )}
               </View>
-            </View>
-          );
-        })()}
+            );
+          })()}
 
-        {/* ======================================================
-            SETTINGS
-        ====================================================== */}
+        {/* SETTINGS */}
 
         {settingsSections.map((section) => {
           const items = menuItems.filter((item) =>
             section.itemIds.includes(item.id),
           );
+
+          if (items.length === 0) return null;
 
           return (
             <View key={section.title} style={styles.menuSection}>
@@ -4819,9 +4772,7 @@ export default function ProfileScreen() {
           );
         })}
 
-        {/* ======================================================
-            PEOPLE WITH ACCESS
-        ====================================================== */}
+        {/* PEOPLE WITH ACCESS */}
 
         <View style={styles.accessOverview}>
           <View style={styles.accessHeader}>
@@ -5056,9 +5007,7 @@ export default function ProfileScreen() {
             )}
         </View>
 
-        {/* ======================================================
-            HISTORY - At Bottom
-        ====================================================== */}
+        {/* HISTORY */}
 
         <View style={styles.historyCard}>
           <View style={styles.historyHeader}>
@@ -5073,7 +5022,6 @@ export default function ProfileScreen() {
             </View>
           </View>
 
-          {/* Show last 3 entries */}
           {history.slice(0, 3).map((item, index) => {
             const iconInfo = getHistoryIcon(item.type);
             return (
@@ -5122,7 +5070,6 @@ export default function ProfileScreen() {
             );
           })}
 
-          {/* View All Button */}
           <TouchableOpacity
             style={styles.viewAllHistoryButton}
             onPress={() => setShowHistoryModal(true)}
@@ -5133,9 +5080,7 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* ======================================================
-            FOOTER
-        ====================================================== */}
+        {/* FOOTER */}
 
         <View style={styles.footer}>
           <View style={styles.footerLogo}>
@@ -5148,99 +5093,104 @@ export default function ProfileScreen() {
         </View>
 
         {/* Modals */}
-        {renderPhoneModal()}
-        {renderDeleteInvitationModal()}
-        {renderContactPickerModal()}
+        {canEditAccount && renderPhoneModal()}
+        {canEditAccount && renderDeleteInvitationModal()}
+        {canEditAccount && renderContactPickerModal()}
         {renderHistoryModal()}
         {renderPlansModal()}
       </ScrollView>
 
-      {/* =========================================================
-          PHOTO OPTIONS MODAL
-      ========================================================= */}
-      <Modal
-        visible={showPhotoOptions}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowPhotoOptions(false)}
-      >
-        <Pressable
-          style={styles.modalBackdrop}
-          onPress={() => setShowPhotoOptions(false)}
+      {/* PHOTO OPTIONS MODAL — admin only */}
+      {canEditAccount && (
+        <Modal
+          visible={showPhotoOptions}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowPhotoOptions(false)}
         >
-          <Pressable style={styles.photoOptionsModal} onPress={() => {}}>
-            <View style={styles.modalHandle} />
-            <Text style={styles.photoOptionsTitle}>Upload Photo</Text>
-            <Text style={styles.photoOptionsSubtitle}>
-              Choose how you want to add a photo
-            </Text>
+          <Pressable
+            style={styles.modalBackdrop}
+            onPress={() => setShowPhotoOptions(false)}
+          >
+            <Pressable style={styles.photoOptionsModal} onPress={() => {}}>
+              <View style={styles.modalHandle} />
+              <Text style={styles.photoOptionsTitle}>Upload Photo</Text>
+              <Text style={styles.photoOptionsSubtitle}>
+                Choose how you want to add a photo
+              </Text>
 
-            <TouchableOpacity
-              style={styles.photoOptionButton}
-              onPress={takePhoto}
-              activeOpacity={0.7}
-            >
-              <View style={styles.photoOptionIcon}>
-                <Ionicons name="camera" size={24} color="#1a73e8" />
-              </View>
-              <View style={styles.photoOptionTextContainer}>
-                <Text style={styles.photoOptionTitle}>Take Photo</Text>
-                <Text style={styles.photoOptionDescription}>
-                  Capture a photo using your camera
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color="#ccc" />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.photoOptionButton}
-              onPress={choosePhoto}
-              activeOpacity={0.7}
-            >
-              <View
-                style={[styles.photoOptionIcon, { backgroundColor: "#ecfdf5" }]}
+              <TouchableOpacity
+                style={styles.photoOptionButton}
+                onPress={takePhoto}
+                activeOpacity={0.7}
               >
-                <Ionicons name="images" size={24} color="#059669" />
-              </View>
-              <View style={styles.photoOptionTextContainer}>
-                <Text style={styles.photoOptionTitle}>Choose from Gallery</Text>
-                <Text style={styles.photoOptionDescription}>
-                  Select a photo from your device
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color="#ccc" />
-            </TouchableOpacity>
+                <View style={styles.photoOptionIcon}>
+                  <Ionicons name="camera" size={24} color="#1a73e8" />
+                </View>
+                <View style={styles.photoOptionTextContainer}>
+                  <Text style={styles.photoOptionTitle}>Take Photo</Text>
+                  <Text style={styles.photoOptionDescription}>
+                    Capture a photo using your camera
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color="#ccc" />
+              </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.photoOptionsCancel}
-              onPress={() => setShowPhotoOptions(false)}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.photoOptionsCancelText}>Cancel</Text>
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.photoOptionButton}
+                onPress={choosePhoto}
+                activeOpacity={0.7}
+              >
+                <View
+                  style={[
+                    styles.photoOptionIcon,
+                    { backgroundColor: "#ecfdf5" },
+                  ]}
+                >
+                  <Ionicons name="images" size={24} color="#059669" />
+                </View>
+                <View style={styles.photoOptionTextContainer}>
+                  <Text style={styles.photoOptionTitle}>
+                    Choose from Gallery
+                  </Text>
+                  <Text style={styles.photoOptionDescription}>
+                    Select a photo from your device
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color="#ccc" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.photoOptionsCancel}
+                onPress={() => setShowPhotoOptions(false)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.photoOptionsCancelText}>Cancel</Text>
+              </TouchableOpacity>
+            </Pressable>
           </Pressable>
-        </Pressable>
-      </Modal>
+        </Modal>
+      )}
 
-      {/* =========================================================
-          PHOTO ADJUST MODAL
-      ========================================================= */}
-      <PhotoAdjustModal
-        visible={showAdjustModal}
-        image={rawImage}
-        onCancel={handleAdjustCancel}
-        onConfirm={handleAdjustConfirm}
-      />
+      {/* PHOTO ADJUST MODAL — admin only */}
+      {canEditAccount && (
+        <PhotoAdjustModal
+          visible={showAdjustModal}
+          image={rawImage}
+          onCancel={handleAdjustCancel}
+          onConfirm={handleAdjustConfirm}
+        />
+      )}
 
-      {/* =========================================================
-          GENERATE BILL MODAL
-      ========================================================= */}
-      <GenerateBillModal
-        visible={showGenerateBill}
-        onClose={() => setShowGenerateBill(false)}
-        memberType={billMemberType}
-        onSaved={handleBillSaved}
-      />
+      {/* GENERATE BILL MODAL — admin only */}
+      {isAdmin && (
+        <GenerateBillModal
+          visible={showGenerateBill}
+          onClose={() => setShowGenerateBill(false)}
+          memberType={billMemberType}
+          onSaved={handleBillSaved}
+        />
+      )}
     </View>
   );
 }
