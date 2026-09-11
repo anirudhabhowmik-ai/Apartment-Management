@@ -1,26 +1,7 @@
 import RazorpayCheckout from "react-native-razorpay";
 
-/**
- * Backend API URL
- *
- * Comes from:
- *   EXPO_PUBLIC_API_URL=http://103.75.163.121:5000/api
- *
- * So `${API_URL}/payment/create-order` becomes:
- *   http://103.75.163.121:5000/api/payment/create-order
- */
 const API_URL = process.env.EXPO_PUBLIC_API_URL;
 
-/**
- * Razorpay PUBLIC Key ID.
- *
- * Comes from:
- *   EXPO_PUBLIC_RAZORPAY_KEY_ID=rzp_test_...
- *
- * IMPORTANT:
- *   NEVER put Razorpay Key SECRET here.
- *   The secret lives only on the backend.
- */
 const RAZORPAY_KEY_ID = process.env.EXPO_PUBLIC_RAZORPAY_KEY_ID || "";
 
 export interface PaymentResponse {
@@ -38,13 +19,30 @@ interface CreateOrderResponse {
   currency: string;
 }
 
-/**
- * Create a real Razorpay order through the Express backend.
- *
- * Flow:
- *   React Native  →  Express backend  →  Razorpay API
- *                                       →  real Razorpay order ID
- */
+interface VerifyPaymentResponse {
+  success: boolean;
+  message?: string;
+  paymentId?: string;
+  orderId?: string;
+  error?: string;
+}
+
+const formatIndianPhoneNumber = (phone?: string): string => {
+  if (!phone) {
+    return "";
+  }
+
+  const digits = phone.replace(/\D/g, "");
+
+  const last10Digits = digits.slice(-10);
+
+  if (last10Digits.length !== 10) {
+    return "";
+  }
+
+  return `+91${last10Digits}`;
+};
+
 const createOrderOnBackend = async (
   amount: number,
   planName: string,
@@ -56,10 +54,15 @@ const createOrderOnBackend = async (
   try {
     const response = await fetch(`${API_URL}/payment/create-order`, {
       method: "POST",
+
       headers: {
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({ amount, planName }),
+
+      body: JSON.stringify({
+        amount,
+        planName,
+      }),
     });
 
     const data = await response.json().catch(() => null);
@@ -70,35 +73,122 @@ const createOrderOnBackend = async (
       );
     }
 
+    if (!data?.success) {
+      throw new Error(data?.error || "Unable to create Razorpay order.");
+    }
+
     if (!data?.orderId) {
       throw new Error("Backend did not return a Razorpay order ID.");
     }
 
     return {
       success: true,
+
       orderId: data.orderId,
-      amount: typeof data.amount === "number" ? data.amount : amount,
+
+      amount:
+        typeof data.amount === "number" ? data.amount : Number(data.amount),
+
       currency: data.currency || "INR",
     };
   } catch (error: any) {
     console.error("Create Razorpay order error:", error);
+
     throw new Error(error?.message || "Unable to create payment order.");
   }
 };
 
-/**
- * Start Razorpay payment.
- *
- * Steps:
- *   1. Validate payment information.
- *   2. Ask Express backend to create a Razorpay order.
- *   3. Receive real Razorpay order ID.
- *   4. Open native Razorpay Checkout.
- *   5. Receive payment response.
- *
- * Payment signature must be verified on the backend
- * via `/payment/verify` before you mark the payment as paid.
- */
+const verifyPaymentOnBackend = async (
+  razorpayOrderId: string,
+  razorpayPaymentId: string,
+  razorpaySignature: string,
+): Promise<VerifyPaymentResponse> => {
+  if (!API_URL) {
+    throw new Error("EXPO_PUBLIC_API_URL is not configured.");
+  }
+
+  try {
+    const response = await fetch(`${API_URL}/payment/verify`, {
+      method: "POST",
+
+      headers: {
+        "Content-Type": "application/json",
+      },
+
+      body: JSON.stringify({
+        razorpay_order_id: razorpayOrderId,
+
+        razorpay_payment_id: razorpayPaymentId,
+
+        razorpay_signature: razorpaySignature,
+      }),
+    });
+
+    const data = await response.json().catch(() => null);
+
+    if (!response.ok) {
+      throw new Error(
+        data?.error ||
+          data?.message ||
+          `Payment verification failed: ${response.status}`,
+      );
+    }
+
+    if (!data?.success) {
+      throw new Error(data?.error || "Payment verification failed.");
+    }
+
+    return {
+      success: true,
+
+      message: data.message || "Payment verified successfully.",
+
+      paymentId: data.paymentId || razorpayPaymentId,
+
+      orderId: data.orderId || razorpayOrderId,
+    };
+  } catch (error: any) {
+    console.error("Razorpay payment verification error:", error);
+
+    throw new Error(error?.message || "Unable to verify payment.");
+  }
+};
+
+const parseRazorpayError = (error: any) => {
+  let razorpayError = error?.error || null;
+
+  const description =
+    typeof error?.description === "string" ? error.description : "";
+
+  /**
+   * Sometimes the description itself
+   * contains JSON.
+   */
+  if (description) {
+    try {
+      const parsed = JSON.parse(description);
+
+      if (parsed?.error) {
+        razorpayError = parsed.error;
+      }
+    } catch {
+      // Description is normal text.
+    }
+  }
+
+  return {
+    code: razorpayError?.code || error?.code || "",
+
+    description: razorpayError?.description || "",
+
+    reason: razorpayError?.reason || "",
+
+    source: razorpayError?.source || "",
+
+    step: razorpayError?.step || "",
+  };
+};
+
 export const startRazorpayPayment = async (
   amount: number,
   planName: string,
@@ -109,9 +199,6 @@ export const startRazorpayPayment = async (
   },
 ): Promise<PaymentResponse> => {
   try {
-    // ------------------------------------------------
-    // Validate API URL
-    // ------------------------------------------------
     if (!API_URL) {
       return {
         success: false,
@@ -119,9 +206,6 @@ export const startRazorpayPayment = async (
       };
     }
 
-    // ------------------------------------------------
-    // Validate amount
-    // ------------------------------------------------
     if (typeof amount !== "number" || !Number.isFinite(amount) || amount <= 0) {
       return {
         success: false,
@@ -129,54 +213,58 @@ export const startRazorpayPayment = async (
       };
     }
 
-    // ------------------------------------------------
-    // Validate Razorpay Key ID
-    // ------------------------------------------------
-    if (!RAZORPAY_KEY_ID) {
+    if (!planName || typeof planName !== "string") {
       return {
         success: false,
-        error:
-          "Razorpay Key ID is not configured. Add EXPO_PUBLIC_RAZORPAY_KEY_ID to your .env and restart with `npx expo start -c`.",
+        error: "Plan name is required.",
       };
     }
 
-    // ------------------------------------------------
-    // STEP 1 — Create REAL Razorpay order
-    // ------------------------------------------------
+    if (!RAZORPAY_KEY_ID) {
+      return {
+        success: false,
+
+        error:
+          "Razorpay Key ID is not configured. Add EXPO_PUBLIC_RAZORPAY_KEY_ID to your .env and rebuild the Android APK.",
+      };
+    }
+
+    const contact = formatIndianPhoneNumber(user.phone);
+
+    console.log("Razorpay customer information:", {
+      name: user.name || "",
+
+      email: user.email || "",
+
+      contact,
+    });
+
     console.log("Creating Razorpay order...");
+
     const order = await createOrderOnBackend(amount, planName);
+
     console.log("Razorpay order created:", order.orderId);
 
-    // ------------------------------------------------
-    // Prepare customer phone number
-    // ------------------------------------------------
-    const contact = user.phone ? user.phone.replace(/\D/g, "").slice(-10) : "";
+    const amountInPaise = Math.round(order.amount * 100);
 
-    // ------------------------------------------------
-    // STEP 2 — Razorpay Checkout options
-    // ------------------------------------------------
     const options = {
       description: `${planName} Plan Subscription`,
 
-      // Replace with your publicly accessible logo URL
-      image: "https://your-app-logo-url.com/logo.png",
-
       currency: order.currency || "INR",
 
-      // PUBLIC Razorpay Key ID
       key: RAZORPAY_KEY_ID,
 
-      // Razorpay expects paise: ₹499 = 49900
-      amount: Math.round(order.amount * 100),
+      amount: amountInPaise,
 
       name: "Apartment Management",
 
-      // MUST be the real Razorpay order ID from backend
       order_id: order.orderId,
 
       prefill: {
         name: user.name || "",
+
         email: user.email || "",
+
         contact,
       },
 
@@ -185,48 +273,104 @@ export const startRazorpayPayment = async (
       },
     };
 
-    console.log("Opening Razorpay Checkout...");
-
-    // ------------------------------------------------
-    // STEP 3 — Open REAL native Razorpay Checkout
-    // ------------------------------------------------
     const data = await RazorpayCheckout.open(options);
+
     console.log("Razorpay payment response:", data);
 
-    // ------------------------------------------------
-    // STEP 4 — Return payment info
-    // ------------------------------------------------
+    const paymentId = data?.razorpay_payment_id;
+
+    const orderId = data?.razorpay_order_id || order.orderId;
+
+    const signature = data?.razorpay_signature;
+
+    if (!paymentId || !orderId || !signature) {
+      console.error("Incomplete Razorpay payment response:", data);
+
+      return {
+        success: false,
+
+        error: "Razorpay did not return complete payment verification details.",
+      };
+    }
+
+    console.log("Verifying Razorpay payment on backend...");
+
+    const verification = await verifyPaymentOnBackend(
+      orderId,
+      paymentId,
+      signature,
+    );
+
+    if (!verification.success) {
+      return {
+        success: false,
+
+        error: verification.error || "Payment verification failed.",
+      };
+    }
+
     return {
       success: true,
-      paymentId: data.razorpay_payment_id,
-      orderId: data.razorpay_order_id || order.orderId,
-      signature: data.razorpay_signature,
+
+      paymentId,
+
+      orderId,
+
+      signature,
     };
   } catch (error: any) {
     console.error("Razorpay payment error:", error);
 
-    // ------------------------------------------------
-    // Payment cancelled by user
-    // ------------------------------------------------
-    const description = error?.description || "";
+    const parsed = parseRazorpayError(error);
+
+    console.error("Parsed Razorpay error:", parsed);
+
+    const reason = String(parsed.reason || "").toLowerCase();
+
+    const description = String(parsed.description || "").toLowerCase();
 
     if (
-      error?.code === 0 ||
-      error?.code === 1 ||
-      description.toLowerCase().includes("cancel")
+      reason === "payment_cancelled" ||
+      reason === "user_cancelled" ||
+      reason === "cancelled" ||
+      reason === "payment_cancel" ||
+      description.includes("cancel")
     ) {
+      console.log("Razorpay Checkout cancelled by user.");
+
       return {
         success: false,
+
         error: "Payment was cancelled.",
       };
     }
 
-    // ------------------------------------------------
-    // Other Razorpay/backend errors
-    // ------------------------------------------------
+    if (reason === "payment_error") {
+      console.log("Razorpay reported a payment error.");
+
+      return {
+        success: false,
+
+        error: "Payment could not be completed. Please try again.",
+      };
+    }
+
+    if (parsed.step === "payment_authentication") {
+      return {
+        success: false,
+
+        error:
+          "Payment authentication failed. Please try again or use another payment method.",
+      };
+    }
+
     return {
       success: false,
-      error: description || error?.message || "Payment failed.",
+
+      error:
+        parsed.description ||
+        error?.message ||
+        "Payment failed. Please try again.",
     };
   }
 };
