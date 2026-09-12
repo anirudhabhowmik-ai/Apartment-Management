@@ -19,8 +19,9 @@ import MonthYearPickerModal from "../../components/MonthYearPickerModal";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useGroups } from "../../hooks/useGroups";
 import { useUserRole } from "../../hooks/useUserRole";
-import { generateBillPDF, sharePDF } from "../../services/pdfGenerator";
+import { generateBillPDF, savePDFToDevice } from "../../services/pdfGenerator";
 import { useAttendanceStore } from "../../store/attendanceStore";
+import { BillMemberType, useBillStore } from "../../store/billStore";
 import { useMemberStore } from "../../store/memberStore";
 import { GroupType } from "../../types";
 
@@ -254,26 +255,21 @@ export default function PeopleScreen() {
 
   const getAttendanceRecord = useAttendanceStore((state) => state.getRecord);
 
+  // Bill template config (society name, address, contact, email, signature)
+  const { getBillConfig, templates: billTemplates } = useBillStore();
+
   /* ----------------------------------------------------------------
      ROLE (from centralized hook)
   ---------------------------------------------------------------- */
 
   const { isAdmin, isMember, isStaff: isStaffRole } = useUserRole();
 
-  // Admin can add / edit / pay / bill / attendance
   const canEdit = isAdmin;
-
-  // Admin and Member see finance; Staff does not
   const canSeeFinance = isAdmin || isMember;
-
-  // Only admin sees the Expense tab
   const canSeeExpenseTab = isAdmin;
-
-  // Everyone sees Member and Staff tabs
   const canSeeMemberTab = true;
   const canSeeStaffTab = true;
 
-  // Visible tabs by role
   const visibleTabTypes: GroupType[] = [];
   if (canSeeMemberTab) visibleTabTypes.push("apartment");
   if (canSeeStaffTab) visibleTabTypes.push("staff");
@@ -463,7 +459,6 @@ export default function PeopleScreen() {
   const isStaffTab = activeTab === "staff";
   const isExpenseTab = activeTab === "expense";
 
-  // Whether finance should be shown in the current tab
   const showFinancialInfo =
     canSeeFinance && (isApartmentTab || isStaffTab || isExpenseTab);
 
@@ -628,26 +623,53 @@ export default function PeopleScreen() {
         return;
       }
 
+      // Which saved config applies for this tab?
+      const memberType: BillMemberType = isApartmentTab ? "owner" : "staff";
+      const billConfig = getBillConfig(memberType);
+
+      if (!billConfig) {
+        Alert.alert(
+          "Bill Template Not Set Up",
+          `Please set up the ${
+            isApartmentTab ? "owner bill" : "staff slip"
+          } template first (Profile → Generate Bill).`,
+        );
+        setGeneratingBill(null);
+        return;
+      }
+
+      // Resolve the full template from the store by id
+      const selectedTemplate =
+        billTemplates.find((t) => t.id === billConfig.templateId) ??
+        billTemplates[0];
+
+      if (!selectedTemplate) {
+        Alert.alert(
+          "Template Error",
+          "Could not find the saved template. Please re-save it in Profile → Generate Bill.",
+        );
+        setGeneratingBill(null);
+        return;
+      }
+
+      // Build the template object generateBillPDF expects,
+      // using the saved accent color over the template default
       const template = {
         colors: {
-          primary: "#1a73e8",
-          secondary: "#34a853",
-          accent: "#fbbc04",
-          background: "#ffffff",
-          text: "#202124",
-          headerBg: "#1a73e8",
-          footerBg: "#f8f9fa",
+          ...selectedTemplate.colors,
+          primary: billConfig.accentColor ?? selectedTemplate.colors.primary,
         },
-        fontFamily: "Roboto" as const,
-        logoPosition: "top-left" as const,
-        showBorder: true,
-        borderColor: "#e0e0e0",
-        borderWidth: 1,
-        borderRadius: 8,
-        showWatermark: true,
-        watermarkText: "Society Management",
+        fontFamily: selectedTemplate.fontFamily ?? "Roboto",
+        logoPosition: selectedTemplate.logoPosition ?? "top-left",
+        showBorder: selectedTemplate.showBorder ?? true,
+        borderColor: selectedTemplate.borderColor ?? "#e0e0e0",
+        borderWidth: selectedTemplate.borderWidth ?? 1,
+        borderRadius: selectedTemplate.borderRadius ?? 8,
+        showWatermark: selectedTemplate.showWatermark ?? true,
+        watermarkText: selectedTemplate.watermarkText ?? "Society Management",
       };
 
+      // Compute amounts
       const baseAmount = isApartmentTab
         ? member.maintenanceAmount || 0
         : (() => {
@@ -666,20 +688,22 @@ export default function PeopleScreen() {
       const deductionAmount = monthlyPayment.deductionAmount || 0;
       const netAmount = baseAmount + additionalAmount - deductionAmount;
 
-      const billNumber = `BILL-${member.id.slice(0, 4)}-${Date.now().toString().slice(-6)}`;
+      const billNumber = `BILL-${member.id.slice(0, 4)}-${Date.now()
+        .toString()
+        .slice(-6)}`;
 
-      const societyName = selectedAccount?.name || "Apartment Society";
-      const address = selectedAccount?.address || "Society Address";
-      const contactNumber = "+91 9876543210";
-      const email = "society@example.com";
-
+      // Build bill data — every field comes from the saved config,
+      // with sensible fallbacks to the selected account
       const billData = {
         billNumber,
         apartmentName: member.wing || "Apartment",
-        address: address,
-        societyName: societyName,
-        contactNumber: contactNumber,
-        email: email,
+        address: billConfig.address || (selectedAccount as any)?.address || "",
+        societyName:
+          billConfig.societyName ||
+          selectedAccount?.name ||
+          "Apartment Society",
+        contactNumber: billConfig.contactNumber || "",
+        email: billConfig.email || "",
         memberName: member.name,
         flatNumber: member.flatNumber || "",
         amount: baseAmount,
@@ -691,21 +715,52 @@ export default function PeopleScreen() {
         deductionAmount: deductionAmount || undefined,
         deductionNote: monthlyPayment.deductionNote,
         netAmount,
-        signData: undefined,
-        template: template,
+        // The saved signature is the SignatureData object, not a string
+        signData: billConfig.signature,
+        template,
         billType: isApartmentTab
           ? ("maintenance" as const)
           : ("salary" as const),
-        staffRole: isStaffTab ? member.role : undefined,
+        staffRole: isApartmentTab ? undefined : member.role,
       };
 
       const pdfUri = await generateBillPDF(billData);
-      await sharePDF(pdfUri, `Bill-${member.name}-${month}.pdf`);
+
+      if (!pdfUri) {
+        throw new Error("PDF generation returned no URI.");
+      }
+
+      const safeName = (member.name || "Member").replace(/[^\w\-]+/g, "_");
+      const fileName = `Bill-${safeName}-${month}.pdf`;
+
+      // ✅ Save the PDF directly to the device instead of opening the
+      // share sheet. On Android this uses the Storage Access Framework
+      // (the admin picks a folder once, e.g. Downloads) and writes the
+      // file straight there. On iOS there's no OS-level folder apps can
+      // silently write to, so this falls back to the share sheet with a
+      // "Save to Files" option — that's the standard way to do it on iOS.
+      const result = await savePDFToDevice(pdfUri, fileName);
 
       setGeneratingBill(null);
+
+      if (result.saved) {
+        Alert.alert("Downloaded", "Bill saved successfully.");
+      } else if (result.message !== "Permission denied") {
+        // "Permission denied" just means the admin cancelled the folder
+        // picker — no need to show that as an error.
+        Alert.alert(
+          "Download Failed",
+          result.message || "Could not save the bill. Please try again.",
+        );
+      }
     } catch (error) {
       console.error("Error generating bill:", error);
-      Alert.alert("Error", "Failed to generate bill. Please try again.");
+      Alert.alert(
+        "Error",
+        error instanceof Error
+          ? error.message
+          : "Failed to generate bill. Please try again.",
+      );
       setGeneratingBill(null);
     }
   };

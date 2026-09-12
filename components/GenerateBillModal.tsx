@@ -22,6 +22,7 @@ interface GenerateBillModalProps {
   visible: boolean;
   onClose: () => void;
   memberType: BillMemberType;
+  onMemberTypeChange?: (memberType: BillMemberType) => void;
   onSaved?: (config: SavedBillConfig) => void;
 }
 
@@ -34,24 +35,11 @@ const ACCENT_SWATCHES = [
   "#0891b2",
 ];
 
-/**
- * Validate email address.
- *
- * Empty email is allowed because the field is optional.
- */
 function validateEmail(email: string): boolean {
-  if (!email.trim()) {
-    return true;
-  }
-
+  if (!email.trim()) return true;
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim());
 }
 
-/**
- * Keep only numbers and limit the value to 10 digits.
- *
- * Empty value is allowed because the field is optional.
- */
 function sanitizeContactNumber(value: string): string {
   return value.replace(/\D/g, "").slice(0, 10);
 }
@@ -100,10 +88,18 @@ function makeDummyPreviewData(memberType: BillMemberType) {
 export default function GenerateBillModal({
   visible,
   onClose,
-  memberType,
+  memberType: initialMemberType,
+  onMemberTypeChange,
   onSaved,
 }: GenerateBillModalProps) {
   const { templates, getBillConfig, setBillConfig } = useBillStore();
+
+  const [memberType, setMemberType] =
+    useState<BillMemberType>(initialMemberType);
+
+  useEffect(() => {
+    setMemberType(initialMemberType);
+  }, [initialMemberType]);
 
   const existingConfig = getBillConfig(memberType);
   const labels = getLabels(memberType);
@@ -148,28 +144,19 @@ export default function GenerateBillModal({
       const cfg = getBillConfig(memberType);
 
       setStep("design");
-
       setTemplateId(cfg?.templateId ?? templates[0].id);
-
       setSwatch(cfg?.accentColor ?? templates[0].colors.primary);
 
       setSocietyName(cfg?.societyName ?? "");
       setAddress(cfg?.address ?? "");
-
-      // Sanitize saved contact number as well.
       setContactNumber(sanitizeContactNumber(cfg?.contactNumber ?? ""));
-
       setEmail(cfg?.email ?? "");
-
       setSignature(cfg?.signature);
 
       setFormError("");
-
       setShowDesignPreview(false);
-
       setShowSignatureModal(false);
     }
-
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, memberType]);
 
@@ -179,43 +166,26 @@ export default function GenerateBillModal({
   const dummy = makeDummyPreviewData(memberType);
 
   const goBack = () => {
-    if (step === "details") {
-      setStep("design");
-    } else if (step === "sign") {
-      setStep("details");
-    }
+    if (step === "details") setStep("design");
+    else if (step === "sign") setStep("details");
   };
 
-  /**
-   * Validate details before moving to the signature step.
-   *
-   * - Society name: required
-   * - Contact number: OPTIONAL, but if entered must be exactly 10 digits
-   * - Email: OPTIONAL, but if entered must be valid
-   */
   const handleDetailsNext = () => {
-    // Society name required
     if (!societyName.trim()) {
       setFormError("Please enter the society name");
       return;
     }
-
-    // Contact number optional — but if entered, must be exactly 10 digits
     if (contactNumber.length > 0 && contactNumber.length !== 10) {
       setFormError(
         "Contact number must be exactly 10 digits, or leave it empty",
       );
       return;
     }
-
-    // Email optional, but if entered it must be valid
     if (!validateEmail(email)) {
       setFormError("Please enter a valid email address");
       return;
     }
-
     setFormError("");
-
     setStep("sign");
   };
 
@@ -232,10 +202,14 @@ export default function GenerateBillModal({
     };
 
     setBillConfig(memberType, config);
-
     onSaved?.(config);
-
     onClose();
+  };
+
+  const handleSwitchMemberType = (next: BillMemberType) => {
+    if (next === memberType) return;
+    setMemberType(next);
+    onMemberTypeChange?.(next);
   };
 
   const stepOrder: ("design" | "details" | "sign")[] = [
@@ -254,9 +228,7 @@ export default function GenerateBillModal({
             <TouchableOpacity
               style={[
                 styles.stepDot,
-                index <= currentIndex && {
-                  backgroundColor: accentColor,
-                },
+                index <= currentIndex && { backgroundColor: accentColor },
               ]}
               onPress={() => index <= currentIndex && setStep(s)}
               disabled={index > currentIndex}
@@ -268,9 +240,7 @@ export default function GenerateBillModal({
                 <Text
                   style={[
                     styles.stepDotText,
-                    index <= currentIndex && {
-                      color: "#fff",
-                    },
+                    index <= currentIndex && { color: "#fff" },
                   ]}
                 >
                   {index + 1}
@@ -282,9 +252,7 @@ export default function GenerateBillModal({
               <View
                 style={[
                   styles.stepLine,
-                  index < currentIndex && {
-                    backgroundColor: accentColor,
-                  },
+                  index < currentIndex && { backgroundColor: accentColor },
                 ]}
               />
             )}
@@ -294,6 +262,219 @@ export default function GenerateBillModal({
     );
   };
 
+  /* ----------------------------------------------------------------
+     Template thumbnail (mini preview) — shows real layout difference
+  ---------------------------------------------------------------- */
+  const renderTemplateThumb = (t: (typeof templates)[number]) => {
+    if (t.layoutVariant === "bold") {
+      return (
+        <View
+          style={[
+            styles.templateThumb,
+            { backgroundColor: t.colors.background },
+          ]}
+        >
+          <View
+            style={{
+              height: 22,
+              backgroundColor: t.colors.headerBg,
+              paddingHorizontal: 5,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 4,
+            }}
+          >
+            <View
+              style={{
+                width: 10,
+                height: 10,
+                borderRadius: 2,
+                backgroundColor: "#ffffff",
+              }}
+            />
+            <View
+              style={{
+                flex: 1,
+                height: 4,
+                borderRadius: 1,
+                backgroundColor: "rgba(255,255,255,0.85)",
+              }}
+            />
+          </View>
+          <View style={{ paddingHorizontal: 5, paddingTop: 5 }}>
+            {[0, 1, 2].map((i) => (
+              <View
+                key={i}
+                style={{
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                  marginBottom: 3,
+                }}
+              >
+                <View
+                  style={{
+                    height: 3,
+                    width: "40%",
+                    borderRadius: 1,
+                    backgroundColor: "#e2e8f0",
+                  }}
+                />
+                <View
+                  style={{
+                    height: 3,
+                    width: "25%",
+                    borderRadius: 1,
+                    backgroundColor: "#cbd5e1",
+                  }}
+                />
+              </View>
+            ))}
+          </View>
+        </View>
+      );
+    }
+
+    if (t.layoutVariant === "classic") {
+      return (
+        <View
+          style={[
+            styles.templateThumb,
+            {
+              backgroundColor: t.colors.background,
+              borderWidth: 1,
+              borderColor: t.borderColor,
+            },
+          ]}
+        >
+          <View style={{ padding: 5 }}>
+            <View
+              style={{
+                height: 5,
+                width: "70%",
+                borderRadius: 1,
+                backgroundColor: t.colors.primary,
+                alignSelf: "center",
+                marginBottom: 3,
+              }}
+            />
+            <View
+              style={{
+                height: 3,
+                width: "50%",
+                borderRadius: 1,
+                backgroundColor: "#cbd5e1",
+                alignSelf: "center",
+                marginBottom: 4,
+              }}
+            />
+            <View
+              style={{
+                height: 1,
+                width: "100%",
+                backgroundColor: t.colors.primary,
+                marginBottom: 5,
+              }}
+            />
+            {[0, 1, 2].map((i) => (
+              <View
+                key={i}
+                style={{
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                  marginBottom: 3,
+                }}
+              >
+                <View
+                  style={{
+                    height: 3,
+                    width: "40%",
+                    borderRadius: 1,
+                    backgroundColor: "#e2e8f0",
+                  }}
+                />
+                <View
+                  style={{
+                    height: 3,
+                    width: "25%",
+                    borderRadius: 1,
+                    backgroundColor: "#cbd5e1",
+                  }}
+                />
+              </View>
+            ))}
+          </View>
+        </View>
+      );
+    }
+
+    // minimal
+    return (
+      <View
+        style={[styles.templateThumb, { backgroundColor: t.colors.background }]}
+      >
+        <View style={{ padding: 5 }}>
+          <View
+            style={{
+              height: 5,
+              width: "55%",
+              borderRadius: 1,
+              backgroundColor: t.colors.text,
+              marginBottom: 3,
+            }}
+          />
+          <View
+            style={{
+              height: 3,
+              width: "40%",
+              borderRadius: 1,
+              backgroundColor: "#cbd5e1",
+              marginBottom: 5,
+            }}
+          />
+          <View
+            style={{
+              height: 1,
+              width: "100%",
+              backgroundColor: "#e5e7eb",
+              marginBottom: 5,
+            }}
+          />
+          {[0, 1, 2].map((i) => (
+            <View
+              key={i}
+              style={{
+                flexDirection: "row",
+                justifyContent: "space-between",
+                marginBottom: 3,
+              }}
+            >
+              <View
+                style={{
+                  height: 3,
+                  width: "40%",
+                  borderRadius: 1,
+                  backgroundColor: "#e2e8f0",
+                }}
+              />
+              <View
+                style={{
+                  height: 3,
+                  width: "25%",
+                  borderRadius: 1,
+                  backgroundColor: "#cbd5e1",
+                }}
+              />
+            </View>
+          ))}
+        </View>
+      </View>
+    );
+  };
+
+  /* ----------------------------------------------------------------
+     Full preview card (used in sign step + design preview modal)
+     Each layout variant renders a genuinely different bill.
+  ---------------------------------------------------------------- */
   const renderPreviewCard = (useRealCommonDetails: boolean) => {
     const displaySociety = useRealCommonDetails
       ? societyName || "Your Society Name"
@@ -311,70 +492,351 @@ export default function GenerateBillModal({
 
     const displaySignature = useRealCommonDetails ? signature : undefined;
 
-    // Only show the "contact • email" line if at least one of them is present.
     const hasContactOrEmail =
       Boolean(displayContact && displayContact.trim()) ||
       Boolean(displayEmail && displayEmail.trim());
 
-    return (
-      <View style={styles.previewCard}>
-        <View style={[styles.previewHeader, { backgroundColor: swatch }]}>
-          <Text style={styles.previewHeaderTitle}>{dummy.docTitle}</Text>
+    const variant = selectedTemplate.layoutVariant ?? "bold";
 
-          <Text style={styles.previewHeaderTemplate}>
-            {selectedTemplate.name} Template
-          </Text>
-        </View>
+    const initials = displaySociety
+      .split(" ")
+      .map((w) => w[0])
+      .join("")
+      .slice(0, 3);
 
-        <View style={styles.previewBody}>
-          <Text style={styles.previewSociety}>{displaySociety}</Text>
+    /* ---------- shared body pieces, styled per variant ---------- */
 
-          {displayAddress ? (
-            <Text style={styles.previewSub}>{displayAddress}</Text>
-          ) : null}
+    const bodyBg =
+      variant === "bold"
+        ? "#f8fafc"
+        : variant === "classic"
+          ? "#ffffff"
+          : "#ffffff";
 
-          {hasContactOrEmail && (
-            <Text style={styles.previewSub}>
-              {displayContact}
-              {displayContact &&
-              displayContact.trim() &&
-              displayEmail &&
-              displayEmail.trim()
-                ? "  •  "
-                : ""}
-              {displayEmail}
-            </Text>
-          )}
+    const panelStyle =
+      variant === "bold"
+        ? {
+            backgroundColor: selectedTemplate.colors.secondary,
+            borderRadius: 10,
+            padding: 12,
+            marginTop: 12,
+          }
+        : variant === "classic"
+          ? {
+              backgroundColor: "#ffffff",
+              borderRadius: 0,
+              borderWidth: 1,
+              borderColor: "#cbd5e1",
+              padding: 12,
+              marginTop: 12,
+            }
+          : {
+              backgroundColor: "transparent",
+              borderRadius: 0,
+              paddingVertical: 8,
+              paddingHorizontal: 0,
+              marginTop: 12,
+            };
 
-          <View style={styles.previewDivider} />
+    const titleStyle =
+      variant === "bold"
+        ? {
+            fontSize: 18,
+            fontWeight: "800" as const,
+            color: "#ffffff",
+            textAlign: "center" as const,
+            paddingVertical: 12,
+            backgroundColor: swatch,
+            borderRadius: 8,
+            marginTop: 12,
+            letterSpacing: 0.8,
+          }
+        : variant === "classic"
+          ? {
+              fontSize: 16,
+              fontWeight: "800" as const,
+              color: swatch,
+              textAlign: "center" as const,
+              letterSpacing: 3,
+              paddingVertical: 12,
+              borderTopWidth: 1,
+              borderBottomWidth: 1,
+              borderColor: "#cbd5e1",
+              marginTop: 16,
+            }
+          : {
+              fontSize: 15,
+              fontWeight: "700" as const,
+              color: "#0f172a",
+              textAlign: "left" as const,
+              paddingVertical: 8,
+              marginTop: 12,
+              letterSpacing: 0,
+            };
 
-          {!useRealCommonDetails && (
-            <Text style={styles.dummyTag}>
-              Sample preview — your details will appear here
-            </Text>
-          )}
+    const rowLabelStyle =
+      variant === "minimal"
+        ? { fontSize: 12, color: "#64748b" }
+        : { fontSize: 12.5, color: "#475569" };
 
-          {dummy.rows.map(([label, value]) => (
-            <View key={label} style={styles.previewRow}>
-              <Text style={styles.previewLabel}>{label}</Text>
+    const rowDividerStyle =
+      variant === "bold"
+        ? { borderBottomWidth: 0, paddingVertical: 5 }
+        : variant === "classic"
+          ? {
+              borderBottomWidth: 1,
+              borderBottomColor: "#e2e8f0",
+              paddingVertical: 6,
+            }
+          : {
+              borderBottomWidth: 1,
+              borderBottomColor: "#f1f5f9",
+              paddingVertical: 5,
+            };
 
-              <Text style={styles.previewValue}>{value}</Text>
+    const totalBg =
+      variant === "bold"
+        ? swatch
+        : variant === "classic"
+          ? "#ffffff"
+          : "transparent";
+
+    const totalColor =
+      variant === "bold"
+        ? "#ffffff"
+        : variant === "classic"
+          ? swatch
+          : "#0f172a";
+
+    const totalLabelColor =
+      variant === "bold"
+        ? "rgba(255,255,255,0.85)"
+        : variant === "classic"
+          ? "#475569"
+          : "#64748b";
+
+    const totalStyle =
+      variant === "bold"
+        ? {
+            flexDirection: "row" as const,
+            justifyContent: "space-between" as const,
+            alignItems: "center" as const,
+            backgroundColor: totalBg,
+            borderRadius: 10,
+            paddingHorizontal: 14,
+            paddingVertical: 12,
+            marginTop: 14,
+          }
+        : variant === "classic"
+          ? {
+              flexDirection: "row" as const,
+              justifyContent: "space-between" as const,
+              alignItems: "center" as const,
+              borderTopWidth: 2,
+              borderBottomWidth: 2,
+              borderColor: swatch,
+              paddingVertical: 10,
+              marginTop: 14,
+            }
+          : {
+              flexDirection: "row" as const,
+              justifyContent: "space-between" as const,
+              alignItems: "center" as const,
+              borderTopWidth: 1,
+              borderTopColor: "#0f172a",
+              paddingVertical: 8,
+              marginTop: 12,
+            };
+
+    /* ---------- body rows (info) ---------- */
+    const infoRows = [
+      { label: "Owner/Staff Name", value: dummy.rows[0][1] },
+      ...dummy.rows.slice(1),
+    ];
+
+    const renderInfoPanel = () => (
+      <View style={panelStyle}>
+        {infoRows.map((row: any, idx) => {
+          const label = Array.isArray(row) ? row[0] : row.label;
+          const value = Array.isArray(row) ? row[1] : row.value;
+
+          return (
+            <View
+              key={`${label}-${idx}`}
+              style={[
+                {
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                  alignItems: "center",
+                },
+                rowDividerStyle,
+                idx === infoRows.length - 1 && { borderBottomWidth: 0 },
+              ]}
+            >
+              <Text style={rowLabelStyle}>{label}</Text>
+              <Text
+                style={{
+                  fontSize: 12.5,
+                  fontWeight: "700",
+                  color:
+                    variant === "classic"
+                      ? selectedTemplate.colors.text
+                      : "#0f172a",
+                }}
+              >
+                {value}
+              </Text>
             </View>
-          ))}
+          );
+        })}
+      </View>
+    );
 
-          <View style={styles.previewDivider} />
+    return (
+      <View
+        style={[
+          styles.previewCard,
+          variant === "classic" && {
+            borderWidth: 1,
+            borderColor: "#cbd5e1",
+            borderRadius: 0,
+          },
+          variant === "bold" && {
+            borderWidth: 0,
+            borderRadius: 14,
+          },
+          variant === "minimal" && {
+            borderWidth: 0,
+            borderRadius: 0,
+          },
+        ]}
+      >
+        {/* ---------- Header — varies strongly per variant ---------- */}
+        {variant === "bold" ? (
+          <View style={[styles.previewHeaderBold, { backgroundColor: swatch }]}>
+            <View style={styles.previewHeaderLogo}>
+              <Text style={[styles.previewHeaderLogoText, { color: swatch }]}>
+                {initials}
+              </Text>
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.previewHeaderTitleOnBg}>
+                {displaySociety}
+              </Text>
+              <Text style={styles.previewHeaderTemplateOnBg}>
+                {displayAddress}
+              </Text>
+            </View>
+          </View>
+        ) : variant === "classic" ? (
+          <View style={styles.previewHeaderClassic}>
+            <Text
+              style={[styles.previewHeaderClassicSociety, { color: swatch }]}
+            >
+              {displaySociety}
+            </Text>
+            <Text style={styles.previewHeaderClassicSub}>{displayAddress}</Text>
+            {hasContactOrEmail && (
+              <Text style={styles.previewHeaderClassicSub}>
+                {displayContact}
+                {displayContact && displayEmail ? "  •  " : ""}
+                {displayEmail}
+              </Text>
+            )}
+            <View
+              style={[
+                styles.previewHeaderClassicRule,
+                { backgroundColor: swatch },
+              ]}
+            />
+          </View>
+        ) : (
+          <View style={styles.previewHeaderMinimal}>
+            <Text style={styles.previewHeaderMinimalSociety}>
+              {displaySociety}
+            </Text>
+            <Text style={styles.previewHeaderMinimalSub}>{displayAddress}</Text>
+            {hasContactOrEmail && (
+              <Text style={styles.previewHeaderMinimalSub}>
+                {displayContact}
+                {displayContact && displayEmail ? " • " : ""}
+                {displayEmail}
+              </Text>
+            )}
+          </View>
+        )}
 
-          <View style={styles.previewTotalRow}>
-            <Text style={styles.previewTotalLabel}>{dummy.totalLabel}</Text>
+        {/* ---------- Body ---------- */}
+        <View style={[styles.previewBody, { backgroundColor: bodyBg }]}>
+          {/* Bill title — strongly different per variant */}
+          <Text style={titleStyle}>{dummy.docTitle}</Text>
 
-            <Text style={[styles.previewTotalValue, { color: swatch }]}>
+          {/* Info panel */}
+          {renderInfoPanel()}
+
+          {/* Amount breakdown */}
+          <View style={panelStyle}>
+            <View style={rowDividerStyle}>
+              <View
+                style={{
+                  flexDirection: "row",
+                  justifyContent: "space-between",
+                }}
+              >
+                <Text style={rowLabelStyle}>
+                  Base{" "}
+                  {dummy.docTitle === "Salary Slip" ? "Salary" : "Maintenance"}
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 12.5,
+                    fontWeight: "700",
+                    color: "#0f172a",
+                  }}
+                >
+                  {dummy.totalValue}
+                </Text>
+              </View>
+            </View>
+          </View>
+
+          {/* Total row */}
+          <View style={totalStyle}>
+            <Text
+              style={{
+                fontSize: 13,
+                fontWeight: "700",
+                color: totalLabelColor,
+                letterSpacing: variant === "classic" ? 1 : 0,
+              }}
+            >
+              {variant === "classic"
+                ? dummy.totalLabel.toUpperCase()
+                : dummy.totalLabel}
+            </Text>
+            <Text
+              style={{
+                fontSize: variant === "bold" ? 20 : 18,
+                fontWeight: "800",
+                color: totalColor,
+              }}
+            >
               {dummy.totalValue}
             </Text>
           </View>
 
-          <View style={styles.signatureArea}>
+          {/* Signature */}
+          <View
+            style={[
+              styles.signatureArea,
+              variant === "classic" && { marginTop: 26 },
+              variant === "minimal" && {
+                marginTop: 16,
+                alignItems: "flex-start",
+              },
+            ]}
+          >
             <Text style={styles.signatureAreaLabel}>Authorized Signatory</Text>
-
             {displaySignature ? (
               <SignaturePreview
                 signature={displaySignature}
@@ -385,6 +847,12 @@ export default function GenerateBillModal({
               <View style={styles.signatureLine} />
             )}
           </View>
+
+          {!useRealCommonDetails && (
+            <Text style={styles.dummyTag}>
+              Sample preview — your details will appear here
+            </Text>
+          )}
         </View>
       </View>
     );
@@ -429,6 +897,55 @@ export default function GenerateBillModal({
             </TouchableOpacity>
           </View>
 
+          {/* Owner / Staff toggle */}
+          <View style={styles.memberTypeToggle}>
+            <TouchableOpacity
+              style={[
+                styles.memberTypeButton,
+                memberType === "owner" && styles.memberTypeButtonOwnerActive,
+              ]}
+              onPress={() => handleSwitchMemberType("owner")}
+              activeOpacity={0.8}
+            >
+              <Ionicons
+                name="home-outline"
+                size={15}
+                color={memberType === "owner" ? "#1a73e8" : "#64748b"}
+              />
+              <Text
+                style={[
+                  styles.memberTypeText,
+                  memberType === "owner" && styles.memberTypeTextOwnerActive,
+                ]}
+              >
+                Owner Bill
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.memberTypeButton,
+                memberType === "staff" && styles.memberTypeButtonStaffActive,
+              ]}
+              onPress={() => handleSwitchMemberType("staff")}
+              activeOpacity={0.8}
+            >
+              <Ionicons
+                name="briefcase-outline"
+                size={15}
+                color={memberType === "staff" ? "#7c3aed" : "#64748b"}
+              />
+              <Text
+                style={[
+                  styles.memberTypeText,
+                  memberType === "staff" && styles.memberTypeTextStaffActive,
+                ]}
+              >
+                Staff Slip
+              </Text>
+            </TouchableOpacity>
+          </View>
+
           {renderStepIndicator()}
 
           <ScrollView
@@ -443,53 +960,49 @@ export default function GenerateBillModal({
                 <Text style={styles.sectionTitle}>Choose a Design</Text>
 
                 <Text style={styles.sectionSubtitle}>
-                  This applies to every {labels.docTitle.toLowerCase()}
+                  Pick a layout. You can still override the accent color below.
                 </Text>
 
-                {templates.map((t) => (
-                  <TouchableOpacity
-                    key={t.id}
-                    style={[
-                      styles.templateCard,
-                      templateId === t.id && {
-                        borderColor: accentColor,
-                        backgroundColor: accentBg,
-                      },
-                    ]}
-                    onPress={() => {
-                      setTemplateId(t.id);
-                      setSwatch(t.colors.primary);
-                    }}
-                    activeOpacity={0.8}
-                  >
-                    <View
+                {templates.map((t) => {
+                  const isSelected = templateId === t.id;
+
+                  return (
+                    <TouchableOpacity
+                      key={t.id}
                       style={[
-                        styles.templateColorPreview,
-                        {
-                          backgroundColor: t.colors.primary,
+                        styles.templateCard,
+                        isSelected && {
+                          borderColor: accentColor,
+                          backgroundColor: accentBg,
                         },
                       ]}
-                    />
+                      onPress={() => {
+                        setTemplateId(t.id);
+                        setSwatch(t.colors.primary);
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      {renderTemplateThumb(t)}
 
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.templateName}>{t.name}</Text>
+                      <View style={{ flex: 1, marginLeft: 12 }}>
+                        <Text style={styles.templateName}>{t.name}</Text>
+                        <Text style={styles.templateDescription}>
+                          {t.description}
+                        </Text>
+                      </View>
 
-                      <Text style={styles.templateDescription}>
-                        {t.description}
-                      </Text>
-                    </View>
+                      {isSelected && (
+                        <Ionicons
+                          name="checkmark-circle"
+                          size={22}
+                          color={accentColor}
+                        />
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
 
-                    {templateId === t.id && (
-                      <Ionicons
-                        name="checkmark-circle"
-                        size={22}
-                        color={accentColor}
-                      />
-                    )}
-                  </TouchableOpacity>
-                ))}
-
-                <Text style={styles.label}>Accent Color</Text>
+                <Text style={styles.label}>Accent Color Override</Text>
 
                 <View style={styles.swatchRow}>
                   {ACCENT_SWATCHES.map((c) => (
@@ -497,9 +1010,7 @@ export default function GenerateBillModal({
                       key={c}
                       style={[
                         styles.swatch,
-                        {
-                          backgroundColor: c,
-                        },
+                        { backgroundColor: c },
                         swatch === c && styles.swatchActive,
                       ]}
                       onPress={() => setSwatch(c)}
@@ -513,7 +1024,6 @@ export default function GenerateBillModal({
                   activeOpacity={0.7}
                 >
                   <Ionicons name="eye-outline" size={16} color={accentColor} />
-
                   <Text
                     style={[styles.previewLinkText, { color: accentColor }]}
                   >
@@ -522,17 +1032,11 @@ export default function GenerateBillModal({
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[
-                    styles.nextButton,
-                    {
-                      backgroundColor: accentColor,
-                    },
-                  ]}
+                  style={[styles.nextButton, { backgroundColor: accentColor }]}
                   onPress={() => setStep("details")}
                   activeOpacity={0.85}
                 >
                   <Text style={styles.nextButtonText}>Continue</Text>
-
                   <Ionicons name="arrow-forward" size={16} color="#fff" />
                 </TouchableOpacity>
               </View>
@@ -548,11 +1052,8 @@ export default function GenerateBillModal({
                   Shown on every {labels.docTitle.toLowerCase()} of this type
                 </Text>
 
-                {/* Society Name */}
-
                 <View style={styles.inputGroup}>
                   <Text style={styles.label}>Society Name *</Text>
-
                   <TextInput
                     style={styles.input}
                     placeholder="e.g. Green Valley Apartments"
@@ -566,18 +1067,12 @@ export default function GenerateBillModal({
                   />
                 </View>
 
-                {/* Address */}
-
                 <View style={styles.inputGroup}>
                   <Text style={styles.label}>Address</Text>
-
                   <TextInput
                     style={[
                       styles.input,
-                      {
-                        height: 60,
-                        textAlignVertical: "top",
-                      },
+                      { height: 60, textAlignVertical: "top" },
                     ]}
                     placeholder="e.g. 123, Main Road, City"
                     placeholderTextColor="#999"
@@ -590,14 +1085,9 @@ export default function GenerateBillModal({
                   />
                 </View>
 
-                {/* Contact + Email */}
-
                 <View style={styles.rowGroup}>
-                  {/* CONTACT NUMBER — OPTIONAL */}
-
                   <View style={[styles.inputGroup, { flex: 1 }]}>
                     <Text style={styles.label}>Society Number</Text>
-
                     <TextInput
                       style={[
                         styles.input,
@@ -612,16 +1102,11 @@ export default function GenerateBillModal({
                       maxLength={10}
                       value={contactNumber}
                       onChangeText={(value) => {
-                        const digitsOnly = sanitizeContactNumber(value);
-
-                        setContactNumber(digitsOnly);
-
+                        setContactNumber(sanitizeContactNumber(value));
                         setFormError("");
                       }}
                       returnKeyType="next"
                     />
-
-                    {/* Remaining digits message */}
 
                     {contactNumber.length > 0 && contactNumber.length < 10 ? (
                       <Text style={styles.fieldHint}>
@@ -630,8 +1115,6 @@ export default function GenerateBillModal({
                       </Text>
                     ) : null}
 
-                    {/* Valid indicator */}
-
                     {contactNumber.length === 10 && (
                       <View style={styles.validFieldRow}>
                         <Ionicons
@@ -639,25 +1122,19 @@ export default function GenerateBillModal({
                           size={12}
                           color="#16a34a"
                         />
-
                         <Text style={styles.validFieldText}>
                           Valid 10-digit number
                         </Text>
                       </View>
                     )}
 
-                    {/* Optional hint when empty */}
-
                     {contactNumber.length === 0 && (
                       <Text style={styles.optionalHint}>Optional</Text>
                     )}
                   </View>
 
-                  {/* EMAIL */}
-
                   <View style={[styles.inputGroup, { flex: 1 }]}>
                     <Text style={styles.label}>Society Email</Text>
-
                     <TextInput
                       style={[
                         styles.input,
@@ -680,15 +1157,11 @@ export default function GenerateBillModal({
                       returnKeyType="done"
                     />
 
-                    {/* Invalid email message */}
-
                     {email.length > 0 && !validateEmail(email) ? (
                       <Text style={styles.fieldHint}>
                         Enter a valid email address
                       </Text>
                     ) : null}
-
-                    {/* Valid email indicator */}
 
                     {email.length > 0 && validateEmail(email) ? (
                       <View style={styles.validFieldRow}>
@@ -697,12 +1170,9 @@ export default function GenerateBillModal({
                           size={12}
                           color="#16a34a"
                         />
-
                         <Text style={styles.validFieldText}>Valid email</Text>
                       </View>
                     ) : null}
-
-                    {/* Optional hint when empty */}
 
                     {email.length === 0 && (
                       <Text style={styles.optionalHint}>Optional</Text>
@@ -710,28 +1180,19 @@ export default function GenerateBillModal({
                   </View>
                 </View>
 
-                {/* Form Error */}
-
                 {formError ? (
                   <View style={styles.formErrorContainer}>
                     <Ionicons name="alert-circle" size={16} color="#dc2626" />
-
                     <Text style={styles.formErrorText}>{formError}</Text>
                   </View>
                 ) : null}
 
                 <TouchableOpacity
-                  style={[
-                    styles.nextButton,
-                    {
-                      backgroundColor: accentColor,
-                    },
-                  ]}
+                  style={[styles.nextButton, { backgroundColor: accentColor }]}
                   onPress={handleDetailsNext}
                   activeOpacity={0.85}
                 >
                   <Text style={styles.nextButtonText}>Continue to Preview</Text>
-
                   <Ionicons name="arrow-forward" size={16} color="#fff" />
                 </TouchableOpacity>
               </View>
@@ -742,7 +1203,6 @@ export default function GenerateBillModal({
             {step === "sign" && (
               <View>
                 <Text style={styles.sectionTitle}>Signature & Preview</Text>
-
                 <Text style={styles.sectionSubtitle}>
                   This is how {labels.docTitle.toLowerCase()}s will look
                 </Text>
@@ -760,13 +1220,10 @@ export default function GenerateBillModal({
                       size={15}
                       color={accentColor}
                     />
-
                     <Text
                       style={[
                         styles.changeSignatureText,
-                        {
-                          color: accentColor,
-                        },
+                        { color: accentColor },
                       ]}
                     >
                       Change Signature
@@ -776,9 +1233,7 @@ export default function GenerateBillModal({
                   <TouchableOpacity
                     style={[
                       styles.addSignatureButton,
-                      {
-                        borderColor: accentColor,
-                      },
+                      { borderColor: accentColor },
                     ]}
                     onPress={() => setShowSignatureModal(true)}
                     activeOpacity={0.7}
@@ -788,14 +1243,8 @@ export default function GenerateBillModal({
                       size={22}
                       color={accentColor}
                     />
-
                     <Text
-                      style={[
-                        styles.addSignatureText,
-                        {
-                          color: accentColor,
-                        },
-                      ]}
+                      style={[styles.addSignatureText, { color: accentColor }]}
                     >
                       Add Signature (optional)
                     </Text>
@@ -805,15 +1254,12 @@ export default function GenerateBillModal({
                 <TouchableOpacity
                   style={[
                     styles.saveTemplateButton,
-                    {
-                      backgroundColor: accentColor,
-                    },
+                    { backgroundColor: accentColor },
                   ]}
                   onPress={handleSaveTemplate}
                   activeOpacity={0.85}
                 >
                   <Ionicons name="save-outline" size={20} color="#fff" />
-
                   <Text style={styles.saveTemplateButtonText}>
                     Save Template
                   </Text>
@@ -831,7 +1277,6 @@ export default function GenerateBillModal({
               <View style={styles.previewModalCard}>
                 <View style={styles.previewModalHeader}>
                   <Text style={styles.previewModalTitle}>Design Preview</Text>
-
                   <TouchableOpacity
                     onPress={() => setShowDesignPreview(false)}
                     style={styles.closeButton}
@@ -850,10 +1295,7 @@ export default function GenerateBillModal({
                 <TouchableOpacity
                   style={[
                     styles.nextButton,
-                    {
-                      backgroundColor: accentColor,
-                      marginTop: 14,
-                    },
+                    { backgroundColor: accentColor, marginTop: 14 },
                   ]}
                   onPress={() => setShowDesignPreview(false)}
                   activeOpacity={0.85}
@@ -900,7 +1342,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "flex-start",
-    marginBottom: 14,
+    marginBottom: 12,
   },
 
   headerLeft: {
@@ -936,6 +1378,57 @@ const styles = StyleSheet.create({
 
   closeButton: {
     padding: 4,
+  },
+
+  memberTypeToggle: {
+    flexDirection: "row",
+    backgroundColor: "#f1f5f9",
+    borderRadius: 12,
+    padding: 4,
+    marginBottom: 14,
+    gap: 4,
+  },
+
+  memberTypeButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 9,
+    borderRadius: 9,
+    gap: 6,
+  },
+
+  memberTypeButtonOwnerActive: {
+    backgroundColor: "#ffffff",
+    shadowColor: "#1a73e8",
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+
+  memberTypeButtonStaffActive: {
+    backgroundColor: "#ffffff",
+    shadowColor: "#7c3aed",
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+  },
+
+  memberTypeText: {
+    fontSize: 12.5,
+    fontWeight: "700",
+    color: "#64748b",
+  },
+
+  memberTypeTextOwnerActive: {
+    color: "#1a73e8",
+  },
+
+  memberTypeTextStaffActive: {
+    color: "#7c3aed",
   },
 
   stepIndicator: {
@@ -991,7 +1484,6 @@ const styles = StyleSheet.create({
   templateCard: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
     padding: 12,
     borderWidth: 1.5,
     borderColor: "#e2e8f0",
@@ -1000,10 +1492,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
   },
 
-  templateColorPreview: {
-    width: 38,
-    height: 38,
-    borderRadius: 10,
+  templateThumb: {
+    width: 58,
+    height: 74,
+    borderRadius: 8,
+    overflow: "hidden",
   },
 
   templateName: {
@@ -1145,109 +1638,105 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 
+  /* ---------- Preview card wrapper ---------- */
   previewCard: {
-    borderRadius: 14,
     overflow: "hidden",
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
     marginBottom: 14,
   },
 
-  previewHeader: {
-    padding: 14,
+  /* ---------- Bold preview header ---------- */
+  previewHeaderBold: {
+    padding: 16,
+    flexDirection: "row",
     alignItems: "center",
+    gap: 12,
   },
-
-  previewHeaderTitle: {
-    fontSize: 15,
+  previewHeaderLogo: {
+    width: 42,
+    height: 42,
+    borderRadius: 10,
+    backgroundColor: "#ffffff",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  previewHeaderLogoText: {
+    fontSize: 13,
+    fontWeight: "800",
+    letterSpacing: 0.5,
+  },
+  previewHeaderTitleOnBg: {
+    fontSize: 16,
     fontWeight: "800",
     color: "#fff",
+    letterSpacing: 0.3,
   },
-
-  previewHeaderTemplate: {
-    fontSize: 10.5,
-    color: "rgba(255,255,255,0.85)",
+  previewHeaderTemplateOnBg: {
+    fontSize: 11,
+    color: "rgba(255,255,255,0.88)",
     marginTop: 2,
   },
 
-  previewBody: {
-    padding: 16,
-    backgroundColor: "#fff",
+  /* ---------- Classic preview header ---------- */
+  previewHeaderClassic: {
+    paddingTop: 18,
+    paddingHorizontal: 16,
+    paddingBottom: 12,
+    alignItems: "center",
+  },
+  previewHeaderClassicSociety: {
+    fontSize: 18,
+    fontWeight: "800",
+    letterSpacing: 1.2,
+    textAlign: "center",
+  },
+  previewHeaderClassicSub: {
+    fontSize: 11,
+    color: "#64748b",
+    marginTop: 3,
+    textAlign: "center",
+  },
+  previewHeaderClassicRule: {
+    width: "100%",
+    height: 2,
+    marginTop: 12,
   },
 
-  previewSociety: {
+  /* ---------- Minimal preview header ---------- */
+  previewHeaderMinimal: {
+    paddingTop: 12,
+    paddingHorizontal: 4,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e5e7eb",
+  },
+  previewHeaderMinimalSociety: {
     fontSize: 16,
     fontWeight: "800",
     color: "#0f172a",
-    textAlign: "center",
   },
-
-  previewSub: {
-    fontSize: 11.5,
-    color: "#64748b",
-    textAlign: "center",
+  previewHeaderMinimalSub: {
+    fontSize: 10.5,
+    color: "#94a3b8",
     marginTop: 2,
   },
 
-  previewDivider: {
-    height: 1,
-    backgroundColor: "#f1f5f9",
-    marginVertical: 10,
+  /* ---------- Body ---------- */
+  previewBody: {
+    paddingHorizontal: 16,
+    paddingBottom: 16,
+    paddingTop: 0,
   },
 
-  dummyTag: {
-    fontSize: 10.5,
-    color: "#94a3b8",
-    fontStyle: "italic",
-    marginBottom: 6,
-    textAlign: "center",
-  },
-
-  previewRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingVertical: 4,
-  },
-
-  previewLabel: {
-    fontSize: 12.5,
-    color: "#64748b",
-  },
-
-  previewValue: {
-    fontSize: 12.5,
-    fontWeight: "700",
-    color: "#0f172a",
-  },
-
-  previewTotalRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-
-  previewTotalLabel: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: "#0f172a",
-  },
-
-  previewTotalValue: {
-    fontSize: 20,
-    fontWeight: "800",
-  },
-
+  /* ---------- Signature ---------- */
   signatureArea: {
     marginTop: 20,
     alignItems: "center",
   },
-
   signatureAreaLabel: {
     fontSize: 10.5,
     color: "#94a3b8",
     marginBottom: 6,
   },
-
   signatureLine: {
     width: 150,
     height: 1,
@@ -1256,6 +1745,16 @@ const styles = StyleSheet.create({
     marginTop: 28,
   },
 
+  /* ---------- Misc ---------- */
+  dummyTag: {
+    fontSize: 10,
+    color: "#94a3b8",
+    fontStyle: "italic",
+    marginTop: 12,
+    textAlign: "center",
+  },
+
+  /* ---------- Signature buttons ---------- */
   addSignatureButton: {
     borderWidth: 2,
     borderStyle: "dashed",
@@ -1301,6 +1800,7 @@ const styles = StyleSheet.create({
     color: "#fff",
   },
 
+  /* ---------- Design preview modal ---------- */
   previewOverlay: {
     ...StyleSheet.absoluteFill,
     zIndex: 900,
