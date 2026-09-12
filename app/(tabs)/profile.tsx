@@ -90,15 +90,18 @@ interface HistoryEntry {
   newValue?: string;
 }
 
+type BillingPeriod = "monthly" | "yearly";
+
 interface SubscriptionPlan {
   id: string;
   name: string;
-  price: number;
-  period: "monthly" | "yearly";
+  monthlyPrice: number;
+  yearlyPrice: number;
   features: string[];
   popular?: boolean;
   color: string;
   icon: keyof typeof Ionicons.glyphMap;
+  yearlyDiscountPercent: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -2193,6 +2196,83 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  // ============================================================
+  // MONTHLY / YEARLY TOGGLE STYLES
+  // ============================================================
+  billingToggleContainer: {
+    flexDirection: "row",
+    backgroundColor: "#F1F5F9",
+    borderRadius: 14,
+    padding: 4,
+    marginBottom: 16,
+    flexShrink: 0,
+  },
+  billingToggleButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 10,
+    borderRadius: 11,
+    gap: 6,
+  },
+  billingToggleButtonActive: {
+    backgroundColor: "#FFFFFF",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+  },
+  billingToggleText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#64748B",
+  },
+  billingToggleTextActive: {
+    color: "#2563EB",
+    fontWeight: "700",
+  },
+  billingSavingsBadge: {
+    backgroundColor: "#16A34A",
+    borderRadius: 10,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    marginLeft: 4,
+  },
+  billingSavingsText: {
+    color: "#FFFFFF",
+    fontSize: 9,
+    fontWeight: "700",
+  },
+  planCardYearlySavings: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#DCFCE7",
+    borderRadius: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    alignSelf: "flex-start",
+    marginTop: 6,
+    gap: 4,
+  },
+  planCardYearlySavingsText: {
+    color: "#16A34A",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+  planCardStrikethrough: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#94A3B8",
+    textDecorationLine: "line-through",
+    marginLeft: 6,
+  },
+  planCardBillingNote: {
+    fontSize: 10,
+    color: "#64748B",
+    marginTop: 2,
+  },
 }) as any;
 
 // ---------------------------------------------------------------------------
@@ -2253,48 +2333,54 @@ export default function ProfileScreen() {
 
   const [showPlansModal, setShowPlansModal] = useState(false);
   const [activePlan, setActivePlan] = useState<string>("pro");
-  const [isPaymentProcessing, setIsPaymentProcessing] = useState(false); // ✅ NEW
+  const [isPaymentProcessing, setIsPaymentProcessing] = useState(false);
+  const [billingPeriod, setBillingPeriod] = useState<BillingPeriod>("monthly");
 
+  // ✅ UPDATED: Plans now have monthlyPrice, yearlyPrice, and yearlyDiscountPercent
   const plans: SubscriptionPlan[] = [
     {
       id: "free",
       name: "Free",
-      price: 0,
-      period: "monthly",
-      features: ["Up to 10 members", "Basic bill generation", "Email support"],
+      monthlyPrice: 0,
+      yearlyPrice: 0,
+      features: ["Up to 10 members", "Basic bill generation", "Basic support"],
       color: "#64748B",
       icon: "people-outline",
+      yearlyDiscountPercent: 0,
     },
     {
       id: "pro",
       name: "Pro",
-      price: 499,
-      period: "monthly",
+      monthlyPrice: 199,
+      yearlyPrice: 1990, // ~17% off (199 * 12 = 2388, save ₹398)
       features: [
-        "Unlimited members",
+        "Up to 30 members",
         "Advanced bill generation",
         "Priority support",
-        "Custom templates",
-        "Multiple accounts",
+        "History access",
       ],
       popular: true,
       color: "#2563EB",
       icon: "star-outline",
+      yearlyDiscountPercent: 17,
     },
     {
       id: "business",
       name: "Business",
-      price: 999,
-      period: "monthly",
+      monthlyPrice: 999,
+      yearlyPrice: 8990, // ~25% off (999 * 12 = 11988, save ₹2998)
       features: [
-        "Everything in Pro",
-        "Dedicated account manager",
-        "API access",
+        "Unlimited members",
+        "Multiple accounts",
+        "Advanced bill generation",
+        "Priority support",
+        "History access",
         "Advanced analytics",
         "White-label branding",
       ],
       color: "#7C3AED",
       icon: "business-outline",
+      yearlyDiscountPercent: 25,
     },
   ];
 
@@ -2549,10 +2635,23 @@ export default function ProfileScreen() {
   // SUBSCRIPTION FUNCTIONS
   // ============================================================
 
-  // ✅ NEW: Reusable finalize function (called after successful payment OR free plan switch)
+  const getPlanPrice = (plan: SubscriptionPlan, period: BillingPeriod) => {
+    return period === "yearly" ? plan.yearlyPrice : plan.monthlyPrice;
+  };
+
+  const getPlanPeriodLabel = (
+    plan: SubscriptionPlan,
+    period: BillingPeriod,
+  ) => {
+    if (plan.monthlyPrice === 0) return "";
+    return period === "yearly" ? "/year" : "/month";
+  };
+
+  // ✅ UPDATED: finalizePlanSwitch now accepts billing period
   const finalizePlanSwitch = (
     selectedPlan: SubscriptionPlan,
     currentPlan: SubscriptionPlan | undefined,
+    period: BillingPeriod,
     paymentId?: string,
   ) => {
     const planIndex = plans.findIndex((p) => p.id === selectedPlan.id);
@@ -2571,20 +2670,22 @@ export default function ProfileScreen() {
 
     const actionDescription =
       actionType === "plan_upgraded"
-        ? `Upgraded from ${currentPlan?.name ?? "Unknown"} to ${selectedPlan.name}`
+        ? `Upgraded from ${currentPlan?.name ?? "Unknown"} to ${selectedPlan.name} (${period})`
         : actionType === "plan_downgraded"
-          ? `Downgraded from ${currentPlan?.name ?? "Unknown"} to ${selectedPlan.name}`
-          : `Changed plan from ${currentPlan?.name ?? "Unknown"} to ${selectedPlan.name}`;
+          ? `Downgraded from ${currentPlan?.name ?? "Unknown"} to ${selectedPlan.name} (${period})`
+          : `Changed plan from ${currentPlan?.name ?? "Unknown"} to ${selectedPlan.name} (${period})`;
+
+    const price = getPlanPrice(selectedPlan, period);
 
     addHistoryEntry(actionType, actionTitle, actionDescription, {
-      amount: selectedPlan.price,
+      amount: price,
       oldValue: currentPlan?.name ?? "Unknown",
       newValue: selectedPlan.name,
       details: {
         from: currentPlan?.name ?? "Unknown",
         to: selectedPlan.name,
-        price: selectedPlan.price,
-        period: selectedPlan.period,
+        price,
+        period,
         paymentId: paymentId ?? null,
       },
     });
@@ -2599,14 +2700,14 @@ export default function ProfileScreen() {
           : actionType === "plan_downgraded"
             ? "downgraded to"
             : "switched to"
-      } ${selectedPlan.name} plan.`,
+      } ${selectedPlan.name} plan (${period}).`,
       [{ text: "OK" }],
     );
 
     setShowPlansModal(false);
   };
 
-  // ✅ REPLACED: Now async and integrates Razorpay default UI
+  // ✅ UPDATED: handleSelectPlan now uses billingPeriod
   const handleSelectPlan = async (planId: string) => {
     if (!canManageSubscription) return;
 
@@ -2621,9 +2722,11 @@ export default function ProfileScreen() {
       return;
     }
 
+    const price = getPlanPrice(selectedPlan, billingPeriod);
+
     // FREE plan — no payment needed
-    if (selectedPlan.price === 0) {
-      finalizePlanSwitch(selectedPlan, currentPlan);
+    if (price === 0) {
+      finalizePlanSwitch(selectedPlan, currentPlan, billingPeriod);
       return;
     }
 
@@ -2632,17 +2735,19 @@ export default function ProfileScreen() {
     setIsPaymentProcessing(true);
 
     try {
-      const result = await startRazorpayPayment(
-        selectedPlan.price,
-        selectedPlan.name,
-        {
-          name: user?.name,
-          phone: user?.phone,
-        },
-      );
+      const planLabel = `${selectedPlan.name} (${billingPeriod})`;
+      const result = await startRazorpayPayment(price, planLabel, {
+        name: user?.name,
+        phone: user?.phone,
+      });
 
       if (result.success) {
-        finalizePlanSwitch(selectedPlan, currentPlan, result.paymentId);
+        finalizePlanSwitch(
+          selectedPlan,
+          currentPlan,
+          billingPeriod,
+          result.paymentId,
+        );
       } else {
         Alert.alert(
           "Payment Failed",
@@ -3441,6 +3546,52 @@ export default function ProfileScreen() {
               </TouchableOpacity>
             </View>
 
+            {/* ✅ NEW: Monthly / Yearly Toggle */}
+            <View style={styles.billingToggleContainer}>
+              <TouchableOpacity
+                style={[
+                  styles.billingToggleButton,
+                  billingPeriod === "monthly" &&
+                    styles.billingToggleButtonActive,
+                ]}
+                onPress={() => setBillingPeriod("monthly")}
+                activeOpacity={0.8}
+              >
+                <Text
+                  style={[
+                    styles.billingToggleText,
+                    billingPeriod === "monthly" &&
+                      styles.billingToggleTextActive,
+                  ]}
+                >
+                  Monthly
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.billingToggleButton,
+                  billingPeriod === "yearly" &&
+                    styles.billingToggleButtonActive,
+                ]}
+                onPress={() => setBillingPeriod("yearly")}
+                activeOpacity={0.8}
+              >
+                <Text
+                  style={[
+                    styles.billingToggleText,
+                    billingPeriod === "yearly" &&
+                      styles.billingToggleTextActive,
+                  ]}
+                >
+                  Yearly
+                </Text>
+                <View style={styles.billingSavingsBadge}>
+                  <Text style={styles.billingSavingsText}>SAVE 25%</Text>
+                </View>
+              </TouchableOpacity>
+            </View>
+
             <ScrollView
               style={styles.plansScroll}
               showsVerticalScrollIndicator={true}
@@ -3453,6 +3604,13 @@ export default function ProfileScreen() {
               {plans.map((plan) => {
                 const isActive = activePlan === plan.id;
                 const isPopular = plan.popular;
+                const price = getPlanPrice(plan, billingPeriod);
+                const periodLabel = getPlanPeriodLabel(plan, billingPeriod);
+                const monthlyPrice = plan.monthlyPrice;
+                const yearlySavings =
+                  billingPeriod === "yearly" && plan.monthlyPrice > 0
+                    ? plan.monthlyPrice * 12 - plan.yearlyPrice
+                    : 0;
 
                 return (
                   <View
@@ -3496,14 +3654,45 @@ export default function ProfileScreen() {
                           }}
                         >
                           <Text style={styles.planCardPrice}>
-                            {plan.price === 0 ? "Free" : `₹${plan.price}`}
+                            {price === 0 ? "Free" : `₹${price}`}
                           </Text>
-                          {plan.price > 0 && (
+                          {price > 0 && (
                             <Text style={styles.planCardPeriod}>
-                              /{plan.period}
+                              {periodLabel}
                             </Text>
                           )}
                         </View>
+                        {/* Show strikethrough monthly price on yearly */}
+                        {billingPeriod === "yearly" && monthlyPrice > 0 && (
+                          <View
+                            style={{
+                              flexDirection: "row",
+                              alignItems: "center",
+                              flexWrap: "wrap",
+                            }}
+                          >
+                            <Text style={styles.planCardStrikethrough}>
+                              ₹{monthlyPrice * 12}
+                            </Text>
+                            <Text style={styles.planCardBillingNote}>
+                              billed annually
+                            </Text>
+                          </View>
+                        )}
+                        {/* Yearly savings badge */}
+                        {billingPeriod === "yearly" && yearlySavings > 0 && (
+                          <View style={styles.planCardYearlySavings}>
+                            <Ionicons
+                              name="trending-down-outline"
+                              size={12}
+                              color="#16A34A"
+                            />
+                            <Text style={styles.planCardYearlySavingsText}>
+                              Save ₹{yearlySavings.toLocaleString("en-IN")} /
+                              year
+                            </Text>
+                          </View>
+                        )}
                       </View>
                       <View
                         style={[
@@ -3552,7 +3741,11 @@ export default function ProfileScreen() {
                             !isActive && { color: "#FFFFFF" },
                           ]}
                         >
-                          {isActive ? "Current Plan" : `Switch to ${plan.name}`}
+                          {isActive
+                            ? "Current Plan"
+                            : price === 0
+                              ? `Switch to ${plan.name}`
+                              : `Switch to ${plan.name} - ₹${price}${periodLabel}`}
                         </Text>
                       </TouchableOpacity>
                     ) : (
@@ -4400,10 +4593,14 @@ export default function ProfileScreen() {
           (() => {
             const currentPlan = plans.find((p) => p.id === activePlan);
             const isFree = activePlan === "free";
-            const planPrice = currentPlan?.price ?? 0;
             const planName = currentPlan?.name ?? "Free";
-            const planPeriod = currentPlan?.period ?? "monthly";
             const planFeatures = currentPlan?.features ?? ["Basic features"];
+            const price = currentPlan
+              ? getPlanPrice(currentPlan, billingPeriod)
+              : 0;
+            const periodLabel = currentPlan
+              ? getPlanPeriodLabel(currentPlan, billingPeriod)
+              : "";
 
             return (
               <View style={styles.subscriptionCard}>
@@ -4436,12 +4633,10 @@ export default function ProfileScreen() {
                 <Text style={styles.subscriptionPlanName}>{planName} Plan</Text>
                 <View style={styles.subscriptionPriceRow}>
                   <Text style={styles.subscriptionPrice}>
-                    {planPrice === 0 ? "Free" : `₹${planPrice}`}
+                    {price === 0 ? "Free" : `₹${price}`}
                   </Text>
-                  {planPrice > 0 && (
-                    <Text style={styles.subscriptionPeriod}>
-                      / {planPeriod}
-                    </Text>
+                  {price > 0 && (
+                    <Text style={styles.subscriptionPeriod}>{periodLabel}</Text>
                   )}
                 </View>
 
