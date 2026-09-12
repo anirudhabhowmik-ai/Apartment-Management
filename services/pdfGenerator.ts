@@ -87,12 +87,6 @@ function escapeHtml(value: string | number | undefined | null): string {
     .replace(/'/g, "&#39;");
 }
 
-/**
- * Renders whichever signature variant is saved:
- *   - SVG markup → inlined, scaled to fit a 200x80 box
- *   - Image URI  → rendered as <img> with optional white→transparent trick
- *   - Nothing    → an empty dashed line
- */
 function buildSignatureHtml(signData?: SignatureData): string {
   if (!signData) {
     return `<div style="width:200px;height:60px;border-bottom:1px dashed #cbd5e1;margin:0 auto;"></div>`;
@@ -145,15 +139,9 @@ function buildBillFileName(billNumber: string): string {
 }
 
 /* ================================================================
-   ROW BUILDER — matches the preview exactly
+   ROW BUILDER
 ================================================================ */
 
-/**
- * Renders a single label → value row.
- *
- * label left, value right — the layout the preview uses for
- * "Owner Name: Rahul Sharma" style rows.
- */
 function rowHtml(
   label: string,
   value: string,
@@ -197,15 +185,20 @@ function rowHtml(
 function buildHeaderHtml(
   variant: LayoutVariant,
   t: BillData["template"],
+  initials: string,
+  societyName: string,
+  address: string,
+  contactLine: string,
 ): string {
-  const { colors, borderColor } = t;
-  const initial = (t.logoPosition && t.logoPosition) || "top-left";
+  const { colors } = t;
 
   if (variant === "bold") {
+    // ✅ NO negative margins — those cause the top of the bar to be
+    // clipped by expo-print on Android. The container's top padding is
+    // already 0 for Bold, so the header sits flush against the top.
     return `
       <div style="
         background:${colors.headerBg};
-        margin:-30px -30px 24px -30px;
         padding:24px 26px;
         display:flex;
         align-items:center;
@@ -219,17 +212,17 @@ function buildHeaderHtml(
           display:flex;align-items:center;justify-content:center;
           font-size:16px;font-weight:800;letter-spacing:0.6px;
         ">
-          <%= initials %>
+          ${escapeHtml(initials)}
         </div>
         <div style="flex:1;">
           <div style="font-size:22px;font-weight:800;color:#ffffff;letter-spacing:0.3px;">
-            <%= societyName %>
+            ${escapeHtml(societyName)}
           </div>
           <div style="font-size:12px;color:rgba(255,255,255,0.88);margin-top:3px;">
-            <%= address %>
+            ${escapeHtml(address)}
           </div>
           <div style="font-size:12px;color:rgba(255,255,255,0.88);margin-top:2px;">
-            <%= contactLine %>
+            ${escapeHtml(contactLine)}
           </div>
         </div>
       </div>
@@ -244,12 +237,12 @@ function buildHeaderHtml(
           font-weight:800;
           color:${colors.primary};
           letter-spacing:1.2px;
-        "><%= societyName %></div>
+        ">${escapeHtml(societyName)}</div>
         <div style="font-size:12px;color:#64748b;margin-top:3px;">
-          <%= address %>
+          ${escapeHtml(address)}
         </div>
         <div style="font-size:12px;color:#64748b;margin-top:2px;">
-          <%= contactLine %>
+          ${escapeHtml(contactLine)}
         </div>
         <div style="
           height:2px;
@@ -260,7 +253,6 @@ function buildHeaderHtml(
     `;
   }
 
-  // minimal
   return `
     <div style="
       padding-bottom:10px;
@@ -268,13 +260,13 @@ function buildHeaderHtml(
       text-align:left;
     ">
       <div style="font-size:18px;font-weight:800;color:#0f172a;">
-        <%= societyName %>
+        ${escapeHtml(societyName)}
       </div>
       <div style="font-size:11px;color:#94a3b8;margin-top:2px;">
-        <%= address %>
+        ${escapeHtml(address)}
       </div>
       <div style="font-size:11px;color:#94a3b8;margin-top:2px;">
-        <%= contactLine %>
+        ${escapeHtml(contactLine)}
       </div>
     </div>
   `;
@@ -324,13 +316,14 @@ export async function generateBillPDF(data: BillData): Promise<string> {
     .filter(Boolean)
     .join("  |  ");
 
-  /* ---------- Header markup per variant ---------- */
-  const headerRaw = buildHeaderHtml(variant, template);
-  const headerHtml = headerRaw
-    .replace(/<%= initials %>/g, escapeHtml(initials))
-    .replace(/<%= societyName %>/g, escapeHtml(societyName))
-    .replace(/<%= address %>/g, escapeHtml(address))
-    .replace(/<%= contactLine %>/g, escapeHtml(contactLine));
+  const headerHtml = buildHeaderHtml(
+    variant,
+    template,
+    initials,
+    societyName,
+    address,
+    contactLine,
+  );
 
   /* ---------- Shared label / value data ---------- */
   const memberLabel = billType === "maintenance" ? "Owner Name" : "Staff Name";
@@ -348,7 +341,6 @@ export async function generateBillPDF(data: BillData): Promise<string> {
   /* ---------- Info panel per variant ---------- */
   const infoPanelHtml = (() => {
     if (variant === "bold") {
-      // soft-tinted rounded panel
       const rows = infoRowsData
         .map(([label, value]) =>
           rowHtml(label, value, {
@@ -372,7 +364,6 @@ export async function generateBillPDF(data: BillData): Promise<string> {
     }
 
     if (variant === "classic") {
-      // bordered square panel with dividers between rows
       const rows = infoRowsData
         .map(([label, value], i) =>
           rowHtml(label, value, {
@@ -396,7 +387,6 @@ export async function generateBillPDF(data: BillData): Promise<string> {
       `;
     }
 
-    // minimal — no panel, just hairline dividers
     const rows = infoRowsData
       .map(([label, value], i) =>
         rowHtml(label, value, {
@@ -617,7 +607,10 @@ export async function generateBillPDF(data: BillData): Promise<string> {
   /* ---------- Signature alignment per variant ---------- */
   const signatureAlign = variant === "minimal" ? "flex-start" : "center";
 
-  /* ---------- Container per variant ---------- */
+  /* ---------- Container padding per variant ----------
+     Bold uses `padding:0 30px 30px` (no top padding) so the header bar
+     sits flush against the top. Its own padding creates the space.
+     Other variants keep the standard 30px all around. */
   const containerPadding = variant === "bold" ? "0 30px 30px" : "30px";
 
   const html = `
@@ -703,7 +696,6 @@ export async function generateBillPDF(data: BillData): Promise<string> {
 
         ${billTitleHtml}
 
-        <!-- Bill # / date -->
         <div style="
           display:flex;
           justify-content:space-between;

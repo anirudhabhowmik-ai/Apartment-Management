@@ -23,14 +23,11 @@ export interface BillTemplateDesign {
   borderRadius: number;
   showWatermark: boolean;
   watermarkText?: string;
-  /** Distinguishes the actual layout of the bill */
   layoutVariant: "bold" | "classic" | "minimal";
 }
 
 export type BillMemberType = "owner" | "staff";
 
-// Drawn signatures are stored as a self-contained SVG string.
-// Uploaded signatures are stored as an image uri.
 export type SignatureData =
   | { type: "svg"; svgMarkup: string; width: number; height: number }
   | { type: "image"; uri: string; transparentBg: boolean };
@@ -44,6 +41,27 @@ export interface SavedBillConfig {
   email: string;
   signature?: SignatureData;
   updatedAt: string;
+
+  /**
+   * Snapshot of the resolved template's layout fields at save time.
+   *
+   * Storing this makes owner and staff configs fully independent — the
+   * PDF generator uses this directly instead of looking up the shared
+   * `templates` array. Older configs saved before this field existed
+   * won't have it; the PDF code falls back to the live template array.
+   */
+  layoutSnapshot?: {
+    colors: BillTemplateDesign["colors"];
+    fontFamily: BillTemplateDesign["fontFamily"];
+    logoPosition: BillTemplateDesign["logoPosition"];
+    showBorder: boolean;
+    borderColor: string;
+    borderWidth: number;
+    borderRadius: number;
+    showWatermark: boolean;
+    watermarkText?: string;
+    layoutVariant: BillTemplateDesign["layoutVariant"];
+  };
 }
 
 interface BillState {
@@ -150,43 +168,18 @@ export const useBillStore = create<BillState>()(
       name: "bill-config-storage",
       storage: createJSONStorage(() => AsyncStorage),
 
-      // ✅ THE FIX
-      // `templates` is static design data that lives in code
-      // (DEFAULT_TEMPLATES), not something the user edits. Without this,
-      // zustand's persist middleware saves the entire store — including
-      // `templates` — to AsyncStorage on first run, and every app
-      // restart REHYDRATES from that saved snapshot, silently
-      // overwriting whatever DEFAULT_TEMPLATES looks like in the
-      // current code. That's why template layout changes (or new
-      // fields like layoutVariant) never showed up on-device: the app
-      // kept loading a stale cached copy from the very first install.
-      //
-      // Only persist the two things that are actually user data —
-      // the saved owner/staff bill configs. `templates` always comes
-      // fresh from DEFAULT_TEMPLATES in code from now on.
       partialize: (state) => ({
         ownerBillConfig: state.ownerBillConfig,
         staffBillConfig: state.staffBillConfig,
       }),
 
-      // Bump this whenever DEFAULT_TEMPLATES' shape changes again in
-      // the future, so any other stale persisted fields get dropped
-      // instead of silently lingering.
-      version: 1,
+      // Bumped to 2 because SavedBillConfig gained `layoutSnapshot`.
+      // Old configs won't have it — the PDF code falls back to the
+      // live template array in that case.
+      version: 2,
 
-      // ✅ Required whenever `version` is bumped above the version the
-      // device already has saved (every existing install is on the old
-      // unversioned/version-0 shape, which still had `templates` baked
-      // into the saved blob). Without this, zustand refuses to apply
-      // the old saved state at all and logs:
-      //   "State loaded from storage couldn't be migrated since no
-      //    migrate function was provided"
-      // We just pull out the two fields we still care about and ignore
-      // everything else (including any stale `templates`) — that stale
-      // data is exactly what we're trying to get rid of.
       migrate: (persistedState) => {
         const state = (persistedState ?? {}) as Partial<BillState>;
-
         return {
           ownerBillConfig: state.ownerBillConfig ?? null,
           staffBillConfig: state.staffBillConfig ?? null,

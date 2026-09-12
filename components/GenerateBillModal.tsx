@@ -199,6 +199,26 @@ export default function GenerateBillModal({
       email: email.trim(),
       signature,
       updatedAt: new Date().toISOString(),
+
+      // ✅ Snapshot the full layout at save time. This makes the owner
+      // and staff configs truly independent — the PDF generator uses
+      // this snapshot directly instead of looking up the shared
+      // templates array by id.
+      layoutSnapshot: {
+        colors: {
+          ...selectedTemplate.colors,
+          primary: swatch, // honor the accent override
+        },
+        fontFamily: selectedTemplate.fontFamily,
+        logoPosition: selectedTemplate.logoPosition,
+        showBorder: selectedTemplate.showBorder,
+        borderColor: selectedTemplate.borderColor,
+        borderWidth: selectedTemplate.borderWidth,
+        borderRadius: selectedTemplate.borderRadius,
+        showWatermark: selectedTemplate.showWatermark,
+        watermarkText: selectedTemplate.watermarkText,
+        layoutVariant: selectedTemplate.layoutVariant,
+      },
     };
 
     setBillConfig(memberType, config);
