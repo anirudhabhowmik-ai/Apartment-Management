@@ -630,9 +630,28 @@ export default function PeopleScreen() {
       if (!billConfig) {
         Alert.alert(
           "Bill Template Not Set Up",
-          `Please set up the ${
+          `You haven't set up the ${
             isApartmentTab ? "owner bill" : "staff slip"
-          } template first (Profile → Generate Bill).`,
+          } template yet. Set it up now to generate this bill.`,
+          [
+            { text: "Cancel", style: "cancel" },
+            {
+              text: "Generate Bill",
+              onPress: () => {
+                // Deep-link straight into the correct side (owner/staff)
+                // of the bill template setup modal.
+                // ⚠️ Adjust this pathname/param if your actual route for
+                // GenerateBillModal differs — this follows the same
+                // "/(modals)/..." convention used by add-member,
+                // edit-member, mark-attendance, etc. elsewhere in this
+                // screen.
+                router.push({
+                  pathname: "/(modals)/generate-bill",
+                  params: { memberType },
+                });
+              },
+            },
+          ],
         );
         setGeneratingBill(null);
         return;
@@ -659,14 +678,22 @@ export default function PeopleScreen() {
           ...selectedTemplate.colors,
           primary: billConfig.accentColor ?? selectedTemplate.colors.primary,
         },
+
         fontFamily: selectedTemplate.fontFamily ?? "Roboto",
+
         logoPosition: selectedTemplate.logoPosition ?? "top-left",
+
         showBorder: selectedTemplate.showBorder ?? true,
         borderColor: selectedTemplate.borderColor ?? "#e0e0e0",
         borderWidth: selectedTemplate.borderWidth ?? 1,
         borderRadius: selectedTemplate.borderRadius ?? 8,
+
         showWatermark: selectedTemplate.showWatermark ?? true,
         watermarkText: selectedTemplate.watermarkText ?? "Society Management",
+
+        // IMPORTANT:
+        // Pass the selected preview layout to the PDF generator.
+        layoutVariant: selectedTemplate.layoutVariant ?? "bold",
       };
 
       // Compute amounts

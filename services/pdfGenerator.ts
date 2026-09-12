@@ -9,6 +9,8 @@ import type { SignatureData } from "../store/billStore";
    TYPES
 ================================================================ */
 
+type LayoutVariant = "bold" | "classic" | "minimal";
+
 interface BillData {
   billNumber: string;
   apartmentName: string;
@@ -45,6 +47,7 @@ interface BillData {
     borderRadius: number;
     showWatermark: boolean;
     watermarkText?: string;
+    layoutVariant?: LayoutVariant;
   };
   billType: "maintenance" | "salary";
   staffRole?: string;
@@ -98,7 +101,6 @@ function buildSignatureHtml(signData?: SignatureData): string {
   if (signData.type === "svg") {
     let svg = signData.svgMarkup;
 
-    // Ensure viewBox exists so the SVG scales properly
     if (!/viewBox\s*=/.test(svg) && signData.width && signData.height) {
       svg = svg.replace(
         /<svg\b/i,
@@ -106,12 +108,10 @@ function buildSignatureHtml(signData?: SignatureData): string {
       );
     }
 
-    // Ensure xmlns (some SVG builders drop it)
     if (!/xmlns\s*=/.test(svg)) {
       svg = svg.replace(/<svg\b/i, `<svg xmlns="http://www.w3.org/2000/svg"`);
     }
 
-    // Strip intrinsic width/height so CSS controls sizing
     svg = svg.replace(/<svg\b([^>]*)>/i, (_match, attrs) => {
       const cleaned = String(attrs)
         .replace(/\swidth\s*=\s*"[^"]*"/gi, "")
@@ -128,7 +128,6 @@ function buildSignatureHtml(signData?: SignatureData): string {
     `;
   }
 
-  // type === "image"
   const imgStyle = signData.transparentBg ? `mix-blend-mode: multiply;` : ``;
 
   return `
@@ -140,37 +139,151 @@ function buildSignatureHtml(signData?: SignatureData): string {
   `;
 }
 
-/**
- * Builds a safe, unique filename for a generated bill.
- */
 function buildBillFileName(billNumber: string): string {
   const safeSuffix = billNumber.replace(/[^\w-]+/g, "_");
   return `Bill-${safeSuffix}.pdf`;
 }
 
 /* ================================================================
-   GENERATE PDF
+   ROW BUILDER — matches the preview exactly
 ================================================================ */
 
 /**
- * Generates the bill PDF and returns a file:// URI that lives inside
- * this app's OWN cache directory (FileSystem.cacheDirectory).
+ * Renders a single label → value row.
  *
- * IMPORTANT — why we don't just return Print.printToFileAsync's uri:
- * On some Android builds/devices, the file that expo-print writes lives
- * in a sandboxed location that expo-sharing's FileProvider is not
- * configured to read, which throws:
- *   "Not allowed to read file under given URL."
- * even though the file exists. Copying that same file with
- * FileSystem.copyAsync can fail for the same reason (source not
- * readable by our FileProvider).
- *
- * The reliable fix: ask expo-print for the PDF as a base64 string
- * (entirely in memory, no filesystem read of its sandboxed uri), then
- * write those bytes ourselves into FileSystem.cacheDirectory, which our
- * app's own FileProvider config always has permission to serve to
- * other apps via expo-sharing.
+ * label left, value right — the layout the preview uses for
+ * "Owner Name: Rahul Sharma" style rows.
  */
+function rowHtml(
+  label: string,
+  value: string,
+  opts: {
+    labelColor: string;
+    valueColor: string;
+    borderBottom: string;
+    paddingY: number;
+    labelSize?: number;
+    valueSize?: number;
+    uppercaseLabel?: boolean;
+  },
+): string {
+  return `
+    <div style="
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      padding-top:${opts.paddingY}px;
+      padding-bottom:${opts.paddingY}px;
+      border-bottom:${opts.borderBottom};
+    ">
+      <div style="
+        font-size:${opts.labelSize ?? 13}px;
+        color:${opts.labelColor};
+        ${opts.uppercaseLabel ? "text-transform:uppercase; letter-spacing:0.6px; font-weight:700;" : ""}
+      ">${escapeHtml(label)}</div>
+      <div style="
+        font-size:${opts.valueSize ?? 13}px;
+        font-weight:700;
+        color:${opts.valueColor};
+      ">${escapeHtml(value)}</div>
+    </div>
+  `;
+}
+
+/* ================================================================
+   HEADER BUILDER — three genuinely different headers
+================================================================ */
+
+function buildHeaderHtml(
+  variant: LayoutVariant,
+  t: BillData["template"],
+): string {
+  const { colors, borderColor } = t;
+  const initial = (t.logoPosition && t.logoPosition) || "top-left";
+
+  if (variant === "bold") {
+    return `
+      <div style="
+        background:${colors.headerBg};
+        margin:-30px -30px 24px -30px;
+        padding:24px 26px;
+        display:flex;
+        align-items:center;
+        gap:16px;
+      ">
+        <div style="
+          width:56px;height:56px;
+          border-radius:12px;
+          background:#ffffff;
+          color:${colors.headerBg};
+          display:flex;align-items:center;justify-content:center;
+          font-size:16px;font-weight:800;letter-spacing:0.6px;
+        ">
+          <%= initials %>
+        </div>
+        <div style="flex:1;">
+          <div style="font-size:22px;font-weight:800;color:#ffffff;letter-spacing:0.3px;">
+            <%= societyName %>
+          </div>
+          <div style="font-size:12px;color:rgba(255,255,255,0.88);margin-top:3px;">
+            <%= address %>
+          </div>
+          <div style="font-size:12px;color:rgba(255,255,255,0.88);margin-top:2px;">
+            <%= contactLine %>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  if (variant === "classic") {
+    return `
+      <div style="text-align:center;padding-bottom:14px;">
+        <div style="
+          font-size:22px;
+          font-weight:800;
+          color:${colors.primary};
+          letter-spacing:1.2px;
+        "><%= societyName %></div>
+        <div style="font-size:12px;color:#64748b;margin-top:3px;">
+          <%= address %>
+        </div>
+        <div style="font-size:12px;color:#64748b;margin-top:2px;">
+          <%= contactLine %>
+        </div>
+        <div style="
+          height:2px;
+          background:${colors.primary};
+          margin-top:12px;
+        "></div>
+      </div>
+    `;
+  }
+
+  // minimal
+  return `
+    <div style="
+      padding-bottom:10px;
+      border-bottom:1px solid #e5e7eb;
+      text-align:left;
+    ">
+      <div style="font-size:18px;font-weight:800;color:#0f172a;">
+        <%= societyName %>
+      </div>
+      <div style="font-size:11px;color:#94a3b8;margin-top:2px;">
+        <%= address %>
+      </div>
+      <div style="font-size:11px;color:#94a3b8;margin-top:2px;">
+        <%= contactLine %>
+      </div>
+    </div>
+  `;
+}
+
+/* ================================================================
+   GENERATE PDF
+================================================================ */
+
 export async function generateBillPDF(data: BillData): Promise<string> {
   const {
     billNumber,
@@ -195,7 +308,317 @@ export async function generateBillPDF(data: BillData): Promise<string> {
   } = data;
 
   const colors = template.colors;
+  const variant: LayoutVariant = template.layoutVariant ?? "bold";
   const signatureHtml = buildSignatureHtml(signData);
+
+  const initials = societyName
+    .split(" ")
+    .map((w) => w[0])
+    .join("")
+    .slice(0, 3);
+
+  const contactLine = [
+    contactNumber ? `📞 ${contactNumber}` : "",
+    email ? `✉ ${email}` : "",
+  ]
+    .filter(Boolean)
+    .join("  |  ");
+
+  /* ---------- Header markup per variant ---------- */
+  const headerRaw = buildHeaderHtml(variant, template);
+  const headerHtml = headerRaw
+    .replace(/<%= initials %>/g, escapeHtml(initials))
+    .replace(/<%= societyName %>/g, escapeHtml(societyName))
+    .replace(/<%= address %>/g, escapeHtml(address))
+    .replace(/<%= contactLine %>/g, escapeHtml(contactLine));
+
+  /* ---------- Shared label / value data ---------- */
+  const memberLabel = billType === "maintenance" ? "Owner Name" : "Staff Name";
+
+  const infoRowsData: [string, string][] = [
+    [memberLabel, memberName],
+    ...(flatNumber
+      ? ([["Flat Number", flatNumber]] as [string, string][])
+      : []),
+    ...(staffRole ? ([["Role", staffRole]] as [string, string][]) : []),
+    ["Month", month],
+    ["Payment Date", formatDate(paidDate)],
+  ];
+
+  /* ---------- Info panel per variant ---------- */
+  const infoPanelHtml = (() => {
+    if (variant === "bold") {
+      // soft-tinted rounded panel
+      const rows = infoRowsData
+        .map(([label, value]) =>
+          rowHtml(label, value, {
+            labelColor: "#475569",
+            valueColor: "#0f172a",
+            borderBottom: "0",
+            paddingY: 6,
+          }),
+        )
+        .join("");
+      return `
+        <div style="
+          background:${colors.secondary};
+          border-radius:10px;
+          padding:12px 14px;
+          margin-top:12px;
+        ">
+          ${rows}
+        </div>
+      `;
+    }
+
+    if (variant === "classic") {
+      // bordered square panel with dividers between rows
+      const rows = infoRowsData
+        .map(([label, value], i) =>
+          rowHtml(label, value, {
+            labelColor: "#475569",
+            valueColor: colors.text,
+            borderBottom:
+              i === infoRowsData.length - 1 ? "0" : "1px solid #e2e8f0",
+            paddingY: 7,
+          }),
+        )
+        .join("");
+      return `
+        <div style="
+          background:#ffffff;
+          border:1px solid #cbd5e1;
+          padding:12px 14px;
+          margin-top:14px;
+        ">
+          ${rows}
+        </div>
+      `;
+    }
+
+    // minimal — no panel, just hairline dividers
+    const rows = infoRowsData
+      .map(([label, value], i) =>
+        rowHtml(label, value, {
+          labelColor: "#64748b",
+          valueColor: "#0f172a",
+          borderBottom:
+            i === infoRowsData.length - 1 ? "0" : "1px solid #f1f5f9",
+          paddingY: 6,
+        }),
+      )
+      .join("");
+    return `
+      <div style="margin-top:12px;">
+        ${rows}
+      </div>
+    `;
+  })();
+
+  /* ---------- Bill title per variant ---------- */
+  const billTitleText =
+    billType === "maintenance" ? "MAINTENANCE BILL" : "SALARY RECEIPT";
+
+  const billTitleHtml = (() => {
+    if (variant === "bold") {
+      return `
+        <div style="
+          font-size:18px;
+          font-weight:800;
+          color:#ffffff;
+          text-align:center;
+          padding:12px;
+          background:${colors.primary};
+          border-radius:8px;
+          margin:14px 0 12px 0;
+          letter-spacing:0.8px;
+        ">${escapeHtml(billTitleText)}</div>
+      `;
+    }
+    if (variant === "classic") {
+      return `
+        <div style="
+          font-size:15px;
+          font-weight:800;
+          color:${colors.primary};
+          text-align:center;
+          letter-spacing:3px;
+          padding:12px 0;
+          border-top:1px solid #cbd5e1;
+          border-bottom:1px solid #cbd5e1;
+          margin:16px 0 12px 0;
+        ">${escapeHtml(billTitleText)}</div>
+      `;
+    }
+    return `
+      <div style="
+        font-size:15px;
+        font-weight:700;
+        color:#0f172a;
+        text-align:left;
+        padding:8px 0;
+        margin:12px 0 4px 0;
+      ">${escapeHtml(billTitleText)}</div>
+    `;
+  })();
+
+  /* ---------- Amount breakdown per variant ---------- */
+  const amountRowsData: [string, string][] = [
+    [
+      billType === "maintenance" ? "Base Maintenance" : "Base Salary",
+      formatCurrency(amount),
+    ],
+    ...(additionalAmount
+      ? ([["Additional Amount", `+ ${formatCurrency(additionalAmount)}`]] as [
+          string,
+          string,
+        ][])
+      : []),
+    ...(deductionAmount
+      ? ([["Deduction", `- ${formatCurrency(deductionAmount)}`]] as [
+          string,
+          string,
+        ][])
+      : []),
+  ];
+
+  const amountPanelHtml = (() => {
+    if (variant === "bold") {
+      const rows = amountRowsData
+        .map(([label, value]) =>
+          rowHtml(label, value, {
+            labelColor: "#475569",
+            valueColor: "#0f172a",
+            borderBottom: "0",
+            paddingY: 6,
+          }),
+        )
+        .join("");
+      return `
+        <div style="
+          background:${colors.secondary};
+          border-radius:10px;
+          padding:12px 14px;
+          margin-top:12px;
+        ">
+          ${rows}
+        </div>
+      `;
+    }
+
+    if (variant === "classic") {
+      const rows = amountRowsData
+        .map(([label, value], i) =>
+          rowHtml(label, value, {
+            labelColor: "#475569",
+            valueColor: colors.text,
+            borderBottom:
+              i === amountRowsData.length - 1 ? "0" : "1px solid #e2e8f0",
+            paddingY: 7,
+          }),
+        )
+        .join("");
+      return `
+        <div style="
+          background:#ffffff;
+          border:1px solid #cbd5e1;
+          padding:12px 14px;
+          margin-top:12px;
+        ">
+          ${rows}
+        </div>
+      `;
+    }
+
+    const rows = amountRowsData
+      .map(([label, value], i) =>
+        rowHtml(label, value, {
+          labelColor: "#64748b",
+          valueColor: "#0f172a",
+          borderBottom:
+            i === amountRowsData.length - 1 ? "0" : "1px solid #f1f5f9",
+          paddingY: 6,
+        }),
+      )
+      .join("");
+    return `
+      <div style="margin-top:12px;">
+        ${rows}
+      </div>
+    `;
+  })();
+
+  /* ---------- Total row per variant ---------- */
+  const totalLabel =
+    billType === "maintenance" ? "Maintenance Amount" : "Salary Amount";
+
+  const totalHtml = (() => {
+    if (variant === "bold") {
+      return `
+        <div style="
+          display:flex;
+          justify-content:space-between;
+          align-items:center;
+          background:${colors.primary};
+          border-radius:10px;
+          padding:12px 14px;
+          margin-top:14px;
+        ">
+          <div style="font-size:13px;font-weight:700;color:rgba(255,255,255,0.88);">
+            ${escapeHtml(totalLabel)}
+          </div>
+          <div style="font-size:20px;font-weight:800;color:#ffffff;">
+            ${escapeHtml(formatCurrency(netAmount))}
+          </div>
+        </div>
+      `;
+    }
+
+    if (variant === "classic") {
+      return `
+        <div style="
+          display:flex;
+          justify-content:space-between;
+          align-items:center;
+          border-top:2px solid ${colors.primary};
+          border-bottom:2px solid ${colors.primary};
+          padding:10px 0;
+          margin-top:14px;
+        ">
+          <div style="font-size:13px;font-weight:700;color:#475569;letter-spacing:1px;text-transform:uppercase;">
+            ${escapeHtml(totalLabel)}
+          </div>
+          <div style="font-size:18px;font-weight:800;color:${colors.primary};">
+            ${escapeHtml(formatCurrency(netAmount))}
+          </div>
+        </div>
+      `;
+    }
+
+    return `
+      <div style="
+        display:flex;
+        justify-content:space-between;
+        align-items:center;
+        border-top:1px solid #0f172a;
+        padding:8px 0;
+        margin-top:12px;
+      ">
+        <div style="font-size:13px;font-weight:700;color:#64748b;">
+          ${escapeHtml(totalLabel)}
+        </div>
+        <div style="font-size:18px;font-weight:800;color:#0f172a;">
+          ${escapeHtml(formatCurrency(netAmount))}
+        </div>
+      </div>
+    `;
+  })();
+
+  /* ---------- Signature alignment per variant ---------- */
+  const signatureAlign = variant === "minimal" ? "flex-start" : "center";
+
+  /* ---------- Container per variant ---------- */
+  const containerPadding = variant === "bold" ? "0 30px 30px" : "30px";
 
   const html = `
     <!DOCTYPE html>
@@ -219,11 +642,16 @@ export async function generateBillPDF(data: BillData): Promise<string> {
           max-width: 800px;
           margin: 0 auto;
           background: ${colors.background};
-          padding: 30px;
+          padding: ${containerPadding};
           ${
             template.showBorder
               ? `border: ${template.borderWidth}px solid ${template.borderColor};
                  border-radius: ${template.borderRadius}px;`
+              : ""
+          }
+          ${
+            variant === "bold" && template.borderRadius > 0
+              ? `border-radius:${template.borderRadius}px; overflow:hidden;`
               : ""
           }
           box-shadow: 0 4px 20px rgba(0,0,0,0.08);
@@ -249,186 +677,11 @@ export async function generateBillPDF(data: BillData): Promise<string> {
             : ""
         }
 
-        .header {
-          display: flex;
-          ${
-            template.logoPosition === "top-center"
-              ? "flex-direction: column; align-items: center;"
-              : template.logoPosition === "top-right"
-                ? "flex-direction: row-reverse;"
-                : "flex-direction: row;"
-          }
-          justify-content: space-between;
-          align-items: center;
-          padding-bottom: 20px;
-          border-bottom: 2px solid ${colors.primary};
-          margin-bottom: 20px;
-        }
-
-        .logo-placeholder {
-          width: 80px; height: 80px;
-          background: ${colors.primary};
-          border-radius: 12px;
-          display: flex; align-items: center; justify-content: center;
-          color: white; font-weight: bold; font-size: 14px; text-align: center;
-        }
-
-        .header-text {
-          text-align: ${
-            template.logoPosition === "top-center"
-              ? "center"
-              : template.logoPosition === "top-right"
-                ? "right"
-                : "left"
-          };
-        }
-
-        .society-name {
-          font-size: 28px;
-          font-weight: 700;
-          color: ${colors.primary};
-        }
-
-        .society-address {
-          font-size: 14px;
-          color: ${colors.text};
-          opacity: 0.8;
-          margin-top: 4px;
-        }
-
-        .bill-title {
-          font-size: 24px;
-          font-weight: 700;
-          color: ${colors.primary};
-          text-align: center;
-          margin: 20px 0;
-        }
-
-        .bill-details {
-          display: flex;
-          justify-content: space-between;
-          margin-bottom: 20px;
-        }
-
-        .bill-number, .bill-date {
-          font-size: 14px;
-          color: ${colors.text};
-          opacity: 0.7;
-        }
-
-        .info-grid {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 15px;
-          margin: 20px 0;
-          padding: 20px;
-          background: ${colors.background};
-          border: 1px solid ${template.borderColor};
-          border-radius: 8px;
-        }
-
-        .info-item { display: flex; flex-direction: column; }
-
-        .info-label {
-          font-size: 12px;
-          font-weight: 600;
-          color: ${colors.text};
-          opacity: 0.6;
-          text-transform: uppercase;
-          letter-spacing: 0.5px;
-        }
-
-        .info-value {
-          font-size: 16px;
-          font-weight: 600;
-          margin-top: 4px;
-          color: ${colors.text};
-        }
-
-        .amount-breakdown {
-          margin: 20px 0;
-          padding: 20px;
-          background: ${colors.background};
-          border: 1px solid ${template.borderColor};
-          border-radius: 8px;
-        }
-
-        .amount-row {
-          display: flex;
-          justify-content: space-between;
-          padding: 8px 0;
-          border-bottom: 1px solid ${template.borderColor};
-        }
-
-        .amount-row:last-child { border-bottom: none; }
-
-        .amount-row.total {
-          font-weight: 700;
-          font-size: 18px;
-          border-top: 2px solid ${colors.primary};
-          margin-top: 8px;
-          padding-top: 12px;
-          border-bottom: none;
-        }
-
-        .amount-label { color: ${colors.text}; opacity: 0.8; }
-        .amount-value { color: ${colors.text}; font-weight: 600; }
-        .amount-value.total { color: ${colors.primary}; font-size: 20px; }
-
-        .notes-section {
-          margin: 20px 0;
-          padding: 15px;
-          background: ${colors.footerBg};
-          border-radius: 8px;
-        }
-
-        .notes-title {
-          font-weight: 600; font-size: 14px;
-          margin-bottom: 5px; color: ${colors.text};
-        }
-
-        .notes-text {
-          font-size: 13px; color: ${colors.text}; opacity: 0.7;
-        }
-
-        .signature-section {
-          margin: 30px 0 20px 0;
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          border-top: 2px solid ${template.borderColor};
-          padding-top: 20px;
-        }
-
-        .signature-label {
-          font-size: 14px;
-          color: ${colors.text};
-          opacity: 0.6;
-          margin-bottom: 10px;
-        }
-
         .signature-svg-wrap svg {
           width: 100% !important;
           height: 100% !important;
           display: block;
         }
-
-        .footer {
-          margin-top: 30px;
-          padding: 20px;
-          border-top: 2px solid ${colors.primary};
-          text-align: center;
-          background: ${colors.footerBg};
-          border-radius: 8px;
-        }
-
-        .footer-text, .footer-contact {
-          font-size: 12px;
-          color: ${colors.text};
-          opacity: 0.6;
-        }
-
-        .footer-contact { margin-top: 4px; }
 
         @media print {
           body { padding: 0; background: white; }
@@ -446,141 +699,94 @@ export async function generateBillPDF(data: BillData): Promise<string> {
             : ""
         }
 
-        <div class="header">
-          <div class="logo-placeholder">
-            ${escapeHtml(
-              societyName
-                .split(" ")
-                .map((w) => w[0])
-                .join("")
-                .slice(0, 3),
-            )}
-          </div>
-          <div class="header-text">
-            <div class="society-name">${escapeHtml(societyName)}</div>
-            <div class="society-address">${escapeHtml(address)}</div>
-            <div class="society-address">📞 ${escapeHtml(
-              contactNumber,
-            )} | ✉ ${escapeHtml(email)}</div>
-          </div>
+        ${headerHtml}
+
+        ${billTitleHtml}
+
+        <!-- Bill # / date -->
+        <div style="
+          display:flex;
+          justify-content:space-between;
+          font-size:12px;
+          color:#64748b;
+          margin-bottom:12px;
+        ">
+          <div>Bill #: ${escapeHtml(billNumber)}</div>
+          <div>Date: ${escapeHtml(formatDate(paidDate))}</div>
         </div>
 
-        <div class="bill-title">
-          ${billType === "maintenance" ? "MAINTENANCE BILL" : "SALARY RECEIPT"}
-        </div>
+        ${infoPanelHtml}
 
-        <div class="bill-details">
-          <div class="bill-number">Bill #: ${escapeHtml(billNumber)}</div>
-          <div class="bill-date">Date: ${escapeHtml(formatDate(paidDate))}</div>
-        </div>
+        ${amountPanelHtml}
 
-        <div class="info-grid">
-          <div class="info-item">
-            <span class="info-label">Member Name</span>
-            <span class="info-value">${escapeHtml(memberName)}</span>
-          </div>
-          ${
-            flatNumber
-              ? `
-            <div class="info-item">
-              <span class="info-label">Flat Number</span>
-              <span class="info-value">${escapeHtml(flatNumber)}</span>
-            </div>`
-              : ""
-          }
-          ${
-            staffRole
-              ? `
-            <div class="info-item">
-              <span class="info-label">Staff Role</span>
-              <span class="info-value">${escapeHtml(staffRole)}</span>
-            </div>`
-              : ""
-          }
-          <div class="info-item">
-            <span class="info-label">Month</span>
-            <span class="info-value">${escapeHtml(month)}</span>
-          </div>
-          <div class="info-item">
-            <span class="info-label">Payment Date</span>
-            <span class="info-value">${escapeHtml(formatDate(paidDate))}</span>
-          </div>
-        </div>
-
-        <div class="amount-breakdown">
-          <div class="amount-row">
-            <span class="amount-label">Base ${
-              billType === "maintenance" ? "Maintenance" : "Salary"
-            }</span>
-            <span class="amount-value">${formatCurrency(amount)}</span>
-          </div>
-          ${
-            additionalAmount
-              ? `
-            <div class="amount-row">
-              <span class="amount-label">Additional Amount</span>
-              <span class="amount-value">+${formatCurrency(
-                additionalAmount,
-              )}</span>
-            </div>`
-              : ""
-          }
-          ${
-            deductionAmount
-              ? `
-            <div class="amount-row">
-              <span class="amount-label">Deduction</span>
-              <span class="amount-value">-${formatCurrency(
-                deductionAmount,
-              )}</span>
-            </div>`
-              : ""
-          }
-          <div class="amount-row total">
-            <span class="amount-label">Total Amount</span>
-            <span class="amount-value total">${formatCurrency(netAmount)}</span>
-          </div>
-        </div>
+        ${totalHtml}
 
         ${
           additionalNote || deductionNote
             ? `
-          <div class="notes-section">
-            <div class="notes-title">Notes</div>
+          <div style="
+            margin-top:16px;
+            padding:12px 14px;
+            background:${colors.footerBg};
+            border-radius:8px;
+          ">
+            <div style="font-size:12px;font-weight:700;color:#0f172a;margin-bottom:4px;">
+              Notes
+            </div>
             ${
               additionalNote
-                ? `<div class="notes-text">• Additional: ${escapeHtml(
+                ? `<div style="font-size:12px;color:#475569;opacity:0.85;">• Additional: ${escapeHtml(
                     additionalNote,
                   )}</div>`
                 : ""
             }
             ${
               deductionNote
-                ? `<div class="notes-text">• Deduction: ${escapeHtml(
+                ? `<div style="font-size:12px;color:#475569;opacity:0.85;">• Deduction: ${escapeHtml(
                     deductionNote,
                   )}</div>`
                 : ""
             }
-          </div>`
+          </div>
+        `
             : ""
         }
 
         ${
           signData
             ? `
-          <div class="signature-section">
-            <div class="signature-label">Authorized Signature</div>
+          <div style="
+            margin-top:26px;
+            padding-top:18px;
+            border-top:2px solid ${template.borderColor};
+            display:flex;
+            flex-direction:column;
+            align-items:${signatureAlign};
+          ">
+            <div style="font-size:11px;color:#94a3b8;margin-bottom:6px;">
+              Authorized Signatory
+            </div>
             ${signatureHtml}
-          </div>`
+          </div>
+        `
             : ""
         }
 
-        <div class="footer">
-          <div class="footer-text">This is a computer-generated receipt. No signature required.</div>
-          <div class="footer-contact">${escapeHtml(
-            societyName,
-          )} | ${escapeHtml(contactNumber)}</div>
-          <div class="footer-text" style="margin-top: 8px; font-size: 10px;">
+        <div style="
+          margin-top:26px;
+          padding:16px;
+          border-top:2px solid ${colors.primary};
+          text-align:center;
+          background:${colors.footerBg};
+          border-radius:8px;
+        ">
+          <div style="font-size:11px;color:#64748b;opacity:0.75;">
+            This is a computer-generated receipt.
+          </div>
+          <div style="font-size:11px;color:#64748b;opacity:0.75;margin-top:4px;">
+            ${escapeHtml(societyName)} | ${escapeHtml(contactNumber)}
+          </div>
+          <div style="font-size:10px;color:#94a3b8;margin-top:6px;">
             Generated on ${escapeHtml(new Date().toLocaleString())}
           </div>
         </div>
@@ -590,11 +796,6 @@ export async function generateBillPDF(data: BillData): Promise<string> {
   `;
 
   try {
-    // ✅ Ask expo-print for the PDF bytes as base64, in memory.
-    // We do NOT use the returned `uri` for sharing — that file lives in
-    // expo-print's own sandboxed cache location, which is what was
-    // causing "Not allowed to read file under given URL." on some
-    // Android builds.
     const { base64 } = await Print.printToFileAsync({
       html,
       base64: true,
@@ -609,9 +810,6 @@ export async function generateBillPDF(data: BillData): Promise<string> {
       throw new Error("PDF generation failed — no data returned.");
     }
 
-    // ✅ Write those bytes ourselves into OUR OWN cache directory.
-    // This directory is always covered by this app's FileProvider,
-    // so expo-sharing can read it reliably.
     const cacheDir = FileSystem.cacheDirectory;
     if (!cacheDir) {
       throw new Error("Cache directory is unavailable on this device.");
@@ -624,7 +822,6 @@ export async function generateBillPDF(data: BillData): Promise<string> {
       encoding: FileSystem.EncodingType.Base64,
     });
 
-    // Sanity check the file actually landed where we expect.
     const info = await FileSystem.getInfoAsync(fileUri);
     if (!info.exists) {
       throw new Error("PDF was written but could not be verified on disk.");
@@ -660,7 +857,7 @@ export async function sharePDF(uri: string, fileName: string): Promise<void> {
 }
 
 /* ================================================================
-   SAVE TO DEVICE (Android SAF, iOS share sheet)
+   SAVE TO DEVICE
 ================================================================ */
 
 export async function savePDFToDevice(
@@ -669,8 +866,6 @@ export async function savePDFToDevice(
 ): Promise<{ saved: boolean; message?: string }> {
   try {
     if (Platform.OS === "android") {
-      // `uri` now always points at a file we wrote ourselves into
-      // FileSystem.cacheDirectory, so this read is safe.
       const base64 = await FileSystem.readAsStringAsync(uri, {
         encoding: FileSystem.EncodingType.Base64,
       });
@@ -695,7 +890,6 @@ export async function savePDFToDevice(
       return { saved: true };
     }
 
-    // iOS: share sheet → "Save to Files"
     await sharePDF(uri, fileName);
     return { saved: true };
   } catch (err) {
