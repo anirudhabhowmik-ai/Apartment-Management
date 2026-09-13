@@ -13,6 +13,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useAccounts } from "../../hooks/useAccounts";
 import { sendOtp, verifyOtp } from "../../services/otpService";
 import { useAuthStore } from "../../store/useAuthStore";
 
@@ -46,6 +47,9 @@ export default function OtpVerifyScreen() {
   const pendingPhone = useAuthStore((s) => s.pendingPhone);
   const setUser = useAuthStore((s) => s.setUser);
   const setPendingPhone = useAuthStore((s) => s.setPendingPhone);
+
+  // Accounts list — used to decide post-verify destination
+  const { accounts } = useAccounts();
 
   const [otp, setOtp] = useState<string[]>(Array(OTP_LENGTH).fill(""));
 
@@ -120,6 +124,28 @@ export default function OtpVerifyScreen() {
     }
   };
 
+  /**
+   * After OTP succeeds:
+   *  - fresh user (no accounts)  → add-account
+   *  - returning user (≥1 account) → select-account
+   */
+  const routeAfterVerify = (userId: string) => {
+    const phone = `+91${pendingPhone}`;
+
+    setUser({
+      id: userId,
+      phone,
+    });
+
+    setPendingPhone(null);
+
+    if (accounts.length > 0) {
+      router.replace("/(modals)/select-account");
+    } else {
+      router.replace("/(modals)/add-account");
+    }
+  };
+
   const handleVerifyDirect = async (otpArray: string[]) => {
     if (!pendingPhone) {
       setError("Session expired. Please start again.");
@@ -140,16 +166,7 @@ export default function OtpVerifyScreen() {
     setLoading(false);
 
     if (result.success && result.userId) {
-      const phone = `+91${pendingPhone}`;
-
-      setUser({
-        id: result.userId,
-        phone,
-      });
-
-      setPendingPhone(null);
-
-      router.replace("/(modals)/add-account");
+      routeAfterVerify(result.userId);
     } else {
       setError(result.message || "Invalid OTP, please try again");
 
@@ -182,16 +199,7 @@ export default function OtpVerifyScreen() {
     setLoading(false);
 
     if (result.success && result.userId) {
-      const phone = `+91${pendingPhone}`;
-
-      setUser({
-        id: result.userId,
-        phone,
-      });
-
-      setPendingPhone(null);
-
-      router.replace("/(modals)/add-account");
+      routeAfterVerify(result.userId);
     } else {
       setError(result.message || "Invalid OTP, please try again");
 

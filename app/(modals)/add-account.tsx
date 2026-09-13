@@ -1,3 +1,4 @@
+// app/(modals)/add-account.tsx
 import { Ionicons } from "@expo/vector-icons";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
@@ -817,6 +818,22 @@ export default function AddAccountScreen() {
   const [selectedInvitation, setSelectedInvitation] = useState<any>(null);
   const [showAccessInfo, setShowAccessInfo] = useState(false);
 
+  // ✅ FIX: Force dummy invites to show for fresh users (0 accounts)
+  // so the Invitations tab isn't empty during testing / first-time setup.
+  useEffect(() => {
+    if (accounts.length === 0) {
+      setShowDummyInvites(true);
+    }
+  }, [accounts.length]);
+
+  // ✅ FIX: Debug log — remove once verified.
+  useEffect(() => {
+    console.log("[add-account] mode =", mode);
+    console.log("[add-account] showDummyInvites =", showDummyInvites);
+    console.log("[add-account] accounts.length =", accounts.length);
+    console.log("[add-account] user.phone =", user?.phone);
+  }, [mode, showDummyInvites, accounts.length, user?.phone]);
+
   const pendingInvitations = useMemo(() => {
     const realInvitations = user?.phone
       ? getPendingGrantsByPhone(user.phone)
@@ -846,23 +863,16 @@ export default function AddAccountScreen() {
   };
 
   // Helper to determine if a grant role is staff (for display purposes)
-  // FIXED: Check for staff_visibility role explicitly
   const isStaffGrant = (invitation: any): boolean => {
-    // Check if the role is explicitly staff_visibility
     if (invitation.role === "staff_visibility") {
       return true;
     }
-
-    // Check if accessLevel indicates staff
     if (invitation.accessLevel === "staff") {
       return true;
     }
-
-    // Check for legacy pattern: member_visibility with staffTitle
     if (invitation.role === "member_visibility" && invitation.staffTitle) {
       return true;
     }
-
     return false;
   };
 
@@ -897,7 +907,6 @@ export default function AddAccountScreen() {
       console.log("roleType:", roleType);
       console.log("staffRoleId:", staffRoleId);
 
-      // FIXED: For staff, check for staff_visibility role OR legacy pattern
       const matchingGrant = pendingInvitations.find((g: any) => {
         if (roleType === "admin") {
           return g.role === "admin";
@@ -906,7 +915,6 @@ export default function AddAccountScreen() {
           return g.role === "member_visibility" && !isStaffGrant(g);
         }
         if (roleType === "staff") {
-          // Check for staff_visibility or legacy staff pattern
           return (
             g.role === "staff_visibility" ||
             (g.role === "member_visibility" && isStaffGrant(g))
@@ -935,7 +943,6 @@ export default function AddAccountScreen() {
           console.log("newAccount:", newAccount);
 
           if (newAccount) {
-            // Grant the appropriate role using useAuthStore
             let grantRole: AccountAccessRole = "member_visibility";
             if (roleType === "admin") {
               grantRole = "admin";
@@ -955,7 +962,6 @@ export default function AddAccountScreen() {
             setShowDummyInvites(false);
           }
         } else {
-          // FIXED: For real invitations, use the correct role
           let grantRole: AccountAccessRole = "member_visibility";
           if (matchingGrant.role === "admin") {
             grantRole = "admin";
@@ -976,7 +982,6 @@ export default function AddAccountScreen() {
           selectAccount(matchingGrant.accountId);
         }
       } else {
-        // No matching grant - create a new account
         let defaultName = "My Apartment";
 
         if (roleType === "admin") {
@@ -998,7 +1003,6 @@ export default function AddAccountScreen() {
         console.log("newAccount:", newAccount);
 
         if (newAccount) {
-          // FIXED: Grant the appropriate role using useAuthStore
           let grantRole: AccountAccessRole = "member_visibility";
           if (roleType === "admin") {
             grantRole = "admin";
@@ -1191,7 +1195,6 @@ export default function AddAccountScreen() {
       }
     }
 
-    // For real invitations, use the role from the grant
     let grantRole: AccountAccessRole = "member_visibility";
     if (role === "admin") {
       grantRole = "admin";
@@ -1365,62 +1368,61 @@ export default function AddAccountScreen() {
               </Text>
             </View>
 
-            {mode !== "create" && (
-              <View style={styles.tabSwitcher}>
-                <TouchableOpacity
+            {/* ✅ FIX: Always show tab switcher (removed `mode !== "create"` guard). */}
+            <View style={styles.tabSwitcher}>
+              <TouchableOpacity
+                style={[
+                  styles.tabButton,
+                  activeTab === "create" && styles.tabButtonActiveBlue,
+                ]}
+                onPress={() => setActiveTab("create")}
+                activeOpacity={0.8}
+              >
+                <Ionicons
+                  name="add-circle"
+                  size={16}
+                  color={activeTab === "create" ? "#1a73e8" : "#94a3b8"}
+                />
+                <Text
                   style={[
-                    styles.tabButton,
-                    activeTab === "create" && styles.tabButtonActiveBlue,
+                    styles.tabButtonText,
+                    activeTab === "create" && styles.tabButtonTextActiveBlue,
                   ]}
-                  onPress={() => setActiveTab("create")}
-                  activeOpacity={0.8}
                 >
-                  <Ionicons
-                    name="add-circle"
-                    size={16}
-                    color={activeTab === "create" ? "#1a73e8" : "#94a3b8"}
-                  />
-                  <Text
-                    style={[
-                      styles.tabButtonText,
-                      activeTab === "create" && styles.tabButtonTextActiveBlue,
-                    ]}
-                  >
-                    Create New
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
+                  Create New
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.tabButton,
+                  activeTab === "invitations" && styles.tabButtonActivePurple,
+                ]}
+                onPress={() => setActiveTab("invitations")}
+                activeOpacity={0.8}
+              >
+                <Ionicons
+                  name="mail-open"
+                  size={16}
+                  color={activeTab === "invitations" ? "#7c3aed" : "#94a3b8"}
+                />
+                <Text
                   style={[
-                    styles.tabButton,
-                    activeTab === "invitations" && styles.tabButtonActivePurple,
+                    styles.tabButtonText,
+                    activeTab === "invitations" &&
+                      styles.tabButtonTextActivePurple,
                   ]}
-                  onPress={() => setActiveTab("invitations")}
-                  activeOpacity={0.8}
                 >
-                  <Ionicons
-                    name="mail-open"
-                    size={16}
-                    color={activeTab === "invitations" ? "#7c3aed" : "#94a3b8"}
-                  />
-                  <Text
-                    style={[
-                      styles.tabButtonText,
-                      activeTab === "invitations" &&
-                        styles.tabButtonTextActivePurple,
-                    ]}
-                  >
-                    Invitations
-                    {pendingInvitations.length > 0 && (
-                      <View style={styles.invitationBadge}>
-                        <Text style={styles.invitationBadgeText}>
-                          {pendingInvitations.length}
-                        </Text>
-                      </View>
-                    )}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            )}
+                  Invitations
+                  {pendingInvitations.length > 0 && (
+                    <View style={styles.invitationBadge}>
+                      <Text style={styles.invitationBadgeText}>
+                        {pendingInvitations.length}
+                      </Text>
+                    </View>
+                  )}
+                </Text>
+              </TouchableOpacity>
+            </View>
 
             {activeTab === "create" && (
               <View style={styles.section}>
