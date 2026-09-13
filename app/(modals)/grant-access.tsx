@@ -65,16 +65,16 @@ export default function GrantAccessScreen() {
 
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
-  const [selectedMemberId, setSelectedMemberId] = useState("");
+
+  // Multi-select state — one set of member IDs, shared by both groups.
+  const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
 
   const [search, setSearch] = useState("");
   const [error, setError] = useState("");
 
   // Contact picker
   const [showContactPicker, setShowContactPicker] = useState(false);
-
   const [contactsList, setContactsList] = useState<ContactData[]>([]);
-
   const [contactSearch, setContactSearch] = useState("");
 
   // ============================================================
@@ -107,6 +107,17 @@ export default function GrantAccessScreen() {
     staffGroupIds.includes(member.groupId),
   );
 
+  const activeMembers = useMemo(() => {
+    if (isVisibilityFlow) {
+      return effectiveMemberType === "owner" ? apartmentMembers : staffMembers;
+    }
+    return [...apartmentMembers, ...staffMembers];
+  }, [
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    apartmentMembers,
+    staffMembers,
+  ]);
+
   // ============================================================
   // SEARCH
   // ============================================================
@@ -120,7 +131,6 @@ export default function GrantAccessScreen() {
       const apartmentNumber = ((member as any).apartmentNumber ?? "")
         .toString()
         .toLowerCase();
-
       const wing = ((member as any).wing ?? "").toString().toLowerCase();
 
       return (
@@ -146,6 +156,31 @@ export default function GrantAccessScreen() {
     });
   }, [staffMembers, searchLower]);
 
+  const filteredActiveMembers = useMemo(() => {
+    if (!searchLower) return activeMembers;
+
+    return activeMembers.filter((member) => {
+      const nameMatch = member.name.toLowerCase().includes(searchLower);
+      const phoneMatch = member.phone.toLowerCase().includes(searchLower);
+      const roleMatch = ((member as any).role ?? "")
+        .toString()
+        .toLowerCase()
+        .includes(searchLower);
+      const apartmentMatch = ((member as any).apartmentNumber ?? "")
+        .toString()
+        .toLowerCase()
+        .includes(searchLower);
+      const wingMatch = ((member as any).wing ?? "")
+        .toString()
+        .toLowerCase()
+        .includes(searchLower);
+
+      return (
+        nameMatch || phoneMatch || roleMatch || apartmentMatch || wingMatch
+      );
+    });
+  }, [activeMembers, searchLower]);
+
   // ============================================================
   // FLOW
   // ============================================================
@@ -165,6 +200,41 @@ export default function GrantAccessScreen() {
       : "Manage Staff Visibility";
 
   const title = ACCESS_ROLE_LABEL[role || "member_visibility"];
+
+  // ============================================================
+  // SELECT / CLEAR ALL LOGIC
+  // ============================================================
+
+  const selectableIds = useMemo(() => {
+    return filteredActiveMembers.map((member) => member.id);
+  }, [filteredActiveMembers]);
+
+  const allSelected =
+    selectableIds.length > 0 &&
+    selectableIds.every((id) => selectedMemberIds.includes(id));
+
+  const toggleMember = (memberId: string) => {
+    setSelectedMemberIds((current) =>
+      current.includes(memberId)
+        ? current.filter((id) => id !== memberId)
+        : [...current, memberId],
+    );
+    setError("");
+  };
+
+  const handleSelectAll = () => {
+    setSelectedMemberIds((current) => {
+      const set = new Set(current);
+      selectableIds.forEach((id) => set.add(id));
+      return Array.from(set);
+    });
+    setError("");
+  };
+
+  const handleClearAll = () => {
+    setSelectedMemberIds([]);
+    setError("");
+  };
 
   // ============================================================
   // CONTACT PICKER
@@ -188,32 +258,20 @@ export default function GrantAccessScreen() {
         Alert.alert(
           "Permission Required",
           "We need access to your contacts to help you quickly add phone numbers.",
-          [
-            {
-              text: "Cancel",
-              style: "cancel",
-            },
-            {
-              text: "OK",
-            },
-          ],
+          [{ text: "Cancel", style: "cancel" }, { text: "OK" }],
         );
 
         setError("Permission to access contacts is required.");
-
         return;
       }
 
       const contacts = await Contact.getAllDetails(
         [ContactField.FULL_NAME, ContactField.PHONES],
-        {
-          sortOrder: ContactsSortOrder.GivenName,
-        },
+        { sortOrder: ContactsSortOrder.GivenName },
       );
 
       if (contacts.length === 0) {
         setError("No contacts found on your device.");
-
         return;
       }
 
@@ -230,7 +288,6 @@ export default function GrantAccessScreen() {
 
       if (mappedContacts.length === 0) {
         setError("No contacts with phone numbers found.");
-
         return;
       }
 
@@ -240,18 +297,15 @@ export default function GrantAccessScreen() {
       setError("");
     } catch (contactError) {
       console.error("Error fetching contacts:", contactError);
-
       setError("Failed to fetch contacts. Please try again.");
     }
   };
 
   const filteredContacts = contactsList.filter((contact) => {
     const query = contactSearch.trim().toLowerCase();
-
     if (!query) return true;
 
     const nameMatch = contact.name.toLowerCase().includes(query);
-
     const phoneMatch = contact.phoneNumbers.some((phone) =>
       phone.number.toLowerCase().includes(query),
     );
@@ -271,7 +325,6 @@ export default function GrantAccessScreen() {
       contact.phoneNumbers.length === 0
     ) {
       setError("Selected contact doesn't have a phone number.");
-
       return;
     }
 
@@ -288,7 +341,6 @@ export default function GrantAccessScreen() {
 
     if (phoneNumber.length !== 10) {
       setError("Selected contact does not have a valid 10-digit phone number.");
-
       return;
     }
 
@@ -308,99 +360,136 @@ export default function GrantAccessScreen() {
   // ============================================================
 
   const handleSave = () => {
-    const useExisting = source === "existing" || isVisibilityFlow;
+    const grantRole: AccountAccessRole =
+      role ||
+      (effectiveMemberType === "staff"
+        ? "staff_visibility"
+        : "member_visibility");
 
-    const selectedMember = eligibleMembers.find(
-      (member) => member.id === selectedMemberId,
-    );
-
-    const recipientName = useExisting
-      ? (selectedMember?.name ?? "")
-      : name.trim();
-
-    const recipientPhone = useExisting
-      ? (selectedMember?.phone ?? "")
-      : `+91${phone.replace(/[^0-9]/g, "").slice(-10)}`;
-
-    if (!recipientName || recipientPhone.length !== 13) {
-      setError(
-        useExisting
-          ? isVisibilityFlow
-            ? effectiveMemberType === "owner"
-              ? "Please select an apartment owner."
-              : "Please select a staff member."
-            : "Please select a member or staff member."
-          : "Please enter a valid 10-digit phone number.",
-      );
-
-      return;
-    }
-
-    addGrant({
-      id: `access_${Date.now()}`,
+    const baseGrant = {
       accountId,
       accountName: account?.name || "Apartment",
       invitedByPhone: currentUser?.phone || "+91 98765 43210",
       invitedByName: currentUser?.name || "Secretary",
-      role:
-        role ||
-        (effectiveMemberType === "staff"
-          ? "staff_visibility"
-          : "member_visibility"),
-      name: recipientName,
-      phone: recipientPhone,
-      memberId: selectedMember?.id,
+      role: grantRole,
       createdAt: new Date().toISOString(),
+    };
+
+    // --- Visibility flow: always existing members, multi-select ---
+    if (isVisibilityFlow) {
+      if (selectedMemberIds.length === 0) {
+        setError(
+          effectiveMemberType === "owner"
+            ? "Please select at least one apartment owner."
+            : "Please select at least one staff member.",
+        );
+        return;
+      }
+
+      selectedMemberIds.forEach((memberId, index) => {
+        const member = activeMembers.find((m) => m.id === memberId);
+        if (!member) return;
+
+        const memberPhone = (member.phone || "").startsWith("+")
+          ? member.phone
+          : `+91${(member.phone || "").replace(/[^0-9]/g, "").slice(-10)}`;
+
+        addGrant({
+          ...baseGrant,
+          id: `access_${Date.now()}_${index}`,
+          name: member.name,
+          phone: memberPhone,
+          memberId: member.id,
+        });
+      });
+
+      router.back();
+      return;
+    }
+
+    // --- Normal flow ---
+    if (source === "new") {
+      const recipientName = name.trim();
+      const cleanPhone = phone.replace(/[^0-9]/g, "").slice(-10);
+
+      if (!recipientName) {
+        setError("Please enter a name.");
+        return;
+      }
+
+      if (cleanPhone.length !== 10) {
+        setError("Please enter a valid 10-digit phone number.");
+        return;
+      }
+
+      addGrant({
+        ...baseGrant,
+        id: `access_${Date.now()}`,
+        name: recipientName,
+        phone: `+91${cleanPhone}`,
+      });
+
+      router.back();
+      return;
+    }
+
+    // source === "existing"
+    if (selectedMemberIds.length === 0) {
+      setError("Please select at least one member or staff member.");
+      return;
+    }
+
+    const allMembers = [...apartmentMembers, ...staffMembers];
+
+    selectedMemberIds.forEach((memberId, index) => {
+      const member = allMembers.find((m) => m.id === memberId);
+      if (!member) return;
+
+      const memberPhone = (member.phone || "").startsWith("+")
+        ? member.phone
+        : `+91${(member.phone || "").replace(/[^0-9]/g, "").slice(-10)}`;
+
+      addGrant({
+        ...baseGrant,
+        id: `access_${Date.now()}_${index}`,
+        name: member.name,
+        phone: memberPhone,
+        memberId: member.id,
+      });
     });
 
     router.back();
   };
 
   // ============================================================
-  // MEMBER ROW
+  // MEMBER ROW (multi-select checkbox)
   // ============================================================
 
   const renderMemberRow = (member: (typeof eligibleMembers)[number]) => {
     const apartmentNumber = (member as any).apartmentNumber as
       | string
       | undefined;
-
     const wing = (member as any).wing as string | undefined;
-
     const staffRole = (member as any).role as string | undefined;
 
     let meta = "";
-
     if (effectiveMemberType === "owner") {
       const parts: string[] = [];
-
-      if (wing) {
-        parts.push(`Wing ${wing}`);
-      }
-
-      if (apartmentNumber) {
-        parts.push(`Apt ${apartmentNumber}`);
-      }
-
+      if (wing) parts.push(`Wing ${wing}`);
+      if (apartmentNumber) parts.push(`Apt ${apartmentNumber}`);
       meta = parts.join("  •  ");
     } else if (effectiveMemberType === "staff") {
       meta = staffRole || "Staff";
     }
 
-    const selected = selectedMemberId === member.id;
+    const selected = selectedMemberIds.includes(member.id);
 
     return (
       <TouchableOpacity
         key={member.id}
         activeOpacity={0.8}
         style={[styles.memberCard, selected && styles.memberCardSelected]}
-        onPress={() => {
-          setSelectedMemberId((currentId) =>
-            currentId === member.id ? "" : member.id,
-          );
-
-          setError("");
-        }}
+        onPress={() => toggleMember(member.id)}
       >
         <View
           style={[styles.memberAvatar, selected && styles.memberAvatarSelected]}
@@ -422,7 +511,6 @@ export default function GrantAccessScreen() {
 
           <View style={styles.memberPhoneRow}>
             <Ionicons name="call-outline" size={13} color="#64748B" />
-
             <Text style={styles.memberPhone} numberOfLines={1}>
               {member.phone}
             </Text>
@@ -437,15 +525,12 @@ export default function GrantAccessScreen() {
                 size={13}
                 color="#2563EB"
               />
-
               <Text style={styles.memberMeta}>{meta}</Text>
             </View>
           ) : null}
         </View>
 
-        <View
-          style={[styles.radioOuter, selected && styles.radioOuterSelected]}
-        >
+        <View style={[styles.checkbox, selected && styles.checkboxSelected]}>
           {selected ? (
             <Ionicons name="checkmark" size={16} color="#FFFFFF" />
           ) : null}
@@ -459,9 +544,7 @@ export default function GrantAccessScreen() {
   // ============================================================
 
   const renderContactPickerModal = () => {
-    if (!showContactPicker) {
-      return null;
-    }
+    if (!showContactPicker) return null;
 
     return (
       <Modal
@@ -478,16 +561,12 @@ export default function GrantAccessScreen() {
               <View
                 style={[
                   styles.modalContainer,
-                  {
-                    paddingBottom: Math.max(insets.bottom, 12),
-                  },
+                  { paddingBottom: Math.max(insets.bottom, 12) },
                 ]}
               >
-                {/* Modal Header */}
                 <View style={styles.modalHeader}>
                   <View>
                     <Text style={styles.modalTitle}>Select Contact</Text>
-
                     <Text style={styles.modalSubtitle}>
                       Choose a contact from your phone
                     </Text>
@@ -502,7 +581,6 @@ export default function GrantAccessScreen() {
                   </TouchableOpacity>
                 </View>
 
-                {/* Search */}
                 <View style={styles.modalSearch}>
                   <Ionicons name="search-outline" size={20} color="#64748B" />
 
@@ -527,7 +605,6 @@ export default function GrantAccessScreen() {
                   ) : null}
                 </View>
 
-                {/* Count */}
                 <View style={styles.contactCountRow}>
                   <Text style={styles.contactCount}>
                     {filteredContacts.length}{" "}
@@ -535,7 +612,6 @@ export default function GrantAccessScreen() {
                   </Text>
                 </View>
 
-                {/* Contact list */}
                 <View style={styles.contactListWrapper}>
                   <ScrollView
                     style={styles.contactList}
@@ -593,11 +669,9 @@ export default function GrantAccessScreen() {
                             color="#64748B"
                           />
                         </View>
-
                         <Text style={styles.noContactsTitle}>
                           No contacts found
                         </Text>
-
                         <Text style={styles.noContactsText}>
                           Try another name or phone number.
                         </Text>
@@ -606,7 +680,6 @@ export default function GrantAccessScreen() {
                   </ScrollView>
                 </View>
 
-                {/* Footer */}
                 <View style={styles.modalFooter}>
                   <TouchableOpacity
                     style={styles.modalCancelButton}
@@ -637,9 +710,15 @@ export default function GrantAccessScreen() {
         ? "No apartment owners available to select."
         : "No staff members available to select.";
     }
-
     return "No members or staff are available.";
   };
+
+  const saveButtonDisabled =
+    (!isVisibilityFlow && source === "new" && phone.length !== 10) ||
+    (isVisibilityFlow && selectedMemberIds.length === 0) ||
+    (!isVisibilityFlow &&
+      source === "existing" &&
+      selectedMemberIds.length === 0);
 
   // ============================================================
   // SCREEN
@@ -647,12 +726,7 @@ export default function GrantAccessScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={[
-        styles.screen,
-        {
-          paddingBottom: insets.bottom,
-        },
-      ]}
+      style={[styles.screen, { paddingBottom: insets.bottom }]}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={0}
     >
@@ -660,9 +734,7 @@ export default function GrantAccessScreen() {
         style={styles.scroll}
         contentContainerStyle={[
           styles.container,
-          {
-            paddingBottom: Math.max(insets.bottom, 24),
-          },
+          { paddingBottom: Math.max(insets.bottom, 24) },
         ]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
@@ -693,75 +765,74 @@ export default function GrantAccessScreen() {
             <Text style={styles.introDescription}>
               {isVisibilityFlow
                 ? effectiveMemberType === "owner"
-                  ? "Select an apartment owner to grant visibility access."
-                  : "Select a staff member to grant visibility access."
+                  ? "Select one or more apartment owners to grant visibility access."
+                  : "Select one or more staff members to grant visibility access."
                 : "Choose who should receive access to this account."}
             </Text>
           </View>
         </View>
 
         {/* ======================================================
-            RECIPIENT SOURCE
+            RECIPIENT SOURCE (normal flow only) — SIDE BY SIDE
         ====================================================== */}
 
         {!isVisibilityFlow ? (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>RECIPIENT</Text>
 
-            <View style={styles.sourceCard}>
+            <View style={styles.sourceRow}>
               {/* New phone */}
               <TouchableOpacity
                 style={[
-                  styles.sourceOption,
-                  source === "new" && styles.sourceOptionActive,
+                  styles.sourceTile,
+                  source === "new" && styles.sourceTileActive,
                 ]}
                 onPress={() => {
                   setSource("new");
-                  setSelectedMemberId("");
+                  setSelectedMemberIds([]);
                   setError("");
                 }}
                 activeOpacity={0.8}
               >
                 <View
                   style={[
-                    styles.sourceIcon,
-                    source === "new" && styles.sourceIconActive,
+                    styles.sourceTileIcon,
+                    source === "new" && styles.sourceTileIconActive,
                   ]}
                 >
                   <Ionicons
                     name="call-outline"
-                    size={20}
+                    size={22}
                     color={source === "new" ? "#2563EB" : "#64748B"}
                   />
                 </View>
 
-                <View style={styles.sourceContent}>
-                  <Text
-                    style={[
-                      styles.sourceTitle,
-                      source === "new" && styles.sourceTitleActive,
-                    ]}
-                  >
-                    New phone number
-                  </Text>
+                <Text
+                  style={[
+                    styles.sourceTileTitle,
+                    source === "new" && styles.sourceTileTitleActive,
+                  ]}
+                  numberOfLines={1}
+                >
+                  New phone
+                </Text>
 
-                  <Text style={styles.sourceDescription}>
-                    Invite someone using their phone
-                  </Text>
-                </View>
+                <Text style={styles.sourceTileDescription} numberOfLines={2}>
+                  Invite by phone number
+                </Text>
 
                 {source === "new" ? (
-                  <Ionicons name="checkmark-circle" size={22} color="#2563EB" />
+                  <View style={styles.sourceTileCheck}>
+                    <Ionicons name="checkmark" size={13} color="#FFFFFF" />
+                  </View>
                 ) : null}
               </TouchableOpacity>
-
-              <View style={styles.sourceDivider} />
 
               {/* Existing */}
               <TouchableOpacity
                 style={[
-                  styles.sourceOption,
-                  source === "existing" && styles.sourceOptionActive,
+                  styles.sourceTile,
+                  source === "existing" && styles.sourceTileActive,
                 ]}
                 onPress={() => {
                   setSource("existing");
@@ -773,34 +844,35 @@ export default function GrantAccessScreen() {
               >
                 <View
                   style={[
-                    styles.sourceIcon,
-                    source === "existing" && styles.sourceIconActive,
+                    styles.sourceTileIcon,
+                    source === "existing" && styles.sourceTileIconActive,
                   ]}
                 >
                   <Ionicons
                     name="people-outline"
-                    size={20}
+                    size={22}
                     color={source === "existing" ? "#2563EB" : "#64748B"}
                   />
                 </View>
 
-                <View style={styles.sourceContent}>
-                  <Text
-                    style={[
-                      styles.sourceTitle,
-                      source === "existing" && styles.sourceTitleActive,
-                    ]}
-                  >
-                    Existing member or staff
-                  </Text>
+                <Text
+                  style={[
+                    styles.sourceTileTitle,
+                    source === "existing" && styles.sourceTileTitleActive,
+                  ]}
+                  numberOfLines={1}
+                >
+                  Existing person
+                </Text>
 
-                  <Text style={styles.sourceDescription}>
-                    Select someone already in your account
-                  </Text>
-                </View>
+                <Text style={styles.sourceTileDescription} numberOfLines={2}>
+                  Pick from members or staff
+                </Text>
 
                 {source === "existing" ? (
-                  <Ionicons name="checkmark-circle" size={22} color="#2563EB" />
+                  <View style={styles.sourceTileCheck}>
+                    <Ionicons name="checkmark" size={13} color="#FFFFFF" />
+                  </View>
                 ) : null}
               </TouchableOpacity>
             </View>
@@ -808,7 +880,7 @@ export default function GrantAccessScreen() {
         ) : null}
 
         {/* ======================================================
-            NEW PHONE
+            NEW PHONE (normal flow only)
         ====================================================== */}
 
         {!isVisibilityFlow && source === "new" ? (
@@ -838,24 +910,25 @@ export default function GrantAccessScreen() {
                 Phone number
               </Text>
 
-              <View style={styles.phoneWrapper}>
-                <View style={styles.countryCode}>
-                  <Text style={styles.countryCodeText}>+91</Text>
+              <View style={styles.phoneRow}>
+                <View style={styles.phoneWrapper}>
+                  <View style={styles.countryCode}>
+                    <Text style={styles.countryCodeText}>+91</Text>
+                  </View>
+
+                  <TextInput
+                    style={styles.phoneInput}
+                    value={phone}
+                    onChangeText={(value) => {
+                      setPhone(value.replace(/[^0-9]/g, "").slice(0, 10));
+                      setError("");
+                    }}
+                    keyboardType="phone-pad"
+                    maxLength={10}
+                    placeholder="98765 43210"
+                    placeholderTextColor="#94A3B8"
+                  />
                 </View>
-
-                <TextInput
-                  style={styles.phoneInput}
-                  value={phone}
-                  onChangeText={(value) => {
-                    setPhone(value.replace(/[^0-9]/g, "").slice(0, 10));
-
-                    setError("");
-                  }}
-                  keyboardType="phone-pad"
-                  maxLength={10}
-                  placeholder="98765 43210"
-                  placeholderTextColor="#94A3B8"
-                />
 
                 <TouchableOpacity
                   onPress={pickContact}
@@ -877,7 +950,6 @@ export default function GrantAccessScreen() {
                     size={14}
                     color="#DC2626"
                   />
-
                   <Text style={styles.phoneHint}>Enter all 10 digits</Text>
                 </View>
               ) : null}
@@ -886,102 +958,144 @@ export default function GrantAccessScreen() {
         ) : null}
 
         {/* ======================================================
-            EXISTING MEMBER / STAFF
+            EXISTING MEMBER / STAFF (normal flow only)
         ====================================================== */}
 
         {!isVisibilityFlow && source === "existing" ? (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>SELECT PERSON</Text>
+            <Text style={styles.sectionTitle}>SELECT PEOPLE</Text>
 
             {hasMembersOrStaff ? (
-              <View style={styles.searchBox}>
-                <Ionicons name="search-outline" size={19} color="#64748B" />
+              <>
+                <View style={styles.selectControlsRow}>
+                  <View style={styles.searchBoxInline}>
+                    <Ionicons name="search-outline" size={19} color="#64748B" />
 
-                <TextInput
-                  style={styles.searchInput}
-                  value={search}
-                  onChangeText={(value) => {
-                    setSearch(value);
-                    setError("");
-                  }}
-                  placeholder="Search name, phone or role"
-                  placeholderTextColor="#94A3B8"
-                  autoCapitalize="none"
-                />
+                    <TextInput
+                      style={styles.searchInput}
+                      value={search}
+                      onChangeText={(value) => {
+                        setSearch(value);
+                        setError("");
+                      }}
+                      placeholder="Search name or phone no."
+                      placeholderTextColor="#94A3B8"
+                      autoCapitalize="none"
+                    />
 
-                {search.length > 0 ? (
+                    {search.length > 0 ? (
+                      <TouchableOpacity
+                        onPress={() => setSearch("")}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons
+                          name="close-circle"
+                          size={19}
+                          color="#94A3B8"
+                        />
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+
                   <TouchableOpacity
-                    onPress={() => setSearch("")}
-                    activeOpacity={0.7}
+                    style={styles.selectAllButton}
+                    onPress={allSelected ? handleClearAll : handleSelectAll}
+                    activeOpacity={0.8}
                   >
-                    <Ionicons name="close-circle" size={19} color="#94A3B8" />
+                    <Ionicons
+                      name={
+                        allSelected ? "close-circle-outline" : "checkmark-done"
+                      }
+                      size={16}
+                      color={allSelected ? "#DC2626" : "#2563EB"}
+                    />
+                    <Text
+                      style={[
+                        styles.selectAllText,
+                        allSelected && styles.clearAllText,
+                      ]}
+                    >
+                      {allSelected ? "Clear all" : "Select all"}
+                    </Text>
                   </TouchableOpacity>
-                ) : null}
-              </View>
-            ) : null}
+                </View>
 
-            {eligibleMembers.length === 0 ? (
+                {eligibleMembers.length === 0 ? (
+                  <View style={styles.emptyCard}>
+                    <View style={styles.emptyIcon}>
+                      <Ionicons
+                        name="people-outline"
+                        size={28}
+                        color="#64748B"
+                      />
+                    </View>
+                    <Text style={styles.emptyTitle}>No people available</Text>
+                    <Text style={styles.emptyDescription}>
+                      {getEmptyStateText()}
+                    </Text>
+                  </View>
+                ) : (
+                  <>
+                    <View style={styles.groupHeader}>
+                      <View style={styles.groupTitleRow}>
+                        <Ionicons
+                          name="home-outline"
+                          size={17}
+                          color="#2563EB"
+                        />
+                        <Text style={styles.groupTitle}>Members</Text>
+                      </View>
+                      <Text style={styles.groupCount}>
+                        {apartmentMembers.length}
+                      </Text>
+                    </View>
+
+                    {apartmentMembers.length === 0 ? (
+                      <Text style={styles.emptySmall}>
+                        No members are available.
+                      </Text>
+                    ) : (
+                      (searchLower ? filteredMembers : apartmentMembers).map(
+                        renderMemberRow,
+                      )
+                    )}
+
+                    <View style={[styles.groupHeader, styles.staffGroupHeader]}>
+                      <View style={styles.groupTitleRow}>
+                        <Ionicons
+                          name="briefcase-outline"
+                          size={17}
+                          color="#2563EB"
+                        />
+                        <Text style={styles.groupTitle}>Staff</Text>
+                      </View>
+                      <Text style={styles.groupCount}>
+                        {staffMembers.length}
+                      </Text>
+                    </View>
+
+                    {staffMembers.length === 0 ? (
+                      <Text style={styles.emptySmall}>
+                        No staff members are available.
+                      </Text>
+                    ) : (
+                      (searchLower ? filteredStaff : staffMembers).map(
+                        renderMemberRow,
+                      )
+                    )}
+                  </>
+                )}
+              </>
+            ) : (
               <View style={styles.emptyCard}>
                 <View style={styles.emptyIcon}>
                   <Ionicons name="people-outline" size={28} color="#64748B" />
                 </View>
-
                 <Text style={styles.emptyTitle}>No people available</Text>
-
                 <Text style={styles.emptyDescription}>
                   {getEmptyStateText()}
                 </Text>
               </View>
-            ) : (
-              <>
-                {/* Members */}
-                <View style={styles.groupHeader}>
-                  <View style={styles.groupTitleRow}>
-                    <Ionicons name="home-outline" size={17} color="#2563EB" />
-
-                    <Text style={styles.groupTitle}>Members</Text>
-                  </View>
-
-                  <Text style={styles.groupCount}>
-                    {apartmentMembers.length}
-                  </Text>
-                </View>
-
-                {apartmentMembers.length === 0 ? (
-                  <Text style={styles.emptySmall}>
-                    No members are available.
-                  </Text>
-                ) : (
-                  (searchLower ? filteredMembers : apartmentMembers).map(
-                    renderMemberRow,
-                  )
-                )}
-
-                {/* Staff */}
-                <View style={[styles.groupHeader, styles.staffGroupHeader]}>
-                  <View style={styles.groupTitleRow}>
-                    <Ionicons
-                      name="briefcase-outline"
-                      size={17}
-                      color="#2563EB"
-                    />
-
-                    <Text style={styles.groupTitle}>Staff</Text>
-                  </View>
-
-                  <Text style={styles.groupCount}>{staffMembers.length}</Text>
-                </View>
-
-                {staffMembers.length === 0 ? (
-                  <Text style={styles.emptySmall}>
-                    No staff members are available.
-                  </Text>
-                ) : (
-                  (searchLower ? filteredStaff : staffMembers).map(
-                    renderMemberRow,
-                  )
-                )}
-              </>
             )}
           </View>
         ) : null}
@@ -993,82 +1107,118 @@ export default function GrantAccessScreen() {
         {isVisibilityFlow ? (
           <View style={styles.section}>
             {hasMembersOrStaff ? (
-              <View style={styles.searchBox}>
-                <Ionicons name="search-outline" size={19} color="#64748B" />
+              <>
+                <View style={styles.selectControlsRow}>
+                  <View style={styles.searchBoxInline}>
+                    <Ionicons name="search-outline" size={19} color="#64748B" />
 
-                <TextInput
-                  style={styles.searchInput}
-                  value={search}
-                  onChangeText={(value) => {
-                    setSearch(value);
-                    setError("");
-                  }}
-                  placeholder={
-                    effectiveMemberType === "owner"
-                      ? "Search name, phone, apartment or wing"
-                      : "Search name, phone or role"
-                  }
-                  placeholderTextColor="#94A3B8"
-                  autoCapitalize="none"
-                />
+                    <TextInput
+                      style={styles.searchInput}
+                      value={search}
+                      onChangeText={(value) => {
+                        setSearch(value);
+                        setError("");
+                      }}
+                      placeholder="Search name or phone no."
+                      placeholderTextColor="#94A3B8"
+                      autoCapitalize="none"
+                    />
 
-                {search.length > 0 ? (
-                  <TouchableOpacity
-                    onPress={() => setSearch("")}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name="close-circle" size={19} color="#94A3B8" />
-                  </TouchableOpacity>
-                ) : null}
-              </View>
-            ) : null}
-
-            {effectiveMemberType === "owner" ? (
-              filteredMembers.length === 0 ? (
-                <View style={styles.emptyCard}>
-                  <View style={styles.emptyIcon}>
-                    <Ionicons name="people-outline" size={28} color="#64748B" />
+                    {search.length > 0 ? (
+                      <TouchableOpacity
+                        onPress={() => setSearch("")}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons
+                          name="close-circle"
+                          size={19}
+                          color="#94A3B8"
+                        />
+                      </TouchableOpacity>
+                    ) : null}
                   </View>
 
-                  <Text style={styles.emptyTitle}>
-                    {apartmentMembers.length === 0
-                      ? "No apartment owners available"
-                      : "No matching apartment owners"}
-                  </Text>
-
-                  <Text style={styles.emptyDescription}>
-                    {apartmentMembers.length === 0
-                      ? "There are currently no apartment owners available to select."
-                      : "Try searching with another name, phone number, apartment or wing."}
-                  </Text>
+                  <TouchableOpacity
+                    style={styles.selectAllButton}
+                    onPress={allSelected ? handleClearAll : handleSelectAll}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons
+                      name={
+                        allSelected ? "close-circle-outline" : "checkmark-done"
+                      }
+                      size={16}
+                      color={allSelected ? "#DC2626" : "#2563EB"}
+                    />
+                    <Text
+                      style={[
+                        styles.selectAllText,
+                        allSelected && styles.clearAllText,
+                      ]}
+                    >
+                      {allSelected ? "Clear all" : "Select all"}
+                    </Text>
+                  </TouchableOpacity>
                 </View>
-              ) : (
-                filteredMembers.map(renderMemberRow)
-              )
-            ) : filteredStaff.length === 0 ? (
+
+                {effectiveMemberType === "owner" ? (
+                  filteredMembers.length === 0 ? (
+                    <View style={styles.emptyCard}>
+                      <View style={styles.emptyIcon}>
+                        <Ionicons
+                          name="people-outline"
+                          size={28}
+                          color="#64748B"
+                        />
+                      </View>
+                      <Text style={styles.emptyTitle}>
+                        {apartmentMembers.length === 0
+                          ? "No apartment owners available"
+                          : "No matching apartment owners"}
+                      </Text>
+                      <Text style={styles.emptyDescription}>
+                        {apartmentMembers.length === 0
+                          ? "There are currently no apartment owners available to select."
+                          : "Try searching with another name, phone number, apartment or wing."}
+                      </Text>
+                    </View>
+                  ) : (
+                    filteredMembers.map(renderMemberRow)
+                  )
+                ) : filteredStaff.length === 0 ? (
+                  <View style={styles.emptyCard}>
+                    <View style={styles.emptyIcon}>
+                      <Ionicons
+                        name="briefcase-outline"
+                        size={28}
+                        color="#64748B"
+                      />
+                    </View>
+                    <Text style={styles.emptyTitle}>
+                      {staffMembers.length === 0
+                        ? "No staff available"
+                        : "No matching staff"}
+                    </Text>
+                    <Text style={styles.emptyDescription}>
+                      {staffMembers.length === 0
+                        ? "There are currently no staff members available to select."
+                        : "Try searching with another name, phone number or role."}
+                    </Text>
+                  </View>
+                ) : (
+                  filteredStaff.map(renderMemberRow)
+                )}
+              </>
+            ) : (
               <View style={styles.emptyCard}>
                 <View style={styles.emptyIcon}>
-                  <Ionicons
-                    name="briefcase-outline"
-                    size={28}
-                    color="#64748B"
-                  />
+                  <Ionicons name="people-outline" size={28} color="#64748B" />
                 </View>
-
-                <Text style={styles.emptyTitle}>
-                  {staffMembers.length === 0
-                    ? "No staff available"
-                    : "No matching staff"}
-                </Text>
-
+                <Text style={styles.emptyTitle}>No people available</Text>
                 <Text style={styles.emptyDescription}>
-                  {staffMembers.length === 0
-                    ? "There are currently no staff members available to select."
-                    : "Try searching with another name, phone number or role."}
+                  {getEmptyStateText()}
                 </Text>
               </View>
-            ) : (
-              filteredStaff.map(renderMemberRow)
             )}
           </View>
         ) : null}
@@ -1080,7 +1230,6 @@ export default function GrantAccessScreen() {
         {error ? (
           <View style={styles.errorBox}>
             <Ionicons name="alert-circle-outline" size={19} color="#DC2626" />
-
             <Text style={styles.errorText}>{error}</Text>
           </View>
         ) : null}
@@ -1093,24 +1242,21 @@ export default function GrantAccessScreen() {
           <TouchableOpacity
             style={[
               styles.saveButton,
-              (!isVisibilityFlow && source === "new" && phone.length !== 10) ||
-              (isVisibilityFlow && !selectedMemberId)
-                ? styles.saveButtonDisabled
-                : null,
+              saveButtonDisabled ? styles.saveButtonDisabled : null,
             ]}
             onPress={handleSave}
             activeOpacity={0.85}
           >
             <Ionicons
-              name={
-                isVisibilityFlow ? "shield-checkmark-outline" : "shield-checkmark-outline"
-              }
+              name="shield-checkmark-outline"
               size={20}
               color="#FFFFFF"
             />
 
             <Text style={styles.saveText}>
-              {isVisibilityFlow ? `Grant ${visibilityTitle.replace("Manage ", "")}` : `Grant ${title} Access`}
+              {isVisibilityFlow
+                ? `Grant ${visibilityTitle.replace("Manage ", "")}`
+                : `Grant ${title} Access`}
             </Text>
           </TouchableOpacity>
 
@@ -1151,9 +1297,7 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
 
-  // ----------------------------------------------------------
   // INTRO
-  // ----------------------------------------------------------
 
   introCard: {
     flexDirection: "row",
@@ -1176,9 +1320,7 @@ const styles = StyleSheet.create({
     marginRight: 13,
   },
 
-  introContent: {
-    flex: 1,
-  },
+  introContent: { flex: 1 },
 
   introTitle: {
     color: "#1E3A8A",
@@ -1193,13 +1335,9 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 
-  // ----------------------------------------------------------
   // SECTIONS
-  // ----------------------------------------------------------
 
-  section: {
-    marginBottom: 20,
-  },
+  section: { marginBottom: 20 },
 
   sectionTitle: {
     color: "#64748B",
@@ -1210,73 +1348,73 @@ const styles = StyleSheet.create({
     marginLeft: 3,
   },
 
-  // ----------------------------------------------------------
-  // SOURCE
-  // ----------------------------------------------------------
+  // SOURCE (side-by-side tiles)
 
-  sourceCard: {
+  sourceRow: {
+    flexDirection: "row",
+    gap: 10,
+  },
+
+  sourceTile: {
+    flex: 1,
     backgroundColor: "#FFFFFF",
     borderRadius: 16,
-    borderWidth: 1,
+    borderWidth: 1.5,
     borderColor: "#E2E8F0",
-    overflow: "hidden",
+    padding: 14,
+    minHeight: 118,
+    position: "relative",
   },
 
-  sourceOption: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    minHeight: 78,
-  },
-
-  sourceOptionActive: {
+  sourceTileActive: {
+    borderColor: "#2563EB",
     backgroundColor: "#F8FBFF",
   },
 
-  sourceIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 13,
+  sourceTileIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     backgroundColor: "#F1F5F9",
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 12,
+    marginBottom: 10,
   },
 
-  sourceIconActive: {
+  sourceTileIconActive: {
     backgroundColor: "#DBEAFE",
   },
 
-  sourceContent: {
-    flex: 1,
-  },
-
-  sourceTitle: {
-    fontSize: 14,
+  sourceTileTitle: {
+    fontSize: 13.5,
     fontWeight: "700",
     color: "#334155",
+    marginBottom: 3,
   },
 
-  sourceTitleActive: {
+  sourceTileTitleActive: {
     color: "#1D4ED8",
   },
 
-  sourceDescription: {
-    fontSize: 12,
+  sourceTileDescription: {
+    fontSize: 11.5,
     color: "#64748B",
-    marginTop: 3,
+    lineHeight: 15,
   },
 
-  sourceDivider: {
-    height: 1,
-    backgroundColor: "#E2E8F0",
-    marginLeft: 68,
+  sourceTileCheck: {
+    position: "absolute",
+    top: 10,
+    right: 10,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: "#2563EB",
+    alignItems: "center",
+    justifyContent: "center",
   },
 
-  // ----------------------------------------------------------
   // FORM
-  // ----------------------------------------------------------
 
   formCard: {
     backgroundColor: "#FFFFFF",
@@ -1293,9 +1431,7 @@ const styles = StyleSheet.create({
     marginBottom: 7,
   },
 
-  phoneLabel: {
-    marginTop: 17,
-  },
+  phoneLabel: { marginTop: 17 },
 
   inputWrapper: {
     height: 50,
@@ -1314,11 +1450,17 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: "#0F172A",
     marginLeft: 9,
-
     ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as any) : {}),
   },
 
+  phoneRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+
   phoneWrapper: {
+    flex: 1,
     height: 50,
     borderRadius: 12,
     borderWidth: 1,
@@ -1351,14 +1493,13 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: "#0F172A",
     paddingHorizontal: 11,
-
     ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as any) : {}),
   },
 
   contactButton: {
-    width: 39,
-    height: 39,
-    borderRadius: 11,
+    width: 50,
+    height: 50,
+    borderRadius: 12,
     backgroundColor: "#EFF6FF",
     alignItems: "center",
     justifyContent: "center",
@@ -1376,20 +1517,25 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
 
-  // ----------------------------------------------------------
-  // SEARCH
-  // ----------------------------------------------------------
+  // SEARCH + SELECT CONTROLS
 
-  searchBox: {
-    height: 50,
+  selectControlsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 12,
+  },
+
+  searchBoxInline: {
+    flex: 1,
+    height: 46,
     borderRadius: 13,
     borderWidth: 1,
     borderColor: "#CBD5E1",
     backgroundColor: "#FFFFFF",
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 13,
-    marginBottom: 12,
+    paddingHorizontal: 12,
   },
 
   searchInput: {
@@ -1397,14 +1543,31 @@ const styles = StyleSheet.create({
     height: "100%",
     fontSize: 14,
     color: "#0F172A",
-    marginLeft: 9,
-
+    marginLeft: 8,
     ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as any) : {}),
   },
 
-  // ----------------------------------------------------------
+  selectAllButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    height: 46,
+    paddingHorizontal: 12,
+    borderRadius: 13,
+    backgroundColor: "#EFF6FF",
+    borderWidth: 1,
+    borderColor: "#DBEAFE",
+  },
+
+  selectAllText: {
+    fontSize: 12.5,
+    fontWeight: "700",
+    color: "#2563EB",
+  },
+
+  clearAllText: { color: "#DC2626" },
+
   // GROUP
-  // ----------------------------------------------------------
 
   groupHeader: {
     flexDirection: "row",
@@ -1415,9 +1578,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 2,
   },
 
-  staffGroupHeader: {
-    marginTop: 20,
-  },
+  staffGroupHeader: { marginTop: 20 },
 
   groupTitleRow: {
     flexDirection: "row",
@@ -1445,9 +1606,7 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
 
-  // ----------------------------------------------------------
-  // MEMBER
-  // ----------------------------------------------------------
+  // MEMBER ROW
 
   memberCard: {
     flexDirection: "row",
@@ -1475,9 +1634,7 @@ const styles = StyleSheet.create({
     marginRight: 11,
   },
 
-  memberAvatarSelected: {
-    backgroundColor: "#2563EB",
-  },
+  memberAvatarSelected: { backgroundColor: "#2563EB" },
 
   memberAvatarText: {
     color: "#2563EB",
@@ -1485,14 +1642,9 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 
-  memberAvatarTextSelected: {
-    color: "#FFFFFF",
-  },
+  memberAvatarTextSelected: { color: "#FFFFFF" },
 
-  memberContent: {
-    flex: 1,
-    minWidth: 0,
-  },
+  memberContent: { flex: 1, minWidth: 0 },
 
   memberName: {
     color: "#0F172A",
@@ -1526,25 +1678,24 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
 
-  radioOuter: {
+  checkbox: {
     width: 24,
     height: 24,
-    borderRadius: 12,
+    borderRadius: 7,
     borderWidth: 1.5,
     borderColor: "#CBD5E1",
     alignItems: "center",
     justifyContent: "center",
     marginLeft: 10,
+    backgroundColor: "#FFFFFF",
   },
 
-  radioOuterSelected: {
+  checkboxSelected: {
     backgroundColor: "#2563EB",
     borderColor: "#2563EB",
   },
 
-  // ----------------------------------------------------------
   // EMPTY
-  // ----------------------------------------------------------
 
   emptyCard: {
     backgroundColor: "#FFFFFF",
@@ -1591,9 +1742,7 @@ const styles = StyleSheet.create({
     padding: 14,
   },
 
-  // ----------------------------------------------------------
   // ERROR
-  // ----------------------------------------------------------
 
   errorBox: {
     flexDirection: "row",
@@ -1615,13 +1764,9 @@ const styles = StyleSheet.create({
     lineHeight: 17,
   },
 
-  // ----------------------------------------------------------
   // ACTION
-  // ----------------------------------------------------------
 
-  bottomAction: {
-    marginTop: 3,
-  },
+  bottomAction: { marginTop: 3 },
 
   saveButton: {
     minHeight: 52,
@@ -1634,9 +1779,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
   },
 
-  saveButtonDisabled: {
-    opacity: 0.55,
-  },
+  saveButtonDisabled: { opacity: 0.55 },
 
   saveText: {
     color: "#FFFFFF",
@@ -1657,13 +1800,9 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
 
-  bottomSpace: {
-    height: 20,
-  },
+  bottomSpace: { height: 20 },
 
-  // ----------------------------------------------------------
   // CONTACT MODAL
-  // ----------------------------------------------------------
 
   modalOverlay: {
     flex: 1,
@@ -1726,13 +1865,10 @@ const styles = StyleSheet.create({
     color: "#0F172A",
     fontSize: 14,
     marginLeft: 8,
-
     ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as any) : {}),
   },
 
-  contactCountRow: {
-    paddingVertical: 10,
-  },
+  contactCountRow: { paddingVertical: 10 },
 
   contactCount: {
     color: "#64748B",
@@ -1740,18 +1876,11 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
 
-  contactListWrapper: {
-    flex: 1,
-    minHeight: 220,
-  },
+  contactListWrapper: { flex: 1, minHeight: 220 },
 
-  contactList: {
-    flex: 1,
-  },
+  contactList: { flex: 1 },
 
-  contactListContent: {
-    paddingBottom: 8,
-  },
+  contactListContent: { paddingBottom: 8 },
 
   contactItem: {
     flexDirection: "row",
@@ -1777,10 +1906,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 
-  contactInfo: {
-    flex: 1,
-    minWidth: 0,
-  },
+  contactInfo: { flex: 1, minWidth: 0 },
 
   contactName: {
     color: "#0F172A",
