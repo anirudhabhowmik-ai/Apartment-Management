@@ -1040,7 +1040,7 @@ export default function PeopleScreen() {
                 placeholder={
                   isExpenseTab
                     ? "Search by expenses name"
-                    : "Search by name or mobile number"
+                    : "Search by name or mobile no."
                 }
                 placeholderTextColor={COLORS.muted}
                 autoCapitalize="none"

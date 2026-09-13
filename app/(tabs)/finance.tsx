@@ -986,7 +986,7 @@ export default function FinanceScreen() {
               },
               {
                 type: "pending",
-                label: "Pending",
+                label: "Due",
                 icon: "time-outline",
               },
             ] as {
