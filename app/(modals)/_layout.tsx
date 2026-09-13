@@ -5,7 +5,6 @@ import { Stack } from "expo-router";
 export type ModalRouteParams = {
   "add-account": { mode?: string } | undefined;
   "switch-account": undefined;
-  "create-group": { accountId: string };
   "add-member": {
     groupId: string;
     groupType: "apartment" | "staff" | "expense";
@@ -15,7 +14,6 @@ export type ModalRouteParams = {
     groupId: string;
     groupType: "apartment" | "staff" | "expense";
   };
-  "edit-group": { groupId: string };
   "mark-attendance": { memberId: string; accountId: string };
   "mark-payment": {
     accountId: string;
@@ -24,7 +22,6 @@ export type ModalRouteParams = {
     type: "maintenance" | "salary";
     mode?: "edit";
   };
-  "edit-expense": { accountId: string; paymentId: string };
   "grant-access": {
     accountId: string;
     role: "admin" | "member_visibility" | "staff_visibility";
@@ -39,16 +36,13 @@ export default function ModalsLayout() {
       screenOptions={{ presentation: "modal", headerTitleAlign: "center" }}
     >
       <Stack.Screen name="add-account" options={{ title: "New Account" }} />
-      <Stack.Screen name="create-group" options={{ title: "Create Group" }} />
       <Stack.Screen name="add-member" options={{ title: "Add Member" }} />
       <Stack.Screen name="edit-member" options={{ title: "Edit Member" }} />
-      <Stack.Screen name="edit-group" options={{ title: "Edit Group" }} />
       <Stack.Screen
         name="mark-attendance"
         options={{ title: "Mark Attendance" }}
       />
       <Stack.Screen name="mark-payment" options={{ title: "Mark as Paid" }} />
-      <Stack.Screen name="edit-expense" options={{ title: "Edit Expenses" }} />
       <Stack.Screen name="grant-access" options={{ title: "Grant Access" }} />
       <Stack.Screen name="join-account" options={{ title: "Join Account" }} />
       <Stack.Screen
