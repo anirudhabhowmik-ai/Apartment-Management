@@ -1,11 +1,15 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Dimensions,
   Image,
+  Keyboard,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -13,6 +17,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import DatePickerModal from "../../components/DatePickerModal";
 import MonthYearPickerModal from "../../components/MonthYearPickerModal";
@@ -58,6 +63,12 @@ const COLORS = {
   purpleLight: "#F5F3FF",
   purpleBorder: "#DDD6FE",
 };
+
+/* ================================================================
+   TYPES
+================================================================ */
+
+type PaymentFilter = "all" | "paid" | "due";
 
 /* ================================================================
    HELPERS
@@ -235,12 +246,33 @@ const navigateMonth = (
   return `${newYear}-${String(newMonth).padStart(2, "0")}`;
 };
 
+const normalizePhoneForSearch = (raw?: string): string => {
+  if (!raw) return "";
+  const digits = String(raw).replace(/\D/g, "");
+  return digits.length > 10 ? digits.slice(-10) : digits;
+};
+
+const memberMatchesQuery = (member: any, query: string): boolean => {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+
+  const name = String(member?.name ?? "").toLowerCase();
+  if (name.includes(q)) return true;
+
+  const phoneDigits = normalizePhoneForSearch(member?.phone);
+  const queryDigits = q.replace(/\D/g, "");
+  if (queryDigits && phoneDigits.includes(queryDigits)) return true;
+
+  return false;
+};
+
 /* ================================================================
    SCREEN
 ================================================================ */
 
 export default function PeopleScreen() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   const { tab, memberId } = useLocalSearchParams<{
     tab?: GroupType;
@@ -255,12 +287,7 @@ export default function PeopleScreen() {
 
   const getAttendanceRecord = useAttendanceStore((state) => state.getRecord);
 
-  // Bill template config (society name, address, contact, email, signature)
   const { getBillConfig, templates: billTemplates } = useBillStore();
-
-  /* ----------------------------------------------------------------
-     ROLE (from centralized hook)
-  ---------------------------------------------------------------- */
 
   const { isAdmin, isMember, isStaff: isStaffRole } = useUserRole();
 
@@ -313,6 +340,65 @@ export default function PeopleScreen() {
 
   const [generatingBill, setGeneratingBill] = useState<string | null>(null);
 
+  const [searchQuery, setSearchQuery] = useState<Record<GroupType, string>>({
+    apartment: "",
+    staff: "",
+    expense: "",
+  });
+
+  const [paymentFilter, setPaymentFilter] = useState<
+    Record<GroupType, PaymentFilter>
+  >({
+    apartment: "all",
+    staff: "all",
+    expense: "all",
+  });
+
+  const [showFilterDropdown, setShowFilterDropdown] = useState(false);
+
+  /* ----------------------------------------------------------------
+     FILTER DROPDOWN ANCHOR
+  ---------------------------------------------------------------- */
+
+  const containerRef = useRef<View | null>(null);
+  const searchRowRef = useRef<View | null>(null);
+
+  const [filterAnchor, setFilterAnchor] = useState<{
+    top: number;
+    right: number;
+  }>({ top: 0, right: 16 });
+
+  const measureSearchRow = () => {
+    const row = searchRowRef.current;
+    const container = containerRef.current;
+    if (!row || !container) return;
+
+    row.measureLayout(
+      container as any,
+      (x, y, width, height) => {
+        const screenWidth = Dimensions.get("window").width;
+        const rightOffset = Math.max(screenWidth - (x + width), 12);
+
+        setFilterAnchor({
+          top: y + height + 4,
+          right: rightOffset,
+        });
+      },
+      () => {
+        // measureLayout failed; next open will retry.
+      },
+    );
+  };
+
+  const activeSearch = searchQuery[activeTab];
+  const activeFilter = paymentFilter[activeTab];
+
+  const setActiveSearch = (value: string) =>
+    setSearchQuery((current) => ({ ...current, [activeTab]: value }));
+
+  const setActiveFilter = (value: PaymentFilter) =>
+    setPaymentFilter((current) => ({ ...current, [activeTab]: value }));
+
   useEffect(() => {
     if (tab === "apartment" || tab === "staff" || tab === "expense") {
       if (!visibleTabTypes.includes(tab)) {
@@ -323,9 +409,20 @@ export default function PeopleScreen() {
     }
   }, [tab]);
 
-  /* ================================================================
-     ADD
-  ================================================================ */
+  // On tab change: reset filter/search for a fresh view + close dropdown
+  useEffect(() => {
+    setSearchQuery((current) => ({ ...current, [activeTab]: "" }));
+    setPaymentFilter((current) => ({ ...current, [activeTab]: "all" }));
+    setShowFilterDropdown(false);
+  }, [activeTab]);
+
+  // Re-measure the dropdown anchor whenever the layout might have shifted
+  useEffect(() => {
+    if (showFilterDropdown) {
+      const id = requestAnimationFrame(() => measureSearchRow());
+      return () => cancelAnimationFrame(id);
+    }
+  }, [showFilterDropdown]);
 
   const handleAdd = async (type: GroupType) => {
     if (!canEdit) return;
@@ -373,10 +470,6 @@ export default function PeopleScreen() {
       },
     });
   };
-
-  /* ================================================================
-     NO PROPERTY
-  ================================================================ */
 
   if (!selectedAccountId) {
     return (
@@ -430,10 +523,6 @@ export default function PeopleScreen() {
     );
   }
 
-  /* ================================================================
-     DATA
-  ================================================================ */
-
   const activeGroups = groups.filter((group) => group.type === activeTab);
 
   const membersInActiveGroup = activeGroups.flatMap((group) =>
@@ -462,9 +551,35 @@ export default function PeopleScreen() {
   const showFinancialInfo =
     canSeeFinance && (isApartmentTab || isStaffTab || isExpenseTab);
 
-  /* ================================================================
-     PAYMENT
-  ================================================================ */
+  const hasMembersInActiveTab = activeMembers.length > 0;
+
+  const visibleMembers = useMemo(() => {
+    const month = selectedMonth || new Date().toISOString().slice(0, 7);
+
+    return activeMembers.filter((member: any) => {
+      if (!memberMatchesQuery(member, activeSearch)) return false;
+
+      if (activeFilter === "all") return true;
+
+      let status: "paid" | "due";
+      if (isExpenseTab) {
+        status = member.status === "paid" ? "paid" : "due";
+      } else {
+        const monthlyPayment = getPaymentForMonth(member, month);
+        status = monthlyPayment.status === "paid" ? "paid" : "due";
+      }
+
+      return status === activeFilter;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    activeMembers,
+    activeSearch,
+    activeFilter,
+    activeTab,
+    isExpenseTab,
+    selectedMonth,
+  ]);
 
   const paymentAmount = paymentMember
     ? isApartmentTab
@@ -601,10 +716,6 @@ export default function PeopleScreen() {
     }, 300);
   };
 
-  /* ================================================================
-     DOWNLOAD BILL
-  ================================================================ */
-
   const handleDownloadBill = async (member: any) => {
     if (generatingBill || !canEdit) return;
 
@@ -623,7 +734,6 @@ export default function PeopleScreen() {
         return;
       }
 
-      // Which saved config applies for this tab?
       const memberType: BillMemberType = isApartmentTab ? "owner" : "staff";
       const billConfig = getBillConfig(memberType);
 
@@ -638,13 +748,6 @@ export default function PeopleScreen() {
             {
               text: "Generate Bill",
               onPress: () => {
-                // Deep-link straight into the correct side (owner/staff)
-                // of the bill template setup modal.
-                // ⚠️ Adjust this pathname/param if your actual route for
-                // GenerateBillModal differs — this follows the same
-                // "/(modals)/..." convention used by add-member,
-                // edit-member, mark-attendance, etc. elsewhere in this
-                // screen.
                 router.push({
                   pathname: "/(modals)/generate-bill",
                   params: { memberType },
@@ -657,7 +760,6 @@ export default function PeopleScreen() {
         return;
       }
 
-      // Resolve the full template from the store by id
       const selectedTemplate =
         billTemplates.find((t) => t.id === billConfig.templateId) ??
         billTemplates[0];
@@ -671,8 +773,6 @@ export default function PeopleScreen() {
         return;
       }
 
-      // Build the template object generateBillPDF expects,
-      // using the saved accent color over the template default
       const template = {
         colors: {
           ...selectedTemplate.colors,
@@ -691,12 +791,9 @@ export default function PeopleScreen() {
         showWatermark: selectedTemplate.showWatermark ?? true,
         watermarkText: selectedTemplate.watermarkText ?? "Society Management",
 
-        // IMPORTANT:
-        // Pass the selected preview layout to the PDF generator.
         layoutVariant: selectedTemplate.layoutVariant ?? "bold",
       };
 
-      // Compute amounts
       const baseAmount = isApartmentTab
         ? member.maintenanceAmount || 0
         : (() => {
@@ -719,8 +816,6 @@ export default function PeopleScreen() {
         .toString()
         .slice(-6)}`;
 
-      // Build bill data — every field comes from the saved config,
-      // with sensible fallbacks to the selected account
       const billData = {
         billNumber,
         apartmentName: member.wing || "Apartment",
@@ -742,7 +837,6 @@ export default function PeopleScreen() {
         deductionAmount: deductionAmount || undefined,
         deductionNote: monthlyPayment.deductionNote,
         netAmount,
-        // The saved signature is the SignatureData object, not a string
         signData: billConfig.signature,
         template,
         billType: isApartmentTab
@@ -760,12 +854,6 @@ export default function PeopleScreen() {
       const safeName = (member.name || "Member").replace(/[^\w\-]+/g, "_");
       const fileName = `Bill-${safeName}-${month}.pdf`;
 
-      // ✅ Save the PDF directly to the device instead of opening the
-      // share sheet. On Android this uses the Storage Access Framework
-      // (the admin picks a folder once, e.g. Downloads) and writes the
-      // file straight there. On iOS there's no OS-level folder apps can
-      // silently write to, so this falls back to the share sheet with a
-      // "Save to Files" option — that's the standard way to do it on iOS.
       const result = await savePDFToDevice(pdfUri, fileName);
 
       setGeneratingBill(null);
@@ -773,8 +861,6 @@ export default function PeopleScreen() {
       if (result.saved) {
         Alert.alert("Downloaded", "Bill saved successfully.");
       } else if (result.message !== "Permission denied") {
-        // "Permission denied" just means the admin cancelled the folder
-        // picker — no need to show that as an error.
         Alert.alert(
           "Download Failed",
           result.message || "Could not save the bill. Please try again.",
@@ -792,10 +878,6 @@ export default function PeopleScreen() {
     }
   };
 
-  /* ================================================================
-     MONTH
-  ================================================================ */
-
   const handlePrevMonth = () => {
     setSelectedMonth(navigateMonth(selectedMonth, "prev"));
   };
@@ -804,539 +886,802 @@ export default function PeopleScreen() {
     setSelectedMonth(navigateMonth(selectedMonth, "next"));
   };
 
-  /* ================================================================
-     RENDER
-  ================================================================ */
+  const filterLabel =
+    activeFilter === "all" ? "All" : activeFilter === "paid" ? "Paid" : "Due";
+
+  const filterIcon: keyof typeof Ionicons.glyphMap =
+    activeFilter === "all"
+      ? "filter-outline"
+      : activeFilter === "paid"
+        ? "checkmark-circle-outline"
+        : "time-outline";
+
+  const filterColor =
+    activeFilter === "all"
+      ? COLORS.secondary
+      : activeFilter === "paid"
+        ? COLORS.success
+        : COLORS.danger;
+
+  const isFilterActive = activeFilter !== "all";
+
+  // Extra bottom padding so the last member is always reachable while the
+  // keyboard is open. On iOS, ScrollView's automaticallyAdjustKeyboardInsets
+  // adds keyboard height on top of this; on Android the keyboard is resize-
+  // based and this alone is enough.
+  const listBottomPadding =
+    Math.max(insets.bottom, 24) + (Platform.OS === "ios" ? 320 : 160);
 
   return (
-    <View style={styles.container}>
-      {/* HEADER */}
+    <KeyboardAvoidingView
+      style={[
+        styles.container,
+        {
+          paddingBottom: Platform.OS === "ios" ? insets.bottom : 0,
+        },
+      ]}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={0}
+    >
+      <View ref={containerRef} style={styles.innerContainer}>
+        {/* HEADER */}
 
-      <View style={styles.header}>
-        <View style={styles.headerTitleArea}>
-          <Text style={styles.title}>
-            {isAdmin ? "Management" : isMember ? "Residents" : "Directory"}
-          </Text>
-
-          <Text style={styles.headerSubtitle} numberOfLines={1}>
-            {selectedAccount?.name || "Your property"}
-          </Text>
-        </View>
-
-        <View style={styles.monthNavigation}>
-          <Pressable
-            style={({ pressed }) => [
-              styles.monthArrow,
-              pressed && styles.pressedButton,
-            ]}
-            onPress={handlePrevMonth}
-          >
-            <Ionicons name="chevron-back" size={17} color={COLORS.primary} />
-          </Pressable>
-
-          <Pressable
-            style={({ pressed }) => [
-              styles.monthSelector,
-              pressed && styles.pressedButton,
-            ]}
-            onPress={() => setShowMonthPicker(true)}
-          >
-            <Ionicons
-              name="calendar-outline"
-              size={15}
-              color={COLORS.primary}
-            />
-
-            <Text style={styles.monthText}>
-              {selectedMonth ? formatMonth(selectedMonth) : "All months"}
-            </Text>
-          </Pressable>
-
-          <Pressable
-            style={({ pressed }) => [
-              styles.monthArrow,
-              pressed && styles.pressedButton,
-            ]}
-            onPress={handleNextMonth}
-          >
-            <Ionicons name="chevron-forward" size={17} color={COLORS.primary} />
-          </Pressable>
-        </View>
-      </View>
-
-      {/* TABS */}
-
-      <View style={styles.tabsContainer}>
-        {tabTypes
-          .filter((type) => visibleTabTypes.includes(type))
-          .map((type) => {
-            const isActive = activeTab === type;
-
-            return (
-              <Pressable
-                key={type}
-                style={({ pressed }) => [
-                  styles.tab,
-                  isActive && styles.tabActive,
-                  pressed && styles.tabPressed,
-                ]}
-                onPress={() => setActiveTab(type)}
-              >
-                <Ionicons
-                  name={getTabIcon(type)}
-                  size={16}
-                  color={isActive ? COLORS.primary : COLORS.secondary}
-                />
-
-                <Text
-                  style={[styles.tabText, isActive && styles.tabTextActive]}
-                  numberOfLines={1}
-                >
-                  {getTabLabel(type, selectedAccount?.type)}
-                </Text>
-              </Pressable>
-            );
-          })}
-      </View>
-
-      {/* CONTENT */}
-
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.listContent}
-      >
-        <View style={styles.listHeader}>
-          <View style={styles.countArea}>
-            <Text style={styles.countTitle}>
-              {getCountLabel(
-                activeTab,
-                activeMembers.length,
-                selectedAccount?.type,
-              )}
+        <View style={styles.header}>
+          <View style={styles.headerTitleArea}>
+            <Text style={styles.title}>
+              {isAdmin ? "Management" : isMember ? "Residents" : "Directory"}
             </Text>
 
-            <Text style={styles.countSubtitle}>
-              {isExpenseTab
-                ? "Property expenses"
-                : isStaffTab
-                  ? "Staff and salary"
-                  : selectedAccount?.type === "home"
-                    ? "Your tenants"
-                    : "Apartment members"}
+            <Text style={styles.headerSubtitle} numberOfLines={1}>
+              {selectedAccount?.name || "Your property"}
             </Text>
           </View>
 
-          {canEdit && (
+          <View style={styles.monthNavigation}>
             <Pressable
               style={({ pressed }) => [
-                styles.addButton,
-                pressed && styles.addButtonPressed,
+                styles.monthArrow,
+                pressed && styles.pressedButton,
               ]}
-              onPress={() => handleAdd(activeTab)}
+              onPress={handlePrevMonth}
             >
-              <Ionicons name="add" size={18} color={COLORS.white} />
-
-              <Text style={styles.addButtonText}>
-                {getAddButtonLabel(activeTab, selectedAccount?.type)}
-              </Text>
+              <Ionicons name="chevron-back" size={17} color={COLORS.primary} />
             </Pressable>
-          )}
-        </View>
 
-        {activeMembers.length === 0 ? (
-          <View style={styles.emptyCard}>
-            <View
-              style={[
-                styles.emptyIcon,
-                isStaffTab && styles.emptyIconStaff,
-                isExpenseTab && styles.emptyIconExpense,
+            <Pressable
+              style={({ pressed }) => [
+                styles.monthSelector,
+                pressed && styles.pressedButton,
               ]}
+              onPress={() => setShowMonthPicker(true)}
             >
               <Ionicons
-                name={getTabIcon(activeTab)}
-                size={31}
-                color={
-                  isStaffTab
-                    ? COLORS.purple
-                    : isExpenseTab
-                      ? COLORS.success
-                      : COLORS.primary
-                }
+                name="calendar-outline"
+                size={15}
+                color={COLORS.primary}
               />
-            </View>
 
-            <Text style={styles.emptyTitle}>
-              No {getTabLabel(activeTab, selectedAccount?.type).toLowerCase()}{" "}
-              yet
-            </Text>
+              <Text style={styles.monthText}>
+                {selectedMonth ? formatMonth(selectedMonth) : "All months"}
+              </Text>
+            </Pressable>
 
-            <Text style={styles.emptySubtitle}>
-              {isExpenseTab
-                ? "Add your first expense to start tracking property spending."
-                : isStaffTab
-                  ? "Add staff members to manage attendance and salary."
-                  : selectedAccount?.type === "home"
-                    ? "Add tenants to start managing your property."
-                    : "Add apartment members to manage maintenance and payments."}
-            </Text>
+            <Pressable
+              style={({ pressed }) => [
+                styles.monthArrow,
+                pressed && styles.pressedButton,
+              ]}
+              onPress={handleNextMonth}
+            >
+              <Ionicons
+                name="chevron-forward"
+                size={17}
+                color={COLORS.primary}
+              />
+            </Pressable>
           </View>
-        ) : (
-          <View>
-            {activeMembers.map((member: any) => {
-              const month =
-                selectedMonth || new Date().toISOString().slice(0, 7);
+        </View>
 
-              const record = getAttendanceRecord(member.id, month);
+        {/* TABS */}
 
-              const monthlyPayment = member.monthlyPayments?.[month];
-
-              const basePaymentAmount = isApartmentTab
-                ? member.maintenanceAmount || 0
-                : (() => {
-                    if (monthlyPayment?.payableSalary) {
-                      return monthlyPayment.payableSalary;
-                    }
-
-                    if (record?.payableSalary) {
-                      return record.payableSalary;
-                    }
-
-                    return getCalculatedStaffSalary(
-                      member.monthlySalary || 0,
-                      month,
-                      record?.statuses || {},
-                    );
-                  })();
-
-              const monthlyPaymentData = getPaymentForMonth(
-                member,
-                selectedMonth,
-              );
-
-              const statusPaymentAmount =
-                monthlyPaymentData.status === "paid"
-                  ? basePaymentAmount +
-                    (monthlyPaymentData.additionalAmount || 0) -
-                    (monthlyPaymentData.deductionAmount || 0)
-                  : basePaymentAmount;
-
-              const hasMatchingHistory = member.detailsHistory?.some(
-                (snapshot: any) =>
-                  snapshot.changeSummary &&
-                  snapshot.effectiveMonth === selectedMonth,
-              );
-
-              const isPaidThisMonth = monthlyPaymentData.status === "paid";
+        <View style={styles.tabsContainer}>
+          {tabTypes
+            .filter((type) => visibleTabTypes.includes(type))
+            .map((type) => {
+              const isActive = activeTab === type;
 
               return (
                 <Pressable
-                  key={`${member.id}-${refreshKey}`}
+                  key={type}
                   style={({ pressed }) => [
-                    styles.memberCard,
-                    pressed && styles.memberCardPressed,
+                    styles.tab,
+                    isActive && styles.tabActive,
+                    pressed && styles.tabPressed,
                   ]}
-                  onPress={() => {
-                    if (canEdit) {
-                      router.push({
-                        pathname: "/(modals)/edit-member",
-                        params: {
-                          memberId: member.id,
-                          groupId: member.groupId,
-                          groupType: activeTab,
-                        },
-                      });
-                    }
-                  }}
+                  onPress={() => setActiveTab(type)}
                 >
-                  {/* TOP */}
+                  <Ionicons
+                    name={getTabIcon(type)}
+                    size={16}
+                    color={isActive ? COLORS.primary : COLORS.secondary}
+                  />
 
-                  <View style={styles.memberTop}>
-                    <View
+                  <Text
+                    style={[styles.tabText, isActive && styles.tabTextActive]}
+                    numberOfLines={1}
+                  >
+                    {getTabLabel(type, selectedAccount?.type)}
+                  </Text>
+                </Pressable>
+              );
+            })}
+        </View>
+
+        {/* SEARCH + FILTER ROW — only when members exist in this tab */}
+
+        {hasMembersInActiveTab && (
+          <View
+            ref={searchRowRef}
+            onLayout={measureSearchRow}
+            style={styles.searchFilterRow}
+          >
+            <View style={styles.searchBox}>
+              <Ionicons
+                name="search-outline"
+                size={18}
+                color={COLORS.muted}
+                style={styles.searchIcon}
+              />
+
+              <TextInput
+                style={styles.searchInput}
+                value={activeSearch}
+                onChangeText={setActiveSearch}
+                placeholder={
+                  isExpenseTab
+                    ? "Search by expenses name"
+                    : "Search by name or mobile number"
+                }
+                placeholderTextColor={COLORS.muted}
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="search"
+                onSubmitEditing={() => Keyboard.dismiss()}
+                blurOnSubmit
+              />
+
+              {activeSearch.length > 0 && (
+                <Pressable
+                  onPress={() => setActiveSearch("")}
+                  style={styles.searchClearButton}
+                  hitSlop={6}
+                >
+                  <Ionicons
+                    name="close-circle"
+                    size={18}
+                    color={COLORS.muted}
+                  />
+                </Pressable>
+              )}
+            </View>
+
+            <Pressable
+              style={({ pressed }) => [
+                styles.filterTrigger,
+                isFilterActive && styles.filterTriggerActive,
+                pressed && styles.pressedButton,
+              ]}
+              onPress={() => {
+                Keyboard.dismiss();
+                measureSearchRow();
+                setShowFilterDropdown((open) => !open);
+              }}
+            >
+              <Ionicons name={filterIcon} size={16} color={filterColor} />
+
+              <Text
+                style={[
+                  styles.filterTriggerText,
+                  isFilterActive && { color: filterColor, fontWeight: "700" },
+                ]}
+              >
+                {filterLabel}
+              </Text>
+
+              <Ionicons
+                name={showFilterDropdown ? "chevron-up" : "chevron-down"}
+                size={14}
+                color={filterColor}
+              />
+            </Pressable>
+          </View>
+        )}
+
+        {/* FILTER DROPDOWN PANEL */}
+
+        {hasMembersInActiveTab && showFilterDropdown && (
+          <>
+            <Pressable
+              style={styles.filterBackdrop}
+              onPress={() => setShowFilterDropdown(false)}
+            />
+
+            <View
+              style={[
+                styles.filterDropdown,
+                {
+                  top: filterAnchor.top,
+                  right: filterAnchor.right,
+                },
+              ]}
+            >
+              <Text style={styles.filterDropdownTitle}>Payment Status</Text>
+
+              {(
+                [
+                  { key: "all", label: "All", icon: "apps-outline" },
+                  {
+                    key: "paid",
+                    label: "Paid",
+                    icon: "checkmark-circle-outline",
+                  },
+                  { key: "due", label: "Due", icon: "time-outline" },
+                ] as {
+                  key: PaymentFilter;
+                  label: string;
+                  icon: keyof typeof Ionicons.glyphMap;
+                }[]
+              ).map((option) => {
+                const isSelected = activeFilter === option.key;
+
+                return (
+                  <Pressable
+                    key={option.key}
+                    style={({ pressed }) => [
+                      styles.filterOption,
+                      isSelected && styles.filterOptionSelected,
+                      pressed && styles.filterOptionPressed,
+                    ]}
+                    onPress={() => {
+                      setActiveFilter(option.key);
+                      setShowFilterDropdown(false);
+                    }}
+                  >
+                    <Ionicons
+                      name={option.icon}
+                      size={16}
+                      color={isSelected ? COLORS.primary : COLORS.secondary}
+                    />
+
+                    <Text
                       style={[
-                        styles.memberAvatar,
-                        isStaffTab && styles.memberAvatarStaff,
-                        isExpenseTab && styles.memberAvatarExpense,
+                        styles.filterOptionText,
+                        isSelected && styles.filterOptionTextSelected,
                       ]}
                     >
-                      {isExpenseTab ? (
-                        <Ionicons
-                          name="wallet-outline"
-                          size={19}
-                          color={COLORS.white}
-                        />
-                      ) : member.photoUri ? (
-                        <Image
-                          source={{
-                            uri: member.photoUri,
-                          }}
-                          style={styles.memberPhoto}
-                        />
-                      ) : (
-                        <Text style={styles.memberInitial}>
-                          {member.name?.charAt(0)?.toUpperCase() || "?"}
-                        </Text>
-                      )}
-                    </View>
+                      {option.label}
+                    </Text>
 
-                    <View style={styles.memberInfo}>
-                      <View style={styles.memberNameRow}>
-                        <Text style={styles.memberName} numberOfLines={1}>
-                          {isExpenseTab
-                            ? member.category || member.name
-                            : member.name}
-                        </Text>
+                    {isSelected && (
+                      <Ionicons
+                        name="checkmark"
+                        size={16}
+                        color={COLORS.primary}
+                      />
+                    )}
+                  </Pressable>
+                );
+              })}
+            </View>
+          </>
+        )}
 
-                        {member.role && (
-                          <View style={styles.roleBadge}>
-                            <Text style={styles.roleBadgeText}>
-                              {member.role.charAt(0).toUpperCase() +
-                                member.role.slice(1)}
+        {/* CONTENT — ScrollView fills remaining space. Tapping anywhere on
+            the list background dismisses the keyboard. */}
+
+        <ScrollView
+          style={styles.scrollArea}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={[
+            styles.listContent,
+            { paddingBottom: listBottomPadding },
+          ]}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="none"
+          automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
+        >
+          <Pressable onPress={() => Keyboard.dismiss()}>
+            <View style={styles.listHeader}>
+              <View style={styles.countArea}>
+                <Text style={styles.countTitle}>
+                  {getCountLabel(
+                    activeTab,
+                    visibleMembers.length,
+                    selectedAccount?.type,
+                  )}
+                </Text>
+
+                <Text style={styles.countSubtitle}>
+                  {isExpenseTab
+                    ? "Property expenses"
+                    : isStaffTab
+                      ? "Staff and salary"
+                      : selectedAccount?.type === "home"
+                        ? "Your tenants"
+                        : "Apartment members"}
+                </Text>
+              </View>
+
+              {canEdit && (
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.addButton,
+                    pressed && styles.addButtonPressed,
+                  ]}
+                  onPress={() => handleAdd(activeTab)}
+                >
+                  <Ionicons name="add" size={18} color={COLORS.white} />
+
+                  <Text style={styles.addButtonText}>
+                    {getAddButtonLabel(activeTab, selectedAccount?.type)}
+                  </Text>
+                </Pressable>
+              )}
+            </View>
+
+            {visibleMembers.length === 0 ? (
+              <View style={styles.emptyCard}>
+                <View
+                  style={[
+                    styles.emptyIcon,
+                    isStaffTab && styles.emptyIconStaff,
+                    isExpenseTab && styles.emptyIconExpense,
+                  ]}
+                >
+                  <Ionicons
+                    name={
+                      activeSearch
+                        ? "search-outline"
+                        : isFilterActive
+                          ? "funnel-outline"
+                          : getTabIcon(activeTab)
+                    }
+                    size={31}
+                    color={
+                      isStaffTab
+                        ? COLORS.purple
+                        : isExpenseTab
+                          ? COLORS.success
+                          : COLORS.primary
+                    }
+                  />
+                </View>
+
+                <Text style={styles.emptyTitle}>
+                  {activeSearch
+                    ? "No matches found"
+                    : isFilterActive
+                      ? `No ${filterLabel.toLowerCase()} ${
+                          isStaffTab ? "staff" : "members"
+                        }`
+                      : `No ${getTabLabel(
+                          activeTab,
+                          selectedAccount?.type,
+                        ).toLowerCase()} yet`}
+                </Text>
+
+                <Text style={styles.emptySubtitle}>
+                  {activeSearch
+                    ? `No ${getTabLabel(
+                        activeTab,
+                        selectedAccount?.type,
+                      ).toLowerCase()} match "${activeSearch}". Try a different name or number.`
+                    : isFilterActive
+                      ? `No ${getTabLabel(
+                          activeTab,
+                          selectedAccount?.type,
+                        ).toLowerCase()} with "${filterLabel}" status for this month.`
+                      : isExpenseTab
+                        ? "Add your first expense to start tracking property spending."
+                        : isStaffTab
+                          ? "Add staff members to manage attendance and salary."
+                          : selectedAccount?.type === "home"
+                            ? "Add tenants to start managing your property."
+                            : "Add apartment members to manage maintenance and payments."}
+                </Text>
+
+                {(activeSearch || isFilterActive) && (
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.clearFiltersButton,
+                      pressed && styles.pressedButton,
+                    ]}
+                    onPress={() => {
+                      setActiveSearch("");
+                      setActiveFilter("all");
+                    }}
+                  >
+                    <Ionicons
+                      name="close-circle-outline"
+                      size={16}
+                      color={COLORS.primary}
+                    />
+                    <Text style={styles.clearFiltersText}>
+                      Clear search & filter
+                    </Text>
+                  </Pressable>
+                )}
+              </View>
+            ) : (
+              <View>
+                {visibleMembers.map((member: any) => {
+                  const month =
+                    selectedMonth || new Date().toISOString().slice(0, 7);
+
+                  const record = getAttendanceRecord(member.id, month);
+
+                  const monthlyPayment = member.monthlyPayments?.[month];
+
+                  const basePaymentAmount = isApartmentTab
+                    ? member.maintenanceAmount || 0
+                    : (() => {
+                        if (monthlyPayment?.payableSalary) {
+                          return monthlyPayment.payableSalary;
+                        }
+
+                        if (record?.payableSalary) {
+                          return record.payableSalary;
+                        }
+
+                        return getCalculatedStaffSalary(
+                          member.monthlySalary || 0,
+                          month,
+                          record?.statuses || {},
+                        );
+                      })();
+
+                  const monthlyPaymentData = getPaymentForMonth(
+                    member,
+                    selectedMonth,
+                  );
+
+                  const statusPaymentAmount =
+                    monthlyPaymentData.status === "paid"
+                      ? basePaymentAmount +
+                        (monthlyPaymentData.additionalAmount || 0) -
+                        (monthlyPaymentData.deductionAmount || 0)
+                      : basePaymentAmount;
+
+                  const hasMatchingHistory = member.detailsHistory?.some(
+                    (snapshot: any) =>
+                      snapshot.changeSummary &&
+                      snapshot.effectiveMonth === selectedMonth,
+                  );
+
+                  const isPaidThisMonth = monthlyPaymentData.status === "paid";
+
+                  return (
+                    <Pressable
+                      key={`${member.id}-${refreshKey}`}
+                      style={({ pressed }) => [
+                        styles.memberCard,
+                        pressed && styles.memberCardPressed,
+                      ]}
+                      onPress={() => {
+                        Keyboard.dismiss();
+                        if (canEdit) {
+                          router.push({
+                            pathname: "/(modals)/edit-member",
+                            params: {
+                              memberId: member.id,
+                              groupId: member.groupId,
+                              groupType: activeTab,
+                            },
+                          });
+                        }
+                      }}
+                    >
+                      <View style={styles.memberTop}>
+                        <View
+                          style={[
+                            styles.memberAvatar,
+                            isStaffTab && styles.memberAvatarStaff,
+                            isExpenseTab && styles.memberAvatarExpense,
+                          ]}
+                        >
+                          {isExpenseTab ? (
+                            <Ionicons
+                              name="wallet-outline"
+                              size={19}
+                              color={COLORS.white}
+                            />
+                          ) : member.photoUri ? (
+                            <Image
+                              source={{
+                                uri: member.photoUri,
+                              }}
+                              style={styles.memberPhoto}
+                            />
+                          ) : (
+                            <Text style={styles.memberInitial}>
+                              {member.name?.charAt(0)?.toUpperCase() || "?"}
+                            </Text>
+                          )}
+                        </View>
+
+                        <View style={styles.memberInfo}>
+                          <View style={styles.memberNameRow}>
+                            <Text style={styles.memberName} numberOfLines={1}>
+                              {isExpenseTab
+                                ? member.category || member.name
+                                : member.name}
+                            </Text>
+
+                            {member.role && (
+                              <View style={styles.roleBadge}>
+                                <Text style={styles.roleBadgeText}>
+                                  {member.role.charAt(0).toUpperCase() +
+                                    member.role.slice(1)}
+                                </Text>
+                              </View>
+                            )}
+                          </View>
+
+                          {isApartmentTab && (
+                            <Text
+                              style={styles.memberSubtitle}
+                              numberOfLines={1}
+                            >
+                              {member.wing ? `${member.wing} • ` : ""}
+                              {member.flatNumber
+                                ? `Flat ${member.flatNumber}`
+                                : "Apartment member"}
+                            </Text>
+                          )}
+
+                          {isStaffTab && (
+                            <Text
+                              style={styles.memberSubtitle}
+                              numberOfLines={1}
+                            >
+                              {member.phone || "Staff member"}
+                            </Text>
+                          )}
+
+                          {isExpenseTab && (
+                            <Text
+                              style={styles.memberSubtitle}
+                              numberOfLines={1}
+                            >
+                              {member.dueDate
+                                ? `Due ${formatFullDate(member.dueDate)}`
+                                : "Property expense"}
+                            </Text>
+                          )}
+                        </View>
+
+                        {canEdit && (
+                          <Ionicons
+                            name="chevron-forward"
+                            size={17}
+                            color={COLORS.muted}
+                          />
+                        )}
+                      </View>
+
+                      <View style={styles.memberDetails}>
+                        <View style={styles.detailItem}>
+                          <Ionicons
+                            name="cash-outline"
+                            size={14}
+                            color={COLORS.secondary}
+                          />
+
+                          <Text style={styles.detailText}>
+                            {showFinancialInfo ? (
+                              <>
+                                {isApartmentTab &&
+                                  `₹${member.maintenanceAmount || 0} /month`}
+
+                                {isStaffTab &&
+                                  `₹${member.monthlySalary || 0} /month`}
+
+                                {isExpenseTab && `₹${member.amount || 0}`}
+                              </>
+                            ) : (
+                              <>
+                                {isApartmentTab &&
+                                  "Maintenance tracked by admin"}
+
+                                {isStaffTab && "Salary tracked by admin"}
+
+                                {isExpenseTab && "Expense tracked by admin"}
+                              </>
+                            )}
+                          </Text>
+                        </View>
+
+                        {showFinancialInfo &&
+                          (isApartmentTab || isStaffTab) && (
+                            <View
+                              style={[
+                                styles.paymentBadge,
+                                monthlyPaymentData.status === "paid"
+                                  ? styles.paymentBadgePaid
+                                  : styles.paymentBadgeDue,
+                              ]}
+                            >
+                              <View
+                                style={[
+                                  styles.paymentDot,
+                                  monthlyPaymentData.status === "paid"
+                                    ? styles.paymentDotPaid
+                                    : styles.paymentDotDue,
+                                ]}
+                              />
+
+                              <Text
+                                style={[
+                                  styles.paymentBadgeText,
+                                  monthlyPaymentData.status === "paid"
+                                    ? styles.paymentTextPaid
+                                    : styles.paymentTextDue,
+                                ]}
+                              >
+                                {monthlyPaymentData.status === "paid"
+                                  ? `Paid ₹${statusPaymentAmount}`
+                                  : `Due ₹${statusPaymentAmount}`}
+                              </Text>
+                            </View>
+                          )}
+
+                        {showFinancialInfo && isExpenseTab && member.status && (
+                          <View
+                            style={[
+                              styles.paymentBadge,
+                              member.status === "paid"
+                                ? styles.paymentBadgePaid
+                                : styles.paymentBadgeDue,
+                            ]}
+                          >
+                            <View
+                              style={[
+                                styles.paymentDot,
+                                member.status === "paid"
+                                  ? styles.paymentDotPaid
+                                  : styles.paymentDotDue,
+                              ]}
+                            />
+
+                            <Text
+                              style={[
+                                styles.paymentBadgeText,
+                                member.status === "paid"
+                                  ? styles.paymentTextPaid
+                                  : styles.paymentTextDue,
+                              ]}
+                            >
+                              {member.status === "paid" ? "Paid" : "Due"}
                             </Text>
                           </View>
                         )}
                       </View>
 
-                      {isApartmentTab && (
-                        <Text style={styles.memberSubtitle} numberOfLines={1}>
-                          {member.wing ? `${member.wing} • ` : ""}
-                          {member.flatNumber
-                            ? `Flat ${member.flatNumber}`
-                            : "Apartment member"}
-                        </Text>
-                      )}
+                      {canEdit && (isApartmentTab || isStaffTab) && (
+                        <View style={styles.actionButtons}>
+                          {isStaffTab && (
+                            <Pressable
+                              style={({ pressed }) => [
+                                styles.secondaryAction,
+                                pressed && styles.actionPressed,
+                              ]}
+                              onPress={(event) => {
+                                event.stopPropagation();
+                                Keyboard.dismiss();
 
-                      {isStaffTab && (
-                        <Text style={styles.memberSubtitle} numberOfLines={1}>
-                          {member.phone || "Staff member"}
-                        </Text>
-                      )}
-
-                      {isExpenseTab && (
-                        <Text style={styles.memberSubtitle} numberOfLines={1}>
-                          {member.dueDate
-                            ? `Due ${formatFullDate(member.dueDate)}`
-                            : "Property expense"}
-                        </Text>
-                      )}
-                    </View>
-
-                    {canEdit && (
-                      <Ionicons
-                        name="chevron-forward"
-                        size={17}
-                        color={COLORS.muted}
-                      />
-                    )}
-                  </View>
-
-                  {/* DETAILS */}
-
-                  <View style={styles.memberDetails}>
-                    <View style={styles.detailItem}>
-                      <Ionicons
-                        name="cash-outline"
-                        size={14}
-                        color={COLORS.secondary}
-                      />
-
-                      <Text style={styles.detailText}>
-                        {showFinancialInfo ? (
-                          <>
-                            {isApartmentTab &&
-                              `₹${member.maintenanceAmount || 0} /month`}
-
-                            {isStaffTab &&
-                              `₹${member.monthlySalary || 0} /month`}
-
-                            {isExpenseTab && `₹${member.amount || 0}`}
-                          </>
-                        ) : (
-                          <>
-                            {isApartmentTab && "Maintenance tracked by admin"}
-
-                            {isStaffTab && "Salary tracked by admin"}
-
-                            {isExpenseTab && "Expense tracked by admin"}
-                          </>
-                        )}
-                      </Text>
-                    </View>
-
-                    {showFinancialInfo && (isApartmentTab || isStaffTab) && (
-                      <View
-                        style={[
-                          styles.paymentBadge,
-                          monthlyPaymentData.status === "paid"
-                            ? styles.paymentBadgePaid
-                            : styles.paymentBadgeDue,
-                        ]}
-                      >
-                        <View
-                          style={[
-                            styles.paymentDot,
-                            monthlyPaymentData.status === "paid"
-                              ? styles.paymentDotPaid
-                              : styles.paymentDotDue,
-                          ]}
-                        />
-
-                        <Text
-                          style={[
-                            styles.paymentBadgeText,
-                            monthlyPaymentData.status === "paid"
-                              ? styles.paymentTextPaid
-                              : styles.paymentTextDue,
-                          ]}
-                        >
-                          {monthlyPaymentData.status === "paid"
-                            ? `Paid ₹${statusPaymentAmount}`
-                            : `Due ₹${statusPaymentAmount}`}
-                        </Text>
-                      </View>
-                    )}
-
-                    {showFinancialInfo && isExpenseTab && member.status && (
-                      <View
-                        style={[
-                          styles.paymentBadge,
-                          member.status === "paid"
-                            ? styles.paymentBadgePaid
-                            : styles.paymentBadgeDue,
-                        ]}
-                      >
-                        <View
-                          style={[
-                            styles.paymentDot,
-                            member.status === "paid"
-                              ? styles.paymentDotPaid
-                              : styles.paymentDotDue,
-                          ]}
-                        />
-
-                        <Text
-                          style={[
-                            styles.paymentBadgeText,
-                            member.status === "paid"
-                              ? styles.paymentTextPaid
-                              : styles.paymentTextDue,
-                          ]}
-                        >
-                          {member.status === "paid" ? "Paid" : "Due"}
-                        </Text>
-                      </View>
-                    )}
-                  </View>
-
-                  {/* ACTIONS — admin only */}
-
-                  {canEdit && (isApartmentTab || isStaffTab) && (
-                    <View style={styles.actionButtons}>
-                      {isStaffTab && (
-                        <Pressable
-                          style={({ pressed }) => [
-                            styles.secondaryAction,
-                            pressed && styles.actionPressed,
-                          ]}
-                          onPress={(event) => {
-                            event.stopPropagation();
-
-                            router.push({
-                              pathname: "/(modals)/mark-attendance",
-                              params: {
-                                accountId: selectedAccountId || "",
-                                memberId: member.id,
-                                month: selectedMonth || "",
-                              },
-                            });
-                          }}
-                        >
-                          <Ionicons
-                            name="calendar-outline"
-                            size={15}
-                            color={COLORS.primary}
-                          />
-
-                          <Text style={styles.secondaryActionText}>
-                            Attendance
-                          </Text>
-                        </Pressable>
-                      )}
-
-                      <Pressable
-                        style={({ pressed }) => [
-                          styles.paymentAction,
-                          pressed && styles.actionPressed,
-                        ]}
-                        onPress={(event) => {
-                          event.stopPropagation();
-                          openPaymentModal(member);
-                        }}
-                      >
-                        <Ionicons
-                          name="swap-horizontal-outline"
-                          size={15}
-                          color={COLORS.primary}
-                        />
-
-                        <Text style={styles.paymentActionText}>Payment</Text>
-                      </Pressable>
-
-                      {isPaidThisMonth && (
-                        <Pressable
-                          style={({ pressed }) => [
-                            styles.downloadAction,
-                            pressed && styles.actionPressed,
-                          ]}
-                          onPress={(event) => {
-                            event.stopPropagation();
-                            handleDownloadBill(member);
-                          }}
-                          disabled={generatingBill === member.id}
-                        >
-                          {generatingBill === member.id ? (
-                            <ActivityIndicator
-                              size="small"
-                              color={COLORS.primary}
-                            />
-                          ) : (
-                            <>
+                                router.push({
+                                  pathname: "/(modals)/mark-attendance",
+                                  params: {
+                                    accountId: selectedAccountId || "",
+                                    memberId: member.id,
+                                    month: selectedMonth || "",
+                                  },
+                                });
+                              }}
+                            >
                               <Ionicons
-                                name="download-outline"
-                                size={14}
+                                name="calendar-outline"
+                                size={15}
                                 color={COLORS.primary}
                               />
-                              <Text style={styles.downloadActionText}>
-                                Bill
+
+                              <Text style={styles.secondaryActionText}>
+                                Attendance
                               </Text>
-                            </>
+                            </Pressable>
                           )}
-                        </Pressable>
+
+                          <Pressable
+                            style={({ pressed }) => [
+                              styles.paymentAction,
+                              pressed && styles.actionPressed,
+                            ]}
+                            onPress={(event) => {
+                              event.stopPropagation();
+                              Keyboard.dismiss();
+                              openPaymentModal(member);
+                            }}
+                          >
+                            <Ionicons
+                              name="swap-horizontal-outline"
+                              size={15}
+                              color={COLORS.primary}
+                            />
+
+                            <Text style={styles.paymentActionText}>
+                              Payment
+                            </Text>
+                          </Pressable>
+
+                          {isPaidThisMonth && (
+                            <Pressable
+                              style={({ pressed }) => [
+                                styles.downloadAction,
+                                pressed && styles.actionPressed,
+                              ]}
+                              onPress={(event) => {
+                                event.stopPropagation();
+                                Keyboard.dismiss();
+                                handleDownloadBill(member);
+                              }}
+                              disabled={generatingBill === member.id}
+                            >
+                              {generatingBill === member.id ? (
+                                <ActivityIndicator
+                                  size="small"
+                                  color={COLORS.primary}
+                                />
+                              ) : (
+                                <>
+                                  <Ionicons
+                                    name="download-outline"
+                                    size={14}
+                                    color={COLORS.primary}
+                                  />
+                                  <Text style={styles.downloadActionText}>
+                                    Bill
+                                  </Text>
+                                </>
+                              )}
+                            </Pressable>
+                          )}
+                        </View>
                       )}
-                    </View>
-                  )}
 
-                  {canEdit &&
-                    (isApartmentTab || isStaffTab) &&
-                    hasMatchingHistory && (
-                      <View style={styles.historyNotice}>
-                        <Ionicons
-                          name="information-circle-outline"
-                          size={14}
-                          color={COLORS.secondary}
-                        />
+                      {canEdit &&
+                        (isApartmentTab || isStaffTab) &&
+                        hasMatchingHistory && (
+                          <View style={styles.historyNotice}>
+                            <Ionicons
+                              name="information-circle-outline"
+                              size={14}
+                              color={COLORS.secondary}
+                            />
 
-                        <Text style={styles.historyText}>
-                          Payment details updated on{" "}
-                          {formatFullDate(`${selectedMonth}-01`)}
-                        </Text>
-                      </View>
-                    )}
-                </Pressable>
-              );
-            })}
-          </View>
-        )}
-      </ScrollView>
+                            <Text style={styles.historyText}>
+                              Payment details updated on{" "}
+                              {formatFullDate(`${selectedMonth}-01`)}
+                            </Text>
+                          </View>
+                        )}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            )}
+          </Pressable>
+        </ScrollView>
+      </View>
 
       {/* MONTH PICKER */}
 
@@ -1358,7 +1703,10 @@ export default function PeopleScreen() {
             setPaymentMember(null);
           }}
         >
-          <View style={styles.modalOverlay}>
+          <KeyboardAvoidingView
+            style={styles.modalOverlay}
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+          >
             <View style={styles.paymentModal}>
               <View style={styles.paymentModalHeader}>
                 <View style={styles.paymentHeaderIcon}>
@@ -1380,6 +1728,7 @@ export default function PeopleScreen() {
                 <Pressable
                   style={styles.closeModalButton}
                   onPress={() => {
+                    Keyboard.dismiss();
                     setPaymentMember(null);
                   }}
                 >
@@ -1392,6 +1741,7 @@ export default function PeopleScreen() {
                 contentContainerStyle={styles.paymentScrollContent}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="on-drag"
               >
                 <View style={styles.paymentMonthRow}>
                   <View>
@@ -1726,6 +2076,7 @@ export default function PeopleScreen() {
                     pressed && styles.cancelButtonPressed,
                   ]}
                   onPress={() => {
+                    Keyboard.dismiss();
                     setPaymentMember(null);
                   }}
                   disabled={saving}
@@ -1740,7 +2091,10 @@ export default function PeopleScreen() {
                     pressed && styles.saveButtonPressed,
                     saving && styles.saveButtonDisabled,
                   ]}
-                  onPress={handleSavePayment}
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    handleSavePayment();
+                  }}
                   disabled={saving}
                 >
                   <Ionicons
@@ -1763,7 +2117,7 @@ export default function PeopleScreen() {
                 </Pressable>
               </View>
             </View>
-          </View>
+          </KeyboardAvoidingView>
         </Modal>
       )}
 
@@ -1775,7 +2129,7 @@ export default function PeopleScreen() {
         onClose={() => setShowPaidDatePicker(false)}
         onSelect={setPaidDate}
       />
-    </View>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -1789,11 +2143,17 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
   },
 
+  innerContainer: {
+    flex: 1,
+  },
+
+  scrollArea: {
+    flex: 1,
+  },
+
   pressedButton: {
     opacity: 0.7,
   },
-
-  /* HEADER */
 
   header: {
     flexDirection: "row",
@@ -1860,8 +2220,6 @@ const styles = StyleSheet.create({
     color: COLORS.primaryDark,
   },
 
-  /* TABS */
-
   tabsContainer: {
     flexDirection: "row",
     marginHorizontal: 16,
@@ -1902,12 +2260,135 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 
-  /* LIST */
+  searchFilterRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginHorizontal: 16,
+    marginTop: 12,
+    gap: 8,
+    zIndex: 5,
+  },
+
+  searchBox: {
+    flex: 1,
+    height: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    borderRadius: 11,
+    backgroundColor: COLORS.white,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+  },
+
+  searchIcon: {
+    marginRight: 8,
+  },
+
+  searchInput: {
+    flex: 1,
+    height: "100%",
+    fontSize: 13,
+    color: COLORS.text,
+    padding: 0,
+  },
+
+  searchClearButton: {
+    paddingLeft: 6,
+  },
+
+  filterTrigger: {
+    height: 44,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 12,
+    gap: 6,
+    borderRadius: 11,
+    backgroundColor: COLORS.white,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    minWidth: 90,
+  },
+
+  filterTriggerActive: {
+    borderColor: COLORS.primarySoft,
+    backgroundColor: COLORS.primaryLight,
+  },
+
+  filterTriggerText: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: COLORS.secondary,
+  },
+
+  filterBackdrop: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 10,
+  },
+
+  filterDropdown: {
+    position: "absolute",
+    width: 180,
+    paddingVertical: 6,
+    borderRadius: 13,
+    backgroundColor: COLORS.white,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    zIndex: 20,
+    elevation: 8,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 12,
+  },
+
+  filterDropdownTitle: {
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.6,
+    color: COLORS.muted,
+    textTransform: "uppercase",
+    paddingHorizontal: 14,
+    paddingTop: 6,
+    paddingBottom: 6,
+  },
+
+  filterOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    gap: 9,
+  },
+
+  filterOptionSelected: {
+    backgroundColor: COLORS.primaryLight,
+  },
+
+  filterOptionPressed: {
+    opacity: 0.7,
+  },
+
+  filterOptionText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: "600",
+    color: COLORS.secondary,
+  },
+
+  filterOptionTextSelected: {
+    color: COLORS.primary,
+    fontWeight: "700",
+  },
 
   listContent: {
     paddingHorizontal: 16,
     paddingTop: 17,
-    paddingBottom: 35,
   },
 
   listHeader: {
@@ -1958,8 +2439,6 @@ const styles = StyleSheet.create({
     color: COLORS.white,
   },
 
-  /* EMPTY */
-
   emptyCard: {
     alignItems: "center",
     paddingHorizontal: 24,
@@ -2005,7 +2484,24 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
 
-  /* MEMBER CARD */
+  clearFiltersButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 10,
+    backgroundColor: COLORS.primaryLight,
+    borderWidth: 1,
+    borderColor: COLORS.primarySoft,
+  },
+
+  clearFiltersText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: COLORS.primary,
+  },
 
   memberCard: {
     padding: 13,
@@ -2096,8 +2592,6 @@ const styles = StyleSheet.create({
     color: COLORS.secondary,
   },
 
-  /* DETAILS */
-
   memberDetails: {
     flexDirection: "row",
     alignItems: "center",
@@ -2165,8 +2659,6 @@ const styles = StyleSheet.create({
   paymentTextDue: {
     color: COLORS.danger,
   },
-
-  /* ACTIONS */
 
   actionButtons: {
     flexDirection: "row",
@@ -2237,8 +2729,6 @@ const styles = StyleSheet.create({
     color: COLORS.success,
   },
 
-  /* HISTORY */
-
   historyNotice: {
     flexDirection: "row",
     alignItems: "center",
@@ -2256,8 +2746,6 @@ const styles = StyleSheet.create({
     fontStyle: "italic",
     color: COLORS.secondary,
   },
-
-  /* NO PROPERTY */
 
   noPropertyState: {
     flex: 1,
@@ -2310,8 +2798,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: COLORS.white,
   },
-
-  /* PAYMENT MODAL */
 
   modalOverlay: {
     flex: 1,
