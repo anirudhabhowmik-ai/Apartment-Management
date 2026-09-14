@@ -68,7 +68,6 @@ async function fetchAccountsForUser(userId: string): Promise<Account[]> {
     const err: any = new Error(`Failed to load accounts (${res.status})`);
     err.status = res.status;
     err.body = bodyText;
-    console.error("[useAccounts] GET /accounts failed:", res.status, bodyText);
     throw err;
   }
   const rows = (await res.json()) as any[];
