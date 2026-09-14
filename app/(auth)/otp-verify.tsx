@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Redirect, useRouter } from "expo-router";
+import * as SecureStore from "expo-secure-store";
 import { useEffect, useRef, useState } from "react";
 import {
   Dimensions,
@@ -22,7 +23,6 @@ const { width: screenWidth } = Dimensions.get("window");
 const OTP_LENGTH = 6;
 const RESEND_SECONDS = 30;
 
-// Calculate OTP box size based on screen width
 const getOtpBoxSize = () => {
   const horizontalPadding = 48;
   const extraMargin = 40;
@@ -48,7 +48,6 @@ export default function OtpVerifyScreen() {
   const setUser = useAuthStore((s) => s.setUser);
   const setPendingPhone = useAuthStore((s) => s.setPendingPhone);
 
-  // Accounts list — used to decide post-verify destination
   const { accounts } = useAccounts();
 
   const [otp, setOtp] = useState<string[]>(Array(OTP_LENGTH).fill(""));
@@ -63,7 +62,6 @@ export default function OtpVerifyScreen() {
 
   const otpBoxSize = getOtpBoxSize();
 
-  // Focus first OTP box when screen opens
   useEffect(() => {
     const timer = setTimeout(() => {
       inputRefs.current[0]?.focus();
@@ -72,7 +70,6 @@ export default function OtpVerifyScreen() {
     return () => clearTimeout(timer);
   }, []);
 
-  // Resend countdown
   useEffect(() => {
     if (resendTimer <= 0) {
       return;
@@ -84,6 +81,96 @@ export default function OtpVerifyScreen() {
 
     return () => clearInterval(timer);
   }, [resendTimer]);
+
+  const clearOtp = () => {
+    const emptyOtp = Array(OTP_LENGTH).fill("");
+
+    setOtp(emptyOtp);
+    otpRef.current = emptyOtp;
+
+    inputRefs.current[0]?.focus();
+  };
+
+  /**
+   * Save authenticated user and JWT,
+   * then decide where the user should go.
+   */
+  const completeLogin = async (
+    userId: string,
+    token: string,
+    returnedPhone?: string,
+  ) => {
+    if (!pendingPhone) {
+      setError("Session expired. Please start again.");
+      return;
+    }
+
+    /*
+     * Store the application JWT securely.
+     *
+     * Do NOT store this JWT in PostgreSQL.
+     * Do NOT store it in AsyncStorage.
+     */
+    await SecureStore.setItemAsync("auth_token", token);
+
+    const phone = returnedPhone || `+91${pendingPhone}`;
+
+    setUser({
+      id: userId,
+      phone,
+    });
+
+    setPendingPhone(null);
+
+    if (accounts.length > 0) {
+      router.replace("/(modals)/select-account");
+    } else {
+      router.replace("/(modals)/add-account");
+    }
+  };
+
+  const handleVerifyDirect = async (otpArray: string[]) => {
+    if (loading) {
+      return;
+    }
+
+    if (!pendingPhone) {
+      setError("Session expired. Please start again.");
+      return;
+    }
+
+    const code = otpArray.join("");
+
+    if (code.length !== OTP_LENGTH) {
+      setError("Please enter the complete OTP");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+
+    try {
+      const result = await verifyOtp(`+91${pendingPhone}`, code);
+
+      if (result.success && result.userId && result.token) {
+        await completeLogin(result.userId, result.token, result.phone);
+
+        return;
+      }
+
+      setError(result.message || "Invalid OTP, please try again");
+
+      clearOtp();
+    } catch (error) {
+      console.error("OTP verification error:", error);
+
+      setError("Unable to verify OTP. Please try again.");
+
+      clearOtp();
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleChange = (text: string, index: number) => {
     const digit = text.replace(/[^0-9]/g, "");
@@ -101,12 +188,10 @@ export default function OtpVerifyScreen() {
 
     setError("");
 
-    // Move to next input
     if (digit && index < OTP_LENGTH - 1) {
       inputRefs.current[index + 1]?.focus();
     }
 
-    // Automatically verify when all 6 digits are entered
     if (
       digit &&
       index === OTP_LENGTH - 1 &&
@@ -124,111 +209,36 @@ export default function OtpVerifyScreen() {
     }
   };
 
-  /**
-   * After OTP succeeds:
-   *  - fresh user (no accounts)  → add-account
-   *  - returning user (≥1 account) → select-account
-   */
-  const routeAfterVerify = (userId: string) => {
-    const phone = `+91${pendingPhone}`;
-
-    setUser({
-      id: userId,
-      phone,
-    });
-
-    setPendingPhone(null);
-
-    if (accounts.length > 0) {
-      router.replace("/(modals)/select-account");
-    } else {
-      router.replace("/(modals)/add-account");
-    }
-  };
-
-  const handleVerifyDirect = async (otpArray: string[]) => {
-    if (!pendingPhone) {
-      setError("Session expired. Please start again.");
-      return;
-    }
-
-    const code = otpArray.join("");
-
-    if (code.length !== OTP_LENGTH) {
-      setError("Please enter the complete OTP");
-      return;
-    }
-
-    setLoading(true);
-
-    const result = await verifyOtp(`+91${pendingPhone}`, code);
-
-    setLoading(false);
-
-    if (result.success && result.userId) {
-      routeAfterVerify(result.userId);
-    } else {
-      setError(result.message || "Invalid OTP, please try again");
-
-      const emptyOtp = Array(OTP_LENGTH).fill("");
-
-      setOtp(emptyOtp);
-      otpRef.current = emptyOtp;
-
-      inputRefs.current[0]?.focus();
-    }
-  };
-
   const handleVerify = async () => {
-    if (!pendingPhone) {
-      setError("Session expired. Please start again.");
-      return;
-    }
-
-    const code = otp.join("");
-
-    if (code.length !== OTP_LENGTH) {
-      setError("Please enter the complete OTP");
-      return;
-    }
-
-    setLoading(true);
-
-    const result = await verifyOtp(`+91${pendingPhone}`, code);
-
-    setLoading(false);
-
-    if (result.success && result.userId) {
-      routeAfterVerify(result.userId);
-    } else {
-      setError(result.message || "Invalid OTP, please try again");
-
-      const emptyOtp = Array(OTP_LENGTH).fill("");
-
-      setOtp(emptyOtp);
-      otpRef.current = emptyOtp;
-
-      inputRefs.current[0]?.focus();
-    }
+    await handleVerifyDirect(otpRef.current);
   };
 
   const handleResend = async () => {
-    if (resendTimer > 0 || !pendingPhone) {
+    if (resendTimer > 0 || !pendingPhone || loading) {
       return;
     }
 
-    setResendTimer(RESEND_SECONDS);
-
-    const emptyOtp = Array(OTP_LENGTH).fill("");
-
-    setOtp(emptyOtp);
-    otpRef.current = emptyOtp;
-
+    setLoading(true);
     setError("");
 
-    await sendOtp(`+91${pendingPhone}`);
+    try {
+      const result = await sendOtp(`+91${pendingPhone}`);
 
-    inputRefs.current[0]?.focus();
+      if (!result.success) {
+        setError(result.message || "Unable to resend OTP.");
+
+        return;
+      }
+
+      setResendTimer(RESEND_SECONDS);
+      clearOtp();
+    } catch (error) {
+      console.error("Resend OTP error:", error);
+
+      setError("Unable to resend OTP. Please try again.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   if (!pendingPhone) {
@@ -265,6 +275,7 @@ export default function OtpVerifyScreen() {
             style={styles.backButton}
             onPress={() => router.back()}
             activeOpacity={0.7}
+            disabled={loading}
           >
             <Ionicons name="arrow-back" size={24} color="#333" />
           </TouchableOpacity>
@@ -365,7 +376,7 @@ export default function OtpVerifyScreen() {
 
             <TouchableOpacity
               onPress={handleResend}
-              disabled={resendTimer > 0}
+              disabled={resendTimer > 0 || loading}
               style={styles.resendButton}
               activeOpacity={0.7}
             >
@@ -426,7 +437,6 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
 
-  /* HEADER */
   header: {
     paddingTop: Platform.OS === "ios" ? 50 : 30,
     paddingHorizontal: 20,
@@ -461,7 +471,6 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
 
-  /* CARD */
   card: {
     marginHorizontal: 20,
     marginTop: 30,
@@ -485,7 +494,6 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
 
-  /* PHONE */
   phoneContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -504,7 +512,6 @@ const styles = StyleSheet.create({
     color: "#1a73e8",
   },
 
-  /* OTP */
   otpContainer: {
     marginBottom: 24,
     alignItems: "center",
@@ -551,7 +558,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#ffebee",
   },
 
-  /* ERROR */
   errorContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -570,7 +576,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 
-  /* BUTTON */
   button: {
     backgroundColor: "#1a73e8",
     borderRadius: 12,
@@ -597,7 +602,6 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
 
-  /* RESEND */
   resendContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -626,7 +630,6 @@ const styles = StyleSheet.create({
     color: "#999",
   },
 
-  /* FOOTER */
   footer: {
     paddingHorizontal: 20,
     paddingBottom: 10,
