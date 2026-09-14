@@ -6,20 +6,17 @@ export interface BaseAccount {
   type: AccountType;
   name: string; // "Green Valley Apartments" or "My Home - Rajarhat"
   photoUri?: string; // uploaded apartment/home photo
+  role: string;
   createdAt: string;
   updatedAt: string;
 }
 
 export interface ApartmentAccount extends BaseAccount {
   type: "apartment";
-  address?: string;
-  totalFlats?: number;
 }
 
 export interface HomeAccount extends BaseAccount {
   type: "home";
-  address?: string;
-  isRented: boolean; // true if user pays rent here
 }
 
 export type Account = ApartmentAccount | HomeAccount;

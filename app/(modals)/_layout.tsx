@@ -49,6 +49,10 @@ export default function ModalsLayout() {
         name="switch-account"
         options={{ title: "Switch Property" }}
       />
+      <Stack.Screen
+        name="select-account"
+        options={{ title: "Select Account" }}
+      />
     </Stack>
   );
 }

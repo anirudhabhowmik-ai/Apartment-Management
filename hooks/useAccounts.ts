@@ -36,6 +36,7 @@ function mapRowToAccount(r: any, fallbackOwnerId: string): Account {
     ownerId,
     name: r.name,
     photoUri,
+    role: r.role,
     createdAt,
     updatedAt,
   };
