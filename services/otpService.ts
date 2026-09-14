@@ -18,11 +18,25 @@ interface VerifyOtpResponse {
 }
 
 let widgetInitialized = false;
-
-// MSG91 returns the request ID from sendOTP()
-// and we need that same request ID when verifying.
 let currentReqId: string | null = null;
 
+/**
+ * Return the error message provided by MSG91.
+ *
+ * We intentionally do NOT guess MSG91 error messages or codes.
+ * MSG91 controls resend limits, retry timing and OTP expiry.
+ */
+function getMsg91ErrorMessage(message?: unknown): string {
+  if (typeof message === "string" && message.trim()) {
+    return message;
+  }
+
+  return "Unable to process OTP. Please try again.";
+}
+
+/**
+ * Initialize MSG91 Widget only once.
+ */
 function initializeWidget() {
   if (widgetInitialized) {
     return;
@@ -39,6 +53,14 @@ function initializeWidget() {
   widgetInitialized = true;
 }
 
+/**
+ * Send OTP through MSG91.
+ *
+ * MSG91 controls:
+ * - Resend count
+ * - Resend time
+ * - OTP expiration
+ */
 export async function sendOtp(phone: string): Promise<SendOtpResponse> {
   try {
     initializeWidget();
@@ -60,38 +82,29 @@ export async function sendOtp(phone: string): Promise<SendOtpResponse> {
 
     console.log("MSG91 send OTP response:", response);
 
-    /*
-     * MSG91 normal OTP response:
+    /**
+     * MSG91 successful Send OTP response:
      *
      * {
      *   type: "success",
      *   message: "<reqId>"
      * }
      *
-     * The reqId must be passed to verifyOTP().
+     * The reqId is required for OTP verification/retry.
      */
+
     const reqId =
       response?.message ||
       response?.reqId ||
       response?.["req-id"] ||
       response?.data?.reqId;
 
-    /*
-     * Invisible OTP can sometimes verify immediately.
-     * In that case MSG91 may return an access token directly.
-     *
-     * We do not need to handle that here because the current
-     * app uses the normal OTP flow.
-     */
     if (response?.type !== "success" || !reqId) {
-      console.error(
-        "MSG91 send OTP failed or reqId was not returned:",
-        response,
-      );
+      console.error("MSG91 send OTP failed:", response);
 
       return {
         success: false,
-        message: response?.message || "Unable to send OTP. Please try again.",
+        message: getMsg91ErrorMessage(response?.message),
       };
     }
 
@@ -113,12 +126,27 @@ export async function sendOtp(phone: string): Promise<SendOtpResponse> {
   }
 }
 
+/**
+ * Verify OTP with MSG91.
+ *
+ * After MSG91 successfully verifies the OTP,
+ * MSG91 returns an access token.
+ *
+ * That access token is then sent to our backend.
+ *
+ * Our backend independently verifies the access token
+ * using the private MSG91_AUTHKEY.
+ */
 export async function verifyOtp(
   phone: string,
   otp: string,
 ): Promise<VerifyOtpResponse> {
   try {
     initializeWidget();
+
+    // =========================================================
+    // Validate backend configuration
+    // =========================================================
 
     if (!API_BASE_URL) {
       console.error("EXPO_PUBLIC_API_URL is missing.");
@@ -129,6 +157,10 @@ export async function verifyOtp(
       };
     }
 
+    // =========================================================
+    // Validate phone
+    // =========================================================
+
     const identifier = phone.replace(/\D/g, "");
 
     if (!/^91[6-9]\d{9}$/.test(identifier)) {
@@ -138,12 +170,20 @@ export async function verifyOtp(
       };
     }
 
+    // =========================================================
+    // Validate OTP
+    // =========================================================
+
     if (!/^\d{6}$/.test(otp)) {
       return {
         success: false,
         message: "OTP must be 6 digits.",
       };
     }
+
+    // =========================================================
+    // Check reqId
+    // =========================================================
 
     if (!currentReqId) {
       console.error("MSG91 reqId is missing.");
@@ -156,30 +196,36 @@ export async function verifyOtp(
 
     console.log("Verifying OTP with MSG91 reqId:", currentReqId);
 
-    /*
-     * IMPORTANT:
-     *
-     * MSG91 React Native SDK expects:
-     *
-     * {
-     *   reqId: "...",
-     *   otp: "123456"
-     * }
-     */
+    // =========================================================
+    // Verify OTP with MSG91
+    // =========================================================
+
     const response = await OTPWidget.verifyOTP({
       reqId: currentReqId,
       otp,
     });
+
+    console.log("MSG91 OTP verification response:", response);
+
+    // =========================================================
+    // IMPORTANT:
+    //
+    // Only a successful MSG91 response can provide
+    // the access token.
+    // =========================================================
 
     if (response?.type !== "success") {
       console.error("MSG91 OTP verification failed:", response);
 
       return {
         success: false,
-        message:
-          response?.message || "Invalid OTP. Please enter the correct OTP.",
+        message: getMsg91ErrorMessage(response?.message),
       };
     }
+
+    // =========================================================
+    // MSG91 access token
+    // =========================================================
 
     const accessToken = response?.message;
 
@@ -197,16 +243,26 @@ export async function verifyOtp(
 
     console.log("MSG91 access token received.");
 
+    // =========================================================
+    // Send MSG91 access token to our backend
+    // =========================================================
+
     const backendResponse = await fetch(`${API_BASE_URL}/auth/verify-widget`, {
       method: "POST",
+
       headers: {
         "Content-Type": "application/json",
       },
+
       body: JSON.stringify({
         phone: identifier,
         accessToken,
       }),
     });
+
+    // =========================================================
+    // Read backend response
+    // =========================================================
 
     let backendData: any = null;
 
@@ -222,6 +278,10 @@ export async function verifyOtp(
       backendData,
     );
 
+    // =========================================================
+    // Backend authentication failed
+    // =========================================================
+
     if (!backendResponse.ok || !backendData?.success) {
       console.error(
         "Backend authentication failed:",
@@ -236,12 +296,10 @@ export async function verifyOtp(
       };
     }
 
-    /*
-     * Login completed successfully.
-     *
-     * Clear the old OTP request ID so it cannot
-     * accidentally be reused.
-     */
+    // =========================================================
+    // Authentication completely succeeded
+    // =========================================================
+
     currentReqId = null;
 
     return {
