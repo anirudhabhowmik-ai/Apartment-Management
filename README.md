@@ -14,3 +14,6 @@ App opens 📱
 Razorpay test mode:
 Test API Key: rzp_test_TaQobfueyszOCM
 Test Key Secret: YRlPVQGTqZ9m3uVjVb23DsIq
+
+Check All Files Typescript Error
+npx tsc --noEmit
