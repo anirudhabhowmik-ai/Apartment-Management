@@ -789,6 +789,7 @@ export default function AddAccountScreen() {
 
   const user = useAuthStore((s) => s.user);
   const grantAccountRole = useAuthStore((s) => s.grantAccountRole);
+  const logout = useAuthStore((s) => s.logout);
   const { createAccount, accounts } = useAccounts();
   const selectAccount = useAccountStore((s) => s.selectAccount);
   const getPendingGrantsByPhone = useAccessStore(
@@ -1149,6 +1150,21 @@ export default function AddAccountScreen() {
     }
   };
 
+  const handleLogout = async () => {
+    if (loading) return;
+
+    try {
+      setError("");
+
+      await logout();
+
+      router.replace("/login");
+    } catch (err) {
+      console.error("Logout error:", err);
+      setError("Unable to log out. Please try again.");
+    }
+  };
+
   const handleAcceptInvite = (
     grantId: string,
     accountId: string,
@@ -1353,7 +1369,6 @@ export default function AddAccountScreen() {
             </View>
           </View>
         )}
-
         {step === 1 && (
           <View>
             <View style={styles.progressTrack}>
@@ -1707,7 +1722,6 @@ export default function AddAccountScreen() {
             )}
           </View>
         )}
-
         {step === 2 && (
           <View>
             <View style={styles.progressTrack}>
@@ -1861,6 +1875,24 @@ export default function AddAccountScreen() {
             </View>
           </View>
         )}
+        {/* Logout button */}
+        <View style={styles.logoutSection}>
+          <View style={styles.logoutDivider} />
+
+          <TouchableOpacity
+            style={styles.logoutButton}
+            onPress={handleLogout}
+            disabled={loading}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="log-out-outline" size={18} color="#dc2626" />
+            <Text style={styles.logoutButtonText}>Log out</Text>
+          </TouchableOpacity>
+
+          <Text style={styles.logoutHint}>
+            You can log in again anytime with your phone number.
+          </Text>
+        </View>
       </ScrollView>
 
       {/* Photo Options Modal */}
@@ -2860,5 +2892,45 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "700",
     color: "#ffffff",
+  },
+
+  // Logout button styles
+  logoutSection: {
+    alignItems: "center",
+    marginTop: 8,
+    marginBottom: 12,
+  },
+
+  logoutDivider: {
+    width: "100%",
+    height: 1,
+    backgroundColor: "#e2e8f0",
+    marginBottom: 16,
+  },
+
+  logoutButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    backgroundColor: "#fff5f5",
+    borderWidth: 1,
+    borderColor: "#fecaca",
+  },
+
+  logoutButtonText: {
+    fontSize: 13.5,
+    fontWeight: "700",
+    color: "#dc2626",
+  },
+
+  logoutHint: {
+    fontSize: 11.5,
+    color: "#94a3b8",
+    textAlign: "center",
+    marginTop: 7,
   },
 });
