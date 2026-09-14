@@ -28,8 +28,7 @@ import { useAccessStore } from "../../store/accessStore";
 import { useAccountStore } from "../../store/accountStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { AccountType } from "../../types";
-// Admin | Member_Visibility | Staff_Visibility
-import { AccountAccessRole } from "../../types/access";
+// ⬇️ CHANGED: removed `AccountAccessRole` import (no longer used)
 
 type SetupOptionId =
   | "apartment"
@@ -197,7 +196,6 @@ const STAFF_JOIN_OPTIONS: SetupOption[] = [
   },
 ];
 
-// Access level descriptions for the info card
 const ACCESS_LEVEL_INFO = {
   admin: {
     title: "Admin Access",
@@ -287,7 +285,7 @@ const DUMMY_INVITATIONS: any[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Photo Adjust Modal
+// Photo Adjust Modal — UNCHANGED
 // ---------------------------------------------------------------------------
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -610,6 +608,7 @@ function PhotoAdjustModal({
                 }}
                 resizeMode="cover"
               />
+
               <View
                 style={[adjustStyles.circleGuide, { pointerEvents: "none" }]}
               />
@@ -788,17 +787,14 @@ export default function AddAccountScreen() {
   const insets = useSafeAreaInsets();
 
   const user = useAuthStore((s) => s.user);
-  const grantAccountRole = useAccessStore((s) => s.grantAccountRole);
   const logout = useAuthStore((s) => s.logout);
-  const { createAccount, accounts } = useAccounts();
+
+  // ⬇️ CHANGED: pull `refresh` from useAccounts, drop grantAccountRole
+  const { createAccount, accounts, refresh: refreshAccounts } = useAccounts();
+
   const selectAccount = useAccountStore((s) => s.selectAccount);
-  const getPendingGrantsByPhone = useAccessStore(
-    (s) => s.getPendingGrantsByPhone,
-  );
-  const acceptGrant = useAccessStore((s) => s.acceptGrant);
   const removeGrant = useAccessStore((s) => s.removeGrant);
 
-  // Use the centralized useUserRole hook
   const { userRole } = useUserRole();
 
   const [step, setStep] = useState<1 | 2>(1);
@@ -815,37 +811,20 @@ export default function AddAccountScreen() {
   const [rawImage, setRawImage] = useState<RawImage | null>(null);
   const [showAdjustModal, setShowAdjustModal] = useState(false);
 
-  // Selected invitation for detailed view
   const [selectedInvitation, setSelectedInvitation] = useState<any>(null);
   const [showAccessInfo, setShowAccessInfo] = useState(false);
 
-  // ✅ FIX: Force dummy invites to show for fresh users (0 accounts)
-  // so the Invitations tab isn't empty during testing / first-time setup.
   useEffect(() => {
     if (accounts.length === 0) {
       setShowDummyInvites(true);
     }
   }, [accounts.length]);
 
-  // ✅ FIX: Debug log — remove once verified.
-  useEffect(() => {
-    console.log("[add-account] mode =", mode);
-    console.log("[add-account] showDummyInvites =", showDummyInvites);
-    console.log("[add-account] accounts.length =", accounts.length);
-    console.log("[add-account] user.phone =", user?.phone);
-  }, [mode, showDummyInvites, accounts.length, user?.phone]);
-
-  const pendingInvitations = useMemo(() => {
-    const realInvitations = user?.phone
-      ? getPendingGrantsByPhone(user.phone)
-      : [];
-
-    if (realInvitations.length === 0 && showDummyInvites) {
-      return DUMMY_INVITATIONS;
-    }
-
-    return realInvitations;
-  }, [user?.phone, getPendingGrantsByPhone, showDummyInvites]);
+  // ⬇️ CHANGED: only dummy invites until GET /invitations exists
+  const pendingInvitations = useMemo(
+    () => (showDummyInvites ? DUMMY_INVITATIONS : []),
+    [showDummyInvites],
+  );
 
   const getInvitationApartmentName = (invitation: any) => {
     if (invitation.id?.startsWith("dummy_invite_")) {
@@ -863,17 +842,11 @@ export default function AddAccountScreen() {
     );
   };
 
-  // Helper to determine if a grant role is staff (for display purposes)
   const isStaffGrant = (invitation: any): boolean => {
-    if (invitation.role === "staff_visibility") {
+    if (invitation.role === "staff_visibility") return true;
+    if (invitation.accessLevel === "staff") return true;
+    if (invitation.role === "member_visibility" && invitation.staffTitle)
       return true;
-    }
-    if (invitation.accessLevel === "staff") {
-      return true;
-    }
-    if (invitation.role === "member_visibility" && invitation.staffTitle) {
-      return true;
-    }
     return false;
   };
 
@@ -894,6 +867,7 @@ export default function AddAccountScreen() {
     }
   };
 
+  // ⬇️ CHANGED: no more grantAccountRole / acceptGrant
   const handleDirectJoin = async (
     roleType: "admin" | "member" | "staff",
     staffRoleId?: string,
@@ -904,135 +878,58 @@ export default function AddAccountScreen() {
     try {
       const isFirstAccount = accounts.length === 0;
 
-      console.log("======= handleDirectJoin =======");
-      console.log("roleType:", roleType);
-      console.log("staffRoleId:", staffRoleId);
-
       const matchingGrant = pendingInvitations.find((g: any) => {
-        if (roleType === "admin") {
-          return g.role === "admin";
-        }
-        if (roleType === "member") {
+        if (roleType === "admin") return g.role === "admin";
+        if (roleType === "member")
           return g.role === "member_visibility" && !isStaffGrant(g);
-        }
-        if (roleType === "staff") {
+        if (roleType === "staff")
           return (
             g.role === "staff_visibility" ||
             (g.role === "member_visibility" && isStaffGrant(g))
           );
-        }
         return false;
       });
-
-      console.log("matchingGrant:", matchingGrant);
 
       if (matchingGrant) {
         if (matchingGrant.id?.startsWith("dummy_invite_")) {
           const aptName = getInvitationApartmentName(matchingGrant);
           let defaultName = aptName;
+          if (roleType === "admin") defaultName = `${aptName} - Admin`;
+          else if (roleType === "member") defaultName = `${aptName} - Member`;
+          else if (roleType === "staff") defaultName = `${aptName} - Staff`;
 
-          if (roleType === "admin") {
-            defaultName = `${aptName} - Admin`;
-          } else if (roleType === "member") {
-            defaultName = `${aptName} - Member`;
-          } else if (roleType === "staff") {
-            defaultName = `${aptName} - Staff`;
-          }
-
-          console.log("Creating account with name:", defaultName);
           const newAccount = await createAccount("apartment", defaultName);
-          console.log("newAccount:", newAccount);
-
           if (newAccount) {
-            let grantRole: AccountAccessRole = "member_visibility";
-            if (roleType === "admin") {
-              grantRole = "admin";
-            } else if (roleType === "staff") {
-              grantRole = "staff_visibility";
-            }
-            console.log(
-              "Granting role:",
-              grantRole,
-              "for account:",
-              newAccount.id,
-            );
-            grantAccountRole(newAccount.id, grantRole);
-
-            console.log("Selecting account:", newAccount.id);
             selectAccount(newAccount.id);
+            refreshAccounts();
             setShowDummyInvites(false);
           }
         } else {
-          let grantRole: AccountAccessRole = "member_visibility";
-          if (matchingGrant.role === "admin") {
-            grantRole = "admin";
-          } else if (
-            matchingGrant.role === "staff_visibility" ||
-            isStaffGrant(matchingGrant)
-          ) {
-            grantRole = "staff_visibility";
-          }
-          console.log(
-            "Accepting real grant:",
-            matchingGrant.id,
-            "role:",
-            grantRole,
-          );
-          acceptGrant(matchingGrant.id);
-          grantAccountRole(matchingGrant.accountId, grantRole);
+          // Real invite — backend not built yet. Just select local if exists.
           selectAccount(matchingGrant.accountId);
+          refreshAccounts();
         }
       } else {
         let defaultName = "My Apartment";
-
-        if (roleType === "admin") {
-          defaultName = "My Apartment - Admin";
-        } else if (roleType === "member") {
-          defaultName = "My Apartment - Member";
-        } else if (roleType === "staff" && staffRoleId) {
+        if (roleType === "admin") defaultName = "My Apartment - Admin";
+        else if (roleType === "member") defaultName = "My Apartment - Member";
+        else if (roleType === "staff" && staffRoleId) {
           const role = STAFF_ROLES.find((r) => r.id === staffRoleId);
-          if (role) {
-            defaultName = `${role.label} - Workspace`;
-          }
+          if (role) defaultName = `${role.label} - Workspace`;
         }
 
-        console.log(
-          "No matching grant. Creating account with name:",
-          defaultName,
-        );
         const newAccount = await createAccount("apartment", defaultName);
-        console.log("newAccount:", newAccount);
-
         if (newAccount) {
-          let grantRole: AccountAccessRole = "member_visibility";
-          if (roleType === "admin") {
-            grantRole = "admin";
-          } else if (roleType === "staff") {
-            grantRole = "staff_visibility";
-          }
-          console.log(
-            "Granting role:",
-            grantRole,
-            "for account:",
-            newAccount.id,
-          );
-          grantAccountRole(newAccount.id, grantRole);
-
-          console.log("Selecting account:", newAccount.id);
           selectAccount(newAccount.id);
+          refreshAccounts();
         }
       }
 
-      if (isFirstAccount) {
-        console.log("First account, redirecting to tabs");
-        router.replace("/(tabs)");
-      } else {
-        console.log("Not first account, going back");
-        router.back();
-      }
-    } catch (err) {
-      console.error("Direct join error:", err);
-      setError("Failed to create account. Please try again.");
+      if (isFirstAccount) router.replace("/(tabs)");
+      else router.back();
+    } catch (e: any) {
+      console.error("Direct join error:", e);
+      setError(e?.message ?? "Failed to create account. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -1107,6 +1004,7 @@ export default function AddAccountScreen() {
     showPhotoSelectionOptions();
   };
 
+  // ⬇️ CHANGED: no grantAccountRole, plus error mapping
   const handleCreate = async () => {
     setError("");
 
@@ -1116,7 +1014,9 @@ export default function AddAccountScreen() {
     }
     if (!name.trim()) {
       setError(
-        `Please enter a name for your ${selectedType === "apartment" ? "apartment" : "home"}`,
+        `Please enter a name for your ${
+          selectedType === "apartment" ? "apartment" : "home"
+        }`,
       );
       return;
     }
@@ -1131,19 +1031,32 @@ export default function AddAccountScreen() {
         photoUri ?? undefined,
       );
 
-      if (newAccount) {
-        selectAccount(newAccount.id);
-        grantAccountRole(newAccount.id, "admin");
-        if (isFirstAccount) {
-          router.replace("/(tabs)");
-        } else {
-          router.back();
-        }
-      } else {
+      if (!newAccount) {
         setError("Failed to create account. Please try again.");
+        return;
       }
-    } catch (e) {
-      setError("Failed to create account. Please try again.");
+
+      selectAccount(newAccount.id);
+      refreshAccounts();
+
+      if (isFirstAccount) {
+        router.replace("/(tabs)");
+      } else {
+        router.back();
+      }
+    } catch (e: any) {
+      const status = e?.status;
+      if (status === 409) {
+        setError("You already have an account with this name.");
+      } else if (status === 401) {
+        setError("Session expired. Please log in again.");
+      } else if (status === 400) {
+        setError(e?.message || "Invalid account details.");
+      } else if (e?.message) {
+        setError(e.message);
+      } else {
+        setError("Network error. Please check your connection and try again.");
+      }
       console.error("Account creation error:", e);
     } finally {
       setLoading(false);
@@ -1155,9 +1068,7 @@ export default function AddAccountScreen() {
 
     try {
       setError("");
-
       await logout();
-
       router.replace("/login");
     } catch (err) {
       console.error("Logout error:", err);
@@ -1165,6 +1076,7 @@ export default function AddAccountScreen() {
     }
   };
 
+  // ⬇️ CHANGED: no grantAccountRole
   const handleAcceptInvite = (
     grantId: string,
     accountId: string,
@@ -1181,53 +1093,28 @@ export default function AddAccountScreen() {
         const isStaffInvite = isStaffGrant(dummyInvite);
         let defaultName = aptName;
 
-        if (isAdmin) {
-          defaultName = `${aptName} - Admin`;
-        } else if (isOwner) {
-          defaultName = `${aptName} - Member`;
-        } else if (isStaffInvite) {
-          defaultName = `${aptName} - Staff`;
-        }
+        if (isAdmin) defaultName = `${aptName} - Admin`;
+        else if (isOwner) defaultName = `${aptName} - Member`;
+        else if (isStaffInvite) defaultName = `${aptName} - Staff`;
 
         createAccount("apartment", defaultName).then((newAccount) => {
           if (newAccount) {
-            let grantRole: AccountAccessRole = "member_visibility";
-            if (isAdmin) {
-              grantRole = "admin";
-            } else if (isStaffInvite) {
-              grantRole = "staff_visibility";
-            }
-            grantAccountRole(newAccount.id, grantRole);
             selectAccount(newAccount.id);
+            refreshAccounts();
             setShowDummyInvites(false);
-            if (accounts.length === 0) {
-              router.replace("/(tabs)");
-            } else {
-              router.back();
-            }
+            if (accounts.length === 0) router.replace("/(tabs)");
+            else router.back();
           }
         });
         return;
       }
     }
 
-    let grantRole: AccountAccessRole = "member_visibility";
-    if (role === "admin") {
-      grantRole = "admin";
-    } else if (
-      role === "staff_visibility" ||
-      (invitation && isStaffGrant(invitation))
-    ) {
-      grantRole = "staff_visibility";
-    }
-    acceptGrant(grantId);
-    grantAccountRole(accountId, grantRole);
+    // Real invite — backend not built yet.
     selectAccount(accountId);
-    if (accounts.length === 0) {
-      router.replace("/(tabs)");
-    } else {
-      router.back();
-    }
+    refreshAccounts();
+    if (accounts.length === 0) router.replace("/(tabs)");
+    else router.back();
   };
 
   const showInvitationDetails = (invitation: any) => {
@@ -1252,10 +1139,8 @@ export default function AddAccountScreen() {
 
   const uniqueApartments = getUniqueApartments();
 
-  // Render Access Info Modal
   const renderAccessInfoModal = () => {
     if (!selectedInvitation) return null;
-
     const accessInfo = getAccessLevelInfo(selectedInvitation);
 
     return (
@@ -1339,12 +1224,7 @@ export default function AddAccountScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={[
-        styles.container,
-        {
-          paddingBottom: insets.bottom,
-        },
-      ]}
+      style={[styles.container, { paddingBottom: insets.bottom }]}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={0}
     >
@@ -1352,9 +1232,7 @@ export default function AddAccountScreen() {
         style={styles.screenScroll}
         contentContainerStyle={[
           styles.screenContent,
-          {
-            paddingBottom: Math.max(insets.bottom, 24),
-          },
+          { paddingBottom: Math.max(insets.bottom, 24) },
         ]}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="none"
@@ -1369,6 +1247,7 @@ export default function AddAccountScreen() {
             </View>
           </View>
         )}
+
         {step === 1 && (
           <View>
             <View style={styles.progressTrack}>
@@ -1383,7 +1262,6 @@ export default function AddAccountScreen() {
               </Text>
             </View>
 
-            {/* ✅ FIX: Always show tab switcher (removed `mode !== "create"` guard). */}
             <View style={styles.tabSwitcher}>
               <TouchableOpacity
                 style={[
@@ -1407,6 +1285,7 @@ export default function AddAccountScreen() {
                   Create New
                 </Text>
               </TouchableOpacity>
+
               <TouchableOpacity
                 style={[
                   styles.tabButton,
@@ -1551,7 +1430,6 @@ export default function AddAccountScreen() {
                         {apartment.invitations.map((invitation: any) => {
                           const isAdmin = invitation.role === "admin";
                           const isStaffInvite = isStaffGrant(invitation);
-                          const isOwner = !isAdmin && !isStaffInvite;
 
                           const inviterPhone =
                             invitation.invitedByPhone || "Secretary";
@@ -1618,9 +1496,7 @@ export default function AddAccountScreen() {
                                 <View
                                   style={[
                                     styles.invitationCardIcon,
-                                    {
-                                      backgroundColor: optionCard.iconBg,
-                                    },
+                                    { backgroundColor: optionCard.iconBg },
                                   ]}
                                 >
                                   <Ionicons
@@ -1637,17 +1513,13 @@ export default function AddAccountScreen() {
                                     <View
                                       style={[
                                         styles.invitationRoleBadge,
-                                        {
-                                          backgroundColor: optionCard.badgeBg,
-                                        },
+                                        { backgroundColor: optionCard.badgeBg },
                                       ]}
                                     >
                                       <Text
                                         style={[
                                           styles.invitationRoleBadgeText,
-                                          {
-                                            color: optionCard.badgeColor,
-                                          },
+                                          { color: optionCard.badgeColor },
                                         ]}
                                       >
                                         {optionCard.badge}
@@ -1692,9 +1564,7 @@ export default function AddAccountScreen() {
                                 <TouchableOpacity
                                   style={[
                                     styles.invitationAcceptButton,
-                                    {
-                                      backgroundColor: optionCard.iconColor,
-                                    },
+                                    { backgroundColor: optionCard.iconColor },
                                   ]}
                                   onPress={() =>
                                     showInvitationDetails(invitation)
@@ -1722,6 +1592,7 @@ export default function AddAccountScreen() {
             )}
           </View>
         )}
+
         {step === 2 && (
           <View>
             <View style={styles.progressTrack}>
@@ -1875,7 +1746,7 @@ export default function AddAccountScreen() {
             </View>
           </View>
         )}
-        {/* Logout button */}
+
         <View style={styles.logoutSection}>
           <View style={styles.logoutDivider} />
 
@@ -1960,7 +1831,6 @@ export default function AddAccountScreen() {
         </Pressable>
       </Modal>
 
-      {/* Photo Adjust (pinch to zoom / drag) Modal */}
       <PhotoAdjustModal
         visible={showAdjustModal}
         image={rawImage}
@@ -1968,10 +1838,9 @@ export default function AddAccountScreen() {
         onConfirm={handleAdjustConfirm}
       />
 
-      {/* Access Info Modal */}
       {renderAccessInfoModal()}
 
-      {/* Reject Modal - Centered */}
+      {/* Reject Modal */}
       <Modal
         visible={rejectingGrantId !== null}
         transparent
