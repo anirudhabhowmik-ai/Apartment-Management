@@ -7,6 +7,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+
 import { useAccessStore } from "../../store/accessStore";
 import { useAccountStore } from "../../store/accountStore";
 import { useAuthStore } from "../../store/useAuthStore";
@@ -14,17 +15,22 @@ import { useAuthStore } from "../../store/useAuthStore";
 export default function JoinAccountScreen() {
   const router = useRouter();
 
+  // Auth store: only user authentication information
   const user = useAuthStore((state) => state.user);
-  const grantAccountRole = useAuthStore((state) => state.grantAccountRole);
 
-  const accounts = useAccountStore((state) => state.accounts);
-  const selectAccount = useAccountStore((state) => state.selectAccount);
+  // Access store: account roles and invitations
+  const grantAccountRole = useAccessStore((state) => state.grantAccountRole);
 
   const getPendingGrantsByPhone = useAccessStore(
     (state) => state.getPendingGrantsByPhone,
   );
 
   const acceptGrant = useAccessStore((state) => state.acceptGrant);
+
+  // Account store
+  const accounts = useAccountStore((state) => state.accounts);
+
+  const selectAccount = useAccountStore((state) => state.selectAccount);
 
   const invitations = user ? getPendingGrantsByPhone(user.phone) : [];
 
@@ -33,12 +39,16 @@ export default function JoinAccountScreen() {
     accountId: string,
     role: "admin" | "member_visibility" | "staff_visibility",
   ) => {
+    // Mark invitation as accepted
     acceptGrant(grantId);
 
+    // Store this user's role for the account
     grantAccountRole(accountId, role);
 
+    // Select the account
     selectAccount(accountId);
 
+    // Go to the main app
     router.replace("/(tabs)");
   };
 

@@ -788,7 +788,7 @@ export default function AddAccountScreen() {
   const insets = useSafeAreaInsets();
 
   const user = useAuthStore((s) => s.user);
-  const grantAccountRole = useAuthStore((s) => s.grantAccountRole);
+  const grantAccountRole = useAccessStore((s) => s.grantAccountRole);
   const logout = useAuthStore((s) => s.logout);
   const { createAccount, accounts } = useAccounts();
   const selectAccount = useAccountStore((s) => s.selectAccount);

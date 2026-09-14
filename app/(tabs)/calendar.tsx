@@ -22,6 +22,7 @@ import {
   ResourceOption,
   useCalendarStore,
 } from "../../store/calendarStore";
+import { useMemberStore } from "../../store/memberStore";
 import { useAuthStore } from "../../store/useAuthStore";
 
 const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
@@ -89,6 +90,7 @@ export default function CalendarScreen() {
   const { isAdmin, isMember, isStaff } = useUserRole();
 
   const user = useAuthStore((s) => s.user);
+  const members = useMemberStore((s) => s.members);
   const accountId = useAccountStore((s) => s.selectedAccountId) ?? "";
 
   // Only admin and member can open the Add modal (request a booking or post)
@@ -271,7 +273,8 @@ export default function CalendarScreen() {
         startTime: startTime.trim() || undefined,
         endTime: endTime.trim() || undefined,
         createdById: user?.id ?? "unknown",
-        createdByName: user?.name ?? "You",
+        createdByName:
+          members.find((member) => member.phone === user?.phone)?.name ?? "You",
         createdByPhone: user?.phone,
         createdByRole: isAdmin ? "admin" : "owner",
       });

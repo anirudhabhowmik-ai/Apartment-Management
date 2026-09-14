@@ -1,4 +1,5 @@
 // hooks/useUserRole.ts
+
 import { useMemo } from "react";
 import { useAccessStore } from "../store/accessStore";
 import { useMemberStore } from "../store/memberStore";
@@ -99,112 +100,153 @@ function getStaffRoleType(member: any): StaffRoleType {
 
 export function useUserRole() {
   const { selectedAccount } = useAccounts();
+
   const { groups } = useGroups(selectedAccount?.id || null);
+
   const members = useMemberStore((state) => state.members);
+
   const user = useAuthStore((state) => state.user);
+
   const grants = useAccessStore((state) => state.grants);
 
+  const getAccountRole = useAccessStore((state) => state.getAccountRole);
+
+  // ------------------------------------------------------------
+  // Get members belonging to the selected account
+  // ------------------------------------------------------------
   const accountMembers = useMemo(() => {
     const accountGroupIds = new Set(groups.map((group) => group.id));
-    const filtered = members.filter((member) =>
-      accountGroupIds.has(member.groupId),
-    );
-    return filtered;
+
+    return members.filter((member) => accountGroupIds.has(member.groupId));
   }, [groups, members]);
 
+  // ------------------------------------------------------------
+  // Find the logged-in user's member profile
+  // Use PHONE, not NAME.
+  // ------------------------------------------------------------
   const userMemberProfile = useMemo(() => {
-    if (!selectedAccount || !user?.name) return null;
+    if (!selectedAccount || !user?.phone) {
+      return null;
+    }
 
-    const userNameLower = user.name.toLowerCase().trim();
+    const normalizedUserPhone = user.phone.replace(/\D/g, "").slice(-10);
 
-    const exact = accountMembers.find(
-      (member) => member.name?.toLowerCase().trim() === userNameLower,
-    );
-    if (exact) return exact;
+    const matchingMember = accountMembers.find((member) => {
+      if (!member.phone) return false;
 
-    const partial = accountMembers.find((member) => {
-      const memberNameLower = member.name?.toLowerCase().trim() || "";
-      return (
-        memberNameLower &&
-        (memberNameLower.includes(userNameLower) ||
-          userNameLower.includes(memberNameLower))
-      );
+      const normalizedMemberPhone = member.phone.replace(/\D/g, "").slice(-10);
+
+      return normalizedMemberPhone === normalizedUserPhone;
     });
-    return partial ?? null;
-  }, [selectedAccount, user, accountMembers]);
 
+    return matchingMember ?? null;
+  }, [selectedAccount, user?.phone, accountMembers]);
+
+  // ------------------------------------------------------------
+  // Staff information
+  // ------------------------------------------------------------
   const staffInfo = useMemo((): StaffInfo | null => {
-    if (!userMemberProfile || !isStaffMember(userMemberProfile)) return null;
+    if (!userMemberProfile || !isStaffMember(userMemberProfile)) {
+      return null;
+    }
+
     const roleType = getStaffRoleType(userMemberProfile);
+
     return STAFF_ROLE_INFO[roleType] || STAFF_ROLE_INFO.other;
   }, [userMemberProfile]);
 
+  // ------------------------------------------------------------
+  // Determine user role
+  // ------------------------------------------------------------
   const userRole = useMemo((): UserRole => {
     if (!selectedAccount || !user) {
       console.log("No selectedAccount or user, returning member as default");
+
       return "member";
     }
 
     console.log("selectedAccount.ownerId:", selectedAccount.ownerId);
+
     console.log("user.id:", user.id);
+
     console.log("Is user the owner?", selectedAccount.ownerId === user.id);
 
     // ============================================================
-    // STEP 1: Check user.accountRoles FIRST (from useAuthStore)
+    // STEP 1: Check account role from useAccessStore
     // ============================================================
-    console.log("Checking user.accountRoles for account:", selectedAccount.id);
-    const accountRole = user.accountRoles?.[selectedAccount.id];
-    console.log("accountRole from user.accountRoles:", accountRole);
+
+    const accountRole = getAccountRole(selectedAccount.id);
+
+    console.log("accountRole from useAccessStore:", accountRole);
 
     if (accountRole) {
       console.log("Found accountRole:", accountRole);
+
       if (accountRole === "admin") {
         console.log("accountRole is admin → Returning admin");
+
         return "admin";
       }
+
       if (accountRole === "staff_visibility") {
         console.log("accountRole is staff_visibility → Returning staff");
+
         return "staff";
       }
+
       if (accountRole === "member_visibility") {
-        // Check if the user is a staff member
+        // A staff member must remain staff even if the
+        // account access grant is member_visibility.
         if (userMemberProfile && isStaffMember(userMemberProfile)) {
           console.log("User has staff profile → Returning staff");
+
           return "staff";
         }
+
         console.log("accountRole is member_visibility → Returning member");
+
         return "member";
       }
     }
 
-    console.log("No accountRole found in user.accountRoles");
+    console.log("No accountRole found in useAccessStore");
 
     // ============================================================
-    // STEP 2: Check grants from accessStore
+    // STEP 2: Check accepted grants
     // ============================================================
+
     const userGrant = grants.find(
       (grant) => grant.accountId === selectedAccount.id && grant.acceptedAt,
     );
 
     console.log("userGrant from accessStore:", userGrant);
+
     console.log("userGrant?.role:", userGrant?.role);
 
     if (userGrant) {
       console.log("Grant found in accessStore!");
+
       if (userGrant.role === "admin") {
         console.log("Grant role is admin → Returning admin");
+
         return "admin";
       }
+
       if (userGrant.role === "staff_visibility") {
         console.log("Grant role is staff_visibility → Returning staff");
+
         return "staff";
       }
+
       if (userGrant.role === "member_visibility") {
         if (userMemberProfile && isStaffMember(userMemberProfile)) {
           console.log("User has staff profile → Returning staff");
+
           return "staff";
         }
+
         console.log("Grant role is member_visibility → Returning member");
+
         return "member";
       }
     }
@@ -212,36 +254,50 @@ export function useUserRole() {
     console.log("No grant found in accessStore");
 
     // ============================================================
-    // STEP 3: No role/grant found - check if user is the account owner
+    // STEP 3: Check account owner
     // ============================================================
+
     if (selectedAccount.ownerId === user.id) {
-      console.log("User is the owner (no role/grant) → Returning admin");
+      console.log("User is the account owner → Returning admin");
+
       return "admin";
     }
 
     // ============================================================
-    // STEP 4: Check if user has a member profile (no role/grant)
+    // STEP 4: Check member profile
     // ============================================================
+
     if (userMemberProfile) {
       if (isStaffMember(userMemberProfile)) {
         console.log("User is staff → Returning staff");
+
         return "staff";
       }
+
       console.log("User is member → Returning member");
+
       return "member";
     }
 
+    // ============================================================
+    // STEP 5: Default
+    // ============================================================
+
     console.log("No role found, returning member as default");
+
     return "member";
-  }, [selectedAccount, user, grants, userMemberProfile]);
+  }, [selectedAccount, user, grants, getAccountRole, userMemberProfile]);
 
   return {
     userRole,
     userMemberProfile,
     selectedAccount,
     staffInfo,
+
     isStaff: userRole === "staff",
+
     isAdmin: userRole === "admin",
+
     isMember: userRole === "member",
   };
 }

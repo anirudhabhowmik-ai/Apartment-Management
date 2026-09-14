@@ -880,9 +880,7 @@ export default function HomeScreen() {
     return (
       accountMembers.find(
         (member) =>
-          member.phone === user.phone ||
-          member.name === user.name ||
-          (member as any).userId === user.id,
+          member.phone === user.phone || (member as any).userId === user.id,
       ) || null
     );
   }, [user, selectedAccount, groups, members]);
