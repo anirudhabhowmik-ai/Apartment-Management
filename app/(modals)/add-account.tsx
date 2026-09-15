@@ -28,7 +28,6 @@ import { useAccessStore } from "../../store/accessStore";
 import { useAccountStore } from "../../store/accountStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { AccountType } from "../../types";
-// ⬇️ CHANGED: removed `AccountAccessRole` import (no longer used)
 
 type SetupOptionId =
   | "apartment"
@@ -789,7 +788,6 @@ export default function AddAccountScreen() {
   const user = useAuthStore((s) => s.user);
   const logout = useAuthStore((s) => s.logout);
 
-  // ⬇️ CHANGED: pull `refresh` from useAccounts, drop grantAccountRole
   const { createAccount, accounts, refresh: refreshAccounts } = useAccounts();
 
   const selectAccount = useAccountStore((s) => s.selectAccount);
@@ -820,7 +818,6 @@ export default function AddAccountScreen() {
     }
   }, [accounts.length]);
 
-  // ⬇️ CHANGED: only dummy invites until GET /invitations exists
   const pendingInvitations = useMemo(
     () => (showDummyInvites ? DUMMY_INVITATIONS : []),
     [showDummyInvites],
@@ -867,7 +864,7 @@ export default function AddAccountScreen() {
     }
   };
 
-  // ⬇️ CHANGED: no more grantAccountRole / acceptGrant
+  // ⬇️ FIXED: safe navigation — no more unguarded router.back()
   const handleDirectJoin = async (
     roleType: "admin" | "member" | "staff",
     staffRoleId?: string,
@@ -925,8 +922,14 @@ export default function AddAccountScreen() {
         }
       }
 
-      if (isFirstAccount) router.replace("/(tabs)");
-      else router.back();
+      // ✅ FIX: always land on /(tabs); never blindly call router.back()
+      if (isFirstAccount) {
+        router.replace("/(tabs)");
+      } else if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace("/(tabs)");
+      }
     } catch (e: any) {
       console.error("Direct join error:", e);
       setError(e?.message ?? "Failed to create account. Please try again.");
@@ -1004,7 +1007,7 @@ export default function AddAccountScreen() {
     showPhotoSelectionOptions();
   };
 
-  // ⬇️ CHANGED: no grantAccountRole, plus error mapping
+  // ⬇️ FIXED: safe navigation — no more unguarded router.back()
   const handleCreate = async () => {
     setError("");
 
@@ -1039,10 +1042,14 @@ export default function AddAccountScreen() {
       selectAccount(newAccount.id);
       refreshAccounts();
 
+      // ✅ FIX: if this was the first account (or we have nowhere to go back to),
+      // replace to /(tabs). Only call back() when there's actually a stack.
       if (isFirstAccount) {
         router.replace("/(tabs)");
-      } else {
+      } else if (router.canGoBack()) {
         router.back();
+      } else {
+        router.replace("/(tabs)");
       }
     } catch (e: any) {
       const status = e?.status;
@@ -1076,13 +1083,24 @@ export default function AddAccountScreen() {
     }
   };
 
-  // ⬇️ CHANGED: no grantAccountRole
+  // ⬇️ FIXED: safe navigation — no more unguarded router.back()
   const handleAcceptInvite = (
     grantId: string,
     accountId: string,
     role: any,
     invitation?: any,
   ) => {
+    // Helper so we don't repeat the same guard in 3 places below
+    const goToTabsOrBack = () => {
+      if (accounts.length === 0) {
+        router.replace("/(tabs)");
+      } else if (router.canGoBack()) {
+        router.back();
+      } else {
+        router.replace("/(tabs)");
+      }
+    };
+
     if (grantId?.startsWith("dummy_invite_")) {
       const dummyInvite = DUMMY_INVITATIONS.find((inv) => inv.id === grantId);
       if (dummyInvite) {
@@ -1102,8 +1120,7 @@ export default function AddAccountScreen() {
             selectAccount(newAccount.id);
             refreshAccounts();
             setShowDummyInvites(false);
-            if (accounts.length === 0) router.replace("/(tabs)");
-            else router.back();
+            goToTabsOrBack();
           }
         });
         return;
@@ -1113,8 +1130,7 @@ export default function AddAccountScreen() {
     // Real invite — backend not built yet.
     selectAccount(accountId);
     refreshAccounts();
-    if (accounts.length === 0) router.replace("/(tabs)");
-    else router.back();
+    goToTabsOrBack();
   };
 
   const showInvitationDetails = (invitation: any) => {
