@@ -20,7 +20,7 @@ export const useAccountStore = create<AccountState>((set: any, get: any) => ({
   accounts: [],
   selectedAccountId: null,
   isAccountSwitcherOpen: false,
-  isLoading: false,
+  isLoading: true,
 
   setAccounts: (accounts: any) => {
     set({ accounts });
