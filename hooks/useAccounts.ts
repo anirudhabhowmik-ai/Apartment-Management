@@ -5,14 +5,8 @@ import { useAccountStore } from "../store/accountStore";
 import { useAuthStore } from "../store/useAuthStore";
 import { Account, AccountType } from "../types";
 
-// ---------------------------------------------------------------------------
-// Config
-// ---------------------------------------------------------------------------
 const BASE_URL = process.env.EXPO_PUBLIC_API_URL;
 
-// ---------------------------------------------------------------------------
-// Token
-// ---------------------------------------------------------------------------
 async function getToken(): Promise<string | null> {
   try {
     return await SecureStore.getItemAsync("auth_token");
@@ -21,9 +15,6 @@ async function getToken(): Promise<string | null> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Server row → Account mapper
-// ---------------------------------------------------------------------------
 function mapRowToAccount(r: any, fallbackOwnerId: string): Account {
   const now = new Date().toISOString();
   const ownerId = r.created_by ?? r.createdBy ?? fallbackOwnerId;
@@ -42,23 +33,12 @@ function mapRowToAccount(r: any, fallbackOwnerId: string): Account {
   };
 
   if (r.type === "apartment") {
-    return {
-      ...base,
-      type: "apartment",
-      secretaryId: ownerId,
-    } as Account;
+    return { ...base, type: "apartment", secretaryId: ownerId } as Account;
   }
 
-  return {
-    ...base,
-    type: "home",
-    isRented: false,
-  } as Account;
+  return { ...base, type: "home", isRented: false } as Account;
 }
 
-// ---------------------------------------------------------------------------
-// GET /accounts
-// ---------------------------------------------------------------------------
 async function fetchAccountsForUser(userId: string): Promise<Account[]> {
   const token = await getToken();
   const res = await fetch(`${BASE_URL}/accounts`, {
@@ -75,17 +55,6 @@ async function fetchAccountsForUser(userId: string): Promise<Account[]> {
   return rows.map((r) => mapRowToAccount(r, userId));
 }
 
-// ---------------------------------------------------------------------------
-// Photo upload — SKIPPED FOR NOW
-// ---------------------------------------------------------------------------
-// Backend route POST /uploads/account-photo isn't built yet. The RN FormData
-// shape used here also triggers "Unsupported FormDataPart implementation" on
-// some setups. Until both are fixed, we just return the local URI so the
-// account still gets created.
-//
-// When you build the backend upload route, replace the body of this function
-// with a real fetch to `${BASE_URL}/uploads/account-photo`.
-// ---------------------------------------------------------------------------
 async function uploadAccountPhoto(localUri: string): Promise<string> {
   console.log(
     "[uploadAccountPhoto] skipping upload — returning local URI:",
@@ -94,9 +63,6 @@ async function uploadAccountPhoto(localUri: string): Promise<string> {
   return localUri;
 }
 
-// ---------------------------------------------------------------------------
-// POST /accounts
-// ---------------------------------------------------------------------------
 async function createAccountApi(
   userId: string,
   type: AccountType,
@@ -136,9 +102,6 @@ async function createAccountApi(
   return mapRowToAccount(row, userId);
 }
 
-// ---------------------------------------------------------------------------
-// Hook
-// ---------------------------------------------------------------------------
 export function useAccounts() {
   const user = useAuthStore((s) => s.user);
 
