@@ -60,7 +60,7 @@ export default function TabsLayout() {
   const insets = useSafeAreaInsets();
 
   const { selectedAccount } = useAccounts();
-  const { userRole, isAdmin, isMember, isStaff } = useUserRole();
+  const { isAdmin, isMember, isStaff } = useUserRole();
   const { getPendingPayments } = usePayments(selectedAccount?.id);
   const { tasks } = useMaintenance(selectedAccount?.id);
 
