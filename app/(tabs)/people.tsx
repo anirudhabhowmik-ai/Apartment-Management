@@ -23,6 +23,7 @@ import DatePickerModal from "../../components/DatePickerModal";
 import MonthYearPickerModal from "../../components/MonthYearPickerModal";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useExpenses, useMembers, useStaff } from "../../hooks/useManagement";
+import { usePayments } from "../../hooks/usePayments";
 import { useUserRole } from "../../hooks/useUserRole";
 import { generateBillPDF, savePDFToDevice } from "../../services/pdfGenerator";
 import { useAttendanceStore } from "../../store/attendanceStore";
@@ -280,10 +281,13 @@ export default function PeopleScreen() {
 
   const { selectedAccountId, selectedAccount } = useAccounts();
 
-  // ── NEW: three management hooks replace useGroups + useMemberStore ──
   const membersHook = useMembers(selectedAccountId ?? null);
   const staffHook = useStaff(selectedAccountId ?? null);
   const expensesHook = useExpenses(selectedAccountId ?? null);
+
+  const { upsertMemberPayment, upsertStaffPayment } = usePayments(
+    selectedAccountId ?? undefined,
+  );
 
   const getAttendanceRecord = useAttendanceStore((state) => state.getRecord);
 
@@ -358,10 +362,6 @@ export default function PeopleScreen() {
 
   const [showFilterDropdown, setShowFilterDropdown] = useState(false);
 
-  /* ----------------------------------------------------------------
-     FILTER DROPDOWN ANCHOR
-  ---------------------------------------------------------------- */
-
   const containerRef = useRef<View | null>(null);
   const searchRowRef = useRef<View | null>(null);
 
@@ -426,7 +426,6 @@ export default function PeopleScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showFilterDropdown]);
 
-  // ── NEW: navigate straight to add-member with the account + type ──
   const handleAdd = async (type: ManagementType) => {
     if (!canEdit) return;
 
@@ -475,7 +474,6 @@ export default function PeopleScreen() {
     );
   }
 
-  // ── NEW: pick the right members list based on active tab ──
   const membersInActiveGroup =
     activeTab === "apartment"
       ? membersHook.items
@@ -597,7 +595,6 @@ export default function PeopleScreen() {
 
     if (!canEdit) return;
 
-    // ── NEW: look up member in the right hook ──
     const list = tab === "apartment" ? membersHook.items : staffHook.items;
     const member = list.find((m: any) => m.id === memberId);
 
@@ -619,48 +616,31 @@ export default function PeopleScreen() {
       : 0;
     const deductionAmt = showDeduction ? Number(deductionAmount) || 0 : 0;
 
-    const updatePayload = {
-      paymentStatus: selectedStatus,
-      paidDate: selectedStatus === "paid" ? paidDate : undefined,
-
+    const payload = {
+      status: selectedStatus,
+      paidDate: selectedStatus === "paid" ? paidDate : null,
+      baseAmount: paymentAmount || 0,
       additionalAmount: additionalAmt,
       additionalNote: showAdditionalAmount
-        ? additionalNote.trim() || undefined
-        : undefined,
-
+        ? additionalNote.trim() || null
+        : null,
       deductionAmount: deductionAmt,
-      deductionNote: showDeduction
-        ? deductionNote.trim() || undefined
-        : undefined,
-
-      monthlyPayments: {
-        ...paymentMember.monthlyPayments,
-
-        [month]: {
-          status: selectedStatus,
-          ...(selectedStatus === "paid" ? { paidDate } : {}),
-
-          additionalAmount: additionalAmt,
-          additionalNote: showAdditionalAmount
-            ? additionalNote.trim() || undefined
-            : undefined,
-
-          deductionAmount: deductionAmt,
-          deductionNote: showDeduction
-            ? deductionNote.trim() || undefined
-            : undefined,
-
-          netAmount: netPaidAmount,
-        },
-      },
+      deductionNote: showDeduction ? deductionNote.trim() || null : null,
+      netAmount: netPaidAmount,
     };
 
     try {
-      // ── NEW: call update on the right hook (async) ──
       if (isApartmentTab) {
-        await membersHook.update(paymentMember.id, updatePayload);
+        await upsertMemberPayment(paymentMember.id, month, payload);
       } else if (isStaffTab) {
-        await staffHook.update(paymentMember.id, updatePayload);
+        await upsertStaffPayment(paymentMember.id, month, payload);
+      }
+
+      try {
+        if (isApartmentTab) await membersHook.refresh();
+        else if (isStaffTab) await staffHook.refresh();
+      } catch (refreshErr) {
+        console.warn("Post-save refresh failed:", refreshErr);
       }
 
       setRefreshKey((previous) => previous + 1);
@@ -1317,7 +1297,6 @@ export default function PeopleScreen() {
                       onPress={() => {
                         Keyboard.dismiss();
                         if (canEdit) {
-                          // ── NEW: pass accountId instead of groupId ──
                           router.push({
                             pathname: "/(modals)/edit-member",
                             params: {
