@@ -27,7 +27,6 @@ export type ModalRouteParams = {
     role: "admin" | "member_visibility" | "staff_visibility";
     memberType?: "owner" | "staff";
   };
-  "join-account": undefined;
 };
 
 export default function ModalsLayout() {
@@ -44,7 +43,6 @@ export default function ModalsLayout() {
       />
       <Stack.Screen name="mark-payment" options={{ title: "Mark as Paid" }} />
       <Stack.Screen name="grant-access" options={{ title: "Grant Access" }} />
-      <Stack.Screen name="join-account" options={{ title: "Join Account" }} />
       <Stack.Screen
         name="switch-account"
         options={{ title: "Switch Property" }}
