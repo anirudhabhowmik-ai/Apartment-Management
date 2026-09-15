@@ -2,14 +2,16 @@
 
 import { useMemo } from "react";
 import { useAccessStore } from "../store/accessStore";
-import { useMemberStore } from "../store/memberStore";
 import { useAuthStore } from "../store/useAuthStore";
+import { Member } from "../types";
 import { useAccounts } from "./useAccounts";
-import { useGroups } from "./useGroups";
+import { useMembers, useStaff } from "./useManagement";
 
 export type UserRole = "admin" | "staff" | "member";
 
-// Staff role types
+// ---------------------------------------------------------------------------
+// Staff role catalogue (unchanged)
+// ---------------------------------------------------------------------------
 export type StaffRoleType =
   | "security"
   | "sweeper"
@@ -78,10 +80,9 @@ export const STAFF_ROLE_INFO: Record<StaffRoleType, StaffInfo> = {
   },
 };
 
-function isStaffMember(member: any): boolean {
-  return member && typeof member.monthlySalary === "number";
-}
-
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 function getStaffRoleType(member: any): StaffRoleType {
   if (!member || !member.role) return "other";
 
@@ -95,209 +96,158 @@ function getStaffRoleType(member: any): StaffRoleType {
     maid: "maid",
   };
 
-  return roleMap[member.role.toLowerCase()] || "other";
+  return roleMap[String(member.role).toLowerCase()] || "other";
 }
 
+function normalizePhone(raw?: string): string {
+  if (!raw) return "";
+  const digits = String(raw).replace(/\D/g, "");
+  return digits.length > 10 ? digits.slice(-10) : digits;
+}
+
+// ---------------------------------------------------------------------------
+// Hook
+// ---------------------------------------------------------------------------
 export function useUserRole() {
   const { selectedAccount } = useAccounts();
-
-  const { groups } = useGroups(selectedAccount?.id || null);
-
-  const members = useMemberStore((state) => state.members);
 
   const user = useAuthStore((state) => state.user);
 
   const grants = useAccessStore((state) => state.grants);
-
   const getAccountRole = useAccessStore((state) => state.getAccountRole);
 
-  // ------------------------------------------------------------
-  // Get members belonging to the selected account
-  // ------------------------------------------------------------
-  const accountMembers = useMemo(() => {
-    const accountGroupIds = new Set(groups.map((group) => group.id));
+  const accountId = selectedAccount?.id ?? null;
 
-    return members.filter((member) => accountGroupIds.has(member.groupId));
-  }, [groups, members]);
+  const membersHook = useMembers(accountId);
+  const staffHook = useStaff(accountId);
 
-  // ------------------------------------------------------------
-  // Find the logged-in user's member profile
-  // Use PHONE, not NAME.
-  // ------------------------------------------------------------
-  const userMemberProfile = useMemo(() => {
-    if (!selectedAccount || !user?.phone) {
-      return null;
-    }
+  // -------------------------------------------------------------------------
+  // Is this user the ORIGINAL account creator?
+  // accounts.created_by is set at creation and never changes.
+  // -------------------------------------------------------------------------
+  const isAccountCreator = useMemo(() => {
+    if (!selectedAccount || !user) return false;
+    return selectedAccount.ownerId === user.id;
+  }, [selectedAccount, user]);
 
-    const normalizedUserPhone = user.phone.replace(/\D/g, "").slice(-10);
-
-    const matchingMember = accountMembers.find((member) => {
-      if (!member.phone) return false;
-
-      const normalizedMemberPhone = member.phone.replace(/\D/g, "").slice(-10);
-
-      return normalizedMemberPhone === normalizedUserPhone;
-    });
-
-    return matchingMember ?? null;
-  }, [selectedAccount, user?.phone, accountMembers]);
-
-  // ------------------------------------------------------------
-  // Staff information
-  // ------------------------------------------------------------
-  const staffInfo = useMemo((): StaffInfo | null => {
-    if (!userMemberProfile || !isStaffMember(userMemberProfile)) {
-      return null;
-    }
-
-    const roleType = getStaffRoleType(userMemberProfile);
-
-    return STAFF_ROLE_INFO[roleType] || STAFF_ROLE_INFO.other;
-  }, [userMemberProfile]);
-
-  // ------------------------------------------------------------
-  // Determine user role
-  // ------------------------------------------------------------
-  const userRole = useMemo((): UserRole => {
-    if (!selectedAccount || !user) {
-      console.log("No selectedAccount or user, returning member as default");
-
-      return "member";
-    }
-
-    console.log("selectedAccount.ownerId:", selectedAccount.ownerId);
-
-    console.log("user.id:", user.id);
-
-    console.log("Is user the owner?", selectedAccount.ownerId === user.id);
-
-    // ============================================================
-    // STEP 1: Check account role from useAccessStore
-    // ============================================================
+  // -------------------------------------------------------------------------
+  // Does this user hold an accepted "owner" grant?
+  // Set via "Add Ownership" → role: "owner" in account_members.
+  // -------------------------------------------------------------------------
+  const hasOwnerGrant = useMemo(() => {
+    if (!selectedAccount || !user) return false;
 
     const accountRole = getAccountRole(selectedAccount.id);
+    if (accountRole === "owner") return true;
 
-    console.log("accountRole from useAccessStore:", accountRole);
+    const grant = grants.find(
+      (g) => g.accountId === selectedAccount.id && g.acceptedAt,
+    );
+    return grant?.role === "owner";
+  }, [selectedAccount, user, grants, getAccountRole]);
 
-    if (accountRole) {
-      console.log("Found accountRole:", accountRole);
+  const isOwner = isAccountCreator || hasOwnerGrant;
 
-      if (accountRole === "admin") {
-        console.log("accountRole is admin → Returning admin");
+  // -------------------------------------------------------------------------
+  // User's member/staff profile
+  // -------------------------------------------------------------------------
+  const userMemberProfile = useMemo<Member | null>(() => {
+    if (!selectedAccount || !user?.phone) return null;
 
-        return "admin";
-      }
+    const target = normalizePhone(user.phone);
+    if (!target) return null;
 
-      if (accountRole === "staff_visibility") {
-        console.log("accountRole is staff_visibility → Returning staff");
+    const matchesPhone = (m: Member) => normalizePhone(m.phone) === target;
 
-        return "staff";
-      }
+    const asMember = membersHook.items.find(matchesPhone);
+    if (asMember) return asMember;
 
-      if (accountRole === "member_visibility") {
-        // A staff member must remain staff even if the
-        // account access grant is member_visibility.
-        if (userMemberProfile && isStaffMember(userMemberProfile)) {
-          console.log("User has staff profile → Returning staff");
+    const asStaff = staffHook.items.find(matchesPhone);
+    if (asStaff) return asStaff;
 
-          return "staff";
-        }
+    return null;
+  }, [selectedAccount, user?.phone, membersHook.items, staffHook.items]);
 
-        console.log("accountRole is member_visibility → Returning member");
+  const isStaffProfile = useMemo(() => {
+    if (!userMemberProfile) return false;
+    return staffHook.items.some((s) => s.id === userMemberProfile.id);
+  }, [userMemberProfile, staffHook.items]);
 
-        return "member";
-      }
+  // -------------------------------------------------------------------------
+  // Staff info (UI badges)
+  // -------------------------------------------------------------------------
+  const staffInfo = useMemo((): StaffInfo | null => {
+    if (!userMemberProfile || !isStaffProfile) return null;
+
+    const roleType = getStaffRoleType(userMemberProfile);
+    return STAFF_ROLE_INFO[roleType] || STAFF_ROLE_INFO.other;
+  }, [userMemberProfile, isStaffProfile]);
+
+  // -------------------------------------------------------------------------
+  // Determine coarse role (admin | staff | member)
+  // -------------------------------------------------------------------------
+  const userRole = useMemo((): UserRole => {
+    if (!selectedAccount || !user) return "member";
+
+    // Owner beats everything.
+    if (isOwner) return "admin"; // still surfaces as "admin" so existing checks keep working
+
+    // ---- Access store ----
+    const accountRole = getAccountRole(selectedAccount.id);
+
+    if (accountRole === "admin") return "admin";
+    if (accountRole === "staff_visibility") return "staff";
+    if (accountRole === "member_visibility") {
+      return isStaffProfile ? "staff" : "member";
     }
 
-    console.log("No accountRole found in useAccessStore");
-
-    // ============================================================
-    // STEP 2: Check accepted grants
-    // ============================================================
-
-    const userGrant = grants.find(
-      (grant) => grant.accountId === selectedAccount.id && grant.acceptedAt,
+    // ---- Accepted grant ----
+    const grant = grants.find(
+      (g) => g.accountId === selectedAccount.id && g.acceptedAt,
     );
 
-    console.log("userGrant from accessStore:", userGrant);
-
-    console.log("userGrant?.role:", userGrant?.role);
-
-    if (userGrant) {
-      console.log("Grant found in accessStore!");
-
-      if (userGrant.role === "admin") {
-        console.log("Grant role is admin → Returning admin");
-
-        return "admin";
-      }
-
-      if (userGrant.role === "staff_visibility") {
-        console.log("Grant role is staff_visibility → Returning staff");
-
-        return "staff";
-      }
-
-      if (userGrant.role === "member_visibility") {
-        if (userMemberProfile && isStaffMember(userMemberProfile)) {
-          console.log("User has staff profile → Returning staff");
-
-          return "staff";
-        }
-
-        console.log("Grant role is member_visibility → Returning member");
-
-        return "member";
+    if (grant) {
+      if (grant.role === "admin") return "admin";
+      if (grant.role === "staff_visibility") return "staff";
+      if (grant.role === "member_visibility") {
+        return isStaffProfile ? "staff" : "member";
       }
     }
 
-    console.log("No grant found in accessStore");
-
-    // ============================================================
-    // STEP 3: Check account owner
-    // ============================================================
-
-    if (selectedAccount.ownerId === user.id) {
-      console.log("User is the account owner → Returning admin");
-
-      return "admin";
-    }
-
-    // ============================================================
-    // STEP 4: Check member profile
-    // ============================================================
-
+    // ---- Profile ----
     if (userMemberProfile) {
-      if (isStaffMember(userMemberProfile)) {
-        console.log("User is staff → Returning staff");
-
-        return "staff";
-      }
-
-      console.log("User is member → Returning member");
-
-      return "member";
+      return isStaffProfile ? "staff" : "member";
     }
-
-    // ============================================================
-    // STEP 5: Default
-    // ============================================================
-
-    console.log("No role found, returning member as default");
 
     return "member";
-  }, [selectedAccount, user, grants, getAccountRole, userMemberProfile]);
+  }, [
+    selectedAccount,
+    user,
+    isOwner,
+    grants,
+    getAccountRole,
+    userMemberProfile,
+    isStaffProfile,
+  ]);
 
+  // -------------------------------------------------------------------------
+  // Public API
+  // -------------------------------------------------------------------------
   return {
+    // coarse role for existing checks
     userRole,
+    isAdmin: userRole === "admin",
+    isStaff: userRole === "staff",
+    isMember: userRole === "member",
+
+    // fine-grained owner flag for menu-item gating
+    isOwner,
+    isAccountCreator,
+    hasOwnerGrant,
+
+    // supporting data
     userMemberProfile,
     selectedAccount,
     staffInfo,
-
-    isStaff: userRole === "staff",
-
-    isAdmin: userRole === "admin",
-
-    isMember: userRole === "member",
   };
 }

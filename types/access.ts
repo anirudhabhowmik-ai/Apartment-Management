@@ -1,4 +1,10 @@
-export type AccountAccessRole = "admin" | "member_visibility" | "staff_visibility";
+// types/access.ts
+
+export type AccountAccessRole =
+  | "owner"
+  | "admin"
+  | "member_visibility"
+  | "staff_visibility";
 
 export interface AccountAccessGrant {
   id: string;
@@ -15,6 +21,7 @@ export interface AccountAccessGrant {
 }
 
 export const ACCESS_ROLE_LABEL: Record<AccountAccessRole, string> = {
+  owner: "Owner",
   admin: "Admin",
   member_visibility: "Apartment Owner Visibility",
   staff_visibility: "Staff Visibility",

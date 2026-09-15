@@ -2,6 +2,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
+  Alert,
   ScrollView,
   StyleSheet,
   Text,
@@ -9,10 +10,11 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+
 import DatePickerModal from "../../components/DatePickerModal";
+import { useMembers, useStaff } from "../../hooks/useManagement";
 import { usePayments } from "../../hooks/usePayments";
 import { useAttendanceStore } from "../../store/attendanceStore";
-import { useMemberStore } from "../../store/memberStore";
 
 const formatMonth = (month: string) =>
   new Date(`${month}-01T00:00:00`).toLocaleString("default", {
@@ -59,15 +61,19 @@ export default function MarkPaymentScreen() {
       month?: string;
     }>();
 
-  const member = useMemberStore((state) =>
-    state.members.find((currentMember) => currentMember.id === memberId),
-  );
+  const membersHook = useMembers(accountId ?? null);
+  const staffHook = useStaff(accountId ?? null);
 
-  const updateMember = useMemberStore((state) => state.updateMember);
+  const isStaffMember = !!staffHook.getById(memberId);
+
+  const member = isStaffMember
+    ? staffHook.getById(memberId)
+    : membersHook.getById(memberId);
 
   const getAttendanceRecord = useAttendanceStore((state) => state.getRecord);
 
-  const { editPayment, markAsPaid } = usePayments(accountId);
+  const { editPayment, markAsPaid, upsertMemberPayment, upsertStaffPayment } =
+    usePayments(accountId);
 
   const [paidDate, setPaidDate] = useState(
     new Date().toISOString().slice(0, 10),
@@ -87,10 +93,8 @@ export default function MarkPaymentScreen() {
 
   const [deductionNote, setDeductionNote] = useState("");
 
-  // Current saved status
   const [paymentStatus, setPaymentStatus] = useState<"paid" | "due">("due");
 
-  // Selected status (temporary, changes when user selects)
   const [selectedStatus, setSelectedStatus] = useState<"paid" | "due">("due");
 
   const [showStatusOptions, setShowStatusOptions] = useState(false);
@@ -113,7 +117,7 @@ export default function MarkPaymentScreen() {
           getCalculatedStaffSalary(
             member.monthlySalary,
             paymentMonth,
-            attendanceRecord?.statuses || {},
+            (attendanceRecord?.statuses ?? {}) as Record<string, string>,
           ))
         : 0;
 
@@ -131,15 +135,15 @@ export default function MarkPaymentScreen() {
     if (!member) return;
 
     const paymentForMonth =
-      member.monthlyPayments?.[paymentMonth] ||
-      (member.paidDate?.slice(0, 7) === paymentMonth
+      (member as any).monthlyPayments?.[paymentMonth] ||
+      ((member as any).paidDate?.slice(0, 7) === paymentMonth
         ? {
-            status: member.paymentStatus,
-            paidDate: member.paidDate,
-            additionalAmount: member.additionalAmount,
-            additionalNote: member.additionalNote,
-            deductionAmount: member.deductionAmount,
-            deductionNote: member.deductionNote,
+            status: (member as any).paymentStatus,
+            paidDate: (member as any).paidDate,
+            additionalAmount: (member as any).additionalAmount,
+            additionalNote: (member as any).additionalNote,
+            deductionAmount: (member as any).deductionAmount,
+            deductionNote: (member as any).deductionNote,
           }
         : undefined);
 
@@ -171,81 +175,82 @@ export default function MarkPaymentScreen() {
   };
 
   const handleSave = async () => {
-    if (!memberId || !member) {
-      return;
-    }
-
-    if (saving) {
-      return;
-    }
+    if (!memberId || !member) return;
+    if (saving) return;
 
     const finalStatus = selectedStatus;
 
     try {
       setSaving(true);
 
+      // ── New: persist to member_monthly_payments / staff_monthly_payments ──
+      const payload = {
+        status: finalStatus,
+        paidDate: finalStatus === "paid" ? paidDate : null,
+        baseAmount: amount || 0,
+        payableSalary:
+          isStaffMember && attendanceRecord?.payableSalary != null
+            ? attendanceRecord.payableSalary
+            : null,
+        additionalAmount: showAdditionalAmount ? additionalValue : 0,
+        additionalNote: showAdditionalAmount
+          ? additionalNote.trim() || null
+          : null,
+        deductionAmount: showDeduction ? deductionValue : 0,
+        deductionNote: showDeduction ? deductionNote.trim() || null : null,
+        netAmount: netPaidAmount,
+      };
+
+      if (isStaffMember) {
+        await upsertStaffPayment(memberId, paymentMonth, payload);
+      } else {
+        await upsertMemberPayment(memberId, paymentMonth, payload);
+      }
+
+      // ── Legacy payment log (optional; safe to keep) ──
       if (paymentId) {
-        if (finalStatus === "paid") {
-          if (isEditing) {
-            await editPayment(paymentId, {
-              status: "paid",
-              paidDate: new Date(`${paidDate}T00:00:00`).toISOString(),
-            });
+        try {
+          if (finalStatus === "paid") {
+            if (isEditing) {
+              await editPayment(paymentId, {
+                status: "paid",
+                paidDate: new Date(`${paidDate}T00:00:00`).toISOString(),
+              });
+            } else {
+              await markAsPaid(paymentId);
+            }
           } else {
-            await markAsPaid(paymentId);
+            await editPayment(paymentId, {
+              status: "due",
+              paidDate: undefined,
+            });
           }
-        } else {
-          await editPayment(paymentId, {
-            status: "due",
-            paidDate: undefined,
-          });
+        } catch (legacyError) {
+          console.warn("Legacy payment log update failed:", legacyError);
         }
       }
 
-      updateMember(memberId, {
-        paymentStatus: finalStatus,
-        paidDate: finalStatus === "paid" ? paidDate : undefined,
-        additionalAmount: showAdditionalAmount ? additionalValue : 0,
-        additionalNote: showAdditionalAmount
-          ? additionalNote.trim() || undefined
-          : undefined,
-        deductionAmount: showDeduction ? deductionValue : 0,
-        deductionNote: showDeduction
-          ? deductionNote.trim() || undefined
-          : undefined,
-        monthlyPayments: {
-          ...(member.monthlyPayments || {}),
-          [paymentMonth]: {
-            status: finalStatus,
-            ...(finalStatus === "paid"
-              ? {
-                  paidDate,
-                }
-              : {}),
-            additionalAmount: showAdditionalAmount ? additionalValue : 0,
-            additionalNote: showAdditionalAmount
-              ? additionalNote.trim() || undefined
-              : undefined,
-            deductionAmount: showDeduction ? deductionValue : 0,
-            deductionNote: showDeduction
-              ? deductionNote.trim() || undefined
-              : undefined,
-            netAmount: netPaidAmount,
-          },
-        },
-      });
+      // Refresh the management lists so the UI reflects the new payment.
+      try {
+        if (isStaffMember) await staffHook.refresh();
+        else await membersHook.refresh();
+      } catch (refreshError) {
+        console.warn("Post-save refresh failed:", refreshError);
+      }
 
       setPaymentStatus(finalStatus);
-
       router.back();
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to save payment:", error);
+      Alert.alert(
+        "Save failed",
+        error?.message ?? "Could not save payment. Please try again.",
+      );
     } finally {
       setSaving(false);
     }
   };
 
-  // Get status display info
   const getStatusInfo = (status: "paid" | "due") => {
     if (status === "paid") {
       return {
@@ -279,7 +284,6 @@ export default function MarkPaymentScreen() {
       />
 
       <View style={styles.modalCard}>
-        {/* HEADER */}
         <View style={styles.header}>
           <Text style={styles.memberName}>{member?.name || "Member"}</Text>
 
@@ -299,7 +303,6 @@ export default function MarkPaymentScreen() {
           keyboardShouldPersistTaps="handled"
           bounces
         >
-          {/* BASE AMOUNT */}
           <Text style={styles.label}>
             {type === "maintenance" ? "Maintenance Amount" : "Salary Amount"}
           </Text>
@@ -308,7 +311,6 @@ export default function MarkPaymentScreen() {
             <Text style={styles.amount}>₹{amount || 0}</Text>
           </View>
 
-          {/* PAYMENT STATUS - Improved UI */}
           <Text style={styles.label}>Payment Status</Text>
 
           <TouchableOpacity
@@ -358,7 +360,6 @@ export default function MarkPaymentScreen() {
             </View>
           </TouchableOpacity>
 
-          {/* STATUS OPTIONS - Improved UI */}
           {showStatusOptions && (
             <View style={styles.statusOptions}>
               <TouchableOpacity
@@ -452,7 +453,6 @@ export default function MarkPaymentScreen() {
                 )}
               </TouchableOpacity>
 
-              {/* Status change indicator */}
               {selectedStatus !== paymentStatus && (
                 <View style={styles.statusChangeIndicator}>
                   <Ionicons
@@ -469,7 +469,6 @@ export default function MarkPaymentScreen() {
             </View>
           )}
 
-          {/* ADDITIONAL AMOUNT */}
           <TouchableOpacity
             style={styles.additionalButton}
             onPress={() => setShowAdditionalAmount((visible) => !visible)}
@@ -518,7 +517,6 @@ export default function MarkPaymentScreen() {
             </View>
           )}
 
-          {/* DEDUCTION */}
           <TouchableOpacity
             style={styles.additionalButton}
             onPress={() => setShowDeduction((visible) => !visible)}
@@ -561,7 +559,6 @@ export default function MarkPaymentScreen() {
             </View>
           )}
 
-          {/* FINAL AMOUNT */}
           <View style={styles.netAmountCard}>
             <View>
               <Text style={styles.netPaidLabel}>
@@ -580,7 +577,6 @@ export default function MarkPaymentScreen() {
             <Text style={styles.netAmount}>₹{netPaidAmount}</Text>
           </View>
 
-          {/* PAID DATE */}
           {selectedStatus === "paid" && (
             <>
               <Text style={styles.label}>Paid Date</Text>
@@ -600,7 +596,6 @@ export default function MarkPaymentScreen() {
           <View style={styles.scrollBottomSpace} />
         </ScrollView>
 
-        {/* BOTTOM BUTTONS */}
         <View style={styles.bottomActions}>
           <TouchableOpacity
             style={styles.cancelButton}
@@ -643,11 +638,10 @@ export default function MarkPaymentScreen() {
         </View>
       </View>
 
-      {/* DATE PICKER */}
       <DatePickerModal
         visible={showDatePicker}
-        value={paidDate}
         onClose={() => setShowDatePicker(false)}
+        value={paidDate}
         onSelect={setPaidDate}
       />
     </View>
@@ -731,7 +725,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 
-  // Status Selector - Improved
   statusSelector: {
     alignItems: "center",
     borderRadius: 12,
@@ -773,7 +766,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
 
-  // Status Options - Improved
   statusOptions: {
     backgroundColor: "#fff",
     borderColor: "#e2e8f0",

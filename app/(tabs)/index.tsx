@@ -14,10 +14,10 @@ import {
 } from "react-native";
 
 import { useAccounts } from "../../hooks/useAccounts";
-import { useGroups } from "../../hooks/useGroups";
+import { useMembers, useStaff } from "../../hooks/useManagement";
 import { useUserRole } from "../../hooks/useUserRole";
-import { useMemberStore } from "../../store/memberStore";
 import { useAuthStore } from "../../store/useAuthStore";
+import type { Member } from "../../types";
 import {
   getPeopleSummary,
   getPeopleTransactions,
@@ -39,7 +39,7 @@ interface QuickAction {
 type AttendanceStatus = "present" | "absent" | "holiday" | "half_day" | "none";
 
 interface AttendanceRecord {
-  date: string; // YYYY-MM-DD
+  date: string;
   status: AttendanceStatus;
   checkIn?: string;
   checkOut?: string;
@@ -171,9 +171,14 @@ function formatDateKey(year: number, month: number, day: number) {
   return `${year}-${String(month + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
 }
 
+function normalizePhone(raw?: string): string {
+  if (!raw) return "";
+  const digits = String(raw).replace(/\D/g, "");
+  return digits.length > 10 ? digits.slice(-10) : digits;
+}
+
 /* -------------------------------------------------------------------------- */
 /* MOCK ATTENDANCE DATA                                                       */
-/* Replace this with a real hook later — e.g. useAttendance(memberId, month)  */
 /* -------------------------------------------------------------------------- */
 
 function generateMockAttendance(
@@ -190,19 +195,16 @@ function generateMockAttendance(
     const date = new Date(year, month, day);
     const key = formatDateKey(year, month, day);
 
-    // Sundays are holidays
     if (date.getDay() === 0) {
       result[key] = { date: key, status: "holiday" };
       continue;
     }
 
-    // Future dates → none
     if (isCurrentMonth && day > today.getDate()) {
       result[key] = { date: key, status: "none" };
       continue;
     }
 
-    // Mock pattern: mostly present, occasional absent / half-day
     const seed = (day * 7 + month * 3) % 10;
     if (seed === 0) {
       result[key] = { date: key, status: "absent" };
@@ -393,7 +395,11 @@ function MemberPersonalCard({
   onEdit: () => void;
 }) {
   const memberName = member?.name || "Resident";
-  const unit = member?.apartmentNumber || member?.unitNumber || "N/A";
+  const unit =
+    member?.flatNumber ||
+    member?.apartmentNumber ||
+    member?.unitNumber ||
+    "N/A";
   const maintenanceAmount = member?.maintenanceAmount || 0;
 
   return (
@@ -524,7 +530,6 @@ function MonthYearPickerModal({
 
   const yearScrollRef = useRef<ScrollView | null>(null);
 
-  // Sync draft when modal opens
   useEffect(() => {
     if (visible) {
       setDraftYear(year);
@@ -532,10 +537,6 @@ function MonthYearPickerModal({
     }
   }, [visible, year, month]);
 
-  // Auto-growing year range:
-  //  - Always covers TODAY ± 10/+15 years (so it grows as real time moves)
-  //  - Also always includes the currently selected year (±2/+5)
-  //  - No hard cap, no manual updates needed
   const currentYear = new Date().getFullYear();
   const START_YEAR = Math.min(currentYear - 10, year - 2);
   const END_YEAR = Math.max(currentYear + 15, year + 5);
@@ -543,18 +544,18 @@ function MonthYearPickerModal({
   const years: number[] = [];
   for (let y = START_YEAR; y <= END_YEAR; y++) years.push(y);
 
-  // Auto-scroll the year row to the selected year when opened
   useEffect(() => {
     if (!visible) return;
     const index = years.indexOf(draftYear);
     if (index < 0) return;
 
-    const chipWidth = 72; // chip width + gap
+    const chipWidth = 72;
     const offset = Math.max(0, index * chipWidth - 100);
 
     requestAnimationFrame(() => {
       yearScrollRef.current?.scrollTo({ x: offset, animated: false });
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible, draftYear, years.length]);
 
   return (
@@ -680,7 +681,6 @@ function AttendanceSection({
       else if (r.status === "half_day") halfDay++;
     });
 
-    // Leading blanks so the 1st lines up under the correct weekday
     const cells: (number | null)[] = [];
     for (let i = 0; i < first; i++) cells.push(null);
     for (let d = 1; d <= daysInMonth; d++) cells.push(d);
@@ -710,7 +710,6 @@ function AttendanceSection({
 
   return (
     <View style={styles.attendanceCard}>
-      {/* ---- SLIDER / MONTH NAVIGATION ---- */}
       <View style={styles.sliderRow}>
         <TouchableOpacity
           onPress={handlePrev}
@@ -740,7 +739,6 @@ function AttendanceSection({
         </TouchableOpacity>
       </View>
 
-      {/* ---- QUICK LEGEND / SUMMARY ---- */}
       <View style={styles.summaryRow}>
         <View style={styles.summaryItem}>
           <View
@@ -784,7 +782,6 @@ function AttendanceSection({
         </View>
       </View>
 
-      {/* ---- WEEKDAY HEADER ---- */}
       <View style={styles.weekRow}>
         {WEEKDAYS.map((d, i) => (
           <View key={i} style={styles.weekCell}>
@@ -793,7 +790,6 @@ function AttendanceSection({
         ))}
       </View>
 
-      {/* ---- CALENDAR GRID ---- */}
       <View style={styles.calendarGrid}>
         {days.map((day, index) => {
           if (day === null) {
@@ -848,14 +844,21 @@ export default function HomeScreen() {
     isLoading: accountsLoading,
   } = useAccounts();
 
-  const { groups } = useGroups(selectedAccount?.id || null);
-  const members = useMemberStore((state) => state.members);
+  // ── NEW: pull apartment + staff lists from useManagement ──
+  const accountId = selectedAccount?.id ?? null;
+  const { items: apartmentMembers } = useMembers(accountId);
+  const { items: staffMembers } = useStaff(accountId);
+
+  const allMembers: Member[] = useMemo(
+    () => [...apartmentMembers, ...staffMembers],
+    [apartmentMembers, staffMembers],
+  );
+
   const { user } = useAuthStore();
   const { isAdmin, isMember, isStaff } = useUserRole();
 
   const [refreshing, setRefreshing] = useState(false);
 
-  // Attendance state — shared by staff & member views
   const now = new Date();
   const [attYear, setAttYear] = useState(now.getFullYear());
   const [attMonth, setAttMonth] = useState(now.getMonth());
@@ -872,18 +875,16 @@ export default function HomeScreen() {
   const matchedProfile = useMemo(() => {
     if (!user || !selectedAccount) return null;
 
-    const accountGroupIds = new Set(groups.map((group) => group.id));
-    const accountMembers = members.filter((member) =>
-      accountGroupIds.has(member.groupId),
-    );
+    const target = normalizePhone(user.phone);
+    if (!target) return null;
 
     return (
-      accountMembers.find(
-        (member) =>
-          member.phone === user.phone || (member as any).userId === user.id,
-      ) || null
+      allMembers.find((member) => {
+        const memberPhone = normalizePhone(member.phone || "");
+        return memberPhone === target;
+      }) ?? null
     );
-  }, [user, selectedAccount, groups, members]);
+  }, [user, selectedAccount, allMembers]);
 
   /* ------------------------------------------------------------------------ */
   /* DASHBOARD DATA - Only for admin                                          */
@@ -903,24 +904,11 @@ export default function HomeScreen() {
     if (!isAdmin || !selectedAccount) return emptyData;
 
     try {
-      const accountGroupIds = new Set(groups.map((group) => group.id));
-      const accountMembers = members.filter((member) =>
-        accountGroupIds.has(member.groupId),
-      );
-
-      const apartmentMembers = accountMembers.filter(
-        (member) => "maintenanceAmount" in member,
-      );
-
-      const staffMembers = accountMembers.filter(
-        (member) => "monthlySalary" in member,
-      );
-
       const currentMonth = `${new Date().getFullYear()}-${String(
         new Date().getMonth() + 1,
       ).padStart(2, "0")}`;
 
-      const transactions = getPeopleTransactions(accountMembers, currentMonth);
+      const transactions = getPeopleTransactions(allMembers, currentMonth);
       const financialSummary = getPeopleSummary(transactions);
       const recentStaff = [...staffMembers].reverse().slice(0, 5);
 
@@ -937,7 +925,7 @@ export default function HomeScreen() {
       console.error("Error calculating dashboard data:", error);
       return emptyData;
     }
-  }, [selectedAccount, groups, members, isAdmin]);
+  }, [selectedAccount, allMembers, apartmentMembers, staffMembers, isAdmin]);
 
   const stats = dashboardData.stats;
   const recentStaff = dashboardData.recentStaff;
@@ -1083,7 +1071,7 @@ export default function HomeScreen() {
     selectedAccount.type === "apartment" ? "Apartment Community" : "Home";
 
   /* ======================================================================== */
-  /* STAFF VIEW - Profile + Attendance                                       */
+  /* STAFF VIEW                                                               */
   /* ======================================================================== */
 
   if (isStaff) {
@@ -1140,7 +1128,6 @@ export default function HomeScreen() {
             </View>
           )}
 
-          {/* ATTENDANCE - slider + calendar */}
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
               <View>
@@ -1359,9 +1346,7 @@ export default function HomeScreen() {
             <View
               style={[
                 styles.balanceIcon,
-                {
-                  backgroundColor: isPositiveBalance ? "#DCFCE7" : "#FEE2E2",
-                },
+                { backgroundColor: isPositiveBalance ? "#DCFCE7" : "#FEE2E2" },
               ]}
             >
               <Ionicons
@@ -1568,16 +1553,8 @@ export default function HomeScreen() {
 /* ========================================================================== */
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#F8FAFC",
-  },
-
-  scrollContent: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 30,
-  },
+  container: { flex: 1, backgroundColor: "#F8FAFC" },
+  scrollContent: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 30 },
 
   /* LOADING */
   loadingScreen: {
@@ -1602,11 +1579,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#0F172A",
   },
-  loadingSubtitle: {
-    marginTop: 5,
-    fontSize: 13,
-    color: "#94A3B8",
-  },
+  loadingSubtitle: { marginTop: 5, fontSize: 13, color: "#94A3B8" },
 
   /* HEADER */
   header: { marginBottom: 16 },
@@ -1624,11 +1597,7 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: "#0F172A",
   },
-  accountTypeRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 7,
-  },
+  accountTypeRow: { flexDirection: "row", alignItems: "center", marginTop: 7 },
   accountStatusDot: {
     width: 7,
     height: 7,
@@ -1636,11 +1605,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#22C55E",
     marginRight: 6,
   },
-  accountTypeText: {
-    fontSize: 12,
-    color: "#64748B",
-    fontWeight: "500",
-  },
+  accountTypeText: { fontSize: 12, color: "#64748B", fontWeight: "500" },
   dotSeparator: {
     width: 3,
     height: 3,
@@ -1658,18 +1623,18 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     borderWidth: 1,
     borderColor: "#E2E8F0",
-    boxShadow: "0px 8px 18px rgba(15, 23, 42, 0.06)",
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.06,
+    shadowRadius: 18,
+    elevation: 3,
   },
   balanceTop: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
-  balanceLabel: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#475569",
-  },
+  balanceLabel: { fontSize: 13, fontWeight: "700", color: "#475569" },
   balancePeriod: { fontSize: 11, color: "#94A3B8", marginTop: 3 },
   balanceIcon: {
     width: 42,
@@ -1685,26 +1650,10 @@ const styles = StyleSheet.create({
     marginTop: 15,
     letterSpacing: -0.6,
   },
-  balanceDivider: {
-    height: 1,
-    backgroundColor: "#F1F5F9",
-    marginVertical: 17,
-  },
-  balanceBottom: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-  },
-  balanceMiniItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
-  },
-  miniDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginRight: 8,
-  },
+  balanceDivider: { height: 1, backgroundColor: "#F1F5F9", marginVertical: 17 },
+  balanceBottom: { flexDirection: "row", justifyContent: "space-between" },
+  balanceMiniItem: { flexDirection: "row", alignItems: "center", flex: 1 },
+  miniDot: { width: 8, height: 8, borderRadius: 4, marginRight: 8 },
   miniLabel: { fontSize: 11, color: "#94A3B8", marginBottom: 2 },
   miniValue: { fontSize: 13, fontWeight: "700", color: "#334155" },
 
@@ -1741,7 +1690,11 @@ const styles = StyleSheet.create({
     padding: 16,
     borderWidth: 1,
     borderColor: "#E2E8F0",
-    boxShadow: "0px 4px 10px rgba(15, 23, 42, 0.035)",
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.035,
+    shadowRadius: 10,
+    elevation: 1,
   },
   statIconContainer: {
     width: 40,
@@ -1888,7 +1841,7 @@ const styles = StyleSheet.create({
     marginLeft: 10,
   },
 
-  /* PERSONAL CARD (shared by member & staff views) */
+  /* PERSONAL CARD */
   personalCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 22,
@@ -1896,7 +1849,11 @@ const styles = StyleSheet.create({
     marginBottom: 20,
     borderWidth: 1,
     borderColor: "#E2E8F0",
-    boxShadow: "0px 8px 18px rgba(15, 23, 42, 0.06)",
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.06,
+    shadowRadius: 18,
+    elevation: 3,
   },
   personalHeader: {
     flexDirection: "row",
@@ -1912,11 +1869,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginRight: 14,
   },
-  personalInitial: {
-    fontSize: 24,
-    fontWeight: "800",
-    color: "#2563EB",
-  },
+  personalInitial: { fontSize: 24, fontWeight: "800", color: "#2563EB" },
   personalInfo: { flex: 1 },
   personalName: { fontSize: 18, fontWeight: "800", color: "#0F172A" },
   personalRoleRow: {
@@ -1943,16 +1896,8 @@ const styles = StyleSheet.create({
     flexWrap: "wrap",
     gap: 4,
   },
-  personalDetailLabel: {
-    fontSize: 11,
-    color: "#94A3B8",
-    marginLeft: 4,
-  },
-  personalDetailValue: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#334155",
-  },
+  personalDetailLabel: { fontSize: 11, color: "#94A3B8", marginLeft: 4 },
+  personalDetailValue: { fontSize: 12, fontWeight: "600", color: "#334155" },
   personalEditButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -1962,11 +1907,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#EFF6FF",
     gap: 6,
   },
-  personalEditText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#2563EB",
-  },
+  personalEditText: { fontSize: 13, fontWeight: "600", color: "#2563EB" },
 
   /* ATTENDANCE */
   attendanceCard: {
@@ -1975,7 +1916,11 @@ const styles = StyleSheet.create({
     padding: 16,
     borderWidth: 1,
     borderColor: "#E2E8F0",
-    boxShadow: "0px 4px 12px rgba(15, 23, 42, 0.05)",
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    elevation: 2,
   },
   sliderRow: {
     flexDirection: "row",
@@ -2002,11 +1947,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#E2E8F0",
   },
-  sliderMonthText: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: "#0F172A",
-  },
+  sliderMonthText: { fontSize: 15, fontWeight: "700", color: "#0F172A" },
   summaryRow: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -2015,45 +1956,14 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#F1F5F9",
   },
-  summaryItem: {
-    flex: 1,
-    alignItems: "center",
-    gap: 2,
-  },
-  summaryDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginBottom: 2,
-  },
-  summaryLabel: {
-    fontSize: 10,
-    color: "#94A3B8",
-    fontWeight: "600",
-  },
-  summaryValue: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: "#0F172A",
-  },
-  weekRow: {
-    flexDirection: "row",
-    marginBottom: 6,
-  },
-  weekCell: {
-    flex: 1,
-    alignItems: "center",
-    paddingVertical: 6,
-  },
-  weekText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#94A3B8",
-  },
-  calendarGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-  },
+  summaryItem: { flex: 1, alignItems: "center", gap: 2 },
+  summaryDot: { width: 8, height: 8, borderRadius: 4, marginBottom: 2 },
+  summaryLabel: { fontSize: 10, color: "#94A3B8", fontWeight: "600" },
+  summaryValue: { fontSize: 15, fontWeight: "800", color: "#0F172A" },
+  weekRow: { flexDirection: "row", marginBottom: 6 },
+  weekCell: { flex: 1, alignItems: "center", paddingVertical: 6 },
+  weekText: { fontSize: 11, fontWeight: "700", color: "#94A3B8" },
+  calendarGrid: { flexDirection: "row", flexWrap: "wrap" },
   calendarCell: {
     width: `${100 / 7}%`,
     aspectRatio: 1,
@@ -2070,14 +1980,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  dayBubbleToday: {
-    borderWidth: 2,
-    borderColor: "#2563EB",
-  },
-  dayText: {
-    fontSize: 12,
-    fontWeight: "700",
-  },
+  dayBubbleToday: { borderWidth: 2, borderColor: "#2563EB" },
+  dayText: { fontSize: 12, fontWeight: "700" },
 
   /* MONTH / YEAR PICKER */
   pickerBackdrop: {
@@ -2100,11 +2004,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: 14,
   },
-  pickerTitle: {
-    fontSize: 17,
-    fontWeight: "800",
-    color: "#0F172A",
-  },
+  pickerTitle: { fontSize: 17, fontWeight: "800", color: "#0F172A" },
   pickerClose: {
     width: 32,
     height: 32,
@@ -2120,10 +2020,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     marginTop: 8,
   },
-  yearRow: {
-    gap: 8,
-    paddingVertical: 4,
-  },
+  yearRow: { gap: 8, paddingVertical: 4 },
   yearChip: {
     paddingHorizontal: 16,
     paddingVertical: 10,
@@ -2132,22 +2029,10 @@ const styles = StyleSheet.create({
     minWidth: 70,
     alignItems: "center",
   },
-  yearChipActive: {
-    backgroundColor: "#2563EB",
-  },
-  yearChipText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#475569",
-  },
-  yearChipTextActive: {
-    color: "#FFFFFF",
-  },
-  monthGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-  },
+  yearChipActive: { backgroundColor: "#2563EB" },
+  yearChipText: { fontSize: 14, fontWeight: "700", color: "#475569" },
+  yearChipTextActive: { color: "#FFFFFF" },
+  monthGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   monthChip: {
     width: "31%",
     paddingVertical: 12,
@@ -2155,17 +2040,9 @@ const styles = StyleSheet.create({
     backgroundColor: "#F1F5F9",
     alignItems: "center",
   },
-  monthChipActive: {
-    backgroundColor: "#2563EB",
-  },
-  monthChipText: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#475569",
-  },
-  monthChipTextActive: {
-    color: "#FFFFFF",
-  },
+  monthChipActive: { backgroundColor: "#2563EB" },
+  monthChipText: { fontSize: 13, fontWeight: "700", color: "#475569" },
+  monthChipTextActive: { color: "#FFFFFF" },
   pickerConfirm: {
     marginTop: 20,
     height: 48,
@@ -2174,11 +2051,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  pickerConfirmText: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: "#FFFFFF",
-  },
+  pickerConfirmText: { fontSize: 15, fontWeight: "700", color: "#FFFFFF" },
 
   /* FOOTER MESSAGE */
   footerMessage: {
@@ -2191,11 +2064,7 @@ const styles = StyleSheet.create({
   footerMessageText: { fontSize: 12, color: "#94A3B8" },
 
   /* EMPTY ACCOUNT */
-  emptyScrollContent: {
-    flexGrow: 1,
-    justifyContent: "center",
-    padding: 24,
-  },
+  emptyScrollContent: { flexGrow: 1, justifyContent: "center", padding: 24 },
   emptyStateContainer: {
     alignItems: "center",
     backgroundColor: "#FFFFFF",
@@ -2237,7 +2106,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
-    boxShadow: "0px 6px 10px rgba(37, 99, 235, 0.18)",
+    shadowColor: "#2563EB",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.18,
+    shadowRadius: 10,
+    elevation: 4,
   },
   primaryButtonText: { fontSize: 15, fontWeight: "700", color: "#FFFFFF" },
   secondaryActionButton: {

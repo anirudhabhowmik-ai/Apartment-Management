@@ -33,13 +33,16 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import DatePickerModal from "../../components/DatePickerModal";
-import { useMembers } from "../../hooks/useMembers";
 import {
-  BillAttachment,
-  GroupType,
-  MemberRole,
-  TransactionKind,
-} from "../../types";
+  PhoneVisibilityRow,
+  useExpenses,
+  useMembers,
+  useStaff,
+} from "../../hooks/useManagement";
+import { useAuthStore } from "../../store/useAuthStore";
+import type { BillAttachment, ManagementType, MemberRole } from "../../types";
+
+type TransactionKind = "expense" | "income";
 
 interface RoleOption {
   role: MemberRole;
@@ -101,7 +104,53 @@ const INCOME_SOURCES: RoleOption[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Photo Adjust Modal
+// Helpers
+// ---------------------------------------------------------------------------
+
+function normalizePhone(raw?: string): string {
+  if (!raw) return "";
+  const digits = String(raw).replace(/\D/g, "");
+  return digits.length > 10 ? digits.slice(-10) : digits;
+}
+
+function toDateInput(raw: unknown): string {
+  if (raw === null || raw === undefined) return "";
+
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (!trimmed) return "";
+
+    // Pure date — trust it as-is.
+    if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
+
+    // ISO datetime — parse and read the LOCAL calendar day.
+    const d = new Date(trimmed);
+    if (!isNaN(d.getTime())) {
+      const y = d.getFullYear();
+      const m = String(d.getMonth() + 1).padStart(2, "0");
+      const dd = String(d.getDate()).padStart(2, "0");
+      return `${y}-${m}-${dd}`;
+    }
+
+    // Fallback — grab a leading YYYY-MM-DD.
+    const m = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
+    return m ? m[1] : "";
+  }
+
+  // Date object — read LOCAL components. Never use .toISOString() here.
+  if (raw instanceof Date) {
+    if (isNaN(raw.getTime())) return "";
+    const y = raw.getFullYear();
+    const m = String(raw.getMonth() + 1).padStart(2, "0");
+    const d = String(raw.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+
+  return "";
+}
+
+// ---------------------------------------------------------------------------
+// Photo Adjust Modal (unchanged)
 // ---------------------------------------------------------------------------
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -123,7 +172,6 @@ interface PhotoAdjustModalProps {
 }
 
 function clampNumber(value: number, min: number, max: number) {
-  "worklet";
   return Math.min(Math.max(value, min), max);
 }
 
@@ -168,6 +216,7 @@ function PhotoAdjustModal({
 
   useEffect(() => {
     setTranslate((t) => clampTranslate(t, zoom));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zoom, image]);
 
   const zoomRef = useRef(zoom);
@@ -178,15 +227,12 @@ function PhotoAdjustModal({
   useEffect(() => {
     zoomRef.current = zoom;
   }, [zoom]);
-
   useEffect(() => {
     translateRef.current = translate;
   }, [translate]);
-
   useEffect(() => {
     imageRef.current = image;
   }, [image]);
-
   useEffect(() => {
     baseScaleRef.current = baseScale;
   }, [baseScale]);
@@ -309,10 +355,7 @@ function PhotoAdjustModal({
           const dx = touch.pageX - g.startTouch.x;
           const dy = touch.pageY - g.startTouch.y;
           const next = clampTranslateFromRefs(
-            {
-              x: g.startTranslate.x + dx,
-              y: g.startTranslate.y + dy,
-            },
+            { x: g.startTranslate.x + dx, y: g.startTranslate.y + dy },
             zoomRef.current,
           );
           translateRef.current = next;
@@ -365,19 +408,9 @@ function PhotoAdjustModal({
         image.uri,
         [
           {
-            crop: {
-              originX,
-              originY,
-              width: cropSize,
-              height: cropSize,
-            },
+            crop: { originX, originY, width: cropSize, height: cropSize },
           },
-          {
-            resize: {
-              width: 500,
-              height: 500,
-            },
-          },
+          { resize: { width: 500, height: 500 } },
         ],
         {
           compress: 0.8,
@@ -509,10 +542,7 @@ const adjustStyles = StyleSheet.create({
     color: "#64748b",
     marginBottom: 16,
   },
-  viewportWrapper: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  viewportWrapper: { alignItems: "center", justifyContent: "center" },
   viewport: {
     backgroundColor: "#0f172a",
     borderRadius: 16,
@@ -538,11 +568,7 @@ const adjustStyles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 8,
   },
-  zoomLevelText: {
-    color: "#ffffff",
-    fontSize: 12,
-    fontWeight: "600",
-  },
+  zoomLevelText: { color: "#ffffff", fontSize: 12, fontWeight: "600" },
   resetButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -551,17 +577,8 @@ const adjustStyles = StyleSheet.create({
     paddingVertical: 4,
     paddingHorizontal: 10,
   },
-  resetText: {
-    fontSize: 12.5,
-    fontWeight: "600",
-    color: "#64748b",
-  },
-  actionRow: {
-    flexDirection: "row",
-    gap: 10,
-    width: "100%",
-    marginTop: 16,
-  },
+  resetText: { fontSize: 12.5, fontWeight: "600", color: "#64748b" },
+  actionRow: { flexDirection: "row", gap: 10, width: "100%", marginTop: 16 },
   cancelButton: {
     flex: 1,
     paddingVertical: 13,
@@ -571,11 +588,7 @@ const adjustStyles = StyleSheet.create({
     backgroundColor: "#f8fafc",
     alignItems: "center",
   },
-  cancelText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#475569",
-  },
+  cancelText: { fontSize: 14, fontWeight: "700", color: "#475569" },
   confirmButton: {
     flex: 1,
     flexDirection: "row",
@@ -586,11 +599,7 @@ const adjustStyles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: "#1a73e8",
   },
-  confirmText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#ffffff",
-  },
+  confirmText: { fontSize: 14, fontWeight: "700", color: "#ffffff" },
 });
 
 // ==================================================
@@ -601,35 +610,58 @@ export default function EditMemberScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
-  const { memberId, groupId, groupType } = useLocalSearchParams<{
-    memberId: string;
-    groupId: string;
-    groupType: GroupType;
+  const params = useLocalSearchParams<{
+    memberId?: string | string[];
+    accountId?: string | string[];
+    groupId?: string | string[];
+    groupType?: string | string[];
   }>();
 
-  const { getMemberById, editMember, deleteMember } = useMembers(
-    groupId ?? null,
-  );
+  const pick = (raw: string | string[] | undefined): string => {
+    const v = Array.isArray(raw) ? raw[0] : raw;
+    return typeof v === "string" ? v.trim() : "";
+  };
 
-  const member = getMemberById(memberId);
+  const memberId = pick(params.memberId);
+  const accountId = pick(params.accountId) || pick(params.groupId);
 
-  // ==================================================
-  // ROLE OPTIONS
-  // ==================================================
+  const rawGroupType = pick(params.groupType).toLowerCase();
+  const groupType: ManagementType =
+    rawGroupType === "staff"
+      ? "staff"
+      : rawGroupType === "expense"
+        ? "expense"
+        : "apartment";
+
+  const membersHook = useMembers(accountId || null);
+  const staffHook = useStaff(accountId || null);
+  const expensesHook = useExpenses(accountId || null);
+
+  const activeHook =
+    groupType === "staff"
+      ? staffHook
+      : groupType === "expense"
+        ? expensesHook
+        : membersHook;
+
+  const { getById, update, remove, fetchPhoneVisibility, savePhoneVisibility } =
+    activeHook;
+
+  const member = getById(memberId);
+
+  const { user } = useAuthStore();
+  const currentUserPhone = normalizePhone(user?.phone);
+  const memberPhone = normalizePhone(member?.phone);
+  const isSelfMember =
+    groupType === "apartment" &&
+    !!currentUserPhone &&
+    !!memberPhone &&
+    currentUserPhone === memberPhone;
 
   let roleOptions: RoleOption[] = [];
-
-  if (groupType === "apartment") {
-    roleOptions = FLAT_ROLES;
-  } else if (groupType === "staff") {
-    roleOptions = SERVANT_ROLES;
-  } else if (groupType === "expense") {
-    roleOptions = EXPENSE_ROLES;
-  }
-
-  // ==================================================
-  // FORM STATE
-  // ==================================================
+  if (groupType === "apartment") roleOptions = FLAT_ROLES;
+  else if (groupType === "staff") roleOptions = SERVANT_ROLES;
+  else if (groupType === "expense") roleOptions = EXPENSE_ROLES;
 
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
@@ -653,12 +685,10 @@ export default function EditMemberScreen() {
   const [dueDate, setDueDate] = useState("");
   const [billAttachments, setBillAttachments] = useState<BillAttachment[]>([]);
 
-  // NEW: Transaction kind state
   const [transactionKind, setTransactionKind] =
     useState<TransactionKind>("expense");
   const isIncome = transactionKind === "income";
 
-  // Get active category options
   const activeCategoryOptions = isIncome ? INCOME_SOURCES : EXPENSE_ROLES;
 
   const [showDatePicker, setShowDatePicker] = useState(false);
@@ -670,88 +700,63 @@ export default function EditMemberScreen() {
 
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
 
-  // ==================================================
-  // PHOTO UPLOAD STATE
-  // ==================================================
-
   const [showPhotoOptions, setShowPhotoOptions] = useState(false);
   const [rawImage, setRawImage] = useState<RawImage | null>(null);
   const [showAdjustModal, setShowAdjustModal] = useState(false);
   const [isBillPhotoMode, setIsBillPhotoMode] = useState(false);
-
-  // ==================================================
-  // CONTACT PICKER STATE
-  // ==================================================
 
   const [showContactPicker, setShowContactPicker] = useState(false);
   const [contactsList, setContactsList] = useState<ContactData[]>([]);
   const [contactSearch, setContactSearch] = useState("");
   const [loadingContacts, setLoadingContacts] = useState(false);
 
+  const [showVisibility, setShowVisibility] = useState(false);
+  const [visibilityRows, setVisibilityRows] = useState<PhoneVisibilityRow[]>(
+    [],
+  );
+  const [visibilityLoading, setVisibilityLoading] = useState(false);
+  const [visibilitySaving, setVisibilitySaving] = useState(false);
+  const [visibilityError, setVisibilityError] = useState("");
+
   const hasFieldErrors = Object.values(fieldErrors).some(Boolean);
 
-  // ==================================================
-  // GET HEADER TITLE
-  // ==================================================
-
   const getHeaderTitle = () => {
-    if (groupType === "expense") {
-      return "Edit Transaction";
-    }
-    if (groupType === "staff") {
-      return "Edit Staff";
-    }
-    if (groupType === "apartment") {
-      return "Edit Member";
-    }
+    if (groupType === "expense") return "Edit Transaction";
+    if (groupType === "staff") return "Edit Staff";
+    if (groupType === "apartment") return "Edit Member";
     return "Edit Member";
   };
 
-  // ==================================================
-  // FILTER CONTACTS
-  // ==================================================
-
   const filteredContacts = useMemo(() => {
     const search = contactSearch.toLowerCase().trim();
-
-    if (!search) {
-      return contactsList;
-    }
+    if (!search) return contactsList;
 
     return contactsList.filter((contact) => {
       const nameMatch = contact.name.toLowerCase().includes(search);
-
-      const phoneMatch = contact.phoneNumbers.some((phone) =>
-        phone.number.toLowerCase().includes(search),
+      const phoneMatch = contact.phoneNumbers.some((p) =>
+        p.number.toLowerCase().includes(search),
       );
-
       return nameMatch || phoneMatch;
     });
   }, [contactsList, contactSearch]);
 
-  // ==================================================
-  // LOAD MEMBER
-  // ==================================================
-
+  // ── Load member into form ──
   useEffect(() => {
     if (!member) return;
 
     setName(member.name);
 
-    let memberPhone = member.phone || "";
-
-    memberPhone = memberPhone
+    let memberPhoneValue = member.phone || "";
+    memberPhoneValue = memberPhoneValue
       .replace(/[^0-9]/g, "")
       .replace(/^91/, "")
       .replace(/^0/, "");
-
-    if (memberPhone.length > 10) {
-      memberPhone = memberPhone.slice(-10);
+    if (memberPhoneValue.length > 10) {
+      memberPhoneValue = memberPhoneValue.slice(-10);
     }
+    setPhone(memberPhoneValue);
 
-    setPhone(memberPhone);
-
-    setRole(member.role);
+    setRole((member.role as MemberRole) ?? null);
     setPhotoUri(member.photoUri || null);
 
     if (!roleOptions.some((option) => option.role === member.role)) {
@@ -781,28 +786,16 @@ export default function EditMemberScreen() {
       setExpenseAmount(member.amount?.toString() || "");
       setExpenseStatus(member.status || "paid");
       setReminderEnabled(member.reminderEnabled || false);
-      setDueDate(member.dueDate || "");
+      // ── FIX: normalize date before storing
+      setDueDate(toDateInput(member.dueDate));
       setExpenseDescription(member.description || "");
-      setRole(member.role || null);
-
-      setBillAttachments(
-        member.billAttachments ||
-          (member.billUri
-            ? [
-                {
-                  uri: member.billUri,
-                  name: member.billName || "Bill attachment",
-                },
-              ]
-            : []),
-      );
+      setRole((member.role as MemberRole) || null);
+      setBillAttachments(member.billAttachments || []);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [member, groupType]);
 
-  // ==================================================
-  // PICK PHOTO
-  // ==================================================
-
+  // ── PHOTO PICK ──
   const showPhotoSelectionOptions = (forBill: boolean = false) => {
     setIsBillPhotoMode(forBill);
     setShowPhotoOptions(true);
@@ -826,8 +819,8 @@ export default function EditMemberScreen() {
       const asset = result.assets[0];
 
       if (isBillPhotoMode) {
-        setBillAttachments((currentAttachments) => [
-          ...currentAttachments,
+        setBillAttachments((cur) => [
+          ...cur,
           {
             uri: asset.uri,
             name: asset.fileName || "Bill image",
@@ -864,8 +857,8 @@ export default function EditMemberScreen() {
       const assets = result.assets;
 
       if (isBillPhotoMode) {
-        setBillAttachments((currentAttachments) => [
-          ...currentAttachments,
+        setBillAttachments((cur) => [
+          ...cur,
           ...assets.map((asset) => ({
             uri: asset.uri,
             name: asset.fileName || "Bill image",
@@ -895,10 +888,7 @@ export default function EditMemberScreen() {
     setRawImage(null);
   };
 
-  // ==================================================
-  // CONTACT PICKER - FIXED to match login page
-  // ==================================================
-
+  // ── CONTACT PICKER ──
   const pickContact = async () => {
     if (Platform.OS === "web") {
       Alert.alert(
@@ -919,126 +909,161 @@ export default function EditMemberScreen() {
         Alert.alert(
           "Permission Required",
           "We need access to your contacts to help you quickly add phone numbers.",
-          [
-            {
-              text: "Cancel",
-              style: "cancel",
-            },
-            {
-              text: "OK",
-            },
-          ],
+          [{ text: "Cancel", style: "cancel" }, { text: "OK" }],
         );
         setError("Permission to access contacts is required");
         return;
       }
 
-      // Use the same API as login page
       const contacts = await Contact.getAllDetails(
         [ContactField.FULL_NAME, ContactField.PHONES],
-        {
-          sortOrder: ContactsSortOrder.GivenName,
-        },
+        { sortOrder: ContactsSortOrder.GivenName },
       );
 
-      if (contacts.length === 0) {
+      if (!contacts || contacts.length === 0) {
         setError("No contacts found on your device");
         return;
       }
 
-      const mappedContacts: ContactData[] = contacts
-        .filter((contact) => contact.phones && contact.phones.length > 0)
-        .map((contact) => ({
-          id: contact.id,
-          name: contact.fullName || "Unknown",
-          phoneNumbers: contact.phones.map((phone) => ({
-            number: phone.number || "",
-            label: phone.label || undefined,
+      const mapped: ContactData[] = contacts
+        .filter((c: any) => c.phones && c.phones.length > 0)
+        .map((c: any) => ({
+          id: c.id ?? `${c.fullName ?? "unknown"}-${Math.random()}`,
+          name: c.fullName || "Unknown",
+          phoneNumbers: (c.phones ?? []).map((p: any) => ({
+            number: p.number || "",
+            label: p.label || undefined,
           })),
         }));
 
-      if (mappedContacts.length === 0) {
+      if (mapped.length === 0) {
         setError("No contacts with phone numbers found");
         return;
       }
 
       setContactSearch("");
-      setContactsList(mappedContacts);
+      setContactsList(mapped);
       setShowContactPicker(true);
-    } catch (error) {
-      console.error("Error fetching contacts:", error);
+    } catch (err) {
+      console.error("Error fetching contacts:", err);
       setError("Failed to fetch contacts. Please try again.");
     } finally {
       setLoadingContacts(false);
     }
   };
 
-  // ==================================================
-  // SELECT CONTACT
-  // ==================================================
-
   const selectContact = (contact: ContactData) => {
-    if (
-      !contact ||
-      !contact.phoneNumbers ||
-      contact.phoneNumbers.length === 0
-    ) {
+    if (!contact.phoneNumbers || contact.phoneNumbers.length === 0) {
       setError("Selected contact doesn't have a phone number");
       return;
     }
 
-    let phoneNumber = contact.phoneNumbers[0].number || "";
+    let value = contact.phoneNumbers[0].number || "";
+    value = value.replace(/[^0-9]/g, "");
+    value = value.replace(/^91/, "");
+    value = value.replace(/^0/, "");
+    if (value.length > 10) value = value.slice(-10);
 
-    phoneNumber = phoneNumber.replace(/[^0-9]/g, "");
-    phoneNumber = phoneNumber.replace(/^91/, "");
-    phoneNumber = phoneNumber.replace(/^0/, "");
-
-    if (phoneNumber.length > 10) {
-      phoneNumber = phoneNumber.slice(-10);
-    }
-
-    if (phoneNumber.length !== 10) {
+    if (value.length !== 10) {
       setError("Selected contact does not have a valid 10-digit phone number");
       return;
     }
 
-    setPhone(phoneNumber);
+    setPhone(value);
+    if (!name.trim() && contact.name) setName(contact.name);
 
-    if (!name.trim() && contact.name) {
-      setName(contact.name);
-    }
-
-    setFieldErrors((currentErrors) => ({
-      ...currentErrors,
-      phone: "",
-    }));
-
+    setFieldErrors((cur) => ({ ...cur, phone: "" }));
     setError("");
     setContactSearch("");
     setShowContactPicker(false);
   };
-
-  // ==================================================
-  // CLOSE CONTACT PICKER
-  // ==================================================
 
   const closeContactPicker = () => {
     setContactSearch("");
     setShowContactPicker(false);
   };
 
-  // ==================================================
-  // UPDATE MEMBER
-  // ==================================================
+  // ── PHONE VISIBILITY ──
+  const openVisibilityModal = async () => {
+    if (!isSelfMember || !memberId) return;
 
+    setShowVisibility(true);
+    setVisibilityLoading(true);
+    setVisibilityError("");
+    setVisibilityRows([]);
+
+    try {
+      const rows = await fetchPhoneVisibility(memberId);
+      setVisibilityRows(rows);
+    } catch (e: any) {
+      console.error("fetchPhoneVisibility failed:", e);
+      setVisibilityError(
+        e?.message || "Failed to load phone visibility settings.",
+      );
+    } finally {
+      setVisibilityLoading(false);
+    }
+  };
+
+  const closeVisibilityModal = () => {
+    setShowVisibility(false);
+    setVisibilityRows([]);
+    setVisibilityError("");
+  };
+
+  const toggleVisibilityRow = (userId: string) => {
+    setVisibilityRows((rows) =>
+      rows.map((r) =>
+        r.user_id === userId && !r.locked ? { ...r, enabled: !r.enabled } : r,
+      ),
+    );
+  };
+
+  const selectAllVisibility = () => {
+    setVisibilityRows((rows) =>
+      rows.map((r) => (r.locked ? r : { ...r, enabled: true })),
+    );
+  };
+
+  const clearAllVisibility = () => {
+    setVisibilityRows((rows) =>
+      rows.map((r) => (r.locked ? r : { ...r, enabled: false })),
+    );
+  };
+
+  const handleSaveVisibility = async () => {
+    if (!memberId) return;
+
+    setVisibilitySaving(true);
+    setVisibilityError("");
+
+    try {
+      const viewerUserIds = visibilityRows
+        .filter((r) => r.enabled && !r.locked)
+        .map((r) => r.user_id);
+
+      await savePhoneVisibility(memberId, viewerUserIds);
+      closeVisibilityModal();
+    } catch (e: any) {
+      console.error("savePhoneVisibility failed:", e);
+      setVisibilityError(e?.message || "Failed to save. Please try again.");
+    } finally {
+      setVisibilitySaving(false);
+    }
+  };
+
+  const lockedRows = visibilityRows.filter((r) => r.locked);
+  const selectableRows = visibilityRows.filter((r) => !r.locked);
+  const allSelectableOn =
+    selectableRows.length > 0 && selectableRows.every((r) => r.enabled);
+
+  // ── UPDATE ──
   const handleUpdate = async () => {
     setError("");
 
     const errors: Record<string, string> = {};
 
-    if (!name.trim()) {
-      errors.name = "Name is required";
-    }
+    if (!name.trim()) errors.name = "Name is required";
 
     if (groupType !== "expense") {
       if (!phone || phone.length === 0) {
@@ -1046,17 +1071,11 @@ export default function EditMemberScreen() {
       } else if (phone.length !== 10) {
         errors.phone = "Phone number must be 10 digits";
       }
-
-      if (!role) {
-        errors.role = "Please select a role";
-      }
+      if (!role) errors.role = "Please select a role";
     }
 
     if (groupType === "apartment") {
-      if (!flatNumber.trim()) {
-        errors.flatNumber = "Flat number is required";
-      }
-
+      if (!flatNumber.trim()) errors.flatNumber = "Flat number is required";
       if (!maintenanceAmount.trim()) {
         errors.maintenanceAmount = "Maintenance amount is required";
       } else if (isNaN(Number(maintenanceAmount))) {
@@ -1078,9 +1097,7 @@ export default function EditMemberScreen() {
       } else if (isNaN(Number(expenseAmount))) {
         errors.expenseAmount = "Amount must be a number";
       }
-      if (!role) {
-        errors.role = "Please choose a category";
-      }
+      if (!role) errors.role = "Please choose a category";
     }
 
     if (Object.keys(errors).length > 0) {
@@ -1096,21 +1113,16 @@ export default function EditMemberScreen() {
       const updateData: any = {
         name: name.trim(),
         phone: groupType === "expense" ? "" : `+91${phone}`,
-        role: groupType === "expense" ? role : role,
+        role,
         photoUri: photoUri ?? undefined,
       };
 
       if (groupType === "apartment") {
-        if (wing && wing.trim()) {
-          updateData.wing = wing.trim();
-        }
-
+        if (wing && wing.trim()) updateData.wing = wing.trim();
         updateData.flatNumber = flatNumber.trim();
-
         if (areaSqft && !isNaN(Number(areaSqft))) {
           updateData.areaSqft = Number(areaSqft);
         }
-
         updateData.parkingAvailable = parkingAvailable;
         updateData.maintenanceAmount = Number(maintenanceAmount);
       }
@@ -1126,12 +1138,13 @@ export default function EditMemberScreen() {
         updateData.status = expenseStatus;
         updateData.reminderEnabled =
           expenseStatus === "due" ? reminderEnabled : false;
-        updateData.dueDate = dueDate || undefined;
+        // ── FIX: normalize date before sending
+        updateData.dueDate = toDateInput(dueDate) || undefined;
         updateData.description = expenseDescription.trim() || undefined;
         updateData.billAttachments = billAttachments;
       }
 
-      await editMember(memberId, updateData);
+      await update(memberId, updateData);
 
       router.back();
     } catch (e: any) {
@@ -1141,57 +1154,36 @@ export default function EditMemberScreen() {
     }
   };
 
-  // ==================================================
-  // DELETE
-  // ==================================================
-
-  const handleDelete = () => {
-    setShowDeleteConfirmation(true);
-  };
+  // ── DELETE ──
+  const handleDelete = () => setShowDeleteConfirmation(true);
 
   const confirmDelete = async () => {
     try {
       setLoading(true);
       setError("");
       setFieldErrors({});
-
-      await deleteMember(memberId);
-
+      await remove(memberId);
       setShowDeleteConfirmation(false);
-
       router.back();
     } catch (e: any) {
       console.error("Delete error:", e);
-
       setError(e.message || "Failed to delete member. Please try again.");
-
       setLoading(false);
     }
   };
 
-  // ==================================================
-  // MEMBER NOT FOUND
-  // ==================================================
-
   if (!member) {
     return (
       <View style={styles.container}>
-        <Stack.Screen
-          options={{
-            title: getHeaderTitle(),
-          }}
-        />
+        <Stack.Screen options={{ title: getHeaderTitle() }} />
         <View style={styles.centerContent}>
           <View style={styles.notFoundIcon}>
             <Ionicons name="person-outline" size={34} color="#2563eb" />
           </View>
-
           <Text style={styles.notFoundTitle}>Member not found</Text>
-
           <Text style={styles.notFoundSubtitle}>
             This member may have already been removed.
           </Text>
-
           <TouchableOpacity
             style={styles.backButton}
             onPress={() => router.back()}
@@ -1203,44 +1195,25 @@ export default function EditMemberScreen() {
     );
   }
 
-  // ==================================================
-  // SCREEN
-  // ==================================================
-
   return (
     <KeyboardAvoidingView
-      style={[
-        styles.container,
-        {
-          paddingBottom: insets.bottom,
-        },
-      ]}
+      style={[styles.container, { paddingBottom: insets.bottom }]}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={0}
     >
-      <Stack.Screen
-        options={{
-          title: getHeaderTitle(),
-        }}
-      />
+      <Stack.Screen options={{ title: getHeaderTitle() }} />
 
       <ScrollView
         contentContainerStyle={[
           styles.scrollContent,
-          {
-            paddingBottom: Math.max(insets.bottom, 24),
-          },
+          { paddingBottom: Math.max(insets.bottom, 24) },
         ]}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="none"
         showsVerticalScrollIndicator={false}
         bounces={false}
       >
-        {/* ==================================================
-            PROFILE CARD - Only for members/staff (not expenses)
-        ================================================== */}
-
-        {groupType !== "expense" ? (
+        {groupType !== "expense" && (
           <View style={styles.profileCard}>
             <TouchableOpacity
               style={styles.profileAvatarWrapper}
@@ -1254,7 +1227,6 @@ export default function EditMemberScreen() {
                   <Ionicons name="person" size={34} color="#2563eb" />
                 </View>
               )}
-
               <View style={styles.cameraBadge}>
                 <Ionicons name="camera" size={14} color="#fff" />
               </View>
@@ -1264,14 +1236,12 @@ export default function EditMemberScreen() {
               <Text style={styles.profileName} numberOfLines={1}>
                 {name || "Member"}
               </Text>
-
               <Text style={styles.profileRole}>
                 {isCustomRole
                   ? customRole || "Custom role"
                   : roleOptions.find((item) => item.role === role)?.label ||
                     "Member"}
               </Text>
-
               <TouchableOpacity
                 onPress={() => showPhotoSelectionOptions(false)}
                 activeOpacity={0.7}
@@ -1282,11 +1252,26 @@ export default function EditMemberScreen() {
               </TouchableOpacity>
             </View>
           </View>
-        ) : null}
+        )}
 
-        {/* ==================================================
-            PERSONAL DETAILS
-        ================================================== */}
+        {isSelfMember ? (
+          <TouchableOpacity
+            style={styles.visibilityCard}
+            onPress={openVisibilityModal}
+            activeOpacity={0.85}
+          >
+            <View style={styles.visibilityIcon}>
+              <Ionicons name="eye-outline" size={22} color="#2563eb" />
+            </View>
+            <View style={styles.visibilityTextWrap}>
+              <Text style={styles.visibilityTitle}>Phone Visibility</Text>
+              <Text style={styles.visibilitySubtitle}>
+                Choose who can see your phone number
+              </Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#94a3b8" />
+          </TouchableOpacity>
+        ) : null}
 
         {groupType !== "expense" && (
           <View style={styles.card}>
@@ -1297,7 +1282,6 @@ export default function EditMemberScreen() {
             />
 
             <FieldLabel label="Full Name" required error={fieldErrors.name} />
-
             <InputContainer icon="person-outline" error={!!fieldErrors.name}>
               <TextInput
                 style={styles.input}
@@ -1306,17 +1290,12 @@ export default function EditMemberScreen() {
                 value={name}
                 onChangeText={(text) => {
                   setName(text);
-
                   if (fieldErrors.name) {
-                    setFieldErrors({
-                      ...fieldErrors,
-                      name: "",
-                    });
+                    setFieldErrors({ ...fieldErrors, name: "" });
                   }
                 }}
               />
             </InputContainer>
-
             {fieldErrors.name ? <FieldError text={fieldErrors.name} /> : null}
 
             <FieldLabel
@@ -1324,7 +1303,6 @@ export default function EditMemberScreen() {
               required
               error={fieldErrors.phone}
             />
-
             <View
               style={[
                 styles.phoneContainer,
@@ -1334,7 +1312,6 @@ export default function EditMemberScreen() {
               <View style={styles.countryCode}>
                 <Text style={styles.countryCodeText}>+91</Text>
               </View>
-
               <TextInput
                 style={styles.phoneInput}
                 placeholder="9876543210"
@@ -1344,16 +1321,11 @@ export default function EditMemberScreen() {
                 value={phone}
                 onChangeText={(text) => {
                   setPhone(text.replace(/[^0-9]/g, ""));
-
                   if (fieldErrors.phone) {
-                    setFieldErrors({
-                      ...fieldErrors,
-                      phone: "",
-                    });
+                    setFieldErrors({ ...fieldErrors, phone: "" });
                   }
                 }}
               />
-
               <TouchableOpacity
                 onPress={pickContact}
                 style={styles.contactButton}
@@ -1367,14 +1339,9 @@ export default function EditMemberScreen() {
                 />
               </TouchableOpacity>
             </View>
-
             {fieldErrors.phone ? <FieldError text={fieldErrors.phone} /> : null}
           </View>
         )}
-
-        {/* ==================================================
-            ROLE
-        ================================================== */}
 
         {groupType !== "expense" && (
           <View style={styles.card}>
@@ -1387,7 +1354,6 @@ export default function EditMemberScreen() {
             <View style={styles.roleGrid}>
               {roleOptions.map((option) => {
                 const selected = role === option.role && !isCustomRole;
-
                 return (
                   <TouchableOpacity
                     key={option.role}
@@ -1399,12 +1365,8 @@ export default function EditMemberScreen() {
                       setRole(option.role);
                       setIsCustomRole(false);
                       setCustomRole("");
-
                       if (fieldErrors.role) {
-                        setFieldErrors({
-                          ...fieldErrors,
-                          role: "",
-                        });
+                        setFieldErrors({ ...fieldErrors, role: "" });
                       }
                     }}
                     activeOpacity={0.75}
@@ -1417,7 +1379,6 @@ export default function EditMemberScreen() {
                     >
                       {selected ? <View style={styles.roleRadioDot} /> : null}
                     </View>
-
                     <Text
                       style={[
                         styles.roleOptionText,
@@ -1437,7 +1398,7 @@ export default function EditMemberScreen() {
                 ]}
                 onPress={() => {
                   setIsCustomRole(true);
-                  setRole(customRole.trim() || null);
+                  setRole((customRole.trim() as MemberRole) || null);
                 }}
                 activeOpacity={0.75}
               >
@@ -1449,7 +1410,6 @@ export default function EditMemberScreen() {
                 >
                   {isCustomRole ? <View style={styles.roleRadioDot} /> : null}
                 </View>
-
                 <Text
                   style={[
                     styles.roleOptionText,
@@ -1474,13 +1434,9 @@ export default function EditMemberScreen() {
                     value={customRole}
                     onChangeText={(text) => {
                       setCustomRole(text);
-                      setRole(text.trim() || null);
-
+                      setRole((text.trim() as MemberRole) || null);
                       if (fieldErrors.role) {
-                        setFieldErrors({
-                          ...fieldErrors,
-                          role: "",
-                        });
+                        setFieldErrors({ ...fieldErrors, role: "" });
                       }
                     }}
                   />
@@ -1492,10 +1448,6 @@ export default function EditMemberScreen() {
           </View>
         )}
 
-        {/* ==================================================
-            APARTMENT DETAILS
-        ================================================== */}
-
         {groupType === "apartment" && (
           <View style={styles.card}>
             <SectionHeader
@@ -1505,7 +1457,6 @@ export default function EditMemberScreen() {
             />
 
             <FieldLabel label="Wing / Section" optional />
-
             <InputContainer icon="business-outline">
               <TextInput
                 style={styles.input}
@@ -1521,7 +1472,6 @@ export default function EditMemberScreen() {
               required
               error={fieldErrors.flatNumber}
             />
-
             <InputContainer
               icon="home-outline"
               error={!!fieldErrors.flatNumber}
@@ -1533,23 +1483,17 @@ export default function EditMemberScreen() {
                 value={flatNumber}
                 onChangeText={(text) => {
                   setFlatNumber(text);
-
                   if (fieldErrors.flatNumber) {
-                    setFieldErrors({
-                      ...fieldErrors,
-                      flatNumber: "",
-                    });
+                    setFieldErrors({ ...fieldErrors, flatNumber: "" });
                   }
                 }}
               />
             </InputContainer>
-
             {fieldErrors.flatNumber ? (
               <FieldError text={fieldErrors.flatNumber} />
             ) : null}
 
             <FieldLabel label="Area" optional />
-
             <InputContainer icon="resize-outline" suffix="sq. ft.">
               <TextInput
                 style={styles.input}
@@ -1563,28 +1507,20 @@ export default function EditMemberScreen() {
               />
             </InputContainer>
 
-            {/* PARKING */}
-
             <View style={styles.settingRow}>
               <View style={styles.settingIcon}>
                 <Ionicons name="car-outline" size={20} color="#2563eb" />
               </View>
-
               <View style={styles.settingTextContainer}>
                 <Text style={styles.settingTitle}>Parking Available</Text>
-
                 <Text style={styles.settingSubtitle}>
                   Does this flat have parking?
                 </Text>
               </View>
-
               <Switch
                 value={parkingAvailable}
                 onValueChange={setParkingAvailable}
-                trackColor={{
-                  false: "#d1d5db",
-                  true: "#93c5fd",
-                }}
+                trackColor={{ false: "#d1d5db", true: "#93c5fd" }}
                 thumbColor={parkingAvailable ? "#2563eb" : "#f4f4f5"}
               />
             </View>
@@ -1594,7 +1530,6 @@ export default function EditMemberScreen() {
               required
               error={fieldErrors.maintenanceAmount}
             />
-
             <InputContainer
               icon="wallet-outline"
               error={!!fieldErrors.maintenanceAmount}
@@ -1608,26 +1543,17 @@ export default function EditMemberScreen() {
                 value={maintenanceAmount}
                 onChangeText={(text) => {
                   setMaintenanceAmount(text.replace(/[^0-9]/g, ""));
-
                   if (fieldErrors.maintenanceAmount) {
-                    setFieldErrors({
-                      ...fieldErrors,
-                      maintenanceAmount: "",
-                    });
+                    setFieldErrors({ ...fieldErrors, maintenanceAmount: "" });
                   }
                 }}
               />
             </InputContainer>
-
             {fieldErrors.maintenanceAmount ? (
               <FieldError text={fieldErrors.maintenanceAmount} />
             ) : null}
           </View>
         )}
-
-        {/* ==================================================
-            STAFF DETAILS
-        ================================================== */}
 
         {groupType === "staff" && (
           <View style={styles.card}>
@@ -1642,7 +1568,6 @@ export default function EditMemberScreen() {
               required
               error={fieldErrors.monthlySalary}
             />
-
             <InputContainer
               icon="wallet-outline"
               error={!!fieldErrors.monthlySalary}
@@ -1656,26 +1581,17 @@ export default function EditMemberScreen() {
                 value={monthlySalary}
                 onChangeText={(text) => {
                   setMonthlySalary(text.replace(/[^0-9]/g, ""));
-
                   if (fieldErrors.monthlySalary) {
-                    setFieldErrors({
-                      ...fieldErrors,
-                      monthlySalary: "",
-                    });
+                    setFieldErrors({ ...fieldErrors, monthlySalary: "" });
                   }
                 }}
               />
             </InputContainer>
-
             {fieldErrors.monthlySalary ? (
               <FieldError text={fieldErrors.monthlySalary} />
             ) : null}
           </View>
         )}
-
-        {/* ==================================================
-            EXPENSE/INCOME DETAILS
-        ================================================== */}
 
         {groupType === "expense" && (
           <View style={styles.card}>
@@ -1689,10 +1605,8 @@ export default function EditMemberScreen() {
               }
             />
 
-            {/* Type Radio Selector */}
             <View style={styles.fieldContainer}>
               <Text style={styles.fieldLabel}>Type</Text>
-
               <View style={styles.kindRadioRow}>
                 <TouchableOpacity
                   style={[
@@ -1778,7 +1692,6 @@ export default function EditMemberScreen() {
               </View>
             </View>
 
-            {/* Category Picker */}
             <View style={styles.fieldContainer}>
               <View style={styles.labelRow}>
                 <Text
@@ -1790,7 +1703,6 @@ export default function EditMemberScreen() {
                   Category
                 </Text>
               </View>
-
               <View style={styles.roleGrid}>
                 {activeCategoryOptions.map((option) => {
                   const selected = role === option.role;
@@ -1817,7 +1729,6 @@ export default function EditMemberScreen() {
                       >
                         {selected ? <View style={styles.roleRadioDot} /> : null}
                       </View>
-
                       <Text
                         style={[
                           styles.roleOptionText,
@@ -1830,7 +1741,6 @@ export default function EditMemberScreen() {
                   );
                 })}
               </View>
-
               {fieldErrors.role ? <FieldError text={fieldErrors.role} /> : null}
             </View>
 
@@ -1839,7 +1749,6 @@ export default function EditMemberScreen() {
               required
               error={fieldErrors.name}
             />
-
             <InputContainer
               icon="document-text-outline"
               error={!!fieldErrors.name}
@@ -1855,17 +1764,12 @@ export default function EditMemberScreen() {
                 value={name}
                 onChangeText={(text) => {
                   setName(text);
-
                   if (fieldErrors.name) {
-                    setFieldErrors({
-                      ...fieldErrors,
-                      name: "",
-                    });
+                    setFieldErrors({ ...fieldErrors, name: "" });
                   }
                 }}
               />
             </InputContainer>
-
             {fieldErrors.name ? <FieldError text={fieldErrors.name} /> : null}
 
             <FieldLabel
@@ -1873,7 +1777,6 @@ export default function EditMemberScreen() {
               required
               error={fieldErrors.expenseAmount}
             />
-
             <InputContainer
               icon="cash-outline"
               error={!!fieldErrors.expenseAmount}
@@ -1887,25 +1790,17 @@ export default function EditMemberScreen() {
                 value={expenseAmount}
                 onChangeText={(text) => {
                   setExpenseAmount(text.replace(/[^0-9]/g, ""));
-
                   if (fieldErrors.expenseAmount) {
-                    setFieldErrors({
-                      ...fieldErrors,
-                      expenseAmount: "",
-                    });
+                    setFieldErrors({ ...fieldErrors, expenseAmount: "" });
                   }
                 }}
               />
             </InputContainer>
-
             {fieldErrors.expenseAmount ? (
               <FieldError text={fieldErrors.expenseAmount} />
             ) : null}
 
-            {/* PAYMENT STATUS */}
-
             <Text style={styles.fieldLabel}>Payment Status</Text>
-
             <View style={styles.paymentStatusRow}>
               <TouchableOpacity
                 style={[
@@ -1930,7 +1825,6 @@ export default function EditMemberScreen() {
                     color={expenseStatus === "paid" ? "#15803d" : "#6b7280"}
                   />
                 </View>
-
                 <View style={styles.paymentTextWrapper}>
                   <Text
                     style={[
@@ -1940,12 +1834,10 @@ export default function EditMemberScreen() {
                   >
                     {isIncome ? "Received" : "Paid"}
                   </Text>
-
                   <Text style={styles.paymentSubtitle}>
                     {isIncome ? "Payment collected" : "Payment completed"}
                   </Text>
                 </View>
-
                 {expenseStatus === "paid" ? (
                   <Ionicons name="checkmark-circle" size={20} color="#16a34a" />
                 ) : null}
@@ -1971,7 +1863,6 @@ export default function EditMemberScreen() {
                     color={expenseStatus === "due" ? "#c2410c" : "#6b7280"}
                   />
                 </View>
-
                 <View style={styles.paymentTextWrapper}>
                   <Text
                     style={[
@@ -1981,19 +1872,15 @@ export default function EditMemberScreen() {
                   >
                     {isIncome ? "Pending" : "Due"}
                   </Text>
-
                   <Text style={styles.paymentSubtitle}>
                     {isIncome ? "Payment awaited" : "Payment pending"}
                   </Text>
                 </View>
-
                 {expenseStatus === "due" ? (
                   <Ionicons name="checkmark-circle" size={20} color="#ea580c" />
                 ) : null}
               </TouchableOpacity>
             </View>
-
-            {/* REMINDER */}
 
             {expenseStatus === "due" ? (
               <View style={styles.reminderCard}>
@@ -2004,31 +1891,22 @@ export default function EditMemberScreen() {
                     color="#c2410c"
                   />
                 </View>
-
                 <View style={styles.reminderText}>
                   <Text style={styles.reminderTitle}>Payment Reminder</Text>
-
                   <Text style={styles.reminderSubtitle}>
                     Get notified on the expense date
                   </Text>
                 </View>
-
                 <Switch
                   value={reminderEnabled}
                   onValueChange={setReminderEnabled}
-                  trackColor={{
-                    false: "#d1d5db",
-                    true: "#fdba74",
-                  }}
+                  trackColor={{ false: "#d1d5db", true: "#fdba74" }}
                   thumbColor={reminderEnabled ? "#ea580c" : "#f4f4f5"}
                 />
               </View>
             ) : null}
 
-            {/* DATE */}
-
             <Text style={styles.fieldLabel}>Expense Date</Text>
-
             <TouchableOpacity
               style={styles.dateField}
               onPress={() => setShowDatePicker(true)}
@@ -2037,7 +1915,6 @@ export default function EditMemberScreen() {
               <View style={styles.dateIcon}>
                 <Ionicons name="calendar-outline" size={20} color="#2563eb" />
               </View>
-
               <View style={styles.dateTextWrapper}>
                 <Text
                   style={dueDate ? styles.dateValue : styles.datePlaceholder}
@@ -2045,11 +1922,8 @@ export default function EditMemberScreen() {
                   {dueDate || "Select expense date"}
                 </Text>
               </View>
-
               <Ionicons name="chevron-forward" size={18} color="#9ca3af" />
             </TouchableOpacity>
-
-            {/* ATTACHMENTS - Bill upload section for expenses */}
 
             <Text style={styles.fieldLabel}>
               Bill Attachments
@@ -2074,28 +1948,23 @@ export default function EditMemberScreen() {
                         color="#2563eb"
                       />
                     </View>
-
                     <Text style={styles.attachmentName} numberOfLines={1}>
                       {attachment.name}
                     </Text>
-
                     <TouchableOpacity
                       style={styles.attachmentAction}
                       onPress={() => Linking.openURL(attachment.uri)}
                     >
                       <Ionicons name="open-outline" size={19} color="#2563eb" />
                     </TouchableOpacity>
-
                     <TouchableOpacity
                       style={[
                         styles.attachmentAction,
                         styles.attachmentDeleteAction,
                       ]}
                       onPress={() =>
-                        setBillAttachments((currentAttachments) =>
-                          currentAttachments.filter(
-                            (_, attachmentIndex) => attachmentIndex !== index,
-                          ),
+                        setBillAttachments((cur) =>
+                          cur.filter((_, i) => i !== index),
                         )
                       }
                     >
@@ -2117,11 +1986,9 @@ export default function EditMemberScreen() {
                     color="#2563eb"
                   />
                 </View>
-
                 <Text style={styles.emptyAttachmentTitle}>
                   No bill attached
                 </Text>
-
                 <Text style={styles.emptyAttachmentSubtitle}>
                   Add an image of the bill for your records.
                 </Text>
@@ -2134,7 +2001,6 @@ export default function EditMemberScreen() {
               activeOpacity={0.75}
             >
               <Ionicons name="add" size={21} color="#2563eb" />
-
               <Text style={styles.attachButtonText}>
                 {billAttachments.length
                   ? "Add another bill"
@@ -2142,10 +2008,7 @@ export default function EditMemberScreen() {
               </Text>
             </TouchableOpacity>
 
-            {/* NOTE */}
-
             <Text style={styles.fieldLabel}>Note</Text>
-
             <View style={styles.noteContainer}>
               <Ionicons
                 name="create-outline"
@@ -2153,7 +2016,6 @@ export default function EditMemberScreen() {
                 color="#9ca3af"
                 style={styles.noteIcon}
               />
-
               <TextInput
                 style={styles.noteInput}
                 placeholder="Add a note about this expense..."
@@ -2167,21 +2029,12 @@ export default function EditMemberScreen() {
           </View>
         )}
 
-        {/* ==================================================
-            ERROR
-        ================================================== */}
-
         {error && (error !== "Please fix all the errors" || hasFieldErrors) ? (
           <View style={styles.errorCard}>
             <Ionicons name="alert-circle-outline" size={19} color="#dc2626" />
-
             <Text style={styles.errorText}>{error}</Text>
           </View>
         ) : null}
-
-        {/* ==================================================
-            UPDATE BUTTON
-        ================================================== */}
 
         <TouchableOpacity
           style={[styles.updateButton, loading && styles.updateButtonDisabled]}
@@ -2194,7 +2047,6 @@ export default function EditMemberScreen() {
             size={21}
             color="#fff"
           />
-
           <Text style={styles.updateButtonText}>
             {loading
               ? "Saving Changes..."
@@ -2206,10 +2058,6 @@ export default function EditMemberScreen() {
           </Text>
         </TouchableOpacity>
 
-        {/* ==================================================
-            DELETE
-        ================================================== */}
-
         <TouchableOpacity
           style={styles.deleteTextButton}
           onPress={handleDelete}
@@ -2217,7 +2065,6 @@ export default function EditMemberScreen() {
           activeOpacity={0.7}
         >
           <Ionicons name="trash-outline" size={18} color="#dc2626" />
-
           <Text style={styles.deleteTextButtonText}>
             Delete {groupType === "expense" ? "Expense" : "Member"}
           </Text>
@@ -2226,9 +2073,259 @@ export default function EditMemberScreen() {
         <View style={{ height: Math.max(40, insets.bottom + 20) }} />
       </ScrollView>
 
-      {/* ==================================================
-          CONTACT PICKER MODAL
-      ================================================== */}
+      <Modal
+        visible={showVisibility}
+        animationType="slide"
+        transparent={false}
+        onRequestClose={closeVisibilityModal}
+      >
+        <View style={[styles.visScreen, { paddingTop: insets.top + 8 }]}>
+          <View style={styles.visHeader}>
+            <TouchableOpacity
+              style={styles.visCloseButton}
+              onPress={closeVisibilityModal}
+              activeOpacity={0.7}
+              disabled={visibilitySaving}
+            >
+              <Ionicons name="close" size={22} color="#374151" />
+            </TouchableOpacity>
+            <View style={styles.visHeaderTextWrap}>
+              <Text style={styles.visTitle}>Phone Visibility</Text>
+              <Text style={styles.visSubtitle}>
+                Who can see your phone number
+              </Text>
+            </View>
+            <View style={{ width: 40 }} />
+          </View>
+
+          <View style={styles.visBulkRow}>
+            <TouchableOpacity
+              style={[
+                styles.visBulkButton,
+                allSelectableOn && styles.visBulkButtonActive,
+              ]}
+              onPress={selectAllVisibility}
+              disabled={visibilityLoading || visibilitySaving}
+              activeOpacity={0.75}
+            >
+              <Ionicons
+                name="checkmark-done"
+                size={16}
+                color={allSelectableOn ? "#fff" : "#2563eb"}
+              />
+              <Text
+                style={[
+                  styles.visBulkText,
+                  allSelectableOn && { color: "#fff" },
+                ]}
+              >
+                Select All
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.visBulkButton}
+              onPress={clearAllVisibility}
+              disabled={visibilityLoading || visibilitySaving}
+              activeOpacity={0.75}
+            >
+              <Ionicons name="close-circle-outline" size={16} color="#dc2626" />
+              <Text style={[styles.visBulkText, { color: "#dc2626" }]}>
+                Clear All
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {visibilityLoading ? (
+            <View style={styles.visCentered}>
+              <ActivityIndicator size="small" color="#2563eb" />
+              <Text style={styles.visLoadingText}>Loading people...</Text>
+            </View>
+          ) : visibilityError ? (
+            <View style={styles.visCentered}>
+              <Ionicons name="alert-circle-outline" size={34} color="#dc2626" />
+              <Text style={styles.visErrorText}>{visibilityError}</Text>
+            </View>
+          ) : (
+            <ScrollView
+              style={styles.visScroll}
+              contentContainerStyle={styles.visScrollContent}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              {lockedRows.length > 0 ? (
+                <>
+                  <Text style={styles.visSectionTitle}>Always visible</Text>
+                  <Text style={styles.visSectionSubtitle}>
+                    Owners and admins can always see your phone number.
+                  </Text>
+                  <View style={styles.visGroupCard}>
+                    {lockedRows.map((row, index) => (
+                      <View
+                        key={row.user_id}
+                        style={[
+                          styles.visRow,
+                          index === lockedRows.length - 1 && styles.visRowLast,
+                        ]}
+                      >
+                        <View
+                          style={[
+                            styles.visAvatar,
+                            { backgroundColor: "#dbeafe" },
+                          ]}
+                        >
+                          <Text
+                            style={[styles.visAvatarText, { color: "#1d4ed8" }]}
+                          >
+                            {(row.name || "?").charAt(0).toUpperCase()}
+                          </Text>
+                        </View>
+                        <View style={styles.visRowInfo}>
+                          <Text style={styles.visRowName} numberOfLines={1}>
+                            {row.name}
+                          </Text>
+                          <Text style={styles.visRowMeta}>
+                            {row.role === "owner"
+                              ? "Owner"
+                              : row.role === "admin"
+                                ? "Admin"
+                                : row.role}
+                            {row.note ? ` • ${row.note}` : ""}
+                          </Text>
+                        </View>
+                        <View style={styles.visLockedBadge}>
+                          <Ionicons
+                            name="lock-closed"
+                            size={13}
+                            color="#1d4ed8"
+                          />
+                          <Text style={styles.visLockedText}>ON</Text>
+                        </View>
+                      </View>
+                    ))}
+                  </View>
+                </>
+              ) : null}
+
+              {selectableRows.length > 0 ? (
+                <>
+                  <Text style={styles.visSectionTitle}>Choose who can see</Text>
+                  <Text style={styles.visSectionSubtitle}>
+                    Tap to toggle. Only selected people will see your number.
+                  </Text>
+                  <View style={styles.visGroupCard}>
+                    {selectableRows.map((row, index) => {
+                      const initial = (row.name || "?").charAt(0).toUpperCase();
+                      return (
+                        <TouchableOpacity
+                          key={row.user_id}
+                          style={[
+                            styles.visRow,
+                            index === selectableRows.length - 1 &&
+                              styles.visRowLast,
+                          ]}
+                          onPress={() => toggleVisibilityRow(row.user_id)}
+                          activeOpacity={0.7}
+                          disabled={visibilitySaving}
+                        >
+                          <View
+                            style={[
+                              styles.visAvatar,
+                              {
+                                backgroundColor: row.enabled
+                                  ? "#dcfce7"
+                                  : "#f1f5f9",
+                              },
+                            ]}
+                          >
+                            <Text
+                              style={[
+                                styles.visAvatarText,
+                                {
+                                  color: row.enabled ? "#16a34a" : "#64748b",
+                                },
+                              ]}
+                            >
+                              {initial}
+                            </Text>
+                          </View>
+                          <View style={styles.visRowInfo}>
+                            <Text style={styles.visRowName} numberOfLines={1}>
+                              {row.name}
+                            </Text>
+                            <Text style={styles.visRowMeta}>
+                              {row.person_type === "staff"
+                                ? "Staff"
+                                : row.person_type === "member"
+                                  ? "Member"
+                                  : row.role}
+                            </Text>
+                          </View>
+                          <View
+                            style={[
+                              styles.visCheckbox,
+                              row.enabled && styles.visCheckboxOn,
+                            ]}
+                          >
+                            {row.enabled ? (
+                              <Ionicons
+                                name="checkmark"
+                                size={15}
+                                color="#fff"
+                              />
+                            ) : null}
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </>
+              ) : !visibilityLoading && !visibilityError ? (
+                <View style={styles.visCentered}>
+                  <Ionicons name="people-outline" size={34} color="#94a3b8" />
+                  <Text style={styles.visEmptyText}>
+                    No one else is on this account yet.
+                  </Text>
+                </View>
+              ) : null}
+            </ScrollView>
+          )}
+
+          <View
+            style={[
+              styles.visFooter,
+              { paddingBottom: Math.max(insets.bottom, 16) },
+            ]}
+          >
+            <TouchableOpacity
+              style={styles.visCancelButton}
+              onPress={closeVisibilityModal}
+              disabled={visibilitySaving}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.visCancelText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[
+                styles.visSaveButton,
+                visibilitySaving && styles.visSaveButtonDisabled,
+              ]}
+              onPress={handleSaveVisibility}
+              disabled={visibilityLoading || visibilitySaving}
+              activeOpacity={0.85}
+            >
+              {visibilitySaving ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <>
+                  <Ionicons name="checkmark" size={18} color="#fff" />
+                  <Text style={styles.visSaveText}>Save</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       <Modal
         visible={showContactPicker}
@@ -2244,22 +2341,17 @@ export default function EditMemberScreen() {
               <View
                 style={[
                   styles.contactModal,
-                  {
-                    paddingBottom: Math.max(insets.bottom, 12),
-                  },
+                  { paddingBottom: Math.max(insets.bottom, 12) },
                 ]}
               >
                 <View style={styles.contactModalHandle} />
-
                 <View style={styles.contactModalHeader}>
                   <View>
                     <Text style={styles.contactModalTitle}>Select Contact</Text>
-
                     <Text style={styles.contactModalSubtitle}>
                       Choose a contact to use their phone number
                     </Text>
                   </View>
-
                   <TouchableOpacity
                     onPress={closeContactPicker}
                     style={styles.contactCloseButton}
@@ -2271,7 +2363,6 @@ export default function EditMemberScreen() {
 
                 <View style={styles.contactSearchContainer}>
                   <Ionicons name="search-outline" size={20} color="#9ca3af" />
-
                   <TextInput
                     style={styles.contactSearchInput}
                     placeholder="Search contacts"
@@ -2282,7 +2373,6 @@ export default function EditMemberScreen() {
                     autoCorrect={false}
                     returnKeyType="search"
                   />
-
                   {contactSearch.length > 0 ? (
                     <TouchableOpacity
                       onPress={() => setContactSearch("")}
@@ -2302,7 +2392,6 @@ export default function EditMemberScreen() {
                         color="#2563eb"
                       />
                     </View>
-
                     <Text style={styles.contactLoadingText}>
                       Loading contacts...
                     </Text>
@@ -2332,7 +2421,6 @@ export default function EditMemberScreen() {
                                   : "?"}
                               </Text>
                             </View>
-
                             <View style={styles.contactInfo}>
                               <Text
                                 style={styles.contactName}
@@ -2340,7 +2428,6 @@ export default function EditMemberScreen() {
                               >
                                 {contact.name || "Unknown"}
                               </Text>
-
                               {contact.phoneNumbers?.length > 0 ? (
                                 <Text
                                   style={styles.contactPhone}
@@ -2350,7 +2437,6 @@ export default function EditMemberScreen() {
                                 </Text>
                               ) : null}
                             </View>
-
                             <Ionicons
                               name="chevron-forward"
                               size={19}
@@ -2367,11 +2453,9 @@ export default function EditMemberScreen() {
                               color="#9ca3af"
                             />
                           </View>
-
                           <Text style={styles.noContactsTitle}>
                             No contacts found
                           </Text>
-
                           <Text style={styles.noContactsText}>
                             Try another name or phone number.
                           </Text>
@@ -2394,20 +2478,13 @@ export default function EditMemberScreen() {
         </TouchableWithoutFeedback>
       </Modal>
 
-      {/* ==================================================
-          DATE PICKER
-      ================================================== */}
-
+      {/* ── DATE PICKER — normalizes the value before writing back ── */}
       <DatePickerModal
         visible={showDatePicker}
-        value={dueDate}
+        value={dueDate || ""}
         onClose={() => setShowDatePicker(false)}
-        onSelect={setDueDate}
+        onSelect={(next: unknown) => setDueDate(toDateInput(next))}
       />
-
-      {/* ==================================================
-          DELETE CONFIRMATION
-      ================================================== */}
 
       <Modal
         transparent
@@ -2420,16 +2497,13 @@ export default function EditMemberScreen() {
             <View style={styles.deleteWarningIcon}>
               <Ionicons name="trash-outline" size={25} color="#dc2626" />
             </View>
-
             <Text style={styles.confirmationTitle}>
               Delete {groupType === "expense" ? "Expense" : "Member"}?
             </Text>
-
             <Text style={styles.confirmationMessage}>
               Are you sure you want to delete {name}? This action cannot be
               undone.
             </Text>
-
             <View style={styles.confirmationActions}>
               <TouchableOpacity
                 style={styles.cancelButton}
@@ -2438,7 +2512,6 @@ export default function EditMemberScreen() {
               >
                 <Text style={styles.cancelButtonText}>Cancel</Text>
               </TouchableOpacity>
-
               <TouchableOpacity
                 style={[
                   styles.confirmDeleteButton,
@@ -2448,7 +2521,6 @@ export default function EditMemberScreen() {
                 disabled={loading}
               >
                 <Ionicons name="trash-outline" size={17} color="#fff" />
-
                 <Text style={styles.confirmDeleteButtonText}>
                   {loading ? "Deleting..." : "Delete"}
                 </Text>
@@ -2457,10 +2529,6 @@ export default function EditMemberScreen() {
           </View>
         </View>
       </Modal>
-
-      {/* ==================================================
-          PHOTO OPTIONS MODAL
-      ================================================== */}
 
       <Modal
         visible={showPhotoOptions}
@@ -2534,10 +2602,6 @@ export default function EditMemberScreen() {
         </Pressable>
       </Modal>
 
-      {/* ==================================================
-          PHOTO ADJUST MODAL
-      ================================================== */}
-
       <PhotoAdjustModal
         visible={showAdjustModal}
         image={rawImage}
@@ -2566,7 +2630,6 @@ function SectionHeader({
       <View style={styles.sectionIcon}>
         <Ionicons name={icon} size={20} color="#2563eb" />
       </View>
-
       <View style={styles.sectionHeaderText}>
         <Text style={styles.sectionTitle}>{title}</Text>
         <Text style={styles.sectionSubtitle}>{subtitle}</Text>
@@ -2590,9 +2653,7 @@ function FieldLabel({
     <View style={styles.fieldLabelRow}>
       <Text style={[styles.fieldLabel, error && styles.fieldLabelError]}>
         {label}
-
         {required ? <Text style={styles.requiredMark}> *</Text> : null}
-
         {optional ? <Text style={styles.optionalText}> • Optional</Text> : null}
       </Text>
     </View>
@@ -2603,7 +2664,6 @@ function FieldError({ text }: { text: string }) {
   return (
     <View style={styles.fieldErrorRow}>
       <Ionicons name="alert-circle-outline" size={14} color="#dc2626" />
-
       <Text style={styles.fieldError}>{text}</Text>
     </View>
   );
@@ -2630,11 +2690,8 @@ function InputContainer({
         color={error ? "#dc2626" : "#9ca3af"}
         style={styles.inputIcon}
       />
-
       {prefix ? <Text style={styles.inputPrefix}>{prefix}</Text> : null}
-
       {children}
-
       {suffix ? <Text style={styles.inputSuffix}>{suffix}</Text> : null}
     </View>
   );
@@ -2645,20 +2702,12 @@ function InputContainer({
 // ==================================================
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#f6f8fc",
-  },
-
+  container: { flex: 1, backgroundColor: "#f6f8fc" },
   scrollContent: {
     paddingHorizontal: 18,
     paddingTop: 8,
     flexGrow: 1,
   },
-
-  // ==================================================
-  // NOT FOUND
-  // ==================================================
 
   centerContent: {
     flex: 1,
@@ -2666,7 +2715,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     padding: 28,
   },
-
   notFoundIcon: {
     width: 72,
     height: 72,
@@ -2676,13 +2724,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 18,
   },
-
-  notFoundTitle: {
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#111827",
-  },
-
+  notFoundTitle: { fontSize: 20, fontWeight: "700", color: "#111827" },
   notFoundSubtitle: {
     fontSize: 14,
     color: "#6b7280",
@@ -2690,7 +2732,6 @@ const styles = StyleSheet.create({
     marginTop: 7,
     marginBottom: 22,
   },
-
   backButton: {
     minWidth: 130,
     height: 46,
@@ -2699,16 +2740,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-
-  backButtonText: {
-    color: "#fff",
-    fontSize: 15,
-    fontWeight: "700",
-  },
-
-  // ==================================================
-  // PROFILE - Only for members/staff
-  // ==================================================
+  backButtonText: { color: "#fff", fontSize: 15, fontWeight: "700" },
 
   profileCard: {
     backgroundColor: "#fff",
@@ -2720,19 +2752,8 @@ const styles = StyleSheet.create({
     borderColor: "#e8edf5",
     marginBottom: 14,
   },
-
-  profileAvatarWrapper: {
-    width: 78,
-    height: 78,
-    position: "relative",
-  },
-
-  profileImage: {
-    width: 78,
-    height: 78,
-    borderRadius: 39,
-  },
-
+  profileAvatarWrapper: { width: 78, height: 78, position: "relative" },
+  profileImage: { width: 78, height: 78, borderRadius: 39 },
   profilePlaceholder: {
     width: 78,
     height: 78,
@@ -2743,7 +2764,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#d7e6ff",
   },
-
   cameraBadge: {
     position: "absolute",
     right: -2,
@@ -2757,24 +2777,9 @@ const styles = StyleSheet.create({
     borderWidth: 3,
     borderColor: "#fff",
   },
-
-  profileInfo: {
-    flex: 1,
-    marginLeft: 16,
-  },
-
-  profileName: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: "#111827",
-  },
-
-  profileRole: {
-    fontSize: 13,
-    color: "#6b7280",
-    marginTop: 4,
-  },
-
+  profileInfo: { flex: 1, marginLeft: 16 },
+  profileName: { fontSize: 18, fontWeight: "800", color: "#111827" },
+  profileRole: { fontSize: 13, color: "#6b7280", marginTop: 4 },
   changePhotoText: {
     fontSize: 12,
     color: "#2563eb",
@@ -2782,9 +2787,36 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
 
-  // ==================================================
-  // CARDS
-  // ==================================================
+  visibilityCard: {
+    backgroundColor: "#fff",
+    borderRadius: 16,
+    padding: 14,
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#e8edf5",
+    marginBottom: 14,
+  },
+  visibilityIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 13,
+    backgroundColor: "#eaf2ff",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 12,
+  },
+  visibilityTextWrap: { flex: 1 },
+  visibilityTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#111827",
+  },
+  visibilitySubtitle: {
+    fontSize: 11,
+    color: "#6b7280",
+    marginTop: 3,
+  },
 
   card: {
     backgroundColor: "#fff",
@@ -2794,13 +2826,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e8edf5",
   },
-
   sectionHeader: {
     flexDirection: "row",
     alignItems: "center",
     marginBottom: 19,
   },
-
   sectionIcon: {
     width: 40,
     height: 40,
@@ -2809,51 +2839,21 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
+  sectionHeaderText: { flex: 1, marginLeft: 11 },
+  sectionTitle: { fontSize: 16, fontWeight: "800", color: "#111827" },
+  sectionSubtitle: { fontSize: 12, color: "#8a94a6", marginTop: 3 },
 
-  sectionHeaderText: {
-    flex: 1,
-    marginLeft: 11,
+  fieldContainer: { marginTop: 8 },
+  labelRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
-
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: "800",
-    color: "#111827",
-  },
-
-  sectionSubtitle: {
-    fontSize: 12,
-    color: "#8a94a6",
-    marginTop: 3,
-  },
-
-  // ==================================================
-  // FIELDS
-  // ==================================================
-
-  fieldLabelRow: {
-    marginTop: 2,
-    marginBottom: 8,
-  },
-
-  fieldLabel: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#374151",
-  },
-
-  fieldLabelError: {
-    color: "#dc2626",
-  },
-
-  requiredMark: {
-    color: "#dc2626",
-  },
-
-  optionalText: {
-    color: "#9ca3af",
-    fontWeight: "500",
-  },
+  fieldLabelRow: { marginTop: 2, marginBottom: 8 },
+  fieldLabel: { fontSize: 13, fontWeight: "700", color: "#374151" },
+  fieldLabelError: { color: "#dc2626" },
+  requiredMark: { color: "#dc2626" },
+  optionalText: { color: "#9ca3af", fontWeight: "500" },
 
   inputContainer: {
     minHeight: 52,
@@ -2866,11 +2866,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 13,
     marginBottom: 15,
   },
-
-  inputIcon: {
-    marginRight: 10,
-  },
-
+  inputIcon: { marginRight: 10 },
   input: {
     flex: 1,
     height: 50,
@@ -2878,43 +2874,31 @@ const styles = StyleSheet.create({
     color: "#111827",
     paddingVertical: 0,
   },
-
   inputPrefix: {
     fontSize: 15,
     color: "#374151",
     fontWeight: "700",
     marginRight: 5,
   },
-
   inputSuffix: {
     fontSize: 12,
     color: "#6b7280",
     fontWeight: "600",
     marginLeft: 8,
   },
-
-  errorBorder: {
-    borderColor: "#dc2626",
-    backgroundColor: "#fffafa",
-  },
-
+  errorBorder: { borderColor: "#dc2626", backgroundColor: "#fffafa" },
   fieldErrorRow: {
     flexDirection: "row",
     alignItems: "center",
     marginTop: -9,
     marginBottom: 14,
   },
-
   fieldError: {
     fontSize: 12,
     color: "#dc2626",
     marginLeft: 5,
     fontWeight: "600",
   },
-
-  // ==================================================
-  // PHONE
-  // ==================================================
 
   phoneContainer: {
     height: 52,
@@ -2928,19 +2912,12 @@ const styles = StyleSheet.create({
     paddingRight: 7,
     marginBottom: 15,
   },
-
   countryCode: {
     paddingRight: 12,
     borderRightWidth: 1,
     borderRightColor: "#e5e7eb",
   },
-
-  countryCodeText: {
-    fontSize: 14,
-    color: "#374151",
-    fontWeight: "700",
-  },
-
+  countryCodeText: { fontSize: 14, color: "#374151", fontWeight: "700" },
   phoneInput: {
     flex: 1,
     height: 50,
@@ -2948,7 +2925,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: "#111827",
   },
-
   contactButton: {
     width: 40,
     height: 40,
@@ -2958,10 +2934,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
 
-  // ==================================================
-  // ROLE
-  // ==================================================
-
   roleGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -2969,7 +2941,6 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     gap: 9,
   },
-
   roleOption: {
     minHeight: 47,
     paddingHorizontal: 13,
@@ -2981,12 +2952,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   roleOptionSelected: {
     borderColor: "#2563eb",
     backgroundColor: "#eff6ff",
   },
-
   roleRadio: {
     width: 18,
     height: 18,
@@ -2997,36 +2966,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginRight: 8,
   },
-
-  roleRadioSelected: {
-    borderColor: "#2563eb",
-  },
-
+  roleRadioSelected: { borderColor: "#2563eb" },
   roleRadioDot: {
     width: 8,
     height: 8,
     borderRadius: 4,
     backgroundColor: "#2563eb",
   },
-
-  roleOptionText: {
-    fontSize: 13,
-    color: "#4b5563",
-    fontWeight: "600",
-  },
-
-  roleOptionTextSelected: {
-    color: "#2563eb",
-    fontWeight: "800",
-  },
-
-  customRoleWrapper: {
-    marginTop: 12,
-  },
-
-  // ==================================================
-  // SETTINGS
-  // ==================================================
+  roleOptionText: { fontSize: 13, color: "#4b5563", fontWeight: "600" },
+  roleOptionTextSelected: { color: "#2563eb", fontWeight: "800" },
+  customRoleWrapper: { marginTop: 12 },
 
   settingRow: {
     flexDirection: "row",
@@ -3039,7 +2988,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderColor: "#eef2f7",
   },
-
   settingIcon: {
     width: 38,
     height: 38,
@@ -3048,27 +2996,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-
-  settingTextContainer: {
-    flex: 1,
-    marginLeft: 11,
-  },
-
-  settingTitle: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#1f2937",
-  },
-
-  settingSubtitle: {
-    fontSize: 11,
-    color: "#8a94a6",
-    marginTop: 3,
-  },
-
-  // ==================================================
-  // PAYMENT STATUS
-  // ==================================================
+  settingTextContainer: { flex: 1, marginLeft: 11 },
+  settingTitle: { fontSize: 14, fontWeight: "700", color: "#1f2937" },
+  settingSubtitle: { fontSize: 11, color: "#8a94a6", marginTop: 3 },
 
   paymentStatusRow: {
     flexDirection: "row",
@@ -3076,7 +3006,6 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 14,
   },
-
   paymentStatusCard: {
     flex: 1,
     minHeight: 78,
@@ -3087,17 +3016,14 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
   },
-
   paymentStatusCardPaid: {
     borderColor: "#86efac",
     backgroundColor: "#f0fdf4",
   },
-
   paymentStatusCardDue: {
     borderColor: "#fdba74",
     backgroundColor: "#fff7ed",
   },
-
   paymentIcon: {
     width: 34,
     height: 34,
@@ -3106,43 +3032,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-
-  paymentIconPaid: {
-    backgroundColor: "#dcfce7",
-  },
-
-  paymentIconDue: {
-    backgroundColor: "#ffedd5",
-  },
-
-  paymentTextWrapper: {
-    flex: 1,
-    marginLeft: 8,
-  },
-
-  paymentTitle: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#374151",
-  },
-
-  paymentTitlePaid: {
-    color: "#15803d",
-  },
-
-  paymentTitleDue: {
-    color: "#c2410c",
-  },
-
-  paymentSubtitle: {
-    fontSize: 10,
-    color: "#9ca3af",
-    marginTop: 2,
-  },
-
-  // ==================================================
-  // REMINDER
-  // ==================================================
+  paymentIconPaid: { backgroundColor: "#dcfce7" },
+  paymentIconDue: { backgroundColor: "#ffedd5" },
+  paymentTextWrapper: { flex: 1, marginLeft: 8 },
+  paymentTitle: { fontSize: 13, fontWeight: "800", color: "#374151" },
+  paymentTitlePaid: { color: "#15803d" },
+  paymentTitleDue: { color: "#c2410c" },
+  paymentSubtitle: { fontSize: 10, color: "#9ca3af", marginTop: 2 },
 
   reminderCard: {
     flexDirection: "row",
@@ -3154,7 +3050,6 @@ const styles = StyleSheet.create({
     borderColor: "#fed7aa",
     marginBottom: 15,
   },
-
   reminderIcon: {
     width: 38,
     height: 38,
@@ -3163,27 +3058,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-
-  reminderText: {
-    flex: 1,
-    marginLeft: 10,
-  },
-
-  reminderTitle: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#9a3412",
-  },
-
-  reminderSubtitle: {
-    fontSize: 11,
-    color: "#c2410c",
-    marginTop: 3,
-  },
-
-  // ==================================================
-  // DATE
-  // ==================================================
+  reminderText: { flex: 1, marginLeft: 10 },
+  reminderTitle: { fontSize: 13, fontWeight: "800", color: "#9a3412" },
+  reminderSubtitle: { fontSize: 11, color: "#c2410c", marginTop: 3 },
 
   dateField: {
     minHeight: 54,
@@ -3197,7 +3074,6 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 15,
   },
-
   dateIcon: {
     width: 38,
     height: 38,
@@ -3206,26 +3082,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-
-  dateTextWrapper: {
-    flex: 1,
-    marginLeft: 11,
-  },
-
-  dateValue: {
-    fontSize: 14,
-    color: "#111827",
-    fontWeight: "600",
-  },
-
-  datePlaceholder: {
-    fontSize: 14,
-    color: "#9ca3af",
-  },
-
-  // ==================================================
-  // ATTACHMENTS
-  // ==================================================
+  dateTextWrapper: { flex: 1, marginLeft: 11 },
+  dateValue: { fontSize: 14, color: "#111827", fontWeight: "600" },
+  datePlaceholder: { fontSize: 14, color: "#9ca3af" },
 
   attachmentList: {
     borderRadius: 12,
@@ -3235,7 +3094,6 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 10,
   },
-
   attachmentRow: {
     minHeight: 58,
     flexDirection: "row",
@@ -3244,11 +3102,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#eef2f7",
   },
-
-  attachmentRowLast: {
-    borderBottomWidth: 0,
-  },
-
+  attachmentRowLast: { borderBottomWidth: 0 },
   attachmentIcon: {
     width: 36,
     height: 36,
@@ -3257,7 +3111,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-
   attachmentName: {
     flex: 1,
     fontSize: 13,
@@ -3265,7 +3118,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginLeft: 9,
   },
-
   attachmentAction: {
     width: 34,
     height: 34,
@@ -3275,11 +3127,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#eff6ff",
     marginLeft: 5,
   },
-
-  attachmentDeleteAction: {
-    backgroundColor: "#fff1f2",
-  },
-
+  attachmentDeleteAction: { backgroundColor: "#fff1f2" },
   emptyAttachment: {
     alignItems: "center",
     justifyContent: "center",
@@ -3293,7 +3141,6 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 10,
   },
-
   emptyAttachmentIcon: {
     width: 48,
     height: 48,
@@ -3303,20 +3150,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 9,
   },
-
-  emptyAttachmentTitle: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#374151",
-  },
-
+  emptyAttachmentTitle: { fontSize: 13, fontWeight: "700", color: "#374151" },
   emptyAttachmentSubtitle: {
     fontSize: 11,
     color: "#9ca3af",
     textAlign: "center",
     marginTop: 4,
   },
-
   attachButton: {
     height: 46,
     borderRadius: 12,
@@ -3328,17 +3168,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 15,
   },
-
   attachButtonText: {
     fontSize: 13,
     color: "#2563eb",
     fontWeight: "800",
     marginLeft: 6,
   },
-
-  // ==================================================
-  // NOTE
-  // ==================================================
 
   noteContainer: {
     minHeight: 105,
@@ -3351,12 +3186,7 @@ const styles = StyleSheet.create({
     padding: 12,
     marginTop: 8,
   },
-
-  noteIcon: {
-    marginTop: 2,
-    marginRight: 9,
-  },
-
+  noteIcon: { marginTop: 2, marginRight: 9 },
   noteInput: {
     flex: 1,
     minHeight: 80,
@@ -3364,10 +3194,6 @@ const styles = StyleSheet.create({
     color: "#111827",
     padding: 0,
   },
-
-  // ==================================================
-  // ERROR
-  // ==================================================
 
   errorCard: {
     minHeight: 48,
@@ -3380,7 +3206,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 13,
     marginBottom: 12,
   },
-
   errorText: {
     flex: 1,
     fontSize: 13,
@@ -3390,10 +3215,6 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
 
-  // ==================================================
-  // UPDATE
-  // ==================================================
-
   updateButton: {
     height: 54,
     borderRadius: 14,
@@ -3402,21 +3223,23 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     marginTop: 3,
-    boxShadow: "0px 4px 8px rgba(37, 99, 235, 0.18)",
+    shadowColor: "#2563EB",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.18,
+    shadowRadius: 8,
+    elevation: 3,
   },
-
   updateButtonDisabled: {
     backgroundColor: "#93c5fd",
-    boxShadow: "none",
+    shadowOpacity: 0,
+    elevation: 0,
   },
-
   updateButtonText: {
     color: "#fff",
     fontSize: 15,
     fontWeight: "800",
     marginLeft: 8,
   },
-
   deleteTextButton: {
     height: 48,
     flexDirection: "row",
@@ -3424,28 +3247,199 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 7,
   },
-
   deleteTextButtonText: {
     color: "#dc2626",
     fontSize: 13,
     fontWeight: "700",
     marginLeft: 6,
   },
+  buttonDisabled: { opacity: 0.6 },
 
-  buttonDisabled: {
-    opacity: 0.6,
+  visScreen: { flex: 1, backgroundColor: "#f6f8fc" },
+  visHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e8edf5",
+    backgroundColor: "#fff",
+  },
+  visCloseButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: "#f1f5f9",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  visHeaderTextWrap: { flex: 1, marginHorizontal: 12 },
+  visTitle: { fontSize: 18, fontWeight: "800", color: "#111827" },
+  visSubtitle: { fontSize: 11, color: "#6b7280", marginTop: 2 },
+
+  visBulkRow: {
+    flexDirection: "row",
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 6,
+    backgroundColor: "#f6f8fc",
+  },
+  visBulkButton: {
+    flex: 1,
+    height: 42,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#cbd5e1",
+    backgroundColor: "#fff",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  visBulkButtonActive: {
+    backgroundColor: "#2563eb",
+    borderColor: "#2563eb",
+  },
+  visBulkText: { fontSize: 13, fontWeight: "700", color: "#2563eb" },
+
+  visScroll: { flex: 1 },
+  visScrollContent: { padding: 16, paddingBottom: 24 },
+  visSectionTitle: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#0f172a",
+    marginTop: 4,
+    marginBottom: 2,
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  visSectionSubtitle: {
+    fontSize: 11.5,
+    color: "#6b7280",
+    marginBottom: 10,
+    lineHeight: 16,
   },
 
-  // ==================================================
-  // CONTACT MODAL
-  // ==================================================
+  visGroupCard: {
+    backgroundColor: "#fff",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#e8edf5",
+    overflow: "hidden",
+    marginBottom: 18,
+  },
+
+  visRow: {
+    minHeight: 62,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f1f5f9",
+  },
+  visRowLast: { borderBottomWidth: 0 },
+  visAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 11,
+  },
+  visAvatarText: { fontSize: 15, fontWeight: "800" },
+  visRowInfo: { flex: 1, minWidth: 0 },
+  visRowName: { fontSize: 14, fontWeight: "700", color: "#111827" },
+  visRowMeta: { fontSize: 11, color: "#6b7280", marginTop: 3 },
+
+  visLockedBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#dbeafe",
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 8,
+  },
+  visLockedText: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#1d4ed8",
+  },
+
+  visCheckbox: {
+    width: 26,
+    height: 26,
+    borderRadius: 9,
+    borderWidth: 1.5,
+    borderColor: "#cbd5e1",
+    backgroundColor: "#fff",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  visCheckboxOn: {
+    backgroundColor: "#2563eb",
+    borderColor: "#2563eb",
+  },
+
+  visCentered: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 30,
+    gap: 10,
+  },
+  visLoadingText: { fontSize: 13, color: "#6b7280", fontWeight: "600" },
+  visErrorText: {
+    fontSize: 13,
+    color: "#b91c1c",
+    fontWeight: "600",
+    textAlign: "center",
+    marginTop: 4,
+  },
+  visEmptyText: {
+    fontSize: 13,
+    color: "#6b7280",
+    textAlign: "center",
+    marginTop: 4,
+  },
+
+  visFooter: {
+    flexDirection: "row",
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#e8edf5",
+    backgroundColor: "#fff",
+  },
+  visCancelButton: {
+    flex: 1,
+    height: 50,
+    borderRadius: 13,
+    backgroundColor: "#f1f5f9",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  visCancelText: { fontSize: 14, fontWeight: "700", color: "#475569" },
+  visSaveButton: {
+    flex: 1.4,
+    height: 50,
+    borderRadius: 13,
+    backgroundColor: "#2563eb",
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 6,
+  },
+  visSaveButtonDisabled: { opacity: 0.7 },
+  visSaveText: { fontSize: 14, fontWeight: "800", color: "#fff" },
 
   contactModalOverlay: {
     flex: 1,
     backgroundColor: "rgba(15, 23, 42, 0.52)",
     justifyContent: "flex-end",
   },
-
   contactModal: {
     backgroundColor: "#fff",
     borderTopLeftRadius: 25,
@@ -3455,7 +3449,6 @@ const styles = StyleSheet.create({
     maxHeight: "60%",
     minHeight: "45%",
   },
-
   contactModalHandle: {
     width: 42,
     height: 4,
@@ -3464,26 +3457,14 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     marginBottom: 17,
   },
-
   contactModalHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 16,
   },
-
-  contactModalTitle: {
-    fontSize: 19,
-    fontWeight: "800",
-    color: "#111827",
-  },
-
-  contactModalSubtitle: {
-    fontSize: 11,
-    color: "#8a94a6",
-    marginTop: 3,
-  },
-
+  contactModalTitle: { fontSize: 19, fontWeight: "800", color: "#111827" },
+  contactModalSubtitle: { fontSize: 11, color: "#8a94a6", marginTop: 3 },
   contactCloseButton: {
     width: 38,
     height: 38,
@@ -3492,7 +3473,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-
   contactSearchContainer: {
     minHeight: 48,
     borderRadius: 12,
@@ -3504,7 +3484,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     marginBottom: 12,
   },
-
   contactSearchInput: {
     flex: 1,
     height: 46,
@@ -3512,24 +3491,10 @@ const styles = StyleSheet.create({
     color: "#111827",
     paddingHorizontal: 9,
   },
-
-  clearSearchButton: {
-    padding: 3,
-  },
-
-  contactListWrapper: {
-    flex: 1,
-    minHeight: 200,
-  },
-
-  contactListContainer: {
-    flex: 1,
-  },
-
-  contactListContent: {
-    paddingBottom: 8,
-  },
-
+  clearSearchButton: { padding: 3 },
+  contactListWrapper: { flex: 1, minHeight: 200 },
+  contactListContainer: { flex: 1 },
+  contactListContent: { paddingBottom: 8 },
   contactItem: {
     minHeight: 64,
     flexDirection: "row",
@@ -3538,7 +3503,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#f0f2f5",
   },
-
   contactAvatar: {
     width: 44,
     height: 44,
@@ -3547,37 +3511,16 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-
-  contactAvatarText: {
-    fontSize: 17,
-    fontWeight: "800",
-    color: "#2563eb",
-  },
-
-  contactInfo: {
-    flex: 1,
-    marginHorizontal: 11,
-  },
-
-  contactName: {
-    fontSize: 14,
-    color: "#1f2937",
-    fontWeight: "700",
-  },
-
-  contactPhone: {
-    fontSize: 12,
-    color: "#8a94a6",
-    marginTop: 3,
-  },
-
+  contactAvatarText: { fontSize: 17, fontWeight: "800", color: "#2563eb" },
+  contactInfo: { flex: 1, marginHorizontal: 11 },
+  contactName: { fontSize: 14, color: "#1f2937", fontWeight: "700" },
+  contactPhone: { fontSize: 12, color: "#8a94a6", marginTop: 3 },
   contactLoading: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
     padding: 30,
   },
-
   contactLoadingIcon: {
     width: 62,
     height: 62,
@@ -3586,21 +3529,18 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-
   contactLoadingText: {
     fontSize: 14,
     color: "#6b7280",
     marginTop: 11,
     fontWeight: "600",
   },
-
   noContactsContainer: {
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 45,
     paddingHorizontal: 20,
   },
-
   noContactsIcon: {
     width: 62,
     height: 62,
@@ -3610,20 +3550,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 12,
   },
-
-  noContactsTitle: {
-    fontSize: 15,
-    fontWeight: "800",
-    color: "#374151",
-  },
-
+  noContactsTitle: { fontSize: 15, fontWeight: "800", color: "#374151" },
   noContactsText: {
     fontSize: 12,
     color: "#9ca3af",
     textAlign: "center",
     marginTop: 5,
   },
-
   contactCancelButton: {
     height: 48,
     borderRadius: 12,
@@ -3632,16 +3565,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 10,
   },
-
   contactCancelButtonText: {
     fontSize: 14,
     color: "#374151",
     fontWeight: "800",
   },
-
-  // ==================================================
-  // DELETE MODAL
-  // ==================================================
 
   modalOverlay: {
     flex: 1,
@@ -3650,7 +3578,6 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(15, 23, 42, 0.52)",
     padding: 22,
   },
-
   confirmationModal: {
     width: "100%",
     maxWidth: 380,
@@ -3658,7 +3585,6 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     padding: 22,
   },
-
   deleteWarningIcon: {
     width: 52,
     height: 52,
@@ -3668,20 +3594,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 15,
   },
-
-  confirmationTitle: {
-    fontSize: 19,
-    fontWeight: "800",
-    color: "#111827",
-  },
-
+  confirmationTitle: { fontSize: 19, fontWeight: "800", color: "#111827" },
   confirmationMessage: {
     fontSize: 13,
     color: "#6b7280",
     lineHeight: 20,
     marginTop: 9,
   },
-
   confirmationActions: {
     flexDirection: "row",
     justifyContent: "flex-end",
@@ -3689,7 +3608,6 @@ const styles = StyleSheet.create({
     gap: 10,
     marginTop: 23,
   },
-
   cancelButton: {
     minWidth: 90,
     height: 44,
@@ -3698,13 +3616,7 @@ const styles = StyleSheet.create({
     borderRadius: 11,
     backgroundColor: "#f3f4f6",
   },
-
-  cancelButtonText: {
-    color: "#374151",
-    fontSize: 13,
-    fontWeight: "700",
-  },
-
+  cancelButtonText: { color: "#374151", fontSize: 13, fontWeight: "700" },
   confirmDeleteButton: {
     minWidth: 105,
     height: 44,
@@ -3714,7 +3626,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#dc2626",
     borderRadius: 11,
   },
-
   confirmDeleteButtonText: {
     color: "#fff",
     fontSize: 13,
@@ -3722,17 +3633,20 @@ const styles = StyleSheet.create({
     marginLeft: 6,
   },
 
-  // ==================================================
-  // PHOTO OPTIONS MODAL
-  // ==================================================
-
   modalBackdrop: {
     flex: 1,
     backgroundColor: "rgba(0,0,0,0.45)",
     justifyContent: "flex-end",
     alignItems: "center",
   },
-
+  modalHandle: {
+    width: 42,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "#CBD5E1",
+    alignSelf: "center",
+    marginBottom: 18,
+  },
   photoOptionsModal: {
     backgroundColor: "#ffffff",
     borderTopLeftRadius: 24,
@@ -3742,7 +3656,6 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 480,
   },
-
   photoOptionsTitle: {
     fontSize: 20,
     fontWeight: "700",
@@ -3750,14 +3663,12 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     textAlign: "center",
   },
-
   photoOptionsSubtitle: {
     fontSize: 13,
     color: "#64748b",
     textAlign: "center",
     marginBottom: 20,
   },
-
   photoOptionButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -3769,7 +3680,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e2e8f0",
   },
-
   photoOptionIcon: {
     width: 44,
     height: 44,
@@ -3779,23 +3689,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginRight: 14,
   },
-
-  photoOptionTextContainer: {
-    flex: 1,
-  },
-
-  photoOptionTitle: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#0f172a",
-  },
-
-  photoOptionDescription: {
-    fontSize: 12,
-    color: "#64748b",
-    marginTop: 1,
-  },
-
+  photoOptionTextContainer: { flex: 1 },
+  photoOptionTitle: { fontSize: 15, fontWeight: "600", color: "#0f172a" },
+  photoOptionDescription: { fontSize: 12, color: "#64748b", marginTop: 1 },
   photoOptionsCancel: {
     paddingVertical: 14,
     alignItems: "center",
@@ -3803,16 +3699,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#f8fafc",
     borderRadius: 12,
   },
-
   photoOptionsCancelText: {
     fontSize: 15,
     fontWeight: "700",
     color: "#dc2626",
   },
-
-  // ==================================================
-  // KINDS
-  // ==================================================
 
   kindRadioRow: {
     flexDirection: "row",
@@ -3820,7 +3711,6 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 14,
   },
-
   kindRadioOption: {
     flex: 1,
     minHeight: 50,
@@ -3833,17 +3723,14 @@ const styles = StyleSheet.create({
     gap: 8,
     backgroundColor: "#fff",
   },
-
   kindRadioOptionExpense: {
     borderColor: "#FCA5A5",
     backgroundColor: "#FEF2F2",
   },
-
   kindRadioOptionIncome: {
     borderColor: "#86EFAC",
     backgroundColor: "#F0FDF4",
   },
-
   radioOuter: {
     width: 18,
     height: 18,
@@ -3853,24 +3740,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
-  radioOuterExpense: {
-    borderColor: RED,
-  },
-
-  radioOuterIncome: {
-    borderColor: GREEN,
-  },
-
-  radioInner: {
-    width: 9,
-    height: 9,
-    borderRadius: 4.5,
-  },
-
-  kindRadioText: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#64748B",
-  },
-}) as any;
+  radioOuterExpense: { borderColor: RED },
+  radioOuterIncome: { borderColor: GREEN },
+  radioInner: { width: 9, height: 9, borderRadius: 4.5 },
+  kindRadioText: { fontSize: 13, fontWeight: "700", color: "#64748B" },
+});

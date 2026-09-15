@@ -1,31 +1,70 @@
+import * as SecureStore from "expo-secure-store";
 import { useCallback, useEffect } from "react";
 import { usePaymentStore } from "../store/paymentStore";
 import {
-    AddPaymentInput,
-    BillPayment,
-    MaintenancePayment,
-    Payment,
-    PaymentCategory,
-    PaymentStatus,
-    PaymentSummary,
-    RentPayment,
-    SalaryPayment,
-    UpdatePaymentInput,
+  AddPaymentInput,
+  BillPayment,
+  MaintenancePayment,
+  Payment,
+  PaymentCategory,
+  PaymentStatus,
+  PaymentSummary,
+  RentPayment,
+  SalaryPayment,
+  UpdatePaymentInput,
 } from "../types/payment";
 
-// API functions
-async function fetchPayments(accountId: string): Promise<Payment[]> {
-  // TODO: Replace with actual API call
-  // const { data } = await supabase
-  //   .from('payments')
-  //   .select('*')
-  //   .eq('accountId', accountId)
-  //   .order('dueDate', { ascending: true });
-  // return data ?? [];
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
 
-  // Mock data
+// ---------------------------------------------------------------------------
+// Auth-aware request helper
+// ---------------------------------------------------------------------------
+async function getToken(): Promise<string | null> {
+  try {
+    return await SecureStore.getItemAsync("auth_token");
+  } catch {
+    return null;
+  }
+}
+
+async function apiRequest<T>(
+  path: string,
+  options: RequestInit = {},
+): Promise<T> {
+  const token = await getToken();
+  const res = await fetch(`${API_BASE_URL}${path}`, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(options.headers ?? {}),
+    },
+  });
+
+  let data: any = null;
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
+  }
+
+  if (!res.ok) {
+    const err: any = new Error(
+      data?.message ?? `Request failed (${res.status})`,
+    );
+    err.status = res.status;
+    err.code = data?.code;
+    throw err;
+  }
+
+  return data as T;
+}
+
+// ---------------------------------------------------------------------------
+// Legacy mock API functions (kept so the rest of the app keeps working)
+// ---------------------------------------------------------------------------
+async function fetchPayments(accountId: string): Promise<Payment[]> {
   const now = new Date().toISOString();
-  const currentMonth = new Date().toISOString().slice(0, 7);
 
   return [
     {
@@ -36,8 +75,8 @@ async function fetchPayments(accountId: string): Promise<Payment[]> {
       dueDate: new Date(2026, 8, 1).toISOString(),
       paidDate: new Date(2026, 8, 1).toISOString(),
       status: "paid",
-      createdAt: new Date(2026, 8, 1).toISOString(),
-      updatedAt: new Date(2026, 8, 1).toISOString(),
+      createdAt: now,
+      updatedAt: now,
       memberId: "m3",
       month: "2026-08",
       presentDays: 26,
@@ -49,8 +88,8 @@ async function fetchPayments(accountId: string): Promise<Payment[]> {
       amount: 3200,
       dueDate: new Date(2026, 8, 15).toISOString(),
       status: "due",
-      createdAt: new Date(2026, 8, 5).toISOString(),
-      updatedAt: new Date(2026, 8, 5).toISOString(),
+      createdAt: now,
+      updatedAt: now,
       billNumber: "EB-2026-08-001",
       units: 450,
     } as BillPayment,
@@ -61,8 +100,8 @@ async function fetchPayments(accountId: string): Promise<Payment[]> {
       amount: 2500,
       dueDate: new Date(2026, 8, 10).toISOString(),
       status: "due",
-      createdAt: new Date(2026, 8, 1).toISOString(),
-      updatedAt: new Date(2026, 8, 1).toISOString(),
+      createdAt: now,
+      updatedAt: now,
       memberId: "m1",
       flatNumber: "101",
       month: "2026-08",
@@ -71,14 +110,6 @@ async function fetchPayments(accountId: string): Promise<Payment[]> {
 }
 
 async function createPaymentApi(input: AddPaymentInput): Promise<Payment> {
-  // TODO: Replace with actual API call
-  // const { data } = await supabase
-  //   .from('payments')
-  //   .insert(input)
-  //   .select()
-  //   .single();
-  // return data;
-
   const now: string = new Date().toISOString();
   const basePayment = {
     id: `pay_${Date.now()}`,
@@ -136,15 +167,6 @@ async function updatePaymentApi(
   id: string,
   updates: Partial<Payment>,
 ): Promise<Payment> {
-  // TODO: Replace with actual API call
-  // const { data } = await supabase
-  //   .from('payments')
-  //   .update(updates)
-  //   .eq('id', id)
-  //   .select()
-  //   .single();
-  // return data;
-
   return {
     id,
     ...updates,
@@ -153,11 +175,27 @@ async function updatePaymentApi(
 }
 
 async function deletePaymentApi(id: string): Promise<void> {
-  // TODO: Replace with actual API call
-  // await supabase.from('payments').delete().eq('id', id);
   console.log("Deleting payment:", id);
 }
 
+// ---------------------------------------------------------------------------
+// Payload type for the new backend endpoints
+// ---------------------------------------------------------------------------
+export interface UpsertPaymentPayload {
+  status: "paid" | "due";
+  paidDate?: string | null;
+  baseAmount?: number;
+  payableSalary?: number | null;
+  additionalAmount?: number;
+  additionalNote?: string | null;
+  deductionAmount?: number;
+  deductionNote?: string | null;
+  netAmount?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Hook
+// ---------------------------------------------------------------------------
 export function usePayments(accountId?: string) {
   const {
     payments,
@@ -178,7 +216,6 @@ export function usePayments(accountId?: string) {
     getPaymentSummary,
   } = usePaymentStore();
 
-  // Load payments
   useEffect(() => {
     if (!accountId) return;
 
@@ -198,7 +235,69 @@ export function usePayments(accountId?: string) {
     load();
   }, [accountId, setPayments, setIsLoading, setError]);
 
-  // Add new payment
+  // ─────────────────────────────────────────────────────────────────
+  // NEW: Upsert member payment → PUT /management/:accountId/members/:id/payments/:month
+  // ─────────────────────────────────────────────────────────────────
+  const upsertMemberPayment = useCallback(
+    async (
+      memberId: string,
+      month: string,
+      payload: UpsertPaymentPayload,
+    ): Promise<any> => {
+      if (!accountId) throw new Error("No account selected");
+      setIsLoading(true);
+      setError(null);
+      try {
+        const row = await apiRequest<any>(
+          `/management/${accountId}/members/${memberId}/payments/${month}`,
+          {
+            method: "PUT",
+            body: JSON.stringify(payload),
+          },
+        );
+        return row;
+      } catch (error: any) {
+        setError(error.message || "Failed to save member payment");
+        throw error;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [accountId, setIsLoading, setError],
+  );
+
+  // ─────────────────────────────────────────────────────────────────
+  // NEW: Upsert staff payment → PUT /management/:accountId/staff/:id/payments/:month
+  // ─────────────────────────────────────────────────────────────────
+  const upsertStaffPayment = useCallback(
+    async (
+      staffId: string,
+      month: string,
+      payload: UpsertPaymentPayload,
+    ): Promise<any> => {
+      if (!accountId) throw new Error("No account selected");
+      setIsLoading(true);
+      setError(null);
+      try {
+        const row = await apiRequest<any>(
+          `/management/${accountId}/staff/${staffId}/payments/${month}`,
+          {
+            method: "PUT",
+            body: JSON.stringify(payload),
+          },
+        );
+        return row;
+      } catch (error: any) {
+        setError(error.message || "Failed to save staff payment");
+        throw error;
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [accountId, setIsLoading, setError],
+  );
+
+  // Existing CRUD
   const addNewPayment = useCallback(
     async (input: AddPaymentInput): Promise<Payment> => {
       try {
@@ -217,7 +316,6 @@ export function usePayments(accountId?: string) {
     [addPayment, setIsLoading, setError],
   );
 
-  // Edit/Update payment
   const editPayment = useCallback(
     async (id: string, input: UpdatePaymentInput): Promise<Payment> => {
       try {
@@ -239,7 +337,6 @@ export function usePayments(accountId?: string) {
     [updatePayment, setIsLoading, setError],
   );
 
-  // Delete payment
   const removePayment = useCallback(
     async (id: string): Promise<void> => {
       try {
@@ -257,7 +354,6 @@ export function usePayments(accountId?: string) {
     [deletePayment, setIsLoading, setError],
   );
 
-  // Mark payment as paid
   const markAsPaid = useCallback(
     async (id: string): Promise<Payment> => {
       try {
@@ -280,7 +376,6 @@ export function usePayments(accountId?: string) {
     [updatePayment, setIsLoading, setError],
   );
 
-  // Get payment by ID with proper type narrowing
   const getPaymentById = useCallback(
     <T extends Payment = Payment>(id: string): T | undefined => {
       return payments.find((payment: Payment) => payment.id === id) as
@@ -290,7 +385,6 @@ export function usePayments(accountId?: string) {
     [payments],
   );
 
-  // Get payments by category
   const getPaymentsByCategoryFilter = useCallback(
     (category: PaymentCategory): Payment[] => {
       return getPaymentsByCategory(category);
@@ -298,7 +392,6 @@ export function usePayments(accountId?: string) {
     [getPaymentsByCategory],
   );
 
-  // Get payments by status
   const getPaymentsByStatusFilter = useCallback(
     (status: PaymentStatus): Payment[] => {
       return getPaymentsByStatus(status);
@@ -306,12 +399,10 @@ export function usePayments(accountId?: string) {
     [getPaymentsByStatus],
   );
 
-  // Get pending payments
   const getPendingPaymentsFilter = useCallback((): Payment[] => {
     return getPendingPayments();
   }, [getPendingPayments]);
 
-  // Get payments by date range
   const getPaymentsByDateRangeFilter = useCallback(
     (startDate: string, endDate: string): Payment[] => {
       return getPaymentsByDateRange(startDate, endDate);
@@ -319,7 +410,6 @@ export function usePayments(accountId?: string) {
     [getPaymentsByDateRange],
   );
 
-  // Get payments by month
   const getPaymentsByMonthFilter = useCallback(
     (month: string): Payment[] => {
       return getPaymentsByMonth(month);
@@ -327,7 +417,6 @@ export function usePayments(accountId?: string) {
     [getPaymentsByMonth],
   );
 
-  // Get monthly summary
   const getMonthlySummary = useCallback(
     (month?: string): PaymentSummary => {
       const targetMonth: string = month ?? new Date().toISOString().slice(0, 7);
@@ -415,7 +504,6 @@ export function usePayments(accountId?: string) {
     [getPaymentsByMonth],
   );
 
-  // ✅ FIXED: Get payment summary for account - now returns proper PaymentSummary
   const getAccountPaymentSummary = useCallback((): PaymentSummary | null => {
     if (!accountId) return null;
 
@@ -431,7 +519,6 @@ export function usePayments(accountId?: string) {
       1,
     ).toLocaleString("default", { month: "long" });
 
-    // Create byStatus from summary data
     const byStatus: Record<PaymentStatus, number> = {
       paid: summary.totalPaid,
       due: summary.totalDue,
@@ -453,12 +540,15 @@ export function usePayments(accountId?: string) {
   }, [accountId, getPaymentSummary]);
 
   return {
-    // Data
     payments: accountId ? getPaymentsByAccount(accountId) : [],
     isLoading,
     error,
 
-    // CRUD Operations
+    // New
+    upsertMemberPayment,
+    upsertStaffPayment,
+
+    // Legacy CRUD
     addNewPayment,
     editPayment,
     removePayment,

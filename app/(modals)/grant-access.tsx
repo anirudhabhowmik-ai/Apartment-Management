@@ -23,16 +23,16 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { useGroups } from "../../hooks/useGroups";
+import { useMembers, useStaff } from "../../hooks/useManagement";
 import { useAccessStore } from "../../store/accessStore";
 import { useAccountStore } from "../../store/accountStore";
-import { useMemberStore } from "../../store/memberStore";
 import { useAuthStore } from "../../store/useAuthStore";
-import { ACCESS_ROLE_LABEL, AccountAccessRole } from "../../types/access";
+import type { AccountAccessRole, Member } from "../../types";
+import { ACCESS_ROLE_LABEL } from "../../types";
 
 type RecipientSource = "new" | "existing";
 
-// 🆕 "ownership" is added as a memberType. It behaves like admin.
+// "ownership" is a memberType — behaves like admin.
 type MemberType = "owner" | "staff" | "ownership";
 
 interface ContactData {
@@ -59,9 +59,16 @@ export default function GrantAccessScreen() {
   const accounts = useAccountStore((state) => state.accounts);
   const account = accounts.find((a) => a.id === accountId);
 
-  const { groups } = useGroups(accountId);
+  // ── NEW: fetch members & staff directly from useManagement ──
+  const { items: apartmentMembers } = useMembers(accountId ?? null);
+  const { items: staffMembers } = useStaff(accountId ?? null);
 
-  const members = useMemberStore((state) => state.members);
+  // ── NEW: eligible members = all apartment + all staff (already typed) ──
+  const eligibleMembers: Member[] = useMemo(
+    () => [...apartmentMembers, ...staffMembers],
+    [apartmentMembers, staffMembers],
+  );
+
   const addGrant = useAccessStore((state) => state.addGrant);
 
   const [source, setSource] = useState<RecipientSource>("new");
@@ -82,7 +89,6 @@ export default function GrantAccessScreen() {
   // FLOW
   // ============================================================
 
-  // 🆕 Ownership flow — admin-like, not visibility.
   const isOwnershipFlow = memberType === "ownership";
 
   const isVisibilityFlow =
@@ -100,7 +106,6 @@ export default function GrantAccessScreen() {
       ? "Manage Apartment Owner Visibility"
       : "Manage Staff Visibility";
 
-  // 🆕 Title is "Ownership" when in ownership flow, else the mapped label.
   const title = isOwnershipFlow
     ? "Ownership"
     : ACCESS_ROLE_LABEL[role || "member_visibility"];
@@ -109,53 +114,25 @@ export default function GrantAccessScreen() {
   // MEMBERS
   // ============================================================
 
-  const eligibleMembers = useMemo(() => {
-    const eligibleGroupIds = groups
-      .filter((group) => group.type === "apartment" || group.type === "staff")
-      .map((group) => group.id);
+  // NEW: apartment/staff members come straight from the hooks above.
+  //      No more group filtering.
+  const apartmentMembersList = apartmentMembers;
 
-    return members.filter((member) =>
-      eligibleGroupIds.includes(member.groupId),
-    );
-  }, [groups, members]);
-
-  const apartmentGroupIds = useMemo(
-    () =>
-      groups
-        .filter((group) => group.type === "apartment")
-        .map((group) => group.id),
-    [groups],
-  );
-
-  const staffGroupIds = useMemo(
-    () =>
-      groups.filter((group) => group.type === "staff").map((group) => group.id),
-    [groups],
-  );
-
-  const apartmentMembers = useMemo(
-    () =>
-      eligibleMembers.filter((member) =>
-        apartmentGroupIds.includes(member.groupId),
-      ),
-    [eligibleMembers, apartmentGroupIds],
-  );
-
-  const staffMembers = useMemo(
-    () =>
-      eligibleMembers.filter((member) =>
-        staffGroupIds.includes(member.groupId),
-      ),
-    [eligibleMembers, staffGroupIds],
-  );
+  const staffMembersList = staffMembers;
 
   const activeMembers = useMemo(() => {
     if (isVisibilityFlow) {
-      return effectiveMemberType === "owner" ? apartmentMembers : staffMembers;
+      return effectiveMemberType === "owner"
+        ? apartmentMembersList
+        : staffMembersList;
     }
-
-    return [...apartmentMembers, ...staffMembers];
-  }, [isVisibilityFlow, effectiveMemberType, apartmentMembers, staffMembers]);
+    return [...apartmentMembersList, ...staffMembersList];
+  }, [
+    isVisibilityFlow,
+    effectiveMemberType,
+    apartmentMembersList,
+    staffMembersList,
+  ]);
 
   const currentUserMember = useMemo(() => {
     if (!currentUser?.phone) return null;
@@ -167,12 +144,12 @@ export default function GrantAccessScreen() {
     if (!currentPhone) return null;
 
     return (
-      members.find((member) => {
+      eligibleMembers.find((member) => {
         const memberPhone = normalizePhone(member.phone || "");
         return memberPhone === currentPhone;
       }) ?? null
     );
-  }, [currentUser?.phone, members]);
+  }, [currentUser?.phone, eligibleMembers]);
 
   const isAccountCreator =
     !!account && !!currentUser && account.ownerId === currentUser.id;
@@ -193,9 +170,9 @@ export default function GrantAccessScreen() {
   const searchLower = search.trim().toLowerCase();
 
   const filteredMembers = useMemo(() => {
-    if (!searchLower) return apartmentMembers;
+    if (!searchLower) return apartmentMembersList;
 
-    return apartmentMembers.filter((member) => {
+    return apartmentMembersList.filter((member) => {
       const apartmentNumber = ((member as any).apartmentNumber ?? "")
         .toString()
         .toLowerCase();
@@ -208,12 +185,12 @@ export default function GrantAccessScreen() {
         wing.includes(searchLower)
       );
     });
-  }, [apartmentMembers, searchLower]);
+  }, [apartmentMembersList, searchLower]);
 
   const filteredStaff = useMemo(() => {
-    if (!searchLower) return staffMembers;
+    if (!searchLower) return staffMembersList;
 
-    return staffMembers.filter((member) => {
+    return staffMembersList.filter((member) => {
       const staffRole = ((member as any).role ?? "").toString().toLowerCase();
 
       return (
@@ -222,7 +199,7 @@ export default function GrantAccessScreen() {
         staffRole.includes(searchLower)
       );
     });
-  }, [staffMembers, searchLower]);
+  }, [staffMembersList, searchLower]);
 
   const filteredActiveMembers = useMemo(() => {
     if (!searchLower) return activeMembers;
@@ -313,19 +290,19 @@ export default function GrantAccessScreen() {
         { sortOrder: ContactsSortOrder.GivenName },
       );
 
-      if (contacts.length === 0) {
+      if (!contacts || contacts.length === 0) {
         setError("No contacts found on your device.");
         return;
       }
 
       const mappedContacts: ContactData[] = contacts
-        .filter((contact) => contact.phones && contact.phones.length > 0)
-        .map((contact) => ({
-          id: contact.id,
-          name: contact.fullName || "Unknown",
-          phoneNumbers: contact.phones.map((phone) => ({
-            number: phone.number || "",
-            label: phone.label || undefined,
+        .filter((c: any) => c.phones && c.phones.length > 0)
+        .map((c: any) => ({
+          id: c.id ?? `${c.fullName ?? "unknown"}-${Math.random()}`,
+          name: c.fullName || "Unknown",
+          phoneNumbers: (c.phones ?? []).map((p: any) => ({
+            number: p.number || "",
+            label: p.label || undefined,
           })),
         }));
 
@@ -411,7 +388,6 @@ export default function GrantAccessScreen() {
       invitedByName: inviterName,
       role: grantRole,
       createdAt: new Date().toISOString(),
-      // 🆕 Tag ownership grants so the profile can list them separately.
       memberType: isOwnershipFlow ? "ownership" : undefined,
     };
 
@@ -486,7 +462,7 @@ export default function GrantAccessScreen() {
       return;
     }
 
-    const allMembers = [...apartmentMembers, ...staffMembers];
+    const allMembers = [...apartmentMembersList, ...staffMembersList];
 
     selectedMemberIds.forEach((memberId, index) => {
       const member = allMembers.find((m) => m.id === memberId);
@@ -512,7 +488,7 @@ export default function GrantAccessScreen() {
   // MEMBER ROW
   // ============================================================
 
-  const renderMemberRow = (member: (typeof eligibleMembers)[number]) => {
+  const renderMemberRow = (member: Member) => {
     const apartmentNumber = (member as any).apartmentNumber as
       | string
       | undefined;
@@ -746,7 +722,7 @@ export default function GrantAccessScreen() {
   // ============================================================
 
   const hasMembersOrStaff =
-    apartmentMembers.length > 0 || staffMembers.length > 0;
+    apartmentMembersList.length > 0 || staffMembersList.length > 0;
 
   const getEmptyStateText = () => {
     if (isVisibilityFlow) {
@@ -785,7 +761,6 @@ export default function GrantAccessScreen() {
         keyboardDismissMode="none"
         bounces={false}
       >
-        {/* Intro Card */}
         <View style={styles.introCard}>
           <View style={styles.introIcon}>
             <Ionicons
@@ -814,7 +789,6 @@ export default function GrantAccessScreen() {
           </View>
         </View>
 
-        {/* RECIPIENT */}
         {!isVisibilityFlow ? (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>RECIPIENT</Text>
@@ -909,7 +883,6 @@ export default function GrantAccessScreen() {
           </View>
         ) : null}
 
-        {/* NEW PHONE */}
         {!isVisibilityFlow && source === "new" ? (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>PERSON DETAILS</Text>
@@ -980,7 +953,6 @@ export default function GrantAccessScreen() {
           </View>
         ) : null}
 
-        {/* EXISTING MEMBER / STAFF */}
         {!isVisibilityFlow && source === "existing" ? (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>SELECT PEOPLE</Text>
@@ -1037,7 +1009,8 @@ export default function GrantAccessScreen() {
                   </TouchableOpacity>
                 </View>
 
-                {eligibleMembers.length === 0 ? (
+                {apartmentMembersList.length === 0 &&
+                staffMembersList.length === 0 ? (
                   <View style={styles.emptyCard}>
                     <View style={styles.emptyIcon}>
                       <Ionicons
@@ -1063,18 +1036,19 @@ export default function GrantAccessScreen() {
                         <Text style={styles.groupTitle}>Members</Text>
                       </View>
                       <Text style={styles.groupCount}>
-                        {apartmentMembers.length}
+                        {apartmentMembersList.length}
                       </Text>
                     </View>
 
-                    {apartmentMembers.length === 0 ? (
+                    {apartmentMembersList.length === 0 ? (
                       <Text style={styles.emptySmall}>
                         No members are available.
                       </Text>
                     ) : (
-                      (searchLower ? filteredMembers : apartmentMembers).map(
-                        renderMemberRow,
-                      )
+                      (searchLower
+                        ? filteredMembers
+                        : apartmentMembersList
+                      ).map(renderMemberRow)
                     )}
 
                     <View style={[styles.groupHeader, styles.staffGroupHeader]}>
@@ -1087,16 +1061,16 @@ export default function GrantAccessScreen() {
                         <Text style={styles.groupTitle}>Staff</Text>
                       </View>
                       <Text style={styles.groupCount}>
-                        {staffMembers.length}
+                        {staffMembersList.length}
                       </Text>
                     </View>
 
-                    {staffMembers.length === 0 ? (
+                    {staffMembersList.length === 0 ? (
                       <Text style={styles.emptySmall}>
                         No staff members are available.
                       </Text>
                     ) : (
-                      (searchLower ? filteredStaff : staffMembers).map(
+                      (searchLower ? filteredStaff : staffMembersList).map(
                         renderMemberRow,
                       )
                     )}
@@ -1117,7 +1091,6 @@ export default function GrantAccessScreen() {
           </View>
         ) : null}
 
-        {/* VISIBILITY FLOW */}
         {isVisibilityFlow ? (
           <View style={styles.section}>
             {hasMembersOrStaff ? (
@@ -1184,12 +1157,12 @@ export default function GrantAccessScreen() {
                         />
                       </View>
                       <Text style={styles.emptyTitle}>
-                        {apartmentMembers.length === 0
+                        {apartmentMembersList.length === 0
                           ? "No apartment owners available"
                           : "No matching apartment owners"}
                       </Text>
                       <Text style={styles.emptyDescription}>
-                        {apartmentMembers.length === 0
+                        {apartmentMembersList.length === 0
                           ? "There are currently no apartment owners available to select."
                           : "Try searching with another name, phone number, apartment or wing."}
                       </Text>
@@ -1207,12 +1180,12 @@ export default function GrantAccessScreen() {
                       />
                     </View>
                     <Text style={styles.emptyTitle}>
-                      {staffMembers.length === 0
+                      {staffMembersList.length === 0
                         ? "No staff available"
                         : "No matching staff"}
                     </Text>
                     <Text style={styles.emptyDescription}>
-                      {staffMembers.length === 0
+                      {staffMembersList.length === 0
                         ? "There are currently no staff members available to select."
                         : "Try searching with another name, phone number or role."}
                     </Text>
@@ -1235,7 +1208,6 @@ export default function GrantAccessScreen() {
           </View>
         ) : null}
 
-        {/* ERROR */}
         {error ? (
           <View style={styles.errorBox}>
             <Ionicons name="alert-circle-outline" size={19} color="#DC2626" />
@@ -1243,7 +1215,6 @@ export default function GrantAccessScreen() {
           </View>
         ) : null}
 
-        {/* ACTION BUTTON */}
         <View style={styles.bottomAction}>
           <TouchableOpacity
             style={[
@@ -1283,7 +1254,7 @@ export default function GrantAccessScreen() {
 }
 
 // ============================================================
-// STYLES — unchanged from your file
+// STYLES
 // ============================================================
 
 const styles = StyleSheet.create({
@@ -1759,4 +1730,4 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   modalCancelButtonText: { color: "#334155", fontSize: 14, fontWeight: "700" },
-}) as any;
+});

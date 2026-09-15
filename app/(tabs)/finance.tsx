@@ -3,7 +3,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { File, Paths } from "expo-file-system";
 import { useRouter } from "expo-router";
 import * as Sharing from "expo-sharing";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -20,11 +20,11 @@ import {
 import * as XLSX from "xlsx";
 
 import { useAccounts } from "../../hooks/useAccounts";
-import { useGroups } from "../../hooks/useGroups";
+import { useMembers, useStaff } from "../../hooks/useManagement";
 import { useUserRole } from "../../hooks/useUserRole";
 import { useAccountStore } from "../../store/accountStore";
 import { useFinanceBalanceStore } from "../../store/financeBalanceStore";
-import { useMemberStore } from "../../store/memberStore";
+import type { Member } from "../../types";
 
 import {
   getPaymentCategoryColor,
@@ -79,7 +79,7 @@ const EXPENSE_CATEGORIES: PaymentCategory[] = [
 // ============================================================
 
 function TransactionItem({ payment }: { payment: PeopleTransaction }) {
-  const getCategoryLabel = (category: string) => {
+  const getCategoryLabelLocal = (category: string) => {
     const labels: Record<string, string> = {
       salary: "Salary",
       maintenance: "Maintenance",
@@ -109,13 +109,10 @@ function TransactionItem({ payment }: { payment: PeopleTransaction }) {
     switch (status) {
       case "paid":
         return "checkmark-circle";
-
       case "due":
         return "time-outline";
-
       case "overdue":
         return "alert-circle";
-
       default:
         return "time-outline";
     }
@@ -133,20 +130,13 @@ function TransactionItem({ payment }: { payment: PeopleTransaction }) {
 
   return (
     <View style={styles.transactionItem}>
-      <View
-        style={[
-          styles.transactionIcon,
-          {
-            backgroundColor: `${color}15`,
-          },
-        ]}
-      >
+      <View style={[styles.transactionIcon, { backgroundColor: `${color}15` }]}>
         <Ionicons name={icon} size={21} color={color} />
       </View>
 
       <View style={styles.transactionInfo}>
         <Text style={styles.transactionTitle} numberOfLines={1}>
-          {getCategoryLabel(payment.category)}
+          {getCategoryLabelLocal(payment.category)}
         </Text>
 
         <Text style={styles.transactionDescription} numberOfLines={1}>
@@ -157,7 +147,6 @@ function TransactionItem({ payment }: { payment: PeopleTransaction }) {
         {payment.category === "salary" && "memberId" in payment && (
           <View style={styles.metaRow}>
             <Ionicons name="person-outline" size={11} color="#8A94A6" />
-
             <Text style={styles.transactionMeta}>
               {payment.memberRole
                 ? payment.memberRole.charAt(0).toUpperCase() +
@@ -170,7 +159,6 @@ function TransactionItem({ payment }: { payment: PeopleTransaction }) {
         {payment.category === "maintenance" && "flatNumber" in payment && (
           <View style={styles.metaRow}>
             <Ionicons name="home-outline" size={11} color="#8A94A6" />
-
             <Text style={styles.transactionMeta}>
               {payment.wing ? `${payment.wing} Wing • ` : ""}
               Flat {payment.flatNumber}
@@ -194,23 +182,10 @@ function TransactionItem({ payment }: { payment: PeopleTransaction }) {
         </Text>
 
         <View
-          style={[
-            styles.statusBadge,
-            {
-              backgroundColor: `${statusColor}12`,
-            },
-          ]}
+          style={[styles.statusBadge, { backgroundColor: `${statusColor}12` }]}
         >
           <Ionicons name={statusIcon} size={11} color={statusColor} />
-
-          <Text
-            style={[
-              styles.statusText,
-              {
-                color: statusColor,
-              },
-            ]}
-          >
+          <Text style={[styles.statusText, { color: statusColor }]}>
             {payment.status.charAt(0).toUpperCase() + payment.status.slice(1)}
           </Text>
         </View>
@@ -238,25 +213,11 @@ function SummaryCard({
 }) {
   return (
     <View style={styles.summaryCard}>
-      <View
-        style={[
-          styles.summaryIcon,
-          {
-            backgroundColor,
-          },
-        ]}
-      >
+      <View style={[styles.summaryIcon, { backgroundColor }]}>
         <Ionicons name={icon} size={17} color={color} />
       </View>
 
-      <Text
-        style={[
-          styles.summaryAmount,
-          {
-            color,
-          },
-        ]}
-      >
+      <Text style={[styles.summaryAmount, { color }]}>
         ₹{amount.toLocaleString("en-IN")}
       </Text>
 
@@ -278,9 +239,17 @@ export default function FinanceScreen() {
     isLoading: accountsLoading,
   } = useAccounts();
 
-  const { groups } = useGroups(selectedAccount?.id || null);
+  // ── NEW: pull apartment + staff lists from useManagement ──
+  const accountId = selectedAccount?.id ?? null;
+  const { items: apartmentMembers } = useMembers(accountId);
+  const { items: staffMembers } = useStaff(accountId);
 
-  const members = useMemberStore((state) => state.members);
+  // Merged "account members" list — replaces the old group-filtered one
+  const members: Member[] = useMemo(
+    () => [...apartmentMembers, ...staffMembers],
+    [apartmentMembers, staffMembers],
+  );
+
   const setAccountSwitcherOpen = useAccountStore(
     (state) => state.setAccountSwitcherOpen,
   );
@@ -299,8 +268,8 @@ export default function FinanceScreen() {
 
   const { isAdmin, isMember } = useUserRole();
 
-  const canEditBalance = isAdmin; // opening balance edit — admin only
-  const canDownloadReport = isAdmin || isMember; // reports — admin + member
+  const canEditBalance = isAdmin;
+  const canDownloadReport = isAdmin || isMember;
 
   const [refreshing, setRefreshing] = useState(false);
 
@@ -330,30 +299,18 @@ export default function FinanceScreen() {
   // ============================================================
 
   const getSelectedMonthTransactions = () => {
-    const accountGroupIds = new Set(groups.map((group) => group.id));
-
-    const accountMembers = members.filter((member) =>
-      accountGroupIds.has(member.groupId),
-    );
-
     const monthKey = `${selectedMonth.getFullYear()}-${String(
       selectedMonth.getMonth() + 1,
     ).padStart(2, "0")}`;
 
     return {
       monthKey,
-      transactions: getPeopleTransactions(accountMembers, monthKey),
+      transactions: getPeopleTransactions(members, monthKey),
     };
   };
 
   const getMonthKey = (date: Date) =>
     `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-
-  const accountGroupIds = new Set(groups.map((group) => group.id));
-
-  const accountMembers = members.filter((member) =>
-    accountGroupIds.has(member.groupId),
-  );
 
   const selectedMonthKey = getMonthKey(selectedMonth);
 
@@ -367,9 +324,7 @@ export default function FinanceScreen() {
 
   while (getMonthKey(cursor) < selectedMonthKey) {
     previousMonthNets.push(
-      getPeopleSummary(
-        getPeopleTransactions(accountMembers, getMonthKey(cursor)),
-      ).net,
+      getPeopleSummary(getPeopleTransactions(members, getMonthKey(cursor))).net,
     );
 
     cursor.setMonth(cursor.getMonth() + 1);
@@ -415,7 +370,8 @@ export default function FinanceScreen() {
     if (selectedAccount) {
       loadFinanceData();
     }
-  }, [selectedAccount, groups, members, filter, selectedMonth]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedAccount, members, filter, selectedMonth]);
 
   const loadFinanceData = () => {
     const { transactions: accountPayments } = getSelectedMonthTransactions();
@@ -479,9 +435,7 @@ export default function FinanceScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
-
     loadFinanceData();
-
     setRefreshing(false);
   };
 
@@ -507,14 +461,9 @@ export default function FinanceScreen() {
 
   const getReportData = () => {
     const { monthKey, transactions } = getSelectedMonthTransactions();
-
     const reportSummary = getPeopleSummary(transactions);
 
-    return {
-      monthKey,
-      reportSummary,
-      transactions,
-    };
+    return { monthKey, reportSummary, transactions };
   };
 
   // ============================================================
@@ -612,10 +561,7 @@ export default function FinanceScreen() {
 
     XLSX.utils.book_append_sheet(workbook, worksheet, "Finance Report");
 
-    const data = XLSX.write(workbook, {
-      bookType: "xlsx",
-      type: "array",
-    });
+    const data = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
 
     const fileName = `ai-khata-finance-${monthKey}.xlsx`;
 
@@ -628,23 +574,16 @@ export default function FinanceScreen() {
         );
 
         const link = document.createElement("a");
-
         link.href = url;
         link.download = fileName;
-
         link.click();
 
         URL.revokeObjectURL(url);
-
         return;
       }
 
       const file = new File(Paths.cache, fileName);
-
-      file.create({
-        overwrite: true,
-      });
-
+      file.create({ overwrite: true });
       file.write(new Uint8Array(data));
 
       await Sharing.shareAsync(file.uri, {
@@ -699,9 +638,7 @@ export default function FinanceScreen() {
           <View style={styles.loadingIcon}>
             <Ionicons name="wallet-outline" size={28} color="#2563EB" />
           </View>
-
           <ActivityIndicator size="small" color="#2563EB" />
-
           <Text style={styles.loadingText}>Loading finances...</Text>
         </View>
       </View>
@@ -746,7 +683,6 @@ export default function FinanceScreen() {
               size={18}
               color="#fff"
             />
-
             <Text style={styles.selectButtonText}>
               {accounts.length > 0 ? "Select Property" : "Create Property"}
             </Text>
@@ -773,7 +709,6 @@ export default function FinanceScreen() {
         }
         showsVerticalScrollIndicator={false}
       >
-        {/* VIEW-ONLY BANNER (members only) */}
         {isMember && (
           <View style={styles.viewOnlyBanner}>
             <Ionicons name="eye-outline" size={16} color="#2563EB" />
@@ -783,17 +718,13 @@ export default function FinanceScreen() {
           </View>
         )}
 
-        {/* HEADER */}
-
         <View style={styles.header}>
           <View style={styles.headerTextContainer}>
             <Text style={styles.headerEyebrow}>FINANCE</Text>
-
             <Text style={styles.headerTitle}>Money Overview</Text>
 
             <View style={styles.propertyRow}>
               <Ionicons name="business-outline" size={13} color="#64748B" />
-
               <Text style={styles.propertyName} numberOfLines={1}>
                 {selectedAccount.name}
               </Text>
@@ -805,8 +736,6 @@ export default function FinanceScreen() {
           </View>
         </View>
 
-        {/* BALANCE HERO */}
-
         <View style={styles.balanceHero}>
           <View style={styles.heroCircleOne} />
           <View style={styles.heroCircleTwo} />
@@ -816,7 +745,6 @@ export default function FinanceScreen() {
               <Text style={styles.heroSmallLabel}>
                 Start With Opening Balance
               </Text>
-
               <Text
                 style={[
                   styles.heroAmount,
@@ -833,7 +761,6 @@ export default function FinanceScreen() {
                 onPress={openOpeningBalanceEditor}
               >
                 <Ionicons name="create-outline" size={16} color="#fff" />
-
                 <Text style={styles.heroEditText}>Edit</Text>
               </TouchableOpacity>
             )}
@@ -844,7 +771,6 @@ export default function FinanceScreen() {
           <View style={styles.heroBottomRow}>
             <View style={styles.heroMetric}>
               <Text style={styles.heroMetricLabel}>Carried Forward</Text>
-
               <Text style={styles.heroMetricValue}>
                 ₹{carriedForwardBalance.toLocaleString("en-IN")}
               </Text>
@@ -854,7 +780,6 @@ export default function FinanceScreen() {
 
             <View style={styles.heroMetric}>
               <Text style={styles.heroMetricLabel}>This Month</Text>
-
               <Text
                 style={[
                   styles.heroMetricValue,
@@ -868,8 +793,6 @@ export default function FinanceScreen() {
           </View>
         </View>
 
-        {/* MONTH */}
-
         <View style={styles.monthCard}>
           <View style={styles.monthLeft}>
             <View style={styles.calendarIcon}>
@@ -878,7 +801,6 @@ export default function FinanceScreen() {
 
             <View>
               <Text style={styles.monthCaption}>BILLING MONTH</Text>
-
               <Text style={styles.monthText}>
                 {selectedMonth.toLocaleString("default", {
                   month: "long",
@@ -909,14 +831,11 @@ export default function FinanceScreen() {
                 onPress={() => setShowReportOptions(true)}
               >
                 <Ionicons name="document-text-outline" size={16} color="#fff" />
-
                 <Text style={styles.reportButtonText}>Report</Text>
               </TouchableOpacity>
             )}
           </View>
         </View>
-
-        {/* SUMMARY */}
 
         <View style={styles.sectionLabelRow}>
           <Text style={styles.sectionLabel}>Monthly Summary</Text>
@@ -930,7 +849,6 @@ export default function FinanceScreen() {
             color="#16A34A"
             backgroundColor="#ECFDF3"
           />
-
           <SummaryCard
             title="Expenses"
             amount={summary.totalExpense}
@@ -938,7 +856,6 @@ export default function FinanceScreen() {
             color="#DC2626"
             backgroundColor="#FEF2F2"
           />
-
           <View style={styles.summaryCardLastWrapper}>
             <SummaryCard
               title="Net"
@@ -950,17 +867,12 @@ export default function FinanceScreen() {
           </View>
         </View>
 
-        {/* FILTER HEADER */}
-
         <View style={styles.filterHeader}>
           <Text style={styles.sectionLabel}>Transactions</Text>
-
           <Text style={styles.transactionCountTop}>
             {filteredPayments.length} records
           </Text>
         </View>
-
-        {/* FILTERS */}
 
         <ScrollView
           horizontal
@@ -969,11 +881,7 @@ export default function FinanceScreen() {
         >
           {(
             [
-              {
-                type: "all",
-                label: "All",
-                icon: "apps-outline",
-              },
+              { type: "all", label: "All", icon: "apps-outline" },
               {
                 type: "income",
                 label: "Income",
@@ -984,11 +892,7 @@ export default function FinanceScreen() {
                 label: "Expense",
                 icon: "trending-down-outline",
               },
-              {
-                type: "pending",
-                label: "Due",
-                icon: "time-outline",
-              },
+              { type: "pending", label: "Due", icon: "time-outline" },
             ] as {
               type: FilterType;
               label: string;
@@ -1008,7 +912,6 @@ export default function FinanceScreen() {
                   size={14}
                   color={active ? "#fff" : "#64748B"}
                 />
-
                 <Text
                   style={[
                     styles.filterChipText,
@@ -1022,17 +925,13 @@ export default function FinanceScreen() {
           })}
         </ScrollView>
 
-        {/* TRANSACTIONS */}
-
         <View style={styles.transactionsSection}>
           {filteredPayments.length === 0 ? (
             <View style={styles.emptyTransactions}>
               <View style={styles.emptyTransactionIcon}>
                 <Ionicons name="receipt-outline" size={28} color="#94A3B8" />
               </View>
-
               <Text style={styles.emptyTransactionTitle}>No transactions</Text>
-
               <Text style={styles.emptyText}>
                 No transactions match this filter for the selected month.
               </Text>
@@ -1046,8 +945,6 @@ export default function FinanceScreen() {
 
         <View style={styles.bottomPadding} />
       </ScrollView>
-
-      {/* REPORT MODAL - admin + member */}
 
       {canDownloadReport && (
         <Modal
@@ -1063,7 +960,6 @@ export default function FinanceScreen() {
               <View style={styles.sheetHeader}>
                 <View>
                   <Text style={styles.sheetTitle}>Download Report</Text>
-
                   <Text style={styles.sheetSubtitle}>
                     Choose a format for{" "}
                     {selectedMonth.toLocaleString("default", {
@@ -1081,8 +977,6 @@ export default function FinanceScreen() {
                 </TouchableOpacity>
               </View>
 
-              {/* EXCEL */}
-
               <TouchableOpacity
                 style={styles.reportOption}
                 onPress={() => {
@@ -1093,26 +987,19 @@ export default function FinanceScreen() {
                 <View
                   style={[
                     styles.reportOptionIcon,
-                    {
-                      backgroundColor: "#ECFDF3",
-                    },
+                    { backgroundColor: "#ECFDF3" },
                   ]}
                 >
                   <Ionicons name="grid-outline" size={22} color="#16A34A" />
                 </View>
-
                 <View style={styles.reportOptionInfo}>
                   <Text style={styles.reportOptionTitle}>Excel Report</Text>
-
                   <Text style={styles.reportOptionSubtitle}>
                     Detailed spreadsheet with transactions
                   </Text>
                 </View>
-
                 <Ionicons name="chevron-forward" size={19} color="#94A3B8" />
               </TouchableOpacity>
-
-              {/* PDF */}
 
               <TouchableOpacity
                 style={styles.reportOption}
@@ -1121,9 +1008,7 @@ export default function FinanceScreen() {
                 <View
                   style={[
                     styles.reportOptionIcon,
-                    {
-                      backgroundColor: "#FEF2F2",
-                    },
+                    { backgroundColor: "#FEF2F2" },
                   ]}
                 >
                   <Ionicons
@@ -1132,15 +1017,12 @@ export default function FinanceScreen() {
                     color="#DC2626"
                   />
                 </View>
-
                 <View style={styles.reportOptionInfo}>
                   <Text style={styles.reportOptionTitle}>PDF Report</Text>
-
                   <Text style={styles.reportOptionSubtitle}>
                     Share a clean financial summary
                   </Text>
                 </View>
-
                 <Ionicons name="chevron-forward" size={19} color="#94A3B8" />
               </TouchableOpacity>
 
@@ -1154,8 +1036,6 @@ export default function FinanceScreen() {
           </View>
         </Modal>
       )}
-
-      {/* OPENING BALANCE MODAL - admin only */}
 
       {canEditBalance && (
         <Modal
@@ -1171,7 +1051,6 @@ export default function FinanceScreen() {
               <View style={styles.sheetHeader}>
                 <View>
                   <Text style={styles.sheetTitle}>Opening Balance</Text>
-
                   <Text style={styles.sheetSubtitle}>
                     Set the starting balance for this property.
                   </Text>
@@ -1189,7 +1068,6 @@ export default function FinanceScreen() {
 
               <View style={styles.amountInputContainer}>
                 <Text style={styles.currencySymbol}>₹</Text>
-
                 <TextInput
                   autoFocus
                   keyboardType="numeric"
@@ -1221,7 +1099,6 @@ export default function FinanceScreen() {
                   onPress={saveOpeningBalance}
                 >
                   <Ionicons name="checkmark" size={18} color="#fff" />
-
                   <Text style={styles.saveOpeningBalanceText}>
                     Save Balance
                   </Text>
@@ -1240,10 +1117,7 @@ export default function FinanceScreen() {
 // ============================================================
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#F5F7FB",
-  },
+  container: { flex: 1, backgroundColor: "#F5F7FB" },
 
   scrollContent: {
     paddingHorizontal: 16,
@@ -1251,11 +1125,8 @@ const styles = StyleSheet.create({
     paddingBottom: 30,
   },
 
-  bottomPadding: {
-    height: 30,
-  },
+  bottomPadding: { height: 30 },
 
-  // VIEW-ONLY BANNER
   viewOnlyBanner: {
     flexDirection: "row",
     alignItems: "center",
@@ -1276,8 +1147,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
 
-  // HEADER
-
   header: {
     flexDirection: "row",
     alignItems: "center",
@@ -1285,9 +1154,7 @@ const styles = StyleSheet.create({
     marginBottom: 18,
   },
 
-  headerTextContainer: {
-    flex: 1,
-  },
+  headerTextContainer: { flex: 1 },
 
   headerEyebrow: {
     color: "#2563EB",
@@ -1328,8 +1195,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#DBEAFE",
   },
-
-  // HERO
 
   balanceHero: {
     backgroundColor: "#2563EB",
@@ -1380,9 +1245,7 @@ const styles = StyleSheet.create({
     letterSpacing: -0.8,
   },
 
-  heroNegative: {
-    color: "#FECACA",
-  },
+  heroNegative: { color: "#FECACA" },
 
   heroEditButton: {
     flexDirection: "row",
@@ -1408,14 +1271,9 @@ const styles = StyleSheet.create({
     marginVertical: 17,
   },
 
-  heroBottomRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
+  heroBottomRow: { flexDirection: "row", alignItems: "center" },
 
-  heroMetric: {
-    flex: 1,
-  },
+  heroMetric: { flex: 1 },
 
   heroMetricDivider: {
     width: 1,
@@ -1437,11 +1295,7 @@ const styles = StyleSheet.create({
     marginTop: 3,
   },
 
-  heroNegativeSmall: {
-    color: "#FECACA",
-  },
-
-  // MONTH
+  heroNegativeSmall: { color: "#FECACA" },
 
   monthCard: {
     backgroundColor: "#fff",
@@ -1455,11 +1309,7 @@ const styles = StyleSheet.create({
     borderColor: "#E8EDF5",
   },
 
-  monthLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-    flex: 1,
-  },
+  monthLeft: { flexDirection: "row", alignItems: "center", flex: 1 },
 
   calendarIcon: {
     width: 40,
@@ -1485,10 +1335,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
-  monthActions: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
+  monthActions: { flexDirection: "row", alignItems: "center" },
 
   monthArrow: {
     width: 32,
@@ -1518,24 +1365,11 @@ const styles = StyleSheet.create({
     marginLeft: 5,
   },
 
-  // SECTION
+  sectionLabelRow: { marginBottom: 10 },
 
-  sectionLabelRow: {
-    marginBottom: 10,
-  },
+  sectionLabel: { color: "#111827", fontSize: 16, fontWeight: "800" },
 
-  sectionLabel: {
-    color: "#111827",
-    fontSize: 16,
-    fontWeight: "800",
-  },
-
-  // SUMMARY
-
-  summaryGrid: {
-    flexDirection: "row",
-    marginBottom: 22,
-  },
+  summaryGrid: { flexDirection: "row", marginBottom: 22 },
 
   summaryCard: {
     flex: 1,
@@ -1548,9 +1382,7 @@ const styles = StyleSheet.create({
     borderColor: "#E8EDF5",
   },
 
-  summaryCardLastWrapper: {
-    flex: 1,
-  },
+  summaryCardLastWrapper: { flex: 1 },
 
   summaryIcon: {
     width: 32,
@@ -1574,8 +1406,6 @@ const styles = StyleSheet.create({
     marginTop: 3,
   },
 
-  // FILTER
-
   filterHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -1589,10 +1419,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
 
-  filterContainer: {
-    paddingRight: 8,
-    marginBottom: 14,
-  },
+  filterContainer: { paddingRight: 8, marginBottom: 14 },
 
   filterChip: {
     height: 36,
@@ -1606,10 +1433,7 @@ const styles = StyleSheet.create({
     marginRight: 8,
   },
 
-  filterChipActive: {
-    backgroundColor: "#2563EB",
-    borderColor: "#2563EB",
-  },
+  filterChipActive: { backgroundColor: "#2563EB", borderColor: "#2563EB" },
 
   filterChipText: {
     color: "#64748B",
@@ -1618,15 +1442,9 @@ const styles = StyleSheet.create({
     marginLeft: 5,
   },
 
-  filterChipTextActive: {
-    color: "#fff",
-  },
+  filterChipTextActive: { color: "#fff" },
 
-  // TRANSACTIONS
-
-  transactionsSection: {
-    marginBottom: 20,
-  },
+  transactionsSection: { marginBottom: 20 },
 
   transactionItem: {
     flexDirection: "row",
@@ -1648,39 +1466,17 @@ const styles = StyleSheet.create({
     marginRight: 11,
   },
 
-  transactionInfo: {
-    flex: 1,
-    minWidth: 0,
-  },
+  transactionInfo: { flex: 1, minWidth: 0 },
 
-  transactionTitle: {
-    color: "#111827",
-    fontSize: 13,
-    fontWeight: "700",
-  },
+  transactionTitle: { color: "#111827", fontSize: 13, fontWeight: "700" },
 
-  transactionDescription: {
-    color: "#64748B",
-    fontSize: 10,
-    marginTop: 3,
-  },
+  transactionDescription: { color: "#64748B", fontSize: 10, marginTop: 3 },
 
-  metaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 4,
-  },
+  metaRow: { flexDirection: "row", alignItems: "center", marginTop: 4 },
 
-  transactionMeta: {
-    color: "#94A3B8",
-    fontSize: 9,
-    marginLeft: 4,
-  },
+  transactionMeta: { color: "#94A3B8", fontSize: 9, marginLeft: 4 },
 
-  transactionRight: {
-    alignItems: "flex-end",
-    marginLeft: 8,
-  },
+  transactionRight: { alignItems: "flex-end", marginLeft: 8 },
 
   transactionAmount: {
     fontSize: 14,
@@ -1688,13 +1484,9 @@ const styles = StyleSheet.create({
     letterSpacing: -0.2,
   },
 
-  incomeText: {
-    color: "#16A34A",
-  },
+  incomeText: { color: "#16A34A" },
 
-  expenseText: {
-    color: "#DC2626",
-  },
+  expenseText: { color: "#DC2626" },
 
   statusBadge: {
     flexDirection: "row",
@@ -1705,13 +1497,7 @@ const styles = StyleSheet.create({
     marginTop: 5,
   },
 
-  statusText: {
-    fontSize: 8,
-    fontWeight: "800",
-    marginLeft: 3,
-  },
-
-  // EMPTY TRANSACTIONS
+  statusText: { fontSize: 8, fontWeight: "800", marginLeft: 3 },
 
   emptyTransactions: {
     backgroundColor: "#fff",
@@ -1747,13 +1533,7 @@ const styles = StyleSheet.create({
     marginTop: 5,
   },
 
-  // LOADING
-
-  loadingContainer: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  loadingContainer: { flex: 1, alignItems: "center", justifyContent: "center" },
 
   loadingIcon: {
     width: 60,
@@ -1771,8 +1551,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginTop: 9,
   },
-
-  // NO ACCOUNT
 
   emptyState: {
     flex: 1,
@@ -1824,8 +1602,6 @@ const styles = StyleSheet.create({
     marginLeft: 7,
   },
 
-  // MODAL
-
   modalOverlay: {
     flex: 1,
     justifyContent: "flex-end",
@@ -1857,11 +1633,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
 
-  sheetTitle: {
-    color: "#111827",
-    fontSize: 20,
-    fontWeight: "800",
-  },
+  sheetTitle: { color: "#111827", fontSize: 20, fontWeight: "800" },
 
   sheetSubtitle: {
     color: "#64748B",
@@ -1879,8 +1651,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
-  // REPORT OPTIONS
 
   reportOption: {
     flexDirection: "row",
@@ -1901,22 +1671,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  reportOptionInfo: {
-    flex: 1,
-    marginLeft: 12,
-  },
+  reportOptionInfo: { flex: 1, marginLeft: 12 },
 
-  reportOptionTitle: {
-    color: "#111827",
-    fontSize: 13,
-    fontWeight: "800",
-  },
+  reportOptionTitle: { color: "#111827", fontSize: 13, fontWeight: "800" },
 
-  reportOptionSubtitle: {
-    color: "#64748B",
-    fontSize: 10,
-    marginTop: 3,
-  },
+  reportOptionSubtitle: { color: "#64748B", fontSize: 10, marginTop: 3 },
 
   cancelButton: {
     height: 46,
@@ -1927,13 +1686,7 @@ const styles = StyleSheet.create({
     marginTop: 6,
   },
 
-  cancelButtonText: {
-    color: "#475569",
-    fontSize: 13,
-    fontWeight: "700",
-  },
-
-  // OPENING BALANCE
+  cancelButtonText: { color: "#475569", fontSize: 13, fontWeight: "700" },
 
   inputLabel: {
     color: "#334155",
@@ -1977,10 +1730,7 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
 
-  openingBalanceActions: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
+  openingBalanceActions: { flexDirection: "row", alignItems: "center" },
 
   cancelOutlineButton: {
     flex: 1,
@@ -1991,11 +1741,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#F1F5F9",
   },
 
-  cancelOutlineText: {
-    color: "#475569",
-    fontSize: 13,
-    fontWeight: "700",
-  },
+  cancelOutlineText: { color: "#475569", fontSize: 13, fontWeight: "700" },
 
   saveOpeningBalanceButton: {
     flex: 1.35,
@@ -2014,4 +1760,4 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     marginLeft: 6,
   },
-}) as any;
+});

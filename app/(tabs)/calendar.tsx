@@ -22,7 +22,6 @@ import {
   ResourceOption,
   useCalendarStore,
 } from "../../store/calendarStore";
-import { useMemberStore } from "../../store/memberStore";
 import { useAuthStore } from "../../store/useAuthStore";
 
 const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
@@ -86,17 +85,13 @@ const STATUS_META: Record<
 };
 
 export default function CalendarScreen() {
-  // ── Centralized role hook (same source of truth as Finance / People / _layout) ──
-  const { isAdmin, isMember, isStaff } = useUserRole();
+  // ── Centralized role hook ──
+  const { isAdmin, isMember, isStaff, userMemberProfile } = useUserRole();
 
   const user = useAuthStore((s) => s.user);
-  const members = useMemberStore((s) => s.members);
   const accountId = useAccountStore((s) => s.selectedAccountId) ?? "";
 
-  // Only admin and member can open the Add modal (request a booking or post)
   const canOpenAddModal = isAdmin || isMember;
-
-  // Only admin can post notices
   const canPostNotice = isAdmin;
 
   const events = useCalendarStore((s) => s.events);
@@ -115,7 +110,6 @@ export default function CalendarScreen() {
     "calendar",
   );
 
-  // Add/Edit Modal states
   const [showAddModal, setShowAddModal] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
   const [title, setTitle] = useState("");
@@ -127,18 +121,14 @@ export default function CalendarScreen() {
   const [eventDate, setEventDate] = useState<string>("");
   const [formError, setFormError] = useState("");
 
-  // Reject modal states
   const [rejectingId, setRejectingId] = useState<string | null>(null);
   const [rejectReason, setRejectReason] = useState("");
 
-  // Delete confirmation modal states
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deletingTitle, setDeletingTitle] = useState("");
 
-  // View details modal
   const [viewingEvent, setViewingEvent] = useState<CalendarEvent | null>(null);
 
-  // Calendar date picker for editing
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [tempSelectedDate, setTempSelectedDate] = useState(new Date());
 
@@ -158,7 +148,6 @@ export default function CalendarScreen() {
     return map;
   }, [accountEvents, user?.id]);
 
-  // Get all dates that have bookings (approved or pending events)
   const bookedDates = useMemo(() => {
     const dates = new Set<string>();
     accountEvents.forEach((e) => {
@@ -273,8 +262,7 @@ export default function CalendarScreen() {
         startTime: startTime.trim() || undefined,
         endTime: endTime.trim() || undefined,
         createdById: user?.id ?? "unknown",
-        createdByName:
-          members.find((member) => member.phone === user?.phone)?.name ?? "You",
+        createdByName: userMemberProfile?.name ?? "You",
         createdByPhone: user?.phone,
         createdByRole: isAdmin ? "admin" : "owner",
       });
@@ -312,7 +300,6 @@ export default function CalendarScreen() {
     );
   };
 
-  // Check if a date has a booking
   const isDateBooked = (dateKey: string) => {
     return bookedDates.has(dateKey);
   };
@@ -462,7 +449,6 @@ export default function CalendarScreen() {
           </Text>
         </View>
 
-        {/* Tab switcher — admin only */}
         {isAdmin && (
           <View style={styles.tabSwitcher}>
             <TouchableOpacity
@@ -703,7 +689,6 @@ export default function CalendarScreen() {
         )}
       </ScrollView>
 
-      {/* FAB Button — admin + member */}
       {activeView === "calendar" && canOpenAddModal && (
         <TouchableOpacity
           style={styles.fab}
@@ -749,7 +734,6 @@ export default function CalendarScreen() {
                     : "Request Event Booking"}
               </Text>
 
-              {/* Date Picker Field */}
               <Text style={styles.fieldLabel}>Date *</Text>
               <TouchableOpacity
                 style={styles.dateInputField}
@@ -770,7 +754,6 @@ export default function CalendarScreen() {
                 <Ionicons name="chevron-down" size={18} color="#94a3b8" />
               </TouchableOpacity>
 
-              {/* Type switcher — admin only (members always create events) */}
               {isAdmin && (
                 <View style={styles.typeSwitcher}>
                   <TouchableOpacity
@@ -908,7 +891,6 @@ export default function CalendarScreen() {
                 </View>
               ) : null}
 
-              {/* Info box for members requesting bookings */}
               {isMember && type === "event" && !editingEvent && (
                 <View style={styles.infoBox}>
                   <Ionicons
@@ -1329,7 +1311,11 @@ const styles = StyleSheet.create({
   },
   tabButtonActive: {
     backgroundColor: "#ffffff",
-    boxShadow: "0px 1px 3px rgba(0, 0, 0, 0.06)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 3,
+    elevation: 1,
   },
   tabButtonText: { fontSize: 13.5, fontWeight: "700", color: "#94a3b8" },
   tabButtonTextActive: { color: "#1a73e8" },
@@ -1364,7 +1350,11 @@ const styles = StyleSheet.create({
     padding: 12,
     borderWidth: 1,
     borderColor: "#e2e8f0",
-    boxShadow: "0px 1px 4px rgba(0, 0, 0, 0.04)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
   },
   weekdayRow: { flexDirection: "row", marginBottom: 6 },
   weekdayCell: { flex: 1, alignItems: "center", paddingVertical: 4 },
@@ -1463,7 +1453,11 @@ const styles = StyleSheet.create({
     padding: 14,
     borderWidth: 1,
     borderColor: "#e2e8f0",
-    boxShadow: "0px 1px 4px rgba(0, 0, 0, 0.04)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 4,
+    elevation: 1,
   },
   eventCardHeader: { flexDirection: "row", alignItems: "flex-start", gap: 10 },
   eventIcon: {
@@ -1577,7 +1571,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#1a73e8",
     justifyContent: "center",
     alignItems: "center",
-    boxShadow: "0px 4px 10px rgba(26, 115, 232, 0.35)",
+    shadowColor: "#1a73e8",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 10,
+    elevation: 5,
   },
 
   modalBackdrop: {
@@ -1640,7 +1638,11 @@ const styles = StyleSheet.create({
   },
   typeButtonActive: {
     backgroundColor: "#ffffff",
-    boxShadow: "0px 1px 3px rgba(0,0,0,0.06)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.06,
+    shadowRadius: 3,
+    elevation: 1,
   },
   typeButtonText: { fontSize: 13, fontWeight: "700", color: "#94a3b8" },
   typeButtonTextActive: { color: "#1a73e8" },
@@ -1835,7 +1837,11 @@ const styles = StyleSheet.create({
     maxWidth: 400,
     alignItems: "center",
     gap: 10,
-    boxShadow: "0px 6px 16px rgba(0, 0, 0, 0.15)",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
+    elevation: 8,
   },
   modalIconCircle: {
     width: 56,

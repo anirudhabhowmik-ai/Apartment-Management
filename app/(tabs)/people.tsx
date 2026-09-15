@@ -22,13 +22,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import DatePickerModal from "../../components/DatePickerModal";
 import MonthYearPickerModal from "../../components/MonthYearPickerModal";
 import { useAccounts } from "../../hooks/useAccounts";
-import { useGroups } from "../../hooks/useGroups";
+import { useExpenses, useMembers, useStaff } from "../../hooks/useManagement";
 import { useUserRole } from "../../hooks/useUserRole";
 import { generateBillPDF, savePDFToDevice } from "../../services/pdfGenerator";
 import { useAttendanceStore } from "../../store/attendanceStore";
 import { BillMemberType, useBillStore } from "../../store/billStore";
-import { useMemberStore } from "../../store/memberStore";
-import { GroupType } from "../../types";
+import type { ManagementType } from "../../types";
 
 /* ================================================================
    COLORS
@@ -75,7 +74,7 @@ type PaymentFilter = "all" | "paid" | "due";
 ================================================================ */
 
 const getTabLabel = (
-  type: GroupType,
+  type: ManagementType,
   accountType?: "apartment" | "home",
 ): string => {
   if (type === "apartment") {
@@ -89,7 +88,7 @@ const getTabLabel = (
 };
 
 const getCountLabel = (
-  type: GroupType,
+  type: ManagementType,
   count: number,
   accountType?: "apartment" | "home",
 ): string => {
@@ -108,7 +107,7 @@ const getCountLabel = (
 };
 
 const getAddButtonLabel = (
-  type: GroupType,
+  type: ManagementType,
   accountType?: "apartment" | "home",
 ): string => {
   if (type === "apartment") {
@@ -121,7 +120,7 @@ const getAddButtonLabel = (
   return "Add";
 };
 
-const getTabIcon = (type: GroupType): keyof typeof Ionicons.glyphMap => {
+const getTabIcon = (type: ManagementType): keyof typeof Ionicons.glyphMap => {
   if (type === "apartment") return "business-outline";
   if (type === "staff") return "people-outline";
   if (type === "expense") return "wallet-outline";
@@ -275,15 +274,16 @@ export default function PeopleScreen() {
   const insets = useSafeAreaInsets();
 
   const { tab, memberId } = useLocalSearchParams<{
-    tab?: GroupType;
+    tab?: ManagementType;
     memberId?: string;
   }>();
 
   const { selectedAccountId, selectedAccount } = useAccounts();
 
-  const { groups, createGroup } = useGroups(selectedAccountId);
-
-  const { getMembersByGroup, updateMember } = useMemberStore();
+  // ── NEW: three management hooks replace useGroups + useMemberStore ──
+  const membersHook = useMembers(selectedAccountId ?? null);
+  const staffHook = useStaff(selectedAccountId ?? null);
+  const expensesHook = useExpenses(selectedAccountId ?? null);
 
   const getAttendanceRecord = useAttendanceStore((state) => state.getRecord);
 
@@ -297,14 +297,14 @@ export default function PeopleScreen() {
   const canSeeMemberTab = true;
   const canSeeStaffTab = true;
 
-  const visibleTabTypes: GroupType[] = [];
+  const visibleTabTypes: ManagementType[] = [];
   if (canSeeMemberTab) visibleTabTypes.push("apartment");
   if (canSeeStaffTab) visibleTabTypes.push("staff");
   if (canSeeExpenseTab) visibleTabTypes.push("expense");
 
-  const tabTypes: GroupType[] = ["apartment", "staff", "expense"];
+  const tabTypes: ManagementType[] = ["apartment", "staff", "expense"];
 
-  const [activeTab, setActiveTab] = useState<GroupType>("apartment");
+  const [activeTab, setActiveTab] = useState<ManagementType>("apartment");
 
   const [selectedMonth, setSelectedMonth] = useState<string | null>(
     new Date().toISOString().slice(0, 7),
@@ -340,14 +340,16 @@ export default function PeopleScreen() {
 
   const [generatingBill, setGeneratingBill] = useState<string | null>(null);
 
-  const [searchQuery, setSearchQuery] = useState<Record<GroupType, string>>({
+  const [searchQuery, setSearchQuery] = useState<
+    Record<ManagementType, string>
+  >({
     apartment: "",
     staff: "",
     expense: "",
   });
 
   const [paymentFilter, setPaymentFilter] = useState<
-    Record<GroupType, PaymentFilter>
+    Record<ManagementType, PaymentFilter>
   >({
     apartment: "all",
     staff: "all",
@@ -407,65 +409,31 @@ export default function PeopleScreen() {
         setActiveTab(tab);
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
-  // On tab change: reset filter/search for a fresh view + close dropdown
   useEffect(() => {
     setSearchQuery((current) => ({ ...current, [activeTab]: "" }));
     setPaymentFilter((current) => ({ ...current, [activeTab]: "all" }));
     setShowFilterDropdown(false);
   }, [activeTab]);
 
-  // Re-measure the dropdown anchor whenever the layout might have shifted
   useEffect(() => {
     if (showFilterDropdown) {
       const id = requestAnimationFrame(() => measureSearchRow());
       return () => cancelAnimationFrame(id);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showFilterDropdown]);
 
-  const handleAdd = async (type: GroupType) => {
+  // ── NEW: navigate straight to add-member with the account + type ──
+  const handleAdd = async (type: ManagementType) => {
     if (!canEdit) return;
-
-    const existingGroup = groups.find((group) => group.type === type);
-
-    if (existingGroup) {
-      router.push({
-        pathname: "/(modals)/add-member",
-        params: {
-          groupId: existingGroup.id,
-          groupType: type,
-        },
-      });
-
-      return;
-    }
-
-    const defaultName =
-      type === "apartment"
-        ? selectedAccount?.type === "home"
-          ? "Tenant List"
-          : "Apartment Owners"
-        : type === "staff"
-          ? "Staff & Helpers"
-          : "Utility Expenses";
-
-    const newGroup = await createGroup({
-      accountId: selectedAccountId || "",
-      type,
-      name: defaultName,
-      expenseTypes:
-        type === "apartment"
-          ? ["maintenance", "electricity", "water"]
-          : type === "staff"
-            ? ["salary", "bonus", "advance"]
-            : ["electricity", "water", "maintenance", "other"],
-    });
 
     router.push({
       pathname: "/(modals)/add-member",
       params: {
-        groupId: newGroup.id,
+        accountId: selectedAccountId || "",
         groupType: type,
       },
     });
@@ -483,14 +451,10 @@ export default function PeopleScreen() {
             />
           </View>
 
-          <Text style={styles.noPropertyTitle}>
-            {groups.length > 0 ? "Select a property" : "Create your property"}
-          </Text>
+          <Text style={styles.noPropertyTitle}>Create your property</Text>
 
           <Text style={styles.noPropertySubtitle}>
-            {groups.length > 0
-              ? "Choose a property before managing your members, staff or expenses."
-              : "Create a property first to start managing your apartment or home."}
+            Create a property first to start managing your apartment or home.
           </Text>
 
           {canEdit && (
@@ -499,23 +463,11 @@ export default function PeopleScreen() {
                 styles.createButton,
                 pressed && styles.pressedButton,
               ]}
-              onPress={() =>
-                router.push(
-                  groups.length > 0
-                    ? "/(modals)/switch-account"
-                    : "/(modals)/add-account",
-                )
-              }
+              onPress={() => router.push("/(modals)/add-account")}
             >
-              <Ionicons
-                name={groups.length > 0 ? "swap-horizontal" : "add"}
-                size={18}
-                color={COLORS.white}
-              />
+              <Ionicons name="add" size={18} color={COLORS.white} />
 
-              <Text style={styles.createButtonText}>
-                {groups.length > 0 ? "Select Property" : "Create Property"}
-              </Text>
+              <Text style={styles.createButtonText}>Create Property</Text>
             </Pressable>
           )}
         </View>
@@ -523,15 +475,17 @@ export default function PeopleScreen() {
     );
   }
 
-  const activeGroups = groups.filter((group) => group.type === activeTab);
-
-  const membersInActiveGroup = activeGroups.flatMap((group) =>
-    getMembersByGroup(group.id),
-  );
+  // ── NEW: pick the right members list based on active tab ──
+  const membersInActiveGroup =
+    activeTab === "apartment"
+      ? membersHook.items
+      : activeTab === "staff"
+        ? staffHook.items
+        : expensesHook.items;
 
   const activeMembers = selectedMonth
     ? membersInActiveGroup
-        .filter((member) => {
+        .filter((member: any) => {
           const date =
             activeTab === "expense" && "dueDate" in member
               ? member.dueDate
@@ -541,7 +495,7 @@ export default function PeopleScreen() {
             ? date?.slice(0, 7) === selectedMonth
             : (date?.slice(0, 7) ?? "") <= selectedMonth;
         })
-        .map((member) => getDetailsForMonth(member, selectedMonth))
+        .map((member: any) => getDetailsForMonth(member, selectedMonth))
     : membersInActiveGroup;
 
   const isApartmentTab = activeTab === "apartment";
@@ -643,20 +597,17 @@ export default function PeopleScreen() {
 
     if (!canEdit) return;
 
-    const group = groups.find((currentGroup) => currentGroup.type === tab);
-
-    const member = group
-      ? getMembersByGroup(group.id).find(
-          (currentMember) => currentMember.id === memberId,
-        )
-      : undefined;
+    // ── NEW: look up member in the right hook ──
+    const list = tab === "apartment" ? membersHook.items : staffHook.items;
+    const member = list.find((m: any) => m.id === memberId);
 
     if (member) {
       openPaymentModal(member);
     }
-  }, [groups, getMembersByGroup, memberId, tab, canEdit]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [membersHook.items, staffHook.items, memberId, tab, canEdit]);
 
-  const handleSavePayment = () => {
+  const handleSavePayment = async () => {
     if (!paymentMember || !canEdit) return;
 
     setSaving(true);
@@ -668,7 +619,7 @@ export default function PeopleScreen() {
       : 0;
     const deductionAmt = showDeduction ? Number(deductionAmount) || 0 : 0;
 
-    updateMember(paymentMember.id, {
+    const updatePayload = {
       paymentStatus: selectedStatus,
       paidDate: selectedStatus === "paid" ? paidDate : undefined,
 
@@ -687,11 +638,7 @@ export default function PeopleScreen() {
 
         [month]: {
           status: selectedStatus,
-          ...(selectedStatus === "paid"
-            ? {
-                paidDate,
-              }
-            : {}),
+          ...(selectedStatus === "paid" ? { paidDate } : {}),
 
           additionalAmount: additionalAmt,
           additionalNote: showAdditionalAmount
@@ -706,14 +653,29 @@ export default function PeopleScreen() {
           netAmount: netPaidAmount,
         },
       },
-    });
+    };
 
-    setRefreshKey((previous) => previous + 1);
+    try {
+      // ── NEW: call update on the right hook (async) ──
+      if (isApartmentTab) {
+        await membersHook.update(paymentMember.id, updatePayload);
+      } else if (isStaffTab) {
+        await staffHook.update(paymentMember.id, updatePayload);
+      }
 
-    setTimeout(() => {
+      setRefreshKey((previous) => previous + 1);
+    } catch (error) {
+      console.error("Failed to save payment:", error);
+      Alert.alert(
+        "Error",
+        error instanceof Error
+          ? error.message
+          : "Failed to save payment. Please try again.",
+      );
+    } finally {
       setSaving(false);
       setPaymentMember(null);
-    }, 300);
+    }
   };
 
   const handleDownloadBill = async (member: any) => {
@@ -905,10 +867,6 @@ export default function PeopleScreen() {
 
   const isFilterActive = activeFilter !== "all";
 
-  // Extra bottom padding so the last member is always reachable while the
-  // keyboard is open. On iOS, ScrollView's automaticallyAdjustKeyboardInsets
-  // adds keyboard height on top of this; on Android the keyboard is resize-
-  // based and this alone is enough.
   const listBottomPadding =
     Math.max(insets.bottom, 24) + (Platform.OS === "ios" ? 320 : 160);
 
@@ -924,8 +882,6 @@ export default function PeopleScreen() {
       keyboardVerticalOffset={0}
     >
       <View ref={containerRef} style={styles.innerContainer}>
-        {/* HEADER */}
-
         <View style={styles.header}>
           <View style={styles.headerTitleArea}>
             <Text style={styles.title}>
@@ -982,8 +938,6 @@ export default function PeopleScreen() {
           </View>
         </View>
 
-        {/* TABS */}
-
         <View style={styles.tabsContainer}>
           {tabTypes
             .filter((type) => visibleTabTypes.includes(type))
@@ -1016,8 +970,6 @@ export default function PeopleScreen() {
               );
             })}
         </View>
-
-        {/* SEARCH + FILTER ROW — only when members exist in this tab */}
 
         {hasMembersInActiveTab && (
           <View
@@ -1097,8 +1049,6 @@ export default function PeopleScreen() {
           </View>
         )}
 
-        {/* FILTER DROPDOWN PANEL */}
-
         {hasMembersInActiveTab && showFilterDropdown && (
           <>
             <Pressable
@@ -1175,9 +1125,6 @@ export default function PeopleScreen() {
             </View>
           </>
         )}
-
-        {/* CONTENT — ScrollView fills remaining space. Tapping anywhere on
-            the list background dismisses the keyboard. */}
 
         <ScrollView
           style={styles.scrollArea}
@@ -1370,11 +1317,12 @@ export default function PeopleScreen() {
                       onPress={() => {
                         Keyboard.dismiss();
                         if (canEdit) {
+                          // ── NEW: pass accountId instead of groupId ──
                           router.push({
                             pathname: "/(modals)/edit-member",
                             params: {
                               memberId: member.id,
-                              groupId: member.groupId,
+                              accountId: selectedAccountId || "",
                               groupType: activeTab,
                             },
                           });
@@ -1454,7 +1402,9 @@ export default function PeopleScreen() {
                               numberOfLines={1}
                             >
                               {member.dueDate
-                                ? `Due ${formatFullDate(member.dueDate)}`
+                                ? `${
+                                    member.status === "paid" ? "Paid" : "Due"
+                                  } • ${formatFullDate(member.dueDate)}`
                                 : "Property expense"}
                             </Text>
                           )}
@@ -1683,16 +1633,12 @@ export default function PeopleScreen() {
         </ScrollView>
       </View>
 
-      {/* MONTH PICKER */}
-
       <MonthYearPickerModal
         visible={showMonthPicker}
         value={selectedMonth}
         onClose={() => setShowMonthPicker(false)}
         onSelect={setSelectedMonth}
       />
-
-      {/* PAYMENT MODAL — admin only */}
 
       {canEdit && (
         <Modal
@@ -2121,8 +2067,6 @@ export default function PeopleScreen() {
         </Modal>
       )}
 
-      {/* DATE PICKER */}
-
       <DatePickerModal
         visible={showPaidDatePicker}
         value={paidDate}
@@ -2134,7 +2078,7 @@ export default function PeopleScreen() {
 }
 
 /* ==================================================================
-   STYLES
+   STYLES (unchanged)
 ================================================================== */
 
 const styles = StyleSheet.create({

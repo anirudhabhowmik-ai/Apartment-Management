@@ -90,7 +90,7 @@ interface HistoryEntry {
   memberName?: string;
   timestamp: number;
   date: string;
-  markedBy: string;
+  markedBy: any;
   details?: Record<string, any>;
   oldValue?: string;
   newValue?: string;
@@ -1480,6 +1480,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 18,
   },
+  modalSubtitle: {
+    color: "#64748B",
+    fontSize: 11,
+    marginTop: 3,
+  },
   keyboardView: {
     width: "100%",
     alignItems: "center",
@@ -2175,7 +2180,7 @@ export default function ProfileScreen() {
       description,
       timestamp: Date.now(),
       date: new Date().toISOString(),
-      markedBy: user?.name || "Admin",
+      markedBy: user?.phone,
       ...options,
     };
     setHistory((prev) => [newEntry, ...prev]);
@@ -4024,7 +4029,7 @@ export default function ProfileScreen() {
               >
                 <View style={[styles.accessAvatar, styles.ownerAvatar]}>
                   <Text style={styles.accessAvatarText}>
-                    {(user?.name || "You").charAt(0).toUpperCase()}
+                    {(user?.phone || "You").charAt(0).toUpperCase()}
                   </Text>
                 </View>
                 <View style={styles.accessInfo}>
