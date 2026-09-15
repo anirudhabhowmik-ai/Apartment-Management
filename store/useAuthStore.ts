@@ -1,5 +1,4 @@
 // store/useAuthStore.ts
-
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as SecureStore from "expo-secure-store";
 import { create } from "zustand";
@@ -43,27 +42,30 @@ export const useAuthStore = create<AuthState>()(
       logout: async () => {
         try {
           await SecureStore.deleteItemAsync("auth_token");
-
-          set({
-            user: null,
-            pendingPhone: null,
-          });
         } catch (error) {
-          console.error("Logout error:", error);
-
-          // Clear local auth state even if SecureStore fails
-          set({
-            user: null,
-            pendingPhone: null,
-          });
-
-          throw error;
+          console.error("Logout: failed to clear token:", error);
         }
+
+        // Also clear the selected account so the next login starts fresh.
+        try {
+          await SecureStore.deleteItemAsync("selected_account_id");
+        } catch {
+          // ignore
+        }
+
+        set({
+          user: null,
+          pendingPhone: null,
+        });
       },
     }),
     {
       name: "auth-storage",
       storage: createJSONStorage(() => AsyncStorage),
+      // Only persist what we need. `isLoading` should always start false.
+      partialize: (state) => ({
+        user: state.user,
+      }),
     },
   ),
 );

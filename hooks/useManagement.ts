@@ -1,4 +1,5 @@
 // hooks/useManagement.ts
+import * as FileSystem from "expo-file-system/legacy";
 import * as SecureStore from "expo-secure-store";
 import { useCallback, useEffect, useState } from "react";
 import { create } from "zustand";
@@ -79,6 +80,36 @@ function endpointFor(type: ManagementType): string {
 }
 
 // ---------------------------------------------------------------------------
+// Photo encoder — turns a device-local file:// URI into a base64 data URI
+// so the value stored in the DB is self-contained and survives cache
+// clears / works across devices.
+// ---------------------------------------------------------------------------
+async function encodePhotoForServer(localUri: string): Promise<string> {
+  if (!localUri) return localUri;
+  if (localUri.startsWith("data:") || /^https?:\/\//i.test(localUri)) {
+    return localUri;
+  }
+
+  try {
+    const base64 = await FileSystem.readAsStringAsync(localUri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+
+    const lower = localUri.toLowerCase();
+    const mime = lower.endsWith(".png")
+      ? "image/png"
+      : lower.endsWith(".webp")
+        ? "image/webp"
+        : "image/jpeg";
+
+    return `data:${mime};base64,${base64}`;
+  } catch (e) {
+    console.warn("[useManagement] photo encode failed:", e);
+    return localUri;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Timezone-safe date-only normalizer for server values.
 // ---------------------------------------------------------------------------
 function serverDateToLocalDateString(raw: unknown): string | undefined {
@@ -150,7 +181,6 @@ function mapRowToMember(
     createdAt: row.created_at,
     updatedAt: row.updated_at,
 
-    // ── payment-related fields (mapped for every kind) ──
     paymentStatus: row.payment_status ?? row.status ?? undefined,
     paidDate: row.paid_date ?? undefined,
     additionalAmount: row.additional_amount ?? undefined,
@@ -181,7 +211,6 @@ function mapRowToMember(
     } as Staff;
   }
 
-  // ── expense ──
   return {
     ...base,
     role: row.category ?? row.role ?? "other",
@@ -197,19 +226,26 @@ function mapRowToMember(
 }
 
 // ---------------------------------------------------------------------------
-// frontend input → server body
+// frontend input → server body (async so we can encode photos)
 // ---------------------------------------------------------------------------
-function toServerBody(input: any, kind: ManagementType): Record<string, any> {
+async function toServerBody(
+  input: any,
+  kind: ManagementType,
+): Promise<Record<string, any>> {
   const body: Record<string, any> = {};
 
-  // ── common fields ──
   if (input.name !== undefined) body.name = input.name;
   if (input.phone !== undefined)
     body.phone = input.phone ? String(input.phone).replace(/^\+?91/, "") : null;
   if (input.role !== undefined) body.role = input.role;
-  if (input.photoUri !== undefined) body.photo_url = input.photoUri ?? null;
 
-  // ── payment fields (shared by apartment + staff) ──
+  // ── PHOTO: encode device-local file to base64 before sending ──
+  if (input.photoUri !== undefined) {
+    body.photo_url = input.photoUri
+      ? await encodePhotoForServer(String(input.photoUri))
+      : null;
+  }
+
   if (kind === "apartment" || kind === "staff") {
     if (input.paymentStatus !== undefined)
       body.payment_status = input.paymentStatus ?? null;
@@ -408,7 +444,7 @@ function createManagementHook(kind: ManagementType) {
     const add = useCallback(
       async (input: any) => {
         if (!accountId) throw new Error("No account selected");
-        const body = toServerBody(input, kind);
+        const body = await toServerBody(input, kind);
         const row = await apiRequest<any>(
           `/management/${accountId}/${segment}`,
           { method: "POST", body: JSON.stringify(body) },
@@ -423,9 +459,8 @@ function createManagementHook(kind: ManagementType) {
     const update = useCallback(
       async (id: string, input: any) => {
         if (!accountId) throw new Error("No account selected");
-        const body = toServerBody(input, kind);
+        const body = await toServerBody(input, kind);
 
-        // Strip undefined values — the server rejects empty payloads.
         for (const k of Object.keys(body)) {
           if (body[k] === undefined) delete body[k];
         }
