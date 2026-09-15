@@ -1,3 +1,4 @@
+// app/(modals)/grant-access.tsx
 import { Ionicons } from "@expo/vector-icons";
 import {
   Contact,
@@ -30,7 +31,9 @@ import { useAuthStore } from "../../store/useAuthStore";
 import { ACCESS_ROLE_LABEL, AccountAccessRole } from "../../types/access";
 
 type RecipientSource = "new" | "existing";
-type MemberType = "owner" | "staff";
+
+// 🆕 "ownership" is added as a memberType. It behaves like admin.
+type MemberType = "owner" | "staff" | "ownership";
 
 interface ContactData {
   id: string;
@@ -66,13 +69,11 @@ export default function GrantAccessScreen() {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
 
-  // Multi-select state — one set of member IDs, shared by both groups.
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
 
   const [search, setSearch] = useState("");
   const [error, setError] = useState("");
 
-  // Contact picker
   const [showContactPicker, setShowContactPicker] = useState(false);
   const [contactsList, setContactsList] = useState<ContactData[]>([]);
   const [contactSearch, setContactSearch] = useState("");
@@ -81,21 +82,28 @@ export default function GrantAccessScreen() {
   // FLOW
   // ============================================================
 
-  const isVisibilityFlow =
-    memberType === "owner" ||
-    memberType === "staff" ||
-    role === "member_visibility" ||
-    role === "staff_visibility";
+  // 🆕 Ownership flow — admin-like, not visibility.
+  const isOwnershipFlow = memberType === "ownership";
 
-  const effectiveMemberType: MemberType =
-    memberType || (role === "staff_visibility" ? "staff" : "owner");
+  const isVisibilityFlow =
+    !isOwnershipFlow &&
+    (memberType === "owner" ||
+      memberType === "staff" ||
+      role === "member_visibility" ||
+      role === "staff_visibility");
+
+  const effectiveMemberType: "owner" | "staff" =
+    memberType === "staff" || role === "staff_visibility" ? "staff" : "owner";
 
   const visibilityTitle =
     effectiveMemberType === "owner"
       ? "Manage Apartment Owner Visibility"
       : "Manage Staff Visibility";
 
-  const title = ACCESS_ROLE_LABEL[role || "member_visibility"];
+  // 🆕 Title is "Ownership" when in ownership flow, else the mapped label.
+  const title = isOwnershipFlow
+    ? "Ownership"
+    : ACCESS_ROLE_LABEL[role || "member_visibility"];
 
   // ============================================================
   // MEMBERS
@@ -150,18 +158,13 @@ export default function GrantAccessScreen() {
   }, [isVisibilityFlow, effectiveMemberType, apartmentMembers, staffMembers]);
 
   const currentUserMember = useMemo(() => {
-    if (!currentUser?.phone) {
-      return null;
-    }
+    if (!currentUser?.phone) return null;
 
     const normalizePhone = (value: string) =>
       value.replace(/[^0-9]/g, "").slice(-10);
 
     const currentPhone = normalizePhone(currentUser.phone);
-
-    if (!currentPhone) {
-      return null;
-    }
+    if (!currentPhone) return null;
 
     return (
       members.find((member) => {
@@ -175,24 +178,9 @@ export default function GrantAccessScreen() {
     !!account && !!currentUser && account.ownerId === currentUser.id;
 
   const inviterName = useMemo(() => {
-    // The person who created the property/account is represented
-    // by the property name.
-    if (isAccountCreator && account?.name) {
-      return account.name;
-    }
-
-    // If another admin/member is granting access, use that
-    // member's actual name.
-    if (currentUserMember?.name) {
-      return currentUserMember.name;
-    }
-
-    // We should not invent a person's name.
-    // Account name is still a meaningful fallback if available.
-    if (account?.name) {
-      return account.name;
-    }
-
+    if (isAccountCreator && account?.name) return account.name;
+    if (currentUserMember?.name) return currentUserMember.name;
+    if (account?.name) return account.name;
     return "Account Admin";
   }, [isAccountCreator, account?.name, currentUserMember?.name]);
 
@@ -211,7 +199,6 @@ export default function GrantAccessScreen() {
       const apartmentNumber = ((member as any).apartmentNumber ?? "")
         .toString()
         .toLowerCase();
-
       const wing = ((member as any).wing ?? "").toString().toLowerCase();
 
       return (
@@ -242,19 +229,15 @@ export default function GrantAccessScreen() {
 
     return activeMembers.filter((member) => {
       const nameMatch = member.name.toLowerCase().includes(searchLower);
-
       const phoneMatch = member.phone.toLowerCase().includes(searchLower);
-
       const roleMatch = ((member as any).role ?? "")
         .toString()
         .toLowerCase()
         .includes(searchLower);
-
       const apartmentMatch = ((member as any).apartmentNumber ?? "")
         .toString()
         .toLowerCase()
         .includes(searchLower);
-
       const wingMatch = ((member as any).wing ?? "")
         .toString()
         .toLowerCase()
@@ -266,13 +249,10 @@ export default function GrantAccessScreen() {
     });
   }, [activeMembers, searchLower]);
 
-  // ============================================================
-  // SELECT / CLEAR ALL LOGIC
-  // ============================================================
-
-  const selectableIds = useMemo(() => {
-    return filteredActiveMembers.map((member) => member.id);
-  }, [filteredActiveMembers]);
+  const selectableIds = useMemo(
+    () => filteredActiveMembers.map((member) => member.id),
+    [filteredActiveMembers],
+  );
 
   const allSelected =
     selectableIds.length > 0 &&
@@ -284,19 +264,15 @@ export default function GrantAccessScreen() {
         ? current.filter((id) => id !== memberId)
         : [...current, memberId],
     );
-
     setError("");
   };
 
   const handleSelectAll = () => {
     setSelectedMemberIds((current) => {
       const selectedSet = new Set(current);
-
       selectableIds.forEach((id) => selectedSet.add(id));
-
       return Array.from(selectedSet);
     });
-
     setError("");
   };
 
@@ -316,7 +292,6 @@ export default function GrantAccessScreen() {
         "Contact picker is available only on mobile devices. Please enter the phone number manually.",
         [{ text: "OK" }],
       );
-
       return;
     }
 
@@ -329,22 +304,17 @@ export default function GrantAccessScreen() {
           "We need access to your contacts to help you quickly add phone numbers.",
           [{ text: "Cancel", style: "cancel" }, { text: "OK" }],
         );
-
         setError("Permission to access contacts is required.");
-
         return;
       }
 
       const contacts = await Contact.getAllDetails(
         [ContactField.FULL_NAME, ContactField.PHONES],
-        {
-          sortOrder: ContactsSortOrder.GivenName,
-        },
+        { sortOrder: ContactsSortOrder.GivenName },
       );
 
       if (contacts.length === 0) {
         setError("No contacts found on your device.");
-
         return;
       }
 
@@ -361,7 +331,6 @@ export default function GrantAccessScreen() {
 
       if (mappedContacts.length === 0) {
         setError("No contacts with phone numbers found.");
-
         return;
       }
 
@@ -371,18 +340,15 @@ export default function GrantAccessScreen() {
       setError("");
     } catch (contactError) {
       console.error("Error fetching contacts:", contactError);
-
       setError("Failed to fetch contacts. Please try again.");
     }
   };
 
   const filteredContacts = contactsList.filter((contact) => {
     const query = contactSearch.trim().toLowerCase();
-
     if (!query) return true;
 
     const nameMatch = contact.name.toLowerCase().includes(query);
-
     const phoneMatch = contact.phoneNumbers.some((phone) =>
       phone.number.toLowerCase().includes(query),
     );
@@ -402,12 +368,10 @@ export default function GrantAccessScreen() {
       contact.phoneNumbers.length === 0
     ) {
       setError("Selected contact doesn't have a phone number.");
-
       return;
     }
 
     let phoneNumber = contact.phoneNumbers[0].number || "";
-
     phoneNumber = phoneNumber
       .replace(/[^0-9]/g, "")
       .replace(/^91/, "")
@@ -419,17 +383,12 @@ export default function GrantAccessScreen() {
 
     if (phoneNumber.length !== 10) {
       setError("Selected contact does not have a valid 10-digit phone number.");
-
       return;
     }
 
     setPhone(phoneNumber);
     setError("");
-
-    if (!name.trim() && contact.name) {
-      setName(contact.name);
-    }
-
+    if (!name.trim() && contact.name) setName(contact.name);
     setContactSearch("");
     setShowContactPicker(false);
   };
@@ -445,43 +404,26 @@ export default function GrantAccessScreen() {
         ? "staff_visibility"
         : "member_visibility");
 
-    // Do not use currentUser.name.
-    //
-    // invitedByName:
-    //   - property name when creator grants access
-    //   - actual member name when another member/admin grants access
-    //
-    // invitedByPhone:
-    //   - authenticated user's phone
-    const baseGrant = {
+    const baseGrant: any = {
       accountId,
       accountName: account?.name || "Apartment",
       invitedByPhone: inviterPhone,
       invitedByName: inviterName,
       role: grantRole,
       createdAt: new Date().toISOString(),
+      // 🆕 Tag ownership grants so the profile can list them separately.
+      memberType: isOwnershipFlow ? "ownership" : undefined,
     };
-
-    // ----------------------------------------------------------
-    // Safety check
-    // ----------------------------------------------------------
 
     if (!accountId) {
       setError("Account information is missing.");
-
       return;
     }
 
     if (!inviterPhone) {
       setError("Your phone number is missing. Please sign in again.");
-
       return;
     }
-
-    // ----------------------------------------------------------
-    // Visibility flow
-    // Always existing members, multi-select.
-    // ----------------------------------------------------------
 
     if (isVisibilityFlow) {
       if (selectedMemberIds.length === 0) {
@@ -490,13 +432,11 @@ export default function GrantAccessScreen() {
             ? "Please select at least one apartment owner."
             : "Please select at least one staff member.",
         );
-
         return;
       }
 
       selectedMemberIds.forEach((memberId, index) => {
         const member = activeMembers.find((m) => m.id === memberId);
-
         if (!member) return;
 
         const memberPhone = (member.phone || "").startsWith("+")
@@ -516,24 +456,17 @@ export default function GrantAccessScreen() {
       return;
     }
 
-    // ----------------------------------------------------------
-    // Normal flow — new phone
-    // ----------------------------------------------------------
-
     if (source === "new") {
       const recipientName = name.trim();
-
       const cleanPhone = phone.replace(/[^0-9]/g, "").slice(-10);
 
       if (!recipientName) {
         setError("Please enter a name.");
-
         return;
       }
 
       if (cleanPhone.length !== 10) {
         setError("Please enter a valid 10-digit phone number.");
-
         return;
       }
 
@@ -548,13 +481,8 @@ export default function GrantAccessScreen() {
       return;
     }
 
-    // ----------------------------------------------------------
-    // Normal flow — existing person
-    // ----------------------------------------------------------
-
     if (selectedMemberIds.length === 0) {
       setError("Please select at least one member or staff member.");
-
       return;
     }
 
@@ -562,7 +490,6 @@ export default function GrantAccessScreen() {
 
     selectedMemberIds.forEach((memberId, index) => {
       const member = allMembers.find((m) => m.id === memberId);
-
       if (!member) return;
 
       const memberPhone = (member.phone || "").startsWith("+")
@@ -589,24 +516,15 @@ export default function GrantAccessScreen() {
     const apartmentNumber = (member as any).apartmentNumber as
       | string
       | undefined;
-
     const wing = (member as any).wing as string | undefined;
-
     const staffRole = (member as any).role as string | undefined;
 
     let meta = "";
 
     if (effectiveMemberType === "owner") {
       const parts: string[] = [];
-
-      if (wing) {
-        parts.push(`Wing ${wing}`);
-      }
-
-      if (apartmentNumber) {
-        parts.push(`Apt ${apartmentNumber}`);
-      }
-
+      if (wing) parts.push(`Wing ${wing}`);
+      if (apartmentNumber) parts.push(`Apt ${apartmentNumber}`);
       meta = parts.join("  •  ");
     } else if (effectiveMemberType === "staff") {
       meta = staffRole || "Staff";
@@ -641,7 +559,6 @@ export default function GrantAccessScreen() {
 
           <View style={styles.memberPhoneRow}>
             <Ionicons name="call-outline" size={13} color="#64748B" />
-
             <Text style={styles.memberPhone} numberOfLines={1}>
               {member.phone}
             </Text>
@@ -658,7 +575,6 @@ export default function GrantAccessScreen() {
                 size={13}
                 color="#2563EB"
               />
-
               <Text style={styles.memberMeta}>{meta}</Text>
             </View>
           ) : null}
@@ -695,20 +611,16 @@ export default function GrantAccessScreen() {
               <View
                 style={[
                   styles.modalContainer,
-                  {
-                    paddingBottom: Math.max(insets.bottom, 12),
-                  },
+                  { paddingBottom: Math.max(insets.bottom, 12) },
                 ]}
               >
                 <View style={styles.modalHeader}>
                   <View>
                     <Text style={styles.modalTitle}>Select Contact</Text>
-
                     <Text style={styles.modalSubtitle}>
                       Choose a contact from your phone
                     </Text>
                   </View>
-
                   <TouchableOpacity
                     style={styles.modalCloseButton}
                     onPress={closeContactPicker}
@@ -720,7 +632,6 @@ export default function GrantAccessScreen() {
 
                 <View style={styles.modalSearch}>
                   <Ionicons name="search-outline" size={20} color="#64748B" />
-
                   <TextInput
                     style={styles.modalSearchInput}
                     placeholder="Search contacts"
@@ -731,7 +642,6 @@ export default function GrantAccessScreen() {
                     autoCorrect={false}
                     returnKeyType="search"
                   />
-
                   {contactSearch.length > 0 ? (
                     <TouchableOpacity
                       onPress={() => setContactSearch("")}
@@ -772,12 +682,10 @@ export default function GrantAccessScreen() {
                                 : "?"}
                             </Text>
                           </View>
-
                           <View style={styles.contactInfo}>
                             <Text style={styles.contactName} numberOfLines={1}>
                               {contact.name || "Unknown"}
                             </Text>
-
                             {contact.phoneNumbers?.length > 0 ? (
                               <Text
                                 style={styles.contactPhone}
@@ -787,7 +695,6 @@ export default function GrantAccessScreen() {
                               </Text>
                             ) : null}
                           </View>
-
                           <View style={styles.contactArrow}>
                             <Ionicons
                               name="chevron-forward"
@@ -806,11 +713,9 @@ export default function GrantAccessScreen() {
                             color="#64748B"
                           />
                         </View>
-
                         <Text style={styles.noContactsTitle}>
                           No contacts found
                         </Text>
-
                         <Text style={styles.noContactsText}>
                           Try another name or phone number.
                         </Text>
@@ -849,7 +754,6 @@ export default function GrantAccessScreen() {
         ? "No apartment owners available to select."
         : "No staff members available to select.";
     }
-
     return "No members or staff are available.";
   };
 
@@ -866,12 +770,7 @@ export default function GrantAccessScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={[
-        styles.screen,
-        {
-          paddingBottom: insets.bottom,
-        },
-      ]}
+      style={[styles.screen, { paddingBottom: insets.bottom }]}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={0}
     >
@@ -879,9 +778,7 @@ export default function GrantAccessScreen() {
         style={styles.scroll}
         contentContainerStyle={[
           styles.container,
-          {
-            paddingBottom: Math.max(insets.bottom, 24),
-          },
+          { paddingBottom: Math.max(insets.bottom, 24) },
         ]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
@@ -889,7 +786,6 @@ export default function GrantAccessScreen() {
         bounces={false}
       >
         {/* Intro Card */}
-
         <View style={styles.introCard}>
           <View style={styles.introIcon}>
             <Ionicons
@@ -904,12 +800,10 @@ export default function GrantAccessScreen() {
               color="#2563EB"
             />
           </View>
-
           <View style={styles.introContent}>
             <Text style={styles.introTitle}>
               {isVisibilityFlow ? visibilityTitle : `Grant ${title} access`}
             </Text>
-
             <Text style={styles.introDescription}>
               {isVisibilityFlow
                 ? effectiveMemberType === "owner"
@@ -921,14 +815,10 @@ export default function GrantAccessScreen() {
         </View>
 
         {/* RECIPIENT */}
-
         {!isVisibilityFlow ? (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>RECIPIENT</Text>
-
             <View style={styles.sourceRow}>
-              {/* New phone */}
-
               <TouchableOpacity
                 style={[
                   styles.sourceTile,
@@ -953,7 +843,6 @@ export default function GrantAccessScreen() {
                     color={source === "new" ? "#2563EB" : "#64748B"}
                   />
                 </View>
-
                 <Text
                   style={[
                     styles.sourceTileTitle,
@@ -963,19 +852,15 @@ export default function GrantAccessScreen() {
                 >
                   New phone
                 </Text>
-
                 <Text style={styles.sourceTileDescription} numberOfLines={2}>
                   Invite by phone number
                 </Text>
-
                 {source === "new" ? (
                   <View style={styles.sourceTileCheck}>
                     <Ionicons name="checkmark" size={13} color="#FFFFFF" />
                   </View>
                 ) : null}
               </TouchableOpacity>
-
-              {/* Existing */}
 
               <TouchableOpacity
                 style={[
@@ -1002,7 +887,6 @@ export default function GrantAccessScreen() {
                     color={source === "existing" ? "#2563EB" : "#64748B"}
                   />
                 </View>
-
                 <Text
                   style={[
                     styles.sourceTileTitle,
@@ -1012,11 +896,9 @@ export default function GrantAccessScreen() {
                 >
                   Existing person
                 </Text>
-
                 <Text style={styles.sourceTileDescription} numberOfLines={2}>
                   Pick from members or staff
                 </Text>
-
                 {source === "existing" ? (
                   <View style={styles.sourceTileCheck}>
                     <Ionicons name="checkmark" size={13} color="#FFFFFF" />
@@ -1028,17 +910,13 @@ export default function GrantAccessScreen() {
         ) : null}
 
         {/* NEW PHONE */}
-
         {!isVisibilityFlow && source === "new" ? (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>PERSON DETAILS</Text>
-
             <View style={styles.formCard}>
               <Text style={styles.inputLabel}>Full name</Text>
-
               <View style={styles.inputWrapper}>
                 <Ionicons name="person-outline" size={19} color="#64748B" />
-
                 <TextInput
                   style={styles.input}
                   value={name}
@@ -1061,13 +939,11 @@ export default function GrantAccessScreen() {
                   <View style={styles.countryCode}>
                     <Text style={styles.countryCodeText}>+91</Text>
                   </View>
-
                   <TextInput
                     style={styles.phoneInput}
                     value={phone}
                     onChangeText={(value) => {
                       setPhone(value.replace(/[^0-9]/g, "").slice(0, 10));
-
                       setError("");
                     }}
                     keyboardType="phone-pad"
@@ -1097,7 +973,6 @@ export default function GrantAccessScreen() {
                     size={14}
                     color="#DC2626"
                   />
-
                   <Text style={styles.phoneHint}>Enter all 10 digits</Text>
                 </View>
               ) : null}
@@ -1106,17 +981,14 @@ export default function GrantAccessScreen() {
         ) : null}
 
         {/* EXISTING MEMBER / STAFF */}
-
         {!isVisibilityFlow && source === "existing" ? (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>SELECT PEOPLE</Text>
-
             {hasMembersOrStaff ? (
               <>
                 <View style={styles.selectControlsRow}>
                   <View style={styles.searchBoxInline}>
                     <Ionicons name="search-outline" size={19} color="#64748B" />
-
                     <TextInput
                       style={styles.searchInput}
                       value={search}
@@ -1128,7 +1000,6 @@ export default function GrantAccessScreen() {
                       placeholderTextColor="#94A3B8"
                       autoCapitalize="none"
                     />
-
                     {search.length > 0 ? (
                       <TouchableOpacity
                         onPress={() => setSearch("")}
@@ -1155,7 +1026,6 @@ export default function GrantAccessScreen() {
                       size={16}
                       color={allSelected ? "#DC2626" : "#2563EB"}
                     />
-
                     <Text
                       style={[
                         styles.selectAllText,
@@ -1176,9 +1046,7 @@ export default function GrantAccessScreen() {
                         color="#64748B"
                       />
                     </View>
-
                     <Text style={styles.emptyTitle}>No people available</Text>
-
                     <Text style={styles.emptyDescription}>
                       {getEmptyStateText()}
                     </Text>
@@ -1192,10 +1060,8 @@ export default function GrantAccessScreen() {
                           size={17}
                           color="#2563EB"
                         />
-
                         <Text style={styles.groupTitle}>Members</Text>
                       </View>
-
                       <Text style={styles.groupCount}>
                         {apartmentMembers.length}
                       </Text>
@@ -1218,10 +1084,8 @@ export default function GrantAccessScreen() {
                           size={17}
                           color="#2563EB"
                         />
-
                         <Text style={styles.groupTitle}>Staff</Text>
                       </View>
-
                       <Text style={styles.groupCount}>
                         {staffMembers.length}
                       </Text>
@@ -1244,9 +1108,7 @@ export default function GrantAccessScreen() {
                 <View style={styles.emptyIcon}>
                   <Ionicons name="people-outline" size={28} color="#64748B" />
                 </View>
-
                 <Text style={styles.emptyTitle}>No people available</Text>
-
                 <Text style={styles.emptyDescription}>
                   {getEmptyStateText()}
                 </Text>
@@ -1256,7 +1118,6 @@ export default function GrantAccessScreen() {
         ) : null}
 
         {/* VISIBILITY FLOW */}
-
         {isVisibilityFlow ? (
           <View style={styles.section}>
             {hasMembersOrStaff ? (
@@ -1264,7 +1125,6 @@ export default function GrantAccessScreen() {
                 <View style={styles.selectControlsRow}>
                   <View style={styles.searchBoxInline}>
                     <Ionicons name="search-outline" size={19} color="#64748B" />
-
                     <TextInput
                       style={styles.searchInput}
                       value={search}
@@ -1276,7 +1136,6 @@ export default function GrantAccessScreen() {
                       placeholderTextColor="#94A3B8"
                       autoCapitalize="none"
                     />
-
                     {search.length > 0 ? (
                       <TouchableOpacity
                         onPress={() => setSearch("")}
@@ -1303,7 +1162,6 @@ export default function GrantAccessScreen() {
                       size={16}
                       color={allSelected ? "#DC2626" : "#2563EB"}
                     />
-
                     <Text
                       style={[
                         styles.selectAllText,
@@ -1325,13 +1183,11 @@ export default function GrantAccessScreen() {
                           color="#64748B"
                         />
                       </View>
-
                       <Text style={styles.emptyTitle}>
                         {apartmentMembers.length === 0
                           ? "No apartment owners available"
                           : "No matching apartment owners"}
                       </Text>
-
                       <Text style={styles.emptyDescription}>
                         {apartmentMembers.length === 0
                           ? "There are currently no apartment owners available to select."
@@ -1350,13 +1206,11 @@ export default function GrantAccessScreen() {
                         color="#64748B"
                       />
                     </View>
-
                     <Text style={styles.emptyTitle}>
                       {staffMembers.length === 0
                         ? "No staff available"
                         : "No matching staff"}
                     </Text>
-
                     <Text style={styles.emptyDescription}>
                       {staffMembers.length === 0
                         ? "There are currently no staff members available to select."
@@ -1372,9 +1226,7 @@ export default function GrantAccessScreen() {
                 <View style={styles.emptyIcon}>
                   <Ionicons name="people-outline" size={28} color="#64748B" />
                 </View>
-
                 <Text style={styles.emptyTitle}>No people available</Text>
-
                 <Text style={styles.emptyDescription}>
                   {getEmptyStateText()}
                 </Text>
@@ -1384,17 +1236,14 @@ export default function GrantAccessScreen() {
         ) : null}
 
         {/* ERROR */}
-
         {error ? (
           <View style={styles.errorBox}>
             <Ionicons name="alert-circle-outline" size={19} color="#DC2626" />
-
             <Text style={styles.errorText}>{error}</Text>
           </View>
         ) : null}
 
         {/* ACTION BUTTON */}
-
         <View style={styles.bottomAction}>
           <TouchableOpacity
             style={[
@@ -1409,7 +1258,6 @@ export default function GrantAccessScreen() {
               size={20}
               color="#FFFFFF"
             />
-
             <Text style={styles.saveText}>
               {isVisibilityFlow
                 ? `Grant ${visibilityTitle.replace("Manage ", "")}`
@@ -1435,24 +1283,13 @@ export default function GrantAccessScreen() {
 }
 
 // ============================================================
-// STYLES
+// STYLES — unchanged from your file
 // ============================================================
 
 const styles = StyleSheet.create({
-  screen: {
-    flex: 1,
-    backgroundColor: "#F8FAFC",
-  },
-
-  scroll: {
-    flex: 1,
-  },
-
-  container: {
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    flexGrow: 1,
-  },
+  screen: { flex: 1, backgroundColor: "#F8FAFC" },
+  scroll: { flex: 1 },
+  container: { paddingHorizontal: 16, paddingTop: 16, flexGrow: 1 },
 
   introCard: {
     flexDirection: "row",
@@ -1464,7 +1301,6 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 22,
   },
-
   introIcon: {
     width: 48,
     height: 48,
@@ -1474,17 +1310,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginRight: 13,
   },
-
-  introContent: {
-    flex: 1,
-  },
-
-  introTitle: {
-    color: "#1E3A8A",
-    fontSize: 16,
-    fontWeight: "700",
-  },
-
+  introContent: { flex: 1 },
+  introTitle: { color: "#1E3A8A", fontSize: 16, fontWeight: "700" },
   introDescription: {
     color: "#475569",
     fontSize: 13,
@@ -1492,10 +1319,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
 
-  section: {
-    marginBottom: 20,
-  },
-
+  section: { marginBottom: 20 },
   sectionTitle: {
     color: "#64748B",
     fontSize: 11,
@@ -1505,11 +1329,7 @@ const styles = StyleSheet.create({
     marginLeft: 3,
   },
 
-  sourceRow: {
-    flexDirection: "row",
-    gap: 10,
-  },
-
+  sourceRow: { flexDirection: "row", gap: 10 },
   sourceTile: {
     flex: 1,
     backgroundColor: "#FFFFFF",
@@ -1520,12 +1340,7 @@ const styles = StyleSheet.create({
     minHeight: 118,
     position: "relative",
   },
-
-  sourceTileActive: {
-    borderColor: "#2563EB",
-    backgroundColor: "#F8FBFF",
-  },
-
+  sourceTileActive: { borderColor: "#2563EB", backgroundColor: "#F8FBFF" },
   sourceTileIcon: {
     width: 40,
     height: 40,
@@ -1535,28 +1350,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 10,
   },
-
-  sourceTileIconActive: {
-    backgroundColor: "#DBEAFE",
-  },
-
+  sourceTileIconActive: { backgroundColor: "#DBEAFE" },
   sourceTileTitle: {
     fontSize: 13.5,
     fontWeight: "700",
     color: "#334155",
     marginBottom: 3,
   },
-
-  sourceTileTitleActive: {
-    color: "#1D4ED8",
-  },
-
-  sourceTileDescription: {
-    fontSize: 11.5,
-    color: "#64748B",
-    lineHeight: 15,
-  },
-
+  sourceTileTitleActive: { color: "#1D4ED8" },
+  sourceTileDescription: { fontSize: 11.5, color: "#64748B", lineHeight: 15 },
   sourceTileCheck: {
     position: "absolute",
     top: 10,
@@ -1576,18 +1378,13 @@ const styles = StyleSheet.create({
     borderColor: "#E2E8F0",
     padding: 15,
   },
-
   inputLabel: {
     color: "#334155",
     fontSize: 13,
     fontWeight: "600",
     marginBottom: 7,
   },
-
-  phoneLabel: {
-    marginTop: 17,
-  },
-
+  phoneLabel: { marginTop: 17 },
   inputWrapper: {
     height: 50,
     borderRadius: 12,
@@ -1598,26 +1395,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 13,
   },
-
   input: {
     flex: 1,
     height: "100%",
     fontSize: 15,
     color: "#0F172A",
     marginLeft: 9,
-    ...(Platform.OS === "web"
-      ? ({
-          outlineStyle: "none",
-        } as any)
-      : {}),
+    ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as any) : {}),
   },
-
-  phoneRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-
+  phoneRow: { flexDirection: "row", alignItems: "center", gap: 10 },
   phoneWrapper: {
     flex: 1,
     height: 50,
@@ -1630,7 +1416,6 @@ const styles = StyleSheet.create({
     paddingLeft: 4,
     paddingRight: 5,
   },
-
   countryCode: {
     height: 40,
     minWidth: 55,
@@ -1639,26 +1424,15 @@ const styles = StyleSheet.create({
     borderRightWidth: 1,
     borderRightColor: "#E2E8F0",
   },
-
-  countryCodeText: {
-    color: "#334155",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-
+  countryCodeText: { color: "#334155", fontSize: 14, fontWeight: "700" },
   phoneInput: {
     flex: 1,
     height: "100%",
     fontSize: 15,
     color: "#0F172A",
     paddingHorizontal: 11,
-    ...(Platform.OS === "web"
-      ? ({
-          outlineStyle: "none",
-        } as any)
-      : {}),
+    ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as any) : {}),
   },
-
   contactButton: {
     width: 50,
     height: 50,
@@ -1667,18 +1441,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   phoneHintRow: {
     flexDirection: "row",
     alignItems: "center",
     marginTop: 7,
     gap: 5,
   },
-
-  phoneHint: {
-    color: "#DC2626",
-    fontSize: 12,
-  },
+  phoneHint: { color: "#DC2626", fontSize: 12 },
 
   selectControlsRow: {
     flexDirection: "row",
@@ -1686,7 +1455,6 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 12,
   },
-
   searchBoxInline: {
     flex: 1,
     height: 46,
@@ -1698,20 +1466,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 12,
   },
-
   searchInput: {
     flex: 1,
     height: "100%",
     fontSize: 14,
     color: "#0F172A",
     marginLeft: 8,
-    ...(Platform.OS === "web"
-      ? ({
-          outlineStyle: "none",
-        } as any)
-      : {}),
+    ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as any) : {}),
   },
-
   selectAllButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -1723,16 +1485,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#DBEAFE",
   },
-
-  selectAllText: {
-    fontSize: 12.5,
-    fontWeight: "700",
-    color: "#2563EB",
-  },
-
-  clearAllText: {
-    color: "#DC2626",
-  },
+  selectAllText: { fontSize: 12.5, fontWeight: "700", color: "#2563EB" },
+  clearAllText: { color: "#DC2626" },
 
   groupHeader: {
     flexDirection: "row",
@@ -1742,23 +1496,9 @@ const styles = StyleSheet.create({
     marginBottom: 9,
     paddingHorizontal: 2,
   },
-
-  staffGroupHeader: {
-    marginTop: 20,
-  },
-
-  groupTitleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 7,
-  },
-
-  groupTitle: {
-    color: "#334155",
-    fontSize: 13,
-    fontWeight: "700",
-  },
-
+  staffGroupHeader: { marginTop: 20 },
+  groupTitleRow: { flexDirection: "row", alignItems: "center", gap: 7 },
+  groupTitle: { color: "#334155", fontSize: 13, fontWeight: "700" },
   groupCount: {
     minWidth: 25,
     height: 25,
@@ -1783,12 +1523,7 @@ const styles = StyleSheet.create({
     padding: 12,
     marginBottom: 8,
   },
-
-  memberCardSelected: {
-    borderColor: "#60A5FA",
-    backgroundColor: "#F8FBFF",
-  },
-
+  memberCardSelected: { borderColor: "#60A5FA", backgroundColor: "#F8FBFF" },
   memberAvatar: {
     width: 44,
     height: 44,
@@ -1798,58 +1533,25 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginRight: 11,
   },
-
-  memberAvatarSelected: {
-    backgroundColor: "#2563EB",
-  },
-
-  memberAvatarText: {
-    color: "#2563EB",
-    fontSize: 16,
-    fontWeight: "700",
-  },
-
-  memberAvatarTextSelected: {
-    color: "#FFFFFF",
-  },
-
-  memberContent: {
-    flex: 1,
-    minWidth: 0,
-  },
-
-  memberName: {
-    color: "#0F172A",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-
+  memberAvatarSelected: { backgroundColor: "#2563EB" },
+  memberAvatarText: { color: "#2563EB", fontSize: 16, fontWeight: "700" },
+  memberAvatarTextSelected: { color: "#FFFFFF" },
+  memberContent: { flex: 1, minWidth: 0 },
+  memberName: { color: "#0F172A", fontSize: 14, fontWeight: "700" },
   memberPhoneRow: {
     flexDirection: "row",
     alignItems: "center",
     marginTop: 4,
     gap: 5,
   },
-
-  memberPhone: {
-    color: "#64748B",
-    fontSize: 12,
-    flexShrink: 1,
-  },
-
+  memberPhone: { color: "#64748B", fontSize: 12, flexShrink: 1 },
   memberMetaRow: {
     flexDirection: "row",
     alignItems: "center",
     marginTop: 4,
     gap: 5,
   },
-
-  memberMeta: {
-    color: "#2563EB",
-    fontSize: 11,
-    fontWeight: "600",
-  },
-
+  memberMeta: { color: "#2563EB", fontSize: 11, fontWeight: "600" },
   checkbox: {
     width: 24,
     height: 24,
@@ -1861,11 +1563,7 @@ const styles = StyleSheet.create({
     marginLeft: 10,
     backgroundColor: "#FFFFFF",
   },
-
-  checkboxSelected: {
-    backgroundColor: "#2563EB",
-    borderColor: "#2563EB",
-  },
+  checkboxSelected: { backgroundColor: "#2563EB", borderColor: "#2563EB" },
 
   emptyCard: {
     backgroundColor: "#FFFFFF",
@@ -1876,7 +1574,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 25,
     paddingVertical: 32,
   },
-
   emptyIcon: {
     width: 58,
     height: 58,
@@ -1886,14 +1583,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 12,
   },
-
   emptyTitle: {
     color: "#334155",
     fontSize: 15,
     fontWeight: "700",
     textAlign: "center",
   },
-
   emptyDescription: {
     color: "#64748B",
     fontSize: 12,
@@ -1901,7 +1596,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: 5,
   },
-
   emptySmall: {
     color: "#64748B",
     fontSize: 13,
@@ -1924,18 +1618,9 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     gap: 8,
   },
+  errorText: { flex: 1, color: "#B91C1C", fontSize: 12, lineHeight: 17 },
 
-  errorText: {
-    flex: 1,
-    color: "#B91C1C",
-    fontSize: 12,
-    lineHeight: 17,
-  },
-
-  bottomAction: {
-    marginTop: 3,
-  },
-
+  bottomAction: { marginTop: 3 },
   saveButton: {
     minHeight: 52,
     borderRadius: 14,
@@ -1946,40 +1631,22 @@ const styles = StyleSheet.create({
     gap: 9,
     paddingHorizontal: 18,
   },
-
-  saveButtonDisabled: {
-    opacity: 0.55,
-  },
-
-  saveText: {
-    color: "#FFFFFF",
-    fontSize: 15,
-    fontWeight: "700",
-  },
-
+  saveButtonDisabled: { opacity: 0.55 },
+  saveText: { color: "#FFFFFF", fontSize: 15, fontWeight: "700" },
   cancelButton: {
     minHeight: 48,
     alignItems: "center",
     justifyContent: "center",
     marginTop: 7,
   },
-
-  cancelText: {
-    color: "#64748B",
-    fontSize: 14,
-    fontWeight: "600",
-  },
-
-  bottomSpace: {
-    height: 20,
-  },
+  cancelText: { color: "#64748B", fontSize: 14, fontWeight: "600" },
+  bottomSpace: { height: 20 },
 
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(15, 23, 42, 0.55)",
     justifyContent: "flex-end",
   },
-
   modalContainer: {
     backgroundColor: "#FFFFFF",
     borderTopLeftRadius: 26,
@@ -1989,26 +1656,14 @@ const styles = StyleSheet.create({
     maxHeight: "88%",
     minHeight: "55%",
   },
-
   modalHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 16,
   },
-
-  modalTitle: {
-    color: "#0F172A",
-    fontSize: 19,
-    fontWeight: "700",
-  },
-
-  modalSubtitle: {
-    color: "#64748B",
-    fontSize: 12,
-    marginTop: 3,
-  },
-
+  modalTitle: { color: "#0F172A", fontSize: 19, fontWeight: "700" },
+  modalSubtitle: { color: "#64748B", fontSize: 12, marginTop: 3 },
   modalCloseButton: {
     width: 38,
     height: 38,
@@ -2017,7 +1672,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   modalSearch: {
     height: 48,
     borderRadius: 13,
@@ -2028,43 +1682,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 13,
   },
-
   modalSearchInput: {
     flex: 1,
     height: "100%",
     color: "#0F172A",
     fontSize: 14,
     marginLeft: 8,
-    ...(Platform.OS === "web"
-      ? ({
-          outlineStyle: "none",
-        } as any)
-      : {}),
+    ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as any) : {}),
   },
-
-  contactCountRow: {
-    paddingVertical: 10,
-  },
-
-  contactCount: {
-    color: "#64748B",
-    fontSize: 12,
-    fontWeight: "600",
-  },
-
-  contactListWrapper: {
-    flex: 1,
-    minHeight: 220,
-  },
-
-  contactList: {
-    flex: 1,
-  },
-
-  contactListContent: {
-    paddingBottom: 8,
-  },
-
+  contactCountRow: { paddingVertical: 10 },
+  contactCount: { color: "#64748B", fontSize: 12, fontWeight: "600" },
+  contactListWrapper: { flex: 1, minHeight: 220 },
+  contactList: { flex: 1 },
+  contactListContent: { paddingBottom: 8 },
   contactItem: {
     flexDirection: "row",
     alignItems: "center",
@@ -2072,7 +1702,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#F1F5F9",
   },
-
   contactAvatar: {
     width: 45,
     height: 45,
@@ -2082,30 +1711,10 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginRight: 12,
   },
-
-  contactAvatarText: {
-    color: "#2563EB",
-    fontSize: 17,
-    fontWeight: "700",
-  },
-
-  contactInfo: {
-    flex: 1,
-    minWidth: 0,
-  },
-
-  contactName: {
-    color: "#0F172A",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-
-  contactPhone: {
-    color: "#64748B",
-    fontSize: 12,
-    marginTop: 3,
-  },
-
+  contactAvatarText: { color: "#2563EB", fontSize: 17, fontWeight: "700" },
+  contactInfo: { flex: 1, minWidth: 0 },
+  contactName: { color: "#0F172A", fontSize: 14, fontWeight: "700" },
+  contactPhone: { color: "#64748B", fontSize: 12, marginTop: 3 },
   contactArrow: {
     width: 30,
     height: 30,
@@ -2115,14 +1724,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginLeft: 8,
   },
-
   noContacts: {
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 45,
     paddingHorizontal: 25,
   },
-
   noContactsIcon: {
     width: 62,
     height: 62,
@@ -2132,13 +1739,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 12,
   },
-
-  noContactsTitle: {
-    color: "#334155",
-    fontSize: 15,
-    fontWeight: "700",
-  },
-
+  noContactsTitle: { color: "#334155", fontSize: 15, fontWeight: "700" },
   noContactsText: {
     color: "#64748B",
     fontSize: 12,
@@ -2146,12 +1747,10 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginTop: 5,
   },
-
   modalFooter: {
     paddingTop: 12,
     paddingBottom: Platform.OS === "ios" ? 28 : 18,
   },
-
   modalCancelButton: {
     minHeight: 50,
     borderRadius: 13,
@@ -2159,10 +1758,5 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
-  modalCancelButtonText: {
-    color: "#334155",
-    fontSize: 14,
-    fontWeight: "700",
-  },
+  modalCancelButtonText: { color: "#334155", fontSize: 14, fontWeight: "700" },
 }) as any;

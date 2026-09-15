@@ -1035,6 +1035,9 @@ const styles = StyleSheet.create({
   ownerAvatar: {
     backgroundColor: "#DBEAFE",
   },
+  ownershipAvatar: {
+    backgroundColor: "#CFFAFE",
+  },
   adminAvatar: {
     backgroundColor: "#EDE9FE",
   },
@@ -1048,6 +1051,9 @@ const styles = StyleSheet.create({
     color: "#2563EB",
     fontSize: 15,
     fontWeight: "700",
+  },
+  ownershipAvatarText: {
+    color: "#0E7490",
   },
   memberAvatarText: {
     color: "#16A34A",
@@ -1096,6 +1102,14 @@ const styles = StyleSheet.create({
   },
   ownerBadgeText: {
     color: "#1D4ED8",
+    fontSize: 9,
+    fontWeight: "700",
+  },
+  ownershipBadge: {
+    backgroundColor: "#CFFAFE",
+  },
+  ownershipBadgeText: {
+    color: "#0E7490",
     fontSize: 9,
     fontWeight: "700",
   },
@@ -2089,6 +2103,10 @@ export default function ProfileScreen() {
   const [showPlansModal, setShowPlansModal] = useState(false);
   const [activePlan, setActivePlan] = useState<string>("pro");
 
+  // 🆕 Which billing period the active plan is billed on
+  const [activePlanPeriod, setActivePlanPeriod] =
+    useState<BillingPeriod>("monthly");
+
   const plans = DEFAULT_PLANS;
 
   const otpInputs = useRef<(TextInput | null)[]>([]);
@@ -2104,8 +2122,21 @@ export default function ProfileScreen() {
 
   const pendingInvitations = accountGrants.filter((grant) => !grant.acceptedAt);
 
+  // Ownership grants are stored with role: "admin" but tagged via
+  // (grant as any).memberType === "ownership" so we can display them
+  // in a distinct group. They have identical permissions to admins.
+  const acceptedOwnerships = accountGrants.filter(
+    (grant) =>
+      grant.acceptedAt &&
+      grant.role === "admin" &&
+      (grant as any).memberType === "ownership",
+  );
+
   const acceptedAdmins = accountGrants.filter(
-    (grant) => grant.acceptedAt && grant.role === "admin",
+    (grant) =>
+      grant.acceptedAt &&
+      grant.role === "admin" &&
+      (grant as any).memberType !== "ownership",
   );
 
   const visibleMembers = accountGrants.filter(
@@ -2117,6 +2148,7 @@ export default function ProfileScreen() {
   );
 
   const totalPeopleWithAccess =
+    acceptedOwnerships.length +
     acceptedAdmins.length +
     visibleMembers.length +
     visibleStaff.length +
@@ -2396,6 +2428,7 @@ export default function ProfileScreen() {
     });
 
     setActivePlan(plan.id);
+    setActivePlanPeriod(period);
 
     Alert.alert(
       "Plan Updated!",
@@ -2413,44 +2446,30 @@ export default function ProfileScreen() {
   const handleCancelSubscription = () => {
     if (!canManageSubscription) return;
 
+    const currentPlan = plans.find((p) => p.id === activePlan);
+
+    addHistoryEntry(
+      "subscription_cancelled",
+      "Subscription Cancelled",
+      `Cancelled ${currentPlan?.name ?? "current"} plan`,
+      {
+        details: {
+          plan: currentPlan?.name ?? "Unknown",
+          cancelledAt: new Date().toISOString(),
+        },
+      },
+    );
+
+    setActivePlan("free");
+    setActivePlanPeriod("monthly");
+
     Alert.alert(
-      "Cancel Subscription",
-      "Are you sure you want to cancel your subscription? You will lose access to premium features.",
-      [
-        {
-          text: "Keep Plan",
-          style: "cancel",
-        },
-        {
-          text: "Cancel",
-          style: "destructive",
-          onPress: () => {
-            const currentPlan = plans.find((p) => p.id === activePlan);
-            addHistoryEntry(
-              "subscription_cancelled",
-              "Subscription Cancelled",
-              `Cancelled ${currentPlan?.name ?? "current"} plan`,
-              {
-                details: {
-                  plan: currentPlan?.name ?? "Unknown",
-                  cancelledAt: new Date().toISOString(),
-                },
-              },
-            );
-            setActivePlan("free");
-            Alert.alert(
-              "Subscription Cancelled",
-              "Your subscription has been cancelled. You will be moved to the Free plan.",
-              [{ text: "OK" }],
-            );
-          },
-        },
-      ],
+      "Subscription Cancelled",
+      "Your subscription has been cancelled. You will be moved to the Free plan.",
+      [{ text: "OK" }],
     );
   };
 
-  // Adapter — normalizes whatever startRazorpayPayment returns
-  // into the shape SubscriptionPlanModal expects.
   const handleStartPayment = async (
     amount: number,
     label: string,
@@ -2462,8 +2481,6 @@ export default function ProfileScreen() {
         phone: userInfo?.phone,
       });
 
-      // If your service already returns { success, paymentId, error } — return as-is.
-      // If it returns something else (e.g. { status: "success" }), map it here.
       return {
         success: Boolean(result?.success),
         paymentId: result?.paymentId,
@@ -2507,21 +2524,14 @@ export default function ProfileScreen() {
   // LOGOUT / DELETE / INVITATION
   // ============================================================
 
-  const handleLogout = () => {
-    Alert.alert("Logout", "Are you sure you want to logout?", [
-      {
-        text: "Cancel",
-        style: "cancel",
-      },
-      {
-        text: "Logout",
-        style: "destructive",
-        onPress: async () => {
-          await logout();
-          router.replace("/(auth)/login");
-        },
-      },
-    ]);
+  const handleLogout = async () => {
+    try {
+      await logout();
+      router.replace("/(auth)/login");
+    } catch (err) {
+      console.error("Logout error:", err);
+      Alert.alert("Logout failed", "Please try again.");
+    }
   };
 
   const handleDeleteAccount = () => {
@@ -2529,10 +2539,7 @@ export default function ProfileScreen() {
       "Delete Account",
       "Are you sure you want to delete your account? This action cannot be undone.",
       [
-        {
-          text: "Cancel",
-          style: "cancel",
-        },
+        { text: "Cancel", style: "cancel" },
         {
           text: "Delete Account",
           style: "destructive",
@@ -2625,9 +2632,7 @@ export default function ProfileScreen() {
 
     if (selectedAccount) {
       try {
-        await editAccount(selectedAccount.id, {
-          photoUri: uri,
-        });
+        await editAccount(selectedAccount.id, { photoUri: uri });
       } catch (error) {
         console.error("Failed to update account photo:", error);
       }
@@ -2657,13 +2662,9 @@ export default function ProfileScreen() {
 
     const trimmedName = propertyName.trim();
 
-    if (!trimmedName || !selectedAccount) {
-      return;
-    }
+    if (!trimmedName || !selectedAccount) return;
 
-    await editAccount(selectedAccount.id, {
-      name: trimmedName,
-    });
+    await editAccount(selectedAccount.id, { name: trimmedName });
 
     setEditingName(false);
   };
@@ -2688,7 +2689,6 @@ export default function ProfileScreen() {
   const handleSendPhoneOtp = async () => {
     if (phone.length !== 10) {
       setPhoneError("Enter a valid 10-digit phone number");
-
       return;
     }
 
@@ -2698,11 +2698,8 @@ export default function ProfileScreen() {
 
     if (result.success) {
       setPhoneOtpSent(true);
-
       setOtpMessage(`OTP sent to +91${phone}`);
-
       setPhoneError("");
-
       setTimer(30);
       setIsTimerActive(true);
 
@@ -2717,7 +2714,6 @@ export default function ProfileScreen() {
   const handleResendOtp = async () => {
     if (phone.length !== 10) {
       setPhoneError("Enter a valid 10-digit phone number");
-
       return;
     }
 
@@ -2727,7 +2723,6 @@ export default function ProfileScreen() {
 
     if (result.success) {
       setOtpMessage(`OTP resent to +91${phone}`);
-
       setTimer(30);
       setIsTimerActive(true);
 
@@ -2744,7 +2739,6 @@ export default function ProfileScreen() {
 
     if (otpString.length !== 6) {
       setPhoneError("Please enter complete 6-digit OTP");
-
       return;
     }
 
@@ -2752,15 +2746,11 @@ export default function ProfileScreen() {
 
     if (!result.success) {
       setPhoneError(result.message || "Invalid OTP");
-
       return;
     }
 
     if (user) {
-      setUser({
-        ...user,
-        phone: `+91${phone}`,
-      });
+      setUser({ ...user, phone: `+91${phone}` });
     }
 
     closePhoneModal();
@@ -2768,32 +2758,24 @@ export default function ProfileScreen() {
 
   const closePhoneModal = () => {
     setShowPhoneModal(false);
-
     setPhone("");
-
     setPhoneOtp(["", "", "", "", "", ""]);
-
     setPhoneError("");
     setPhoneOtpSent(false);
     setOtpMessage("");
-
     setTimer(30);
     setIsTimerActive(false);
 
     if (timerInterval.current) {
       clearInterval(timerInterval.current);
-
       timerInterval.current = null;
     }
   };
 
   const handleOtpChange = (text: string, index: number) => {
     const cleanedText = text.replace(/[^0-9]/g, "").slice(-1);
-
     const newOtp = [...phoneOtp];
-
     newOtp[index] = cleanedText;
-
     setPhoneOtp(newOtp);
 
     if (cleanedText.length === 1 && index < 5) {
@@ -2822,7 +2804,6 @@ export default function ProfileScreen() {
         "Contact picker is only available on mobile devices. Please enter your phone number manually.",
         [{ text: "OK" }],
       );
-
       return;
     }
 
@@ -2833,32 +2814,20 @@ export default function ProfileScreen() {
         Alert.alert(
           "Permission Required",
           "We need access to your contacts to help you quickly add phone numbers.",
-          [
-            {
-              text: "Cancel",
-              style: "cancel",
-            },
-            {
-              text: "OK",
-            },
-          ],
+          [{ text: "Cancel", style: "cancel" }, { text: "OK" }],
         );
 
         setPhoneError("Permission to access contacts is required");
-
         return;
       }
 
       const contacts = await Contact.getAllDetails(
         [ContactField.FULL_NAME, ContactField.PHONES],
-        {
-          sortOrder: ContactsSortOrder.GivenName,
-        },
+        { sortOrder: ContactsSortOrder.GivenName },
       );
 
       if (contacts.length === 0) {
         setPhoneError("No contacts found on your device");
-
         return;
       }
 
@@ -2875,31 +2844,24 @@ export default function ProfileScreen() {
 
       if (mappedContacts.length === 0) {
         setPhoneError("No contacts with phone numbers found");
-
         return;
       }
 
       setContactSearch("");
       setContactsList(mappedContacts);
-
       setShowContactPicker(true);
       setPhoneError("");
     } catch (error) {
       console.error("Error fetching contacts:", error);
-
       setPhoneError("Failed to fetch contacts. Please try again.");
     }
   };
 
   const filteredContacts = contactsList.filter((contact) => {
     const search = contactSearch.toLowerCase().trim();
-
-    if (!search) {
-      return true;
-    }
+    if (!search) return true;
 
     const nameMatch = contact.name.toLowerCase().includes(search);
-
     const phoneMatch = contact.phoneNumbers.some((phoneNumber) =>
       phoneNumber.number.toLowerCase().includes(search),
     );
@@ -2919,16 +2881,12 @@ export default function ProfileScreen() {
       contact.phoneNumbers.length === 0
     ) {
       setPhoneError("Selected contact doesn't have a phone number");
-
       return;
     }
 
     let phoneNumber = contact.phoneNumbers[0].number || "";
-
     phoneNumber = phoneNumber.replace(/[^0-9]/g, "");
-
     phoneNumber = phoneNumber.replace(/^91/, "");
-
     phoneNumber = phoneNumber.replace(/^0/, "");
 
     if (phoneNumber.length > 10) {
@@ -2939,7 +2897,6 @@ export default function ProfileScreen() {
       setPhoneError(
         "Selected contact does not have a valid 10-digit phone number",
       );
-
       return;
     }
 
@@ -2963,9 +2920,7 @@ export default function ProfileScreen() {
       "template_saved",
       "Bill Template Saved",
       `Bill template "${config.templateId}" saved successfully`,
-      {
-        details: { template: config.templateId, accent: config.accentColor },
-      },
+      { details: { template: config.templateId, accent: config.accentColor } },
     );
   };
 
@@ -2992,6 +2947,22 @@ export default function ProfileScreen() {
         setBillMemberType("owner");
         setShowGenerateBill(true);
       },
+    },
+    {
+      id: "add_ownership",
+      title: "Add Ownership",
+      description: "Give another person ownership access",
+      icon: "shield-checkmark-outline",
+      color: "#0E7490",
+      onPress: () =>
+        router.push({
+          pathname: "/(modals)/grant-access",
+          params: {
+            accountId: selectedAccount?.id || "",
+            role: "admin",
+            memberType: "ownership",
+          },
+        }),
     },
     {
       id: "add_admin",
@@ -3074,10 +3045,7 @@ export default function ProfileScreen() {
       onPress: () =>
         router.push({
           pathname: "/(modals)/legal-page",
-          params: {
-            title: "Privacy Policy",
-            type: "privacy",
-          },
+          params: { title: "Privacy Policy", type: "privacy" },
         }),
     },
     {
@@ -3088,10 +3056,7 @@ export default function ProfileScreen() {
       onPress: () =>
         router.push({
           pathname: "/(modals)/legal-page",
-          params: {
-            title: "Terms & Conditions",
-            type: "terms",
-          },
+          params: { title: "Terms & Conditions", type: "terms" },
         }),
     },
     {
@@ -3102,10 +3067,7 @@ export default function ProfileScreen() {
       onPress: () =>
         router.push({
           pathname: "/(modals)/legal-page",
-          params: {
-            title: "About Us",
-            type: "about",
-          },
+          params: { title: "About Us", type: "about" },
         }),
     },
     {
@@ -3116,10 +3078,7 @@ export default function ProfileScreen() {
       onPress: () =>
         router.push({
           pathname: "/(modals)/legal-page",
-          params: {
-            title: "Help & Support",
-            type: "support",
-          },
+          params: { title: "Help & Support", type: "support" },
         }),
     },
     {
@@ -3143,7 +3102,12 @@ export default function ProfileScreen() {
       },
       {
         title: "ACCESS & ROLES",
-        itemIds: ["add_admin", "invite_member", "invite_staff"],
+        itemIds: [
+          "add_ownership",
+          "add_admin",
+          "invite_member",
+          "invite_staff",
+        ],
       },
       {
         title: "PREFERENCES",
@@ -3337,19 +3301,13 @@ export default function ProfileScreen() {
       >
         <View style={styles.menuItemLeft}>
           <View
-            style={[
-              styles.menuIcon,
-              {
-                backgroundColor: item.color + "14",
-              },
-            ]}
+            style={[styles.menuIcon, { backgroundColor: item.color + "14" }]}
           >
             <Ionicons name={item.icon} size={20} color={item.color} />
           </View>
 
           <View style={styles.menuItemContent}>
             <Text style={styles.menuItemTitle}>{item.title}</Text>
-
             {item.description ? (
               <Text style={styles.menuItemDescription} numberOfLines={1}>
                 {item.description}
@@ -3362,20 +3320,14 @@ export default function ProfileScreen() {
           <Switch
             value={notifications}
             onValueChange={setNotifications}
-            trackColor={{
-              false: "#CBD5E1",
-              true: "#93C5FD",
-            }}
+            trackColor={{ false: "#CBD5E1", true: "#93C5FD" }}
             thumbColor={notifications ? "#2563EB" : "#FFFFFF"}
           />
         ) : item.id === "dark_mode" ? (
           <Switch
             value={darkMode}
             onValueChange={setDarkMode}
-            trackColor={{
-              false: "#CBD5E1",
-              true: "#93C5FD",
-            }}
+            trackColor={{ false: "#CBD5E1", true: "#93C5FD" }}
             thumbColor={darkMode ? "#2563EB" : "#FFFFFF"}
           />
         ) : item.showArrow !== false ? (
@@ -3390,9 +3342,7 @@ export default function ProfileScreen() {
   // ============================================================
 
   const renderPhoneModal = () => {
-    if (!showPhoneModal) {
-      return null;
-    }
+    if (!showPhoneModal) return null;
 
     return (
       <Modal
@@ -3415,19 +3365,16 @@ export default function ProfileScreen() {
                     <View style={styles.modalTitleIcon}>
                       <Ionicons name="call-outline" size={20} color="#2563EB" />
                     </View>
-
                     <View style={styles.modalTitleContent}>
                       <Text style={styles.editModalTitle}>
                         Change Phone Number
                       </Text>
-
                       <Text style={styles.modalSubtitle}>
                         {phoneOtpSent
                           ? "Verify your new number"
                           : "Enter your new mobile number"}
                       </Text>
                     </View>
-
                     <TouchableOpacity
                       style={styles.modalCloseButton}
                       onPress={closePhoneModal}
@@ -3440,20 +3387,16 @@ export default function ProfileScreen() {
                   {!phoneOtpSent ? (
                     <>
                       <Text style={styles.fieldLabel}>New phone number</Text>
-
                       <View style={styles.phoneInputRow}>
                         <View style={styles.phonePrefixBox}>
                           <Text style={styles.phonePrefix}>+91</Text>
                         </View>
-
                         <TextInput
                           style={styles.phoneInput}
                           value={phone}
                           onChangeText={(value) => {
                             const cleaned = value.replace(/[^0-9]/g, "");
-
                             setPhone(cleaned.slice(0, 10));
-
                             setPhoneError("");
                           }}
                           keyboardType="number-pad"
@@ -3461,7 +3404,6 @@ export default function ProfileScreen() {
                           placeholder="98765 43210"
                           placeholderTextColor="#94A3B8"
                         />
-
                         <TouchableOpacity
                           onPress={pickContact}
                           style={styles.phoneContactButton}
@@ -3474,7 +3416,6 @@ export default function ProfileScreen() {
                           />
                         </TouchableOpacity>
                       </View>
-
                       <Text style={styles.inputHint}>
                         We'll send a 6-digit verification code to this number.
                       </Text>
@@ -3489,12 +3430,10 @@ export default function ProfileScreen() {
                             color="#16A34A"
                           />
                         </View>
-
                         <View style={styles.otpMessageContent}>
                           <Text style={styles.otpMessageTitle}>
                             Verification code sent
                           </Text>
-
                           <Text style={styles.otpMessageText}>
                             {otpMessage}
                           </Text>
@@ -3504,7 +3443,6 @@ export default function ProfileScreen() {
                       <Text style={styles.fieldLabel}>
                         Enter verification code
                       </Text>
-
                       <View style={styles.otpContainer}>
                         {[0, 1, 2, 3, 4, 5].map((index) => (
                           <TextInput
@@ -3555,7 +3493,6 @@ export default function ProfileScreen() {
                         size={17}
                         color="#DC2626"
                       />
-
                       <Text style={styles.validationText}>{phoneError}</Text>
                     </View>
                   ) : null}
@@ -3596,7 +3533,6 @@ export default function ProfileScreen() {
                         size={18}
                         color="#FFFFFF"
                       />
-
                       <Text style={styles.saveButtonText}>
                         {phoneOtpSent ? "Verify OTP" : "Send OTP"}
                       </Text>
@@ -3616,9 +3552,7 @@ export default function ProfileScreen() {
   // ============================================================
 
   const renderDeleteInvitationModal = () => {
-    if (!invitationToDelete) {
-      return null;
-    }
+    if (!invitationToDelete) return null;
 
     return (
       <Modal
@@ -3638,7 +3572,6 @@ export default function ProfileScreen() {
                 </View>
 
                 <Text style={styles.deleteModalTitle}>Delete Invitation?</Text>
-
                 <Text style={styles.deleteModalDescription}>
                   This person will no longer be able to accept this invitation.
                 </Text>
@@ -3658,7 +3591,6 @@ export default function ProfileScreen() {
                     activeOpacity={0.8}
                   >
                     <Ionicons name="trash-outline" size={17} color="#FFFFFF" />
-
                     <Text style={styles.deleteConfirmText}>Delete</Text>
                   </TouchableOpacity>
                 </View>
@@ -3675,9 +3607,7 @@ export default function ProfileScreen() {
   // ============================================================
 
   const renderContactPickerModal = () => {
-    if (!showContactPicker) {
-      return null;
-    }
+    if (!showContactPicker) return null;
 
     return (
       <Modal
@@ -3695,12 +3625,10 @@ export default function ProfileScreen() {
                 <View style={styles.contactModalHeader}>
                   <View>
                     <Text style={styles.contactModalTitle}>Select Contact</Text>
-
                     <Text style={styles.contactModalSubtitle}>
                       Choose a contact from your phone
                     </Text>
                   </View>
-
                   <TouchableOpacity
                     onPress={closeContactPicker}
                     style={styles.contactModalCloseButton}
@@ -3712,7 +3640,6 @@ export default function ProfileScreen() {
 
                 <View style={styles.contactModalSearchContainer}>
                   <Ionicons name="search-outline" size={19} color="#64748B" />
-
                   <TextInput
                     style={styles.contactModalSearchInput}
                     placeholder="Search contacts"
@@ -3723,7 +3650,6 @@ export default function ProfileScreen() {
                     autoCorrect={false}
                     returnKeyType="search"
                   />
-
                   {contactSearch.length > 0 ? (
                     <TouchableOpacity
                       onPress={() => setContactSearch("")}
@@ -3764,12 +3690,10 @@ export default function ProfileScreen() {
                                 : "?"}
                             </Text>
                           </View>
-
                           <View style={styles.contactInfo}>
                             <Text style={styles.contactName} numberOfLines={1}>
                               {contact.name || "Unknown"}
                             </Text>
-
                             {contact.phoneNumbers.length > 0 ? (
                               <Text
                                 style={styles.contactPhone}
@@ -3779,7 +3703,6 @@ export default function ProfileScreen() {
                               </Text>
                             ) : null}
                           </View>
-
                           <View style={styles.contactArrow}>
                             <Ionicons
                               name="chevron-forward"
@@ -3798,11 +3721,9 @@ export default function ProfileScreen() {
                             color="#64748B"
                           />
                         </View>
-
                         <Text style={styles.noContactsTitle}>
                           No contacts found
                         </Text>
-
                         <Text style={styles.noContactsText}>
                           Try another name or phone number.
                         </Text>
@@ -3839,7 +3760,6 @@ export default function ProfileScreen() {
         contentContainerStyle={styles.scrollContent}
       >
         {/* PROFILE CARD */}
-
         <View style={styles.profileCard}>
           <View style={styles.profileAccent} />
 
@@ -3847,9 +3767,7 @@ export default function ProfileScreen() {
             <View style={styles.avatarContainer}>
               {selectedAccount?.photoUri ? (
                 <Image
-                  source={{
-                    uri: selectedAccount.photoUri,
-                  }}
+                  source={{ uri: selectedAccount.photoUri }}
                   style={styles.avatar}
                 />
               ) : (
@@ -3885,7 +3803,6 @@ export default function ProfileScreen() {
                     returnKeyType="done"
                     selectTextOnFocus
                   />
-
                   <TouchableOpacity
                     style={styles.saveNameButton}
                     onPress={savePropertyName}
@@ -3899,7 +3816,6 @@ export default function ProfileScreen() {
                   <Text style={styles.userName} numberOfLines={1}>
                     {selectedAccount?.name || "Apartment"}
                   </Text>
-
                   {canEditAccount && (
                     <TouchableOpacity
                       style={styles.editButton}
@@ -3918,11 +3834,9 @@ export default function ProfileScreen() {
 
               <View style={styles.phoneDisplayRow}>
                 <Ionicons name="call-outline" size={14} color="#64748B" />
-
                 <Text style={styles.userPhone}>
                   {user?.phone || "+91 9876543210"}
                 </Text>
-
                 {canEditAccount && (
                   <TouchableOpacity
                     style={styles.editButton}
@@ -3936,7 +3850,6 @@ export default function ProfileScreen() {
 
               <View style={styles.accountTypeBadge}>
                 <View style={styles.accountTypeDot} />
-
                 <Text style={styles.accountTypeText}>Society Account</Text>
               </View>
             </View>
@@ -3948,7 +3861,6 @@ export default function ProfileScreen() {
             activeOpacity={0.8}
           >
             <Ionicons name="log-out-outline" size={18} color="#DC2626" />
-
             <Text style={styles.logoutText}>Logout</Text>
           </TouchableOpacity>
         </View>
@@ -3961,10 +3873,10 @@ export default function ProfileScreen() {
             const planName = currentPlan?.name ?? "Free";
             const planFeatures = currentPlan?.features ?? ["Basic features"];
             const price = currentPlan
-              ? getPlanPrice(currentPlan, "monthly")
+              ? getPlanPrice(currentPlan, activePlanPeriod)
               : 0;
             const periodLabel = currentPlan
-              ? getPlanPeriodLabel(currentPlan, "monthly")
+              ? getPlanPeriodLabel(currentPlan, activePlanPeriod)
               : "";
 
             return (
@@ -4064,7 +3976,6 @@ export default function ProfileScreen() {
           })()}
 
         {/* SETTINGS */}
-
         {settingsSections.map((section) => {
           const items = menuItems.filter((item) =>
             section.itemIds.includes(item.id),
@@ -4075,7 +3986,6 @@ export default function ProfileScreen() {
           return (
             <View key={section.title} style={styles.menuSection}>
               <Text style={styles.menuSectionTitle}>{section.title}</Text>
-
               <View style={styles.menuCard}>
                 {items.map((item, index) => renderMenuItem(item, index, items))}
               </View>
@@ -4084,17 +3994,14 @@ export default function ProfileScreen() {
         })}
 
         {/* PEOPLE WITH ACCESS */}
-
         <View style={styles.accessOverview}>
           <View style={styles.accessHeader}>
             <View>
               <Text style={styles.accessTitle}>People With Access</Text>
-
               <Text style={styles.accessSubtitle}>
                 Users who can access this account
               </Text>
             </View>
-
             <View style={styles.accessTotalBadge}>
               <Text style={styles.accessTotalText}>
                 {totalPeopleWithAccess}
@@ -4105,11 +4012,11 @@ export default function ProfileScreen() {
           {selectedAccount?.ownerId === user?.id && (
             <View style={styles.accessGroup}>
               <Text style={styles.accessHeading}>Account Owner</Text>
-
               <View
                 style={[
                   styles.accessRow,
-                  acceptedAdmins.length === 0 &&
+                  acceptedOwnerships.length === 0 &&
+                    acceptedAdmins.length === 0 &&
                     visibleMembers.length === 0 &&
                     pendingInvitations.length === 0 &&
                     styles.lastAccessRow,
@@ -4120,23 +4027,57 @@ export default function ProfileScreen() {
                     {(user?.name || "You").charAt(0).toUpperCase()}
                   </Text>
                 </View>
-
                 <View style={styles.accessInfo}>
                   <View style={styles.accessNameRow}>
                     <Text style={styles.accessName}>You</Text>
-
                     <View style={styles.youBadge}>
                       <Text style={styles.youBadgeText}>YOU</Text>
                     </View>
                   </View>
-
                   <Text style={styles.accessPhone}>{user?.phone || ""}</Text>
                 </View>
-
                 <View style={[styles.accessBadge, styles.ownerBadge]}>
                   <Text style={styles.ownerBadgeText}>Owner</Text>
                 </View>
               </View>
+            </View>
+          )}
+
+          {acceptedOwnerships.length > 0 && (
+            <View style={styles.accessGroup}>
+              <Text style={styles.accessHeading}>Ownership</Text>
+
+              {acceptedOwnerships.map((grant, index) => (
+                <View
+                  key={grant.id}
+                  style={[
+                    styles.accessRow,
+                    index === acceptedOwnerships.length - 1 &&
+                      acceptedAdmins.length === 0 &&
+                      visibleMembers.length === 0 &&
+                      pendingInvitations.length === 0 &&
+                      styles.lastAccessRow,
+                  ]}
+                >
+                  <View style={[styles.accessAvatar, styles.ownershipAvatar]}>
+                    <Text
+                      style={[
+                        styles.accessAvatarText,
+                        styles.ownershipAvatarText,
+                      ]}
+                    >
+                      {grant.name.charAt(0).toUpperCase()}
+                    </Text>
+                  </View>
+                  <View style={styles.accessInfo}>
+                    <Text style={styles.accessName}>{grant.name}</Text>
+                    <Text style={styles.accessPhone}>{grant.phone}</Text>
+                  </View>
+                  <View style={[styles.accessBadge, styles.ownershipBadge]}>
+                    <Text style={styles.ownershipBadgeText}>Owner</Text>
+                  </View>
+                </View>
+              ))}
             </View>
           )}
 
@@ -4160,13 +4101,10 @@ export default function ProfileScreen() {
                       {grant.name.charAt(0).toUpperCase()}
                     </Text>
                   </View>
-
                   <View style={styles.accessInfo}>
                     <Text style={styles.accessName}>{grant.name}</Text>
-
                     <Text style={styles.accessPhone}>{grant.phone}</Text>
                   </View>
-
                   <View style={[styles.accessBadge, styles.adminBadge]}>
                     <Text style={styles.adminBadgeText}>Admin</Text>
                   </View>
@@ -4196,13 +4134,10 @@ export default function ProfileScreen() {
                       {grant.name.charAt(0).toUpperCase()}
                     </Text>
                   </View>
-
                   <View style={styles.accessInfo}>
                     <Text style={styles.accessName}>{grant.name}</Text>
-
                     <Text style={styles.accessPhone}>{grant.phone}</Text>
                   </View>
-
                   <View style={[styles.accessBadge, styles.memberBadge]}>
                     <Text style={styles.memberBadgeText}>Member</Text>
                   </View>
@@ -4232,13 +4167,10 @@ export default function ProfileScreen() {
                       {grant.name.charAt(0).toUpperCase()}
                     </Text>
                   </View>
-
                   <View style={styles.accessInfo}>
                     <Text style={styles.accessName}>{grant.name}</Text>
-
                     <Text style={styles.accessPhone}>{grant.phone}</Text>
                   </View>
-
                   <View style={[styles.accessBadge, styles.staffBadge]}>
                     <Text style={styles.staffBadgeText}>Staff</Text>
                   </View>
@@ -4251,7 +4183,6 @@ export default function ProfileScreen() {
             <View style={styles.accessGroup}>
               <View style={styles.pendingHeader}>
                 <Text style={styles.accessHeading}>Pending Invitations</Text>
-
                 <View style={styles.pendingCountBadge}>
                   <Text style={styles.pendingCountText}>
                     {pendingInvitations.length}
@@ -4271,17 +4202,13 @@ export default function ProfileScreen() {
                   <View style={[styles.accessAvatar, styles.pendingAvatar]}>
                     <Ionicons name="time-outline" size={19} color="#D97706" />
                   </View>
-
                   <View style={styles.accessInfo}>
                     <Text style={styles.accessName}>{grant.name}</Text>
-
                     <Text style={styles.accessPhone}>{grant.phone}</Text>
                   </View>
-
                   <View style={styles.pendingStatus}>
                     <Text style={styles.pendingStatusText}>Pending</Text>
                   </View>
-
                   <TouchableOpacity
                     style={styles.deleteInvitationButton}
                     onPress={() => setInvitationToDelete(grant.id)}
@@ -4295,6 +4222,7 @@ export default function ProfileScreen() {
           )}
 
           {selectedAccount?.ownerId !== user?.id &&
+            acceptedOwnerships.length === 0 &&
             acceptedAdmins.length === 0 &&
             visibleMembers.length === 0 &&
             pendingInvitations.length === 0 && (
@@ -4302,9 +4230,7 @@ export default function ProfileScreen() {
                 <View style={styles.noAccessIcon}>
                   <Ionicons name="people-outline" size={26} color="#64748B" />
                 </View>
-
                 <Text style={styles.noAccessTitle}>No additional access</Text>
-
                 <Text style={styles.noAccessText}>
                   No other people currently have access to this account.
                 </Text>
@@ -4313,7 +4239,6 @@ export default function ProfileScreen() {
         </View>
 
         {/* HISTORY */}
-
         <View style={styles.historyCard}>
           <View style={styles.historyHeader}>
             <View>
@@ -4386,14 +4311,11 @@ export default function ProfileScreen() {
         </View>
 
         {/* FOOTER */}
-
         <View style={styles.footer}>
           <View style={styles.footerLogo}>
             <Ionicons name="business-outline" size={16} color="#2563EB" />
           </View>
-
           <Text style={styles.versionText}>Apartment Management</Text>
-
           <Text style={styles.versionNumber}>Version 1.0.0</Text>
         </View>
 
@@ -4501,6 +4423,7 @@ export default function ProfileScreen() {
         visible={showPlansModal}
         onClose={() => setShowPlansModal(false)}
         activePlanId={activePlan}
+        activePlanPeriod={activePlanPeriod}
         canManage={canManageSubscription}
         plans={plans}
         user={{ phone: user?.phone }}
