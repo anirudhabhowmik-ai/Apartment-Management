@@ -118,17 +118,47 @@ const COLORS = {
 type PaymentFilter = "all" | "paid" | "due";
 
 // ---------------------------------------------------------------------------
+// Category labels + transaction type helpers
+// ---------------------------------------------------------------------------
+
+const CATEGORY_LABELS: Record<string, string> = {
+  salary: "Salary",
+  maintenance: "Maintenance",
+  electricity: "Electricity",
+  water: "Water",
+  hall_rent: "Hall Rent",
+  parking_rent: "Parking Rent",
+  advertisement: "Advertisement",
+  interest: "Interest / Deposit",
+  other_income: "Other Income",
+  other: "Other",
+};
+
+const getCategoryLabel = (raw?: string | null): string => {
+  if (!raw) return "—";
+  const s = String(raw).trim();
+  if (!s) return "—";
+  if (CATEGORY_LABELS[s]) return CATEGORY_LABELS[s];
+  const lower = s.toLowerCase();
+  if (CATEGORY_LABELS[lower]) return CATEGORY_LABELS[lower];
+  return lower
+    .split(/[\s_]+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+};
+
+const getTransactionTypeLabel = (txn: any): "income" | "expense" => {
+  const raw = String(txn?.transactionType ?? txn?.transaction_type ?? "")
+    .trim()
+    .toLowerCase();
+  return raw === "income" ? "income" : "expense";
+};
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Normalizes any date-ish string to { year, month, day }.
- * Accepts:
- *   • "YYYY-MM-DD"
- *   • "YYYY-MM-DDTHH:MM:SS.sssZ"
- *   • "YYYY-MM-DD HH:MM:SS"
- * Returns null if the input can't be parsed.
- */
 function parseDateParts(raw: string): {
   year: string;
   month: string;
@@ -155,18 +185,12 @@ function parseDateParts(raw: string): {
   };
 }
 
-/** Indian format: DD/MM/YYYY. Falls back to the raw string. */
 const formatFullDate = (dateStr: string): string => {
   const parts = parseDateParts(dateStr);
   if (!parts) return dateStr;
   return `${parts.day}/${parts.month}/${parts.year}`;
 };
 
-/**
- * Compact Indian format used inside the badge.
- * Now includes the year: DD/MM/YYYY.
- * Falls back to the raw string if the input can't be parsed.
- */
 const formatBadgeDate = (dateStr: string): string => {
   const parts = parseDateParts(dateStr);
   if (!parts) return dateStr;
@@ -181,13 +205,6 @@ const formatPhoneForDisplay = (raw?: string | null): string => {
   return `+91 ${ten.slice(0, 5)} ${ten.slice(5)}`;
 };
 
-/**
- * Open the phone dialer.
- *
- * `Linking.canOpenURL("tel:")` is unreliable on Android 11+ due to package
- * visibility rules and returns false even when dialing works. Skip the check
- * and let `openURL` throw on genuine failure.
- */
 const callNumber = async (raw?: string | null) => {
   if (!raw) return;
 
@@ -1205,7 +1222,7 @@ export default function PeopleScreen() {
                 onChangeText={setActiveSearch}
                 placeholder={
                   isExpenseTab
-                    ? "Search by expenses name"
+                    ? "Search by transaction name"
                     : "Search by name or mobile no."
                 }
                 placeholderTextColor={COLORS.muted}
@@ -1494,6 +1511,9 @@ export default function PeopleScreen() {
                     typeof member.phone === "string" &&
                     member.phone.replace(/\D/g, "").length >= 10;
 
+                  const txnType = getTransactionTypeLabel(member);
+                  const isIncome = txnType === "income";
+
                   return (
                     <Pressable
                       key={`${member.id}-${refreshKey}`}
@@ -1544,18 +1564,47 @@ export default function PeopleScreen() {
                         <View style={styles.memberInfo}>
                           <View style={styles.memberNameRow}>
                             <Text style={styles.memberName} numberOfLines={1}>
-                              {isExpenseTab
-                                ? member.category || member.name
-                                : member.name}
+                              {member.name}
                             </Text>
-                            {member.role && (
+
+                            {isExpenseTab ? (
+                              <>
+                                {/* Category badge */}
+                                <View style={styles.roleBadge}>
+                                  <Text style={styles.roleBadgeText}>
+                                    {getCategoryLabel(member.role)}
+                                  </Text>
+                                </View>
+
+                                {/* Income / Expense badge */}
+                                <View
+                                  style={[
+                                    styles.typeBadge,
+                                    isIncome
+                                      ? styles.typeBadgeIncome
+                                      : styles.typeBadgeExpense,
+                                  ]}
+                                >
+                                  <Text
+                                    style={[
+                                      styles.typeBadgeText,
+                                      isIncome
+                                        ? styles.typeBadgeTextIncome
+                                        : styles.typeBadgeTextExpense,
+                                    ]}
+                                  >
+                                    {isIncome ? "Income" : "Expense"}
+                                  </Text>
+                                </View>
+                              </>
+                            ) : member.role ? (
                               <View style={styles.roleBadge}>
                                 <Text style={styles.roleBadgeText}>
                                   {member.role.charAt(0).toUpperCase() +
                                     member.role.slice(1)}
                                 </Text>
                               </View>
-                            )}
+                            ) : null}
                           </View>
 
                           {isApartmentTab && (
@@ -1615,7 +1664,7 @@ export default function PeopleScreen() {
                                 ? `${
                                     member.status === "paid" ? "Paid" : "Due"
                                   } • ${formatFullDate(member.dueDate)}`
-                                : "Property expense"}
+                                : getCategoryLabel(member.role)}
                             </Text>
                           )}
                         </View>
@@ -2591,7 +2640,13 @@ const styles = StyleSheet.create({
   memberPhoto: { width: "100%", height: "100%" },
   memberInitial: { fontSize: 16, fontWeight: "700", color: COLORS.white },
   memberInfo: { flex: 1, minWidth: 0 },
-  memberNameRow: { flexDirection: "row", alignItems: "center", minWidth: 0 },
+  memberNameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 4,
+    minWidth: 0,
+  },
   memberName: {
     flexShrink: 1,
     fontSize: 14,
@@ -2600,11 +2655,11 @@ const styles = StyleSheet.create({
     color: COLORS.text,
   },
   roleBadge: {
-    marginLeft: 7,
     paddingHorizontal: 6,
     paddingVertical: 3,
     borderRadius: 6,
     backgroundColor: COLORS.purpleLight,
+    flexShrink: 0,
   },
   roleBadgeText: {
     fontSize: 9,
@@ -2612,6 +2667,22 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: COLORS.purple,
   },
+  typeBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 6,
+    flexShrink: 0,
+  },
+  typeBadgeIncome: { backgroundColor: "#F0FDF4" },
+  typeBadgeExpense: { backgroundColor: "#FEF2F2" },
+  typeBadgeText: {
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: "800",
+    letterSpacing: 0.3,
+  },
+  typeBadgeTextIncome: { color: "#16A34A" },
+  typeBadgeTextExpense: { color: "#DC2626" },
   memberSubtitle: {
     marginTop: 3,
     fontSize: 11,
