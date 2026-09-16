@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import * as SecureStore from "expo-secure-store";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -28,11 +29,52 @@ import { useUserRole } from "../../hooks/useUserRole";
 import { generateBillPDF, savePDFToDevice } from "../../services/pdfGenerator";
 import { useAttendanceStore } from "../../store/attendanceStore";
 import { BillMemberType, useBillStore } from "../../store/billStore";
-import type { ManagementType } from "../../types";
+import type { AttendanceStatus, ManagementType } from "../../types";
 
-/* ================================================================
-   COLORS
-================================================================ */
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
+const AUTH_TOKEN_KEY = "auth_token";
+const MANAGEMENT_PREFIX = "/management";
+
+async function getAuthToken(): Promise<string | null> {
+  try {
+    return await SecureStore.getItemAsync(AUTH_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+async function apiGet<T>(path: string): Promise<T> {
+  if (!API_BASE_URL) throw new Error("EXPO_PUBLIC_API_URL is not configured.");
+
+  const token = await getAuthToken();
+  const url = `${API_BASE_URL}${MANAGEMENT_PREFIX}${path}`;
+
+  const res = await fetch(url, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+
+  let data: any = null;
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
+  }
+
+  if (!res.ok) {
+    const err: any = new Error(
+      data?.message || `Request failed with status ${res.status}`,
+    );
+    err.status = res.status;
+    err.body = data;
+    throw err;
+  }
+
+  return data as T;
+}
 
 const COLORS = {
   primary: "#2563EB",
@@ -64,15 +106,7 @@ const COLORS = {
   purpleBorder: "#DDD6FE",
 };
 
-/* ================================================================
-   TYPES
-================================================================ */
-
 type PaymentFilter = "all" | "paid" | "due";
-
-/* ================================================================
-   HELPERS
-================================================================ */
 
 const getTabLabel = (
   type: ManagementType,
@@ -81,10 +115,8 @@ const getTabLabel = (
   if (type === "apartment") {
     return accountType === "home" ? "Tenant" : "Member";
   }
-
   if (type === "staff") return "Staff";
   if (type === "expense") return "Transactions";
-
   return "Group";
 };
 
@@ -101,9 +133,7 @@ const getCountLabel = (
       : type === "staff"
         ? "Staff"
         : "Expense";
-
   const plural = type === "staff" ? "Staff" : `${singular}s`;
-
   return `${count} ${count === 1 ? singular : plural}`;
 };
 
@@ -114,10 +144,8 @@ const getAddButtonLabel = (
   if (type === "apartment") {
     return accountType === "home" ? "Add Tenant" : "Add Member";
   }
-
   if (type === "staff") return "Add Staff";
   if (type === "expense") return "Add Transaction";
-
   return "Add";
 };
 
@@ -125,35 +153,27 @@ const getTabIcon = (type: ManagementType): keyof typeof Ionicons.glyphMap => {
   if (type === "apartment") return "business-outline";
   if (type === "staff") return "people-outline";
   if (type === "expense") return "wallet-outline";
-
   return "folder-outline";
 };
 
 const getDetailsForMonth = (member: any, month: string | null) => {
-  if (!month || !member.detailsHistory?.length) {
-    return member;
-  }
-
+  if (!month || !member.detailsHistory?.length) return member;
   const applicableSnapshot = [...member.detailsHistory]
     .filter((snapshot: any) => snapshot.effectiveMonth <= month)
     .sort((first: any, second: any) =>
       second.effectiveMonth.localeCompare(first.effectiveMonth),
     )[0];
-
   return applicableSnapshot
     ? { ...member, ...applicableSnapshot.details }
     : member;
 };
 
 const getPaymentForMonth = (member: any, month: string | null) => {
-  if (!month) {
-    return { status: "due" as const };
-  }
+  if (!month) return { status: "due" as const, netAmount: null };
 
   if (member.monthlyPayments?.[month]) {
     return member.monthlyPayments[month];
   }
-
   if (member.paidDate?.slice(0, 7) === month) {
     return {
       status: member.paymentStatus || "due",
@@ -162,10 +182,10 @@ const getPaymentForMonth = (member: any, month: string | null) => {
       deductionAmount: member.deductionAmount,
       additionalNote: member.additionalNote,
       deductionNote: member.deductionNote,
+      netAmount: null,
     };
   }
-
-  return { status: "due" as const };
+  return { status: "due" as const, netAmount: null };
 };
 
 const formatMonth = (month: string) =>
@@ -182,13 +202,10 @@ const formatMonthLong = (month: string) =>
 
 const formatFullDate = (dateStr: string) => {
   const parts = dateStr.split("-");
-
   const year = parts[0];
   const monthNum = parts[1];
   const day = parts[2] || "01";
-
   const date = new Date(`${year}-${monthNum}-${day}`);
-
   return date.toLocaleString("default", {
     day: "numeric",
     month: "long",
@@ -196,45 +213,14 @@ const formatFullDate = (dateStr: string) => {
   });
 };
 
-const getCalculatedStaffSalary = (
-  salary: number,
-  month: string,
-  statuses: Record<string, string>,
-) => {
-  const daysInMonth = new Date(
-    Number(month.slice(0, 4)),
-    Number(month.slice(5, 7)),
-    0,
-  ).getDate();
-
-  const paidDays = Array.from(
-    { length: daysInMonth },
-    (_, index) => index + 1,
-  ).filter((day) => {
-    const date = `${month}-${String(day).padStart(2, "0")}`;
-
-    const defaultStatus =
-      new Date(`${date}T00:00:00`).getDay() % 6 === 0 ? "weekend" : "present";
-
-    return (statuses[date] || defaultStatus) !== "absent";
-  }).length;
-
-  return Math.round((salary / daysInMonth) * paidDays);
-};
-
 const navigateMonth = (
   currentMonth: string | null,
   direction: "prev" | "next",
 ): string => {
-  if (!currentMonth) {
-    return new Date().toISOString().slice(0, 7);
-  }
-
+  if (!currentMonth) return new Date().toISOString().slice(0, 7);
   const [year, month] = currentMonth.split("-").map(Number);
-
   let newMonth = month + (direction === "next" ? 1 : -1);
   let newYear = year;
-
   if (newMonth > 12) {
     newMonth = 1;
     newYear = year + 1;
@@ -242,7 +228,6 @@ const navigateMonth = (
     newMonth = 12;
     newYear = year - 1;
   }
-
   return `${newYear}-${String(newMonth).padStart(2, "0")}`;
 };
 
@@ -255,20 +240,93 @@ const normalizePhoneForSearch = (raw?: string): string => {
 const memberMatchesQuery = (member: any, query: string): boolean => {
   const q = query.trim().toLowerCase();
   if (!q) return true;
-
   const name = String(member?.name ?? "").toLowerCase();
   if (name.includes(q)) return true;
-
   const phoneDigits = normalizePhoneForSearch(member?.phone);
   const queryDigits = q.replace(/\D/g, "");
   if (queryDigits && phoneDigits.includes(queryDigits)) return true;
-
   return false;
 };
 
-/* ================================================================
-   SCREEN
-================================================================ */
+const defaultPaidDate = (month: string | null): string => {
+  const today = new Date();
+  const y = today.getFullYear();
+  const m = String(today.getMonth() + 1).padStart(2, "0");
+  const d = String(today.getDate()).padStart(2, "0");
+  const todayStr = `${y}-${m}-${d}`;
+  if (!month) return todayStr;
+  return todayStr.slice(0, 7) === month ? todayStr : `${month}-01`;
+};
+
+const getCalculatedStaffSalary = (
+  salary: number,
+  month: string,
+  statuses: Record<string, AttendanceStatus>,
+): number => {
+  const daysInMonth = new Date(
+    Number(month.slice(0, 4)),
+    Number(month.slice(5, 7)),
+    0,
+  ).getDate();
+  const paidDays = Array.from({ length: daysInMonth }, (_, i) => i + 1).filter(
+    (day) => {
+      const date = `${month}-${String(day).padStart(2, "0")}`;
+      const defaultStatus: AttendanceStatus =
+        new Date(`${date}T00:00:00`).getDay() % 6 === 0 ? "weekend" : "present";
+      return (statuses[date] ?? defaultStatus) !== "absent";
+    },
+  ).length;
+  return Math.round((salary / daysInMonth) * paidDays);
+};
+
+/**
+ * Resolve the "due" amount for a member/staff row for the selected month.
+ *
+ * Prefers the server-computed value (due_amount / dueAmount). Falls back
+ * to (a) the net_amount on the saved monthly payment, or (b) a client-side
+ * computation using base + attendance + additions − deductions.
+ */
+const resolveDueAmount = (
+  member: any,
+  month: string | null,
+  opts: {
+    isApartmentTab: boolean;
+    isStaffTab: boolean;
+    getAttendanceRecord: (
+      id: string,
+      month: string,
+    ) => { statuses?: Record<string, AttendanceStatus> } | undefined;
+  },
+): number => {
+  // 1. Direct server value.
+  const raw = member?.due_amount ?? member?.dueAmount;
+  if (raw != null && Number.isFinite(Number(raw))) {
+    return Number(raw);
+  }
+
+  // 2. Saved net amount.
+  const payment = getPaymentForMonth(member, month);
+  if (payment?.netAmount != null) {
+    return Number(payment.netAmount);
+  }
+
+  // 3. Fallback: compute from base + attendance + adjustments.
+  const base = opts.isApartmentTab
+    ? Number(member?.maintenanceAmount) || 0
+    : Number(member?.monthlySalary) || 0;
+
+  let effectiveBase = base;
+  if (opts.isStaffTab && month) {
+    const att = opts.getAttendanceRecord(member.id, month);
+    if (att?.statuses && Object.keys(att.statuses).length > 0) {
+      effectiveBase = getCalculatedStaffSalary(base, month, att.statuses);
+    }
+  }
+
+  const additional = Number(payment?.additionalAmount) || 0;
+  const deduction = Number(payment?.deductionAmount) || 0;
+  return Math.max(0, effectiveBase + additional - deduction);
+};
 
 export default function PeopleScreen() {
   const router = useRouter();
@@ -281,8 +339,12 @@ export default function PeopleScreen() {
 
   const { selectedAccountId, selectedAccount } = useAccounts();
 
-  const membersHook = useMembers(selectedAccountId ?? null);
-  const staffHook = useStaff(selectedAccountId ?? null);
+  const [selectedMonth, setSelectedMonth] = useState<string | null>(
+    new Date().toISOString().slice(0, 7),
+  );
+
+  const membersHook = useMembers(selectedAccountId ?? null, selectedMonth);
+  const staffHook = useStaff(selectedAccountId ?? null, selectedMonth);
   const expensesHook = useExpenses(selectedAccountId ?? null);
 
   const { upsertMemberPayment, upsertStaffPayment } = usePayments(
@@ -290,10 +352,10 @@ export default function PeopleScreen() {
   );
 
   const getAttendanceRecord = useAttendanceStore((state) => state.getRecord);
+  const clearRecord = useAttendanceStore((state) => state.clearRecord);
 
   const { getBillConfig, templates: billTemplates } = useBillStore();
-
-  const { isAdmin, isMember, isStaff: isStaffRole } = useUserRole();
+  const { isAdmin, isMember } = useUserRole();
 
   const canEdit = isAdmin;
   const canSeeFinance = isAdmin || isMember;
@@ -310,19 +372,13 @@ export default function PeopleScreen() {
 
   const [activeTab, setActiveTab] = useState<ManagementType>("apartment");
 
-  const [selectedMonth, setSelectedMonth] = useState<string | null>(
-    new Date().toISOString().slice(0, 7),
-  );
-
   const [showMonthPicker, setShowMonthPicker] = useState(false);
 
   const [paymentMember, setPaymentMember] = useState<any>(null);
 
   const [selectedStatus, setSelectedStatus] = useState<"paid" | "due">("due");
 
-  const [paidDate, setPaidDate] = useState(
-    new Date().toISOString().slice(0, 10),
-  );
+  const [paidDate, setPaidDate] = useState(defaultPaidDate(null));
 
   const [showPaidDatePicker, setShowPaidDatePicker] = useState(false);
 
@@ -374,21 +430,17 @@ export default function PeopleScreen() {
     const row = searchRowRef.current;
     const container = containerRef.current;
     if (!row || !container) return;
-
     row.measureLayout(
       container as any,
       (x, y, width, height) => {
         const screenWidth = Dimensions.get("window").width;
         const rightOffset = Math.max(screenWidth - (x + width), 12);
-
         setFilterAnchor({
           top: y + height + 4,
           right: rightOffset,
         });
       },
-      () => {
-        // measureLayout failed; next open will retry.
-      },
+      () => {},
     );
   };
 
@@ -400,6 +452,24 @@ export default function PeopleScreen() {
 
   const setActiveFilter = (value: PaymentFilter) =>
     setPaymentFilter((current) => ({ ...current, [activeTab]: value }));
+
+  // Refresh only when the account changes or refreshKey is bumped.
+  // Month changes are handled by the hooks themselves.
+  useEffect(() => {
+    if (!selectedAccountId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        await Promise.all([membersHook.refresh(), staffHook.refresh()]);
+      } catch (e) {
+        if (!cancelled) console.warn("Initial refresh failed:", e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedAccountId, refreshKey]);
 
   useEffect(() => {
     if (tab === "apartment" || tab === "staff" || tab === "expense") {
@@ -426,9 +496,22 @@ export default function PeopleScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showFilterDropdown]);
 
+  // When the server returns `attendance_for_month == null` for a staff,
+  // the DB has no attendance for that (staff, month). Wipe the local cache
+  // so a stale record from an earlier save doesn't drive the badge.
+  useEffect(() => {
+    if (!selectedAccountId || !selectedMonth) return;
+    if (staffHook.items.length === 0) return;
+    staffHook.items.forEach((s: any) => {
+      if (s.attendance_for_month == null) {
+        clearRecord(s.id, selectedMonth);
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedAccountId, selectedMonth, staffHook.items]);
+
   const handleAdd = async (type: ManagementType) => {
     if (!canEdit) return;
-
     router.push({
       pathname: "/(modals)/add-member",
       params: {
@@ -449,13 +532,10 @@ export default function PeopleScreen() {
               color={COLORS.primary}
             />
           </View>
-
           <Text style={styles.noPropertyTitle}>Create your property</Text>
-
           <Text style={styles.noPropertySubtitle}>
             Create a property first to start managing your apartment or home.
           </Text>
-
           {canEdit && (
             <Pressable
               style={({ pressed }) => [
@@ -465,7 +545,6 @@ export default function PeopleScreen() {
               onPress={() => router.push("/(modals)/add-account")}
             >
               <Ionicons name="add" size={18} color={COLORS.white} />
-
               <Text style={styles.createButtonText}>Create Property</Text>
             </Pressable>
           )}
@@ -488,7 +567,6 @@ export default function PeopleScreen() {
             activeTab === "expense" && "dueDate" in member
               ? member.dueDate
               : member.createdAt;
-
           return activeTab === "expense"
             ? date?.slice(0, 7) === selectedMonth
             : (date?.slice(0, 7) ?? "") <= selectedMonth;
@@ -507,12 +585,9 @@ export default function PeopleScreen() {
 
   const visibleMembers = useMemo(() => {
     const month = selectedMonth || new Date().toISOString().slice(0, 7);
-
     return activeMembers.filter((member: any) => {
       if (!memberMatchesQuery(member, activeSearch)) return false;
-
       if (activeFilter === "all") return true;
-
       let status: "paid" | "due";
       if (isExpenseTab) {
         status = member.status === "paid" ? "paid" : "due";
@@ -520,7 +595,6 @@ export default function PeopleScreen() {
         const monthlyPayment = getPaymentForMonth(member, month);
         status = monthlyPayment.status === "paid" ? "paid" : "due";
       }
-
       return status === activeFilter;
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -533,74 +607,67 @@ export default function PeopleScreen() {
     selectedMonth,
   ]);
 
-  const paymentAmount = paymentMember
+  const month = selectedMonth || new Date().toISOString().slice(0, 7);
+
+  const baseSalary = paymentMember
     ? isApartmentTab
-      ? paymentMember.maintenanceAmount
-      : (() => {
-          const month = selectedMonth || new Date().toISOString().slice(0, 7);
-
-          const record = getAttendanceRecord(paymentMember.id, month);
-
-          return (
-            record?.payableSalary ??
-            getCalculatedStaffSalary(
-              paymentMember.monthlySalary,
-              month,
-              record?.statuses || {},
-            )
-          );
-        })()
+      ? paymentMember.maintenanceAmount || 0
+      : paymentMember.monthlySalary || 0
     : 0;
 
+  const attendanceRecordForModal = paymentMember
+    ? getAttendanceRecord(paymentMember.id, month)
+    : undefined;
+
+  const attendanceAdjustedSalary =
+    isStaffTab && paymentMember
+      ? attendanceRecordForModal
+        ? getCalculatedStaffSalary(
+            paymentMember.monthlySalary || 0,
+            month,
+            (attendanceRecordForModal.statuses ?? {}) as Record<
+              string,
+              AttendanceStatus
+            >,
+          )
+        : null
+      : null;
+
+  const effectiveBase =
+    isStaffTab && attendanceAdjustedSalary != null
+      ? attendanceAdjustedSalary
+      : baseSalary;
+
   const netPaidAmount =
-    paymentAmount +
+    effectiveBase +
     (showAdditionalAmount ? Number(additionalAmount) || 0 : 0) -
     (showDeduction ? Number(deductionAmount) || 0 : 0);
 
   const openPaymentModal = (member: any) => {
     if (!canEdit) return;
-
-    const month = selectedMonth || new Date().toISOString().slice(0, 7);
-
-    const monthlyPayment = getPaymentForMonth(member, month);
-
+    const m = selectedMonth || new Date().toISOString().slice(0, 7);
+    const monthlyPayment = getPaymentForMonth(member, m);
     setPaymentMember(member);
     setSelectedStatus(monthlyPayment.status === "paid" ? "paid" : "due");
-    setPaidDate(
-      monthlyPayment.paidDate ||
-        (selectedMonth
-          ? `${selectedMonth}-01`
-          : new Date().toISOString().slice(0, 10)),
-    );
-
+    setPaidDate(monthlyPayment.paidDate || defaultPaidDate(selectedMonth));
     setShowAdditionalAmount(
       Boolean(monthlyPayment.additionalAmount || monthlyPayment.additionalNote),
     );
-
     setAdditionalAmount(monthlyPayment.additionalAmount?.toString() || "");
     setAdditionalNote(monthlyPayment.additionalNote || "");
-
     setShowDeduction(
       Boolean(monthlyPayment.deductionAmount || monthlyPayment.deductionNote),
     );
-
     setDeductionAmount(monthlyPayment.deductionAmount?.toString() || "");
     setDeductionNote(monthlyPayment.deductionNote || "");
   };
 
   useEffect(() => {
-    if (!memberId || (tab !== "apartment" && tab !== "staff")) {
-      return;
-    }
-
+    if (!memberId || (tab !== "apartment" && tab !== "staff")) return;
     if (!canEdit) return;
-
     const list = tab === "apartment" ? membersHook.items : staffHook.items;
     const member = list.find((m: any) => m.id === memberId);
-
-    if (member) {
-      openPaymentModal(member);
-    }
+    if (member) openPaymentModal(member);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [membersHook.items, staffHook.items, memberId, tab, canEdit]);
 
@@ -609,7 +676,7 @@ export default function PeopleScreen() {
 
     setSaving(true);
 
-    const month = selectedMonth || paidDate.slice(0, 7);
+    const saveMonth = selectedMonth || paidDate.slice(0, 7);
 
     const additionalAmt = showAdditionalAmount
       ? Number(additionalAmount) || 0
@@ -619,21 +686,19 @@ export default function PeopleScreen() {
     const payload = {
       status: selectedStatus,
       paidDate: selectedStatus === "paid" ? paidDate : null,
-      baseAmount: paymentAmount || 0,
       additionalAmount: additionalAmt,
       additionalNote: showAdditionalAmount
         ? additionalNote.trim() || null
         : null,
       deductionAmount: deductionAmt,
       deductionNote: showDeduction ? deductionNote.trim() || null : null,
-      netAmount: netPaidAmount,
     };
 
     try {
       if (isApartmentTab) {
-        await upsertMemberPayment(paymentMember.id, month, payload);
+        await upsertMemberPayment(paymentMember.id, saveMonth, payload);
       } else if (isStaffTab) {
-        await upsertStaffPayment(paymentMember.id, month, payload);
+        await upsertStaffPayment(paymentMember.id, saveMonth, payload);
       }
 
       try {
@@ -664,8 +729,8 @@ export default function PeopleScreen() {
     try {
       setGeneratingBill(member.id);
 
-      const month = selectedMonth || new Date().toISOString().slice(0, 7);
-      const monthlyPayment = getPaymentForMonth(member, month);
+      const m = selectedMonth || new Date().toISOString().slice(0, 7);
+      const monthlyPayment = getPaymentForMonth(member, m);
 
       if (monthlyPayment.status !== "paid") {
         Alert.alert(
@@ -720,35 +785,20 @@ export default function PeopleScreen() {
           ...selectedTemplate.colors,
           primary: billConfig.accentColor ?? selectedTemplate.colors.primary,
         },
-
         fontFamily: selectedTemplate.fontFamily ?? "Roboto",
-
         logoPosition: selectedTemplate.logoPosition ?? "top-left",
-
         showBorder: selectedTemplate.showBorder ?? true,
         borderColor: selectedTemplate.borderColor ?? "#e0e0e0",
         borderWidth: selectedTemplate.borderWidth ?? 1,
         borderRadius: selectedTemplate.borderRadius ?? 8,
-
         showWatermark: selectedTemplate.showWatermark ?? true,
         watermarkText: selectedTemplate.watermarkText ?? "Society Management",
-
         layoutVariant: selectedTemplate.layoutVariant ?? "bold",
       };
 
       const baseAmount = isApartmentTab
         ? member.maintenanceAmount || 0
-        : (() => {
-            const record = getAttendanceRecord(member.id, month);
-            return (
-              record?.payableSalary ??
-              getCalculatedStaffSalary(
-                member.monthlySalary || 0,
-                month,
-                record?.statuses || {},
-              )
-            );
-          })();
+        : member.monthlySalary || 0;
 
       const additionalAmount = monthlyPayment.additionalAmount || 0;
       const deductionAmount = monthlyPayment.deductionAmount || 0;
@@ -771,7 +821,7 @@ export default function PeopleScreen() {
         memberName: member.name,
         flatNumber: member.flatNumber || "",
         amount: baseAmount,
-        month: formatMonthLong(month),
+        month: formatMonthLong(m),
         paidDate:
           monthlyPayment.paidDate || new Date().toISOString().slice(0, 10),
         additionalAmount: additionalAmount || undefined,
@@ -794,7 +844,7 @@ export default function PeopleScreen() {
       }
 
       const safeName = (member.name || "Member").replace(/[^\w\-]+/g, "_");
-      const fileName = `Bill-${safeName}-${month}.pdf`;
+      const fileName = `Bill-${safeName}-${m}.pdf`;
 
       const result = await savePDFToDevice(pdfUri, fileName);
 
@@ -854,9 +904,7 @@ export default function PeopleScreen() {
     <KeyboardAvoidingView
       style={[
         styles.container,
-        {
-          paddingBottom: Platform.OS === "ios" ? insets.bottom : 0,
-        },
+        { paddingBottom: Platform.OS === "ios" ? insets.bottom : 0 },
       ]}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={0}
@@ -867,7 +915,6 @@ export default function PeopleScreen() {
             <Text style={styles.title}>
               {isAdmin ? "Management" : isMember ? "Residents" : "Directory"}
             </Text>
-
             <Text style={styles.headerSubtitle} numberOfLines={1}>
               {selectedAccount?.name || "Your property"}
             </Text>
@@ -896,7 +943,6 @@ export default function PeopleScreen() {
                 size={15}
                 color={COLORS.primary}
               />
-
               <Text style={styles.monthText}>
                 {selectedMonth ? formatMonth(selectedMonth) : "All months"}
               </Text>
@@ -923,7 +969,6 @@ export default function PeopleScreen() {
             .filter((type) => visibleTabTypes.includes(type))
             .map((type) => {
               const isActive = activeTab === type;
-
               return (
                 <Pressable
                   key={type}
@@ -939,7 +984,6 @@ export default function PeopleScreen() {
                     size={16}
                     color={isActive ? COLORS.primary : COLORS.secondary}
                   />
-
                   <Text
                     style={[styles.tabText, isActive && styles.tabTextActive]}
                     numberOfLines={1}
@@ -964,7 +1008,6 @@ export default function PeopleScreen() {
                 color={COLORS.muted}
                 style={styles.searchIcon}
               />
-
               <TextInput
                 style={styles.searchInput}
                 value={activeSearch}
@@ -981,7 +1024,6 @@ export default function PeopleScreen() {
                 onSubmitEditing={() => Keyboard.dismiss()}
                 blurOnSubmit
               />
-
               {activeSearch.length > 0 && (
                 <Pressable
                   onPress={() => setActiveSearch("")}
@@ -1010,7 +1052,6 @@ export default function PeopleScreen() {
               }}
             >
               <Ionicons name={filterIcon} size={16} color={filterColor} />
-
               <Text
                 style={[
                   styles.filterTriggerText,
@@ -1019,7 +1060,6 @@ export default function PeopleScreen() {
               >
                 {filterLabel}
               </Text>
-
               <Ionicons
                 name={showFilterDropdown ? "chevron-up" : "chevron-down"}
                 size={14}
@@ -1035,18 +1075,13 @@ export default function PeopleScreen() {
               style={styles.filterBackdrop}
               onPress={() => setShowFilterDropdown(false)}
             />
-
             <View
               style={[
                 styles.filterDropdown,
-                {
-                  top: filterAnchor.top,
-                  right: filterAnchor.right,
-                },
+                { top: filterAnchor.top, right: filterAnchor.right },
               ]}
             >
               <Text style={styles.filterDropdownTitle}>Payment Status</Text>
-
               {(
                 [
                   { key: "all", label: "All", icon: "apps-outline" },
@@ -1063,7 +1098,6 @@ export default function PeopleScreen() {
                 }[]
               ).map((option) => {
                 const isSelected = activeFilter === option.key;
-
                 return (
                   <Pressable
                     key={option.key}
@@ -1082,7 +1116,6 @@ export default function PeopleScreen() {
                       size={16}
                       color={isSelected ? COLORS.primary : COLORS.secondary}
                     />
-
                     <Text
                       style={[
                         styles.filterOptionText,
@@ -1091,7 +1124,6 @@ export default function PeopleScreen() {
                     >
                       {option.label}
                     </Text>
-
                     {isSelected && (
                       <Ionicons
                         name="checkmark"
@@ -1127,7 +1159,6 @@ export default function PeopleScreen() {
                     selectedAccount?.type,
                   )}
                 </Text>
-
                 <Text style={styles.countSubtitle}>
                   {isExpenseTab
                     ? "Property expenses"
@@ -1148,7 +1179,6 @@ export default function PeopleScreen() {
                   onPress={() => handleAdd(activeTab)}
                 >
                   <Ionicons name="add" size={18} color={COLORS.white} />
-
                   <Text style={styles.addButtonText}>
                     {getAddButtonLabel(activeTab, selectedAccount?.type)}
                   </Text>
@@ -1183,7 +1213,6 @@ export default function PeopleScreen() {
                     }
                   />
                 </View>
-
                 <Text style={styles.emptyTitle}>
                   {activeSearch
                     ? "No matches found"
@@ -1196,7 +1225,6 @@ export default function PeopleScreen() {
                           selectedAccount?.type,
                         ).toLowerCase()} yet`}
                 </Text>
-
                 <Text style={styles.emptySubtitle}>
                   {activeSearch
                     ? `No ${getTabLabel(
@@ -1216,7 +1244,6 @@ export default function PeopleScreen() {
                             ? "Add tenants to start managing your property."
                             : "Add apartment members to manage maintenance and payments."}
                 </Text>
-
                 {(activeSearch || isFilterActive) && (
                   <Pressable
                     style={({ pressed }) => [
@@ -1242,42 +1269,20 @@ export default function PeopleScreen() {
             ) : (
               <View>
                 {visibleMembers.map((member: any) => {
-                  const month =
-                    selectedMonth || new Date().toISOString().slice(0, 7);
-
-                  const record = getAttendanceRecord(member.id, month);
-
-                  const monthlyPayment = member.monthlyPayments?.[month];
-
-                  const basePaymentAmount = isApartmentTab
-                    ? member.maintenanceAmount || 0
-                    : (() => {
-                        if (monthlyPayment?.payableSalary) {
-                          return monthlyPayment.payableSalary;
-                        }
-
-                        if (record?.payableSalary) {
-                          return record.payableSalary;
-                        }
-
-                        return getCalculatedStaffSalary(
-                          member.monthlySalary || 0,
-                          month,
-                          record?.statuses || {},
-                        );
-                      })();
-
                   const monthlyPaymentData = getPaymentForMonth(
                     member,
                     selectedMonth,
                   );
 
-                  const statusPaymentAmount =
-                    monthlyPaymentData.status === "paid"
-                      ? basePaymentAmount +
-                        (monthlyPaymentData.additionalAmount || 0) -
-                        (monthlyPaymentData.deductionAmount || 0)
-                      : basePaymentAmount;
+                  const statusPaymentAmount = resolveDueAmount(
+                    member,
+                    selectedMonth,
+                    {
+                      isApartmentTab,
+                      isStaffTab,
+                      getAttendanceRecord,
+                    },
+                  );
 
                   const hasMatchingHistory = member.detailsHistory?.some(
                     (snapshot: any) =>
@@ -1324,9 +1329,7 @@ export default function PeopleScreen() {
                             />
                           ) : member.photoUri ? (
                             <Image
-                              source={{
-                                uri: member.photoUri,
-                              }}
+                              source={{ uri: member.photoUri }}
                               style={styles.memberPhoto}
                             />
                           ) : (
@@ -1343,7 +1346,6 @@ export default function PeopleScreen() {
                                 ? member.category || member.name
                                 : member.name}
                             </Text>
-
                             {member.role && (
                               <View style={styles.roleBadge}>
                                 <Text style={styles.roleBadgeText}>
@@ -1405,25 +1407,20 @@ export default function PeopleScreen() {
                             size={14}
                             color={COLORS.secondary}
                           />
-
                           <Text style={styles.detailText}>
                             {showFinancialInfo ? (
                               <>
                                 {isApartmentTab &&
                                   `₹${member.maintenanceAmount || 0} /month`}
-
                                 {isStaffTab &&
                                   `₹${member.monthlySalary || 0} /month`}
-
                                 {isExpenseTab && `₹${member.amount || 0}`}
                               </>
                             ) : (
                               <>
                                 {isApartmentTab &&
                                   "Maintenance tracked by admin"}
-
                                 {isStaffTab && "Salary tracked by admin"}
-
                                 {isExpenseTab && "Expense tracked by admin"}
                               </>
                             )}
@@ -1448,7 +1445,6 @@ export default function PeopleScreen() {
                                     : styles.paymentDotDue,
                                 ]}
                               />
-
                               <Text
                                 style={[
                                   styles.paymentBadgeText,
@@ -1481,7 +1477,6 @@ export default function PeopleScreen() {
                                   : styles.paymentDotDue,
                               ]}
                             />
-
                             <Text
                               style={[
                                 styles.paymentBadgeText,
@@ -1507,7 +1502,6 @@ export default function PeopleScreen() {
                               onPress={(event) => {
                                 event.stopPropagation();
                                 Keyboard.dismiss();
-
                                 router.push({
                                   pathname: "/(modals)/mark-attendance",
                                   params: {
@@ -1523,7 +1517,6 @@ export default function PeopleScreen() {
                                 size={15}
                                 color={COLORS.primary}
                               />
-
                               <Text style={styles.secondaryActionText}>
                                 Attendance
                               </Text>
@@ -1546,7 +1539,6 @@ export default function PeopleScreen() {
                               size={15}
                               color={COLORS.primary}
                             />
-
                             <Text style={styles.paymentActionText}>
                               Payment
                             </Text>
@@ -1596,7 +1588,6 @@ export default function PeopleScreen() {
                               size={14}
                               color={COLORS.secondary}
                             />
-
                             <Text style={styles.historyText}>
                               Payment details updated on{" "}
                               {formatFullDate(`${selectedMonth}-01`)}
@@ -1624,9 +1615,7 @@ export default function PeopleScreen() {
           transparent
           animationType="fade"
           visible={Boolean(paymentMember)}
-          onRequestClose={() => {
-            setPaymentMember(null);
-          }}
+          onRequestClose={() => setPaymentMember(null)}
         >
           <KeyboardAvoidingView
             style={styles.modalOverlay}
@@ -1641,15 +1630,12 @@ export default function PeopleScreen() {
                     color={COLORS.primary}
                   />
                 </View>
-
                 <View style={styles.paymentHeaderInfo}>
                   <Text style={styles.paymentTitle}>Payment Details</Text>
-
                   <Text style={styles.paymentMemberName} numberOfLines={1}>
                     {paymentMember?.name}
                   </Text>
                 </View>
-
                 <Pressable
                   style={styles.closeModalButton}
                   onPress={() => {
@@ -1671,12 +1657,10 @@ export default function PeopleScreen() {
                 <View style={styles.paymentMonthRow}>
                   <View>
                     <Text style={styles.paymentMonthLabel}>PAYMENT FOR</Text>
-
                     <Text style={styles.paymentMonthText}>
                       {formatMonthLong(selectedMonth || paidDate.slice(0, 7))}
                     </Text>
                   </View>
-
                   <View
                     style={[
                       styles.statusSmallBadge,
@@ -1721,7 +1705,6 @@ export default function PeopleScreen() {
                         <View style={styles.radioInner} />
                       )}
                     </View>
-
                     <View style={styles.statusRadioContent}>
                       <View
                         style={[
@@ -1735,7 +1718,6 @@ export default function PeopleScreen() {
                           color={COLORS.success}
                         />
                       </View>
-
                       <View>
                         <Text
                           style={[
@@ -1770,7 +1752,6 @@ export default function PeopleScreen() {
                         <View style={styles.radioInner} />
                       )}
                     </View>
-
                     <View style={styles.statusRadioContent}>
                       <View
                         style={[
@@ -1780,7 +1761,6 @@ export default function PeopleScreen() {
                       >
                         <Ionicons name="time" size={18} color={COLORS.danger} />
                       </View>
-
                       <View>
                         <Text
                           style={[
@@ -1797,7 +1777,7 @@ export default function PeopleScreen() {
                 </View>
 
                 <Text style={styles.sectionLabel}>
-                  {isApartmentTab ? "Maintenance Amount" : "Salary Amount"}
+                  {isApartmentTab ? "Maintenance Amount" : "Monthly Salary"}
                 </Text>
 
                 <View style={styles.amountCard}>
@@ -1807,18 +1787,56 @@ export default function PeopleScreen() {
                       size={19}
                       color={COLORS.primary}
                     />
-
-                    <Text style={styles.amountLabel}>Base amount</Text>
+                    <Text style={styles.amountLabel}>
+                      {isApartmentTab ? "Base amount" : "Monthly salary"}
+                    </Text>
                   </View>
-
-                  <Text style={styles.amountValue}>₹{paymentAmount || 0}</Text>
+                  <Text style={styles.amountValue}>₹{baseSalary || 0}</Text>
                 </View>
+
+                {isStaffTab && attendanceAdjustedSalary != null ? (
+                  <>
+                    <Text style={styles.sectionLabel}>Attendance Adjusted</Text>
+                    <View
+                      style={[
+                        styles.amountCard,
+                        {
+                          borderColor: COLORS.primarySoft,
+                          backgroundColor: COLORS.primaryLight,
+                        },
+                      ]}
+                    >
+                      <View style={styles.amountLeft}>
+                        <Ionicons
+                          name="calendar-outline"
+                          size={19}
+                          color={COLORS.primary}
+                        />
+                        <Text
+                          style={[
+                            styles.amountLabel,
+                            { color: COLORS.primaryDark, fontWeight: "700" },
+                          ]}
+                        >
+                          Payable for this month
+                        </Text>
+                      </View>
+                      <Text
+                        style={[
+                          styles.amountValue,
+                          { color: COLORS.primaryDark },
+                        ]}
+                      >
+                        ₹{attendanceAdjustedSalary}
+                      </Text>
+                    </View>
+                  </>
+                ) : null}
 
                 <Pressable
                   style={styles.modifierButton}
                   onPress={() => {
                     setShowAdditionalAmount(!showAdditionalAmount);
-
                     if (showAdditionalAmount) {
                       setAdditionalAmount("");
                       setAdditionalNote("");
@@ -1841,7 +1859,6 @@ export default function PeopleScreen() {
                       }
                     />
                   </View>
-
                   <Text
                     style={[
                       styles.modifierText,
@@ -1852,7 +1869,6 @@ export default function PeopleScreen() {
                       ? "Remove additional amount"
                       : "Add additional amount"}
                   </Text>
-
                   <Ionicons
                     name={showAdditionalAmount ? "chevron-up" : "chevron-down"}
                     size={16}
@@ -1872,7 +1888,6 @@ export default function PeopleScreen() {
                         setAdditionalAmount(value.replace(/[^0-9]/g, ""))
                       }
                     />
-
                     <TextInput
                       style={styles.modalInput}
                       placeholder="Note, e.g. bonus or event work"
@@ -1887,7 +1902,6 @@ export default function PeopleScreen() {
                   style={styles.modifierButton}
                   onPress={() => {
                     setShowDeduction(!showDeduction);
-
                     if (showDeduction) {
                       setDeductionAmount("");
                       setDeductionNote("");
@@ -1908,7 +1922,6 @@ export default function PeopleScreen() {
                       color={showDeduction ? COLORS.danger : COLORS.primary}
                     />
                   </View>
-
                   <Text
                     style={[
                       styles.modifierText,
@@ -1917,7 +1930,6 @@ export default function PeopleScreen() {
                   >
                     {showDeduction ? "Remove deduction" : "Less deduction"}
                   </Text>
-
                   <Ionicons
                     name={showDeduction ? "chevron-up" : "chevron-down"}
                     size={16}
@@ -1937,7 +1949,6 @@ export default function PeopleScreen() {
                         setDeductionAmount(value.replace(/[^0-9]/g, ""))
                       }
                     />
-
                     <TextInput
                       style={styles.modalInput}
                       placeholder="Note, e.g. advance or absence"
@@ -1953,19 +1964,16 @@ export default function PeopleScreen() {
                     <Text style={styles.netAmountLabel}>
                       {selectedStatus === "paid" ? "NET PAID" : "AMOUNT TO PAY"}
                     </Text>
-
                     <Text style={styles.netAmountHint}>
                       Base + additions − deductions
                     </Text>
                   </View>
-
                   <Text style={styles.netAmountValue}>₹{netPaidAmount}</Text>
                 </View>
 
                 {selectedStatus === "paid" && (
                   <>
                     <Text style={styles.sectionLabel}>Paid Date</Text>
-
                     <Pressable
                       style={styles.dateSelector}
                       onPress={() => setShowPaidDatePicker(true)}
@@ -1977,11 +1985,9 @@ export default function PeopleScreen() {
                           color={COLORS.primary}
                         />
                       </View>
-
                       <Text style={styles.dateText}>
                         {formatFullDate(paidDate)}
                       </Text>
-
                       <Ionicons
                         name="chevron-forward"
                         size={17}
@@ -2008,7 +2014,6 @@ export default function PeopleScreen() {
                 >
                   <Text style={styles.cancelButtonText}>Cancel</Text>
                 </Pressable>
-
                 <Pressable
                   style={({ pressed }) => [
                     styles.saveButton,
@@ -2031,7 +2036,6 @@ export default function PeopleScreen() {
                     size={18}
                     color={COLORS.white}
                   />
-
                   <Text style={styles.saveButtonText}>
                     {saving
                       ? "Saving..."
@@ -2056,27 +2060,11 @@ export default function PeopleScreen() {
   );
 }
 
-/* ==================================================================
-   STYLES (unchanged)
-================================================================== */
-
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: COLORS.background,
-  },
-
-  innerContainer: {
-    flex: 1,
-  },
-
-  scrollArea: {
-    flex: 1,
-  },
-
-  pressedButton: {
-    opacity: 0.7,
-  },
+  container: { flex: 1, backgroundColor: COLORS.background },
+  innerContainer: { flex: 1 },
+  scrollArea: { flex: 1 },
+  pressedButton: { opacity: 0.7 },
 
   header: {
     flexDirection: "row",
@@ -2089,32 +2077,20 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: COLORS.borderLight,
   },
-
-  headerTitleArea: {
-    flex: 1,
-    minWidth: 0,
-    marginRight: 10,
-  },
-
+  headerTitleArea: { flex: 1, minWidth: 0, marginRight: 10 },
   title: {
     fontSize: 21,
     lineHeight: 27,
     fontWeight: "700",
     color: COLORS.text,
   },
-
   headerSubtitle: {
     marginTop: 2,
     fontSize: 11,
     lineHeight: 16,
     color: COLORS.secondary,
   },
-
-  monthNavigation: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-
+  monthNavigation: { flexDirection: "row", alignItems: "center" },
   monthArrow: {
     width: 32,
     height: 38,
@@ -2123,7 +2099,6 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     backgroundColor: COLORS.primaryLight,
   },
-
   monthSelector: {
     height: 38,
     minWidth: 105,
@@ -2135,7 +2110,6 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     backgroundColor: COLORS.primaryLight,
   },
-
   monthText: {
     marginLeft: 6,
     fontSize: 12,
@@ -2153,7 +2127,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.border,
   },
-
   tab: {
     flex: 1,
     height: 44,
@@ -2162,26 +2135,15 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderRadius: 10,
   },
-
-  tabActive: {
-    backgroundColor: COLORS.primaryLight,
-  },
-
-  tabPressed: {
-    opacity: 0.7,
-  },
-
+  tabActive: { backgroundColor: COLORS.primaryLight },
+  tabPressed: { opacity: 0.7 },
   tabText: {
     marginLeft: 6,
     fontSize: 12,
     fontWeight: "600",
     color: COLORS.secondary,
   },
-
-  tabTextActive: {
-    color: COLORS.primary,
-    fontWeight: "700",
-  },
+  tabTextActive: { color: COLORS.primary, fontWeight: "700" },
 
   searchFilterRow: {
     flexDirection: "row",
@@ -2191,7 +2153,6 @@ const styles = StyleSheet.create({
     gap: 8,
     zIndex: 5,
   },
-
   searchBox: {
     flex: 1,
     height: 44,
@@ -2203,11 +2164,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.border,
   },
-
-  searchIcon: {
-    marginRight: 8,
-  },
-
+  searchIcon: { marginRight: 8 },
   searchInput: {
     flex: 1,
     height: "100%",
@@ -2215,11 +2172,7 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     padding: 0,
   },
-
-  searchClearButton: {
-    paddingLeft: 6,
-  },
-
+  searchClearButton: { paddingLeft: 6 },
   filterTrigger: {
     height: 44,
     flexDirection: "row",
@@ -2233,12 +2186,10 @@ const styles = StyleSheet.create({
     borderColor: COLORS.border,
     minWidth: 90,
   },
-
   filterTriggerActive: {
     borderColor: COLORS.primarySoft,
     backgroundColor: COLORS.primaryLight,
   },
-
   filterTriggerText: {
     fontSize: 12,
     fontWeight: "600",
@@ -2253,7 +2204,6 @@ const styles = StyleSheet.create({
     bottom: 0,
     zIndex: 10,
   },
-
   filterDropdown: {
     position: "absolute",
     width: 180,
@@ -2269,7 +2219,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 12,
   },
-
   filterDropdownTitle: {
     fontSize: 10,
     fontWeight: "700",
@@ -2280,7 +2229,6 @@ const styles = StyleSheet.create({
     paddingTop: 6,
     paddingBottom: 6,
   },
-
   filterOption: {
     flexDirection: "row",
     alignItems: "center",
@@ -2288,59 +2236,36 @@ const styles = StyleSheet.create({
     paddingVertical: 11,
     gap: 9,
   },
-
-  filterOptionSelected: {
-    backgroundColor: COLORS.primaryLight,
-  },
-
-  filterOptionPressed: {
-    opacity: 0.7,
-  },
-
+  filterOptionSelected: { backgroundColor: COLORS.primaryLight },
+  filterOptionPressed: { opacity: 0.7 },
   filterOptionText: {
     flex: 1,
     fontSize: 13,
     fontWeight: "600",
     color: COLORS.secondary,
   },
+  filterOptionTextSelected: { color: COLORS.primary, fontWeight: "700" },
 
-  filterOptionTextSelected: {
-    color: COLORS.primary,
-    fontWeight: "700",
-  },
-
-  listContent: {
-    paddingHorizontal: 16,
-    paddingTop: 17,
-  },
-
+  listContent: { paddingHorizontal: 16, paddingTop: 17 },
   listHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 13,
   },
-
-  countArea: {
-    flex: 1,
-    minWidth: 0,
-    marginRight: 10,
-  },
-
+  countArea: { flex: 1, minWidth: 0, marginRight: 10 },
   countTitle: {
     fontSize: 16,
     lineHeight: 21,
     fontWeight: "700",
     color: COLORS.text,
   },
-
   countSubtitle: {
     marginTop: 2,
     fontSize: 11,
     lineHeight: 15,
     color: COLORS.secondary,
   },
-
   addButton: {
     height: 40,
     flexDirection: "row",
@@ -2350,11 +2275,7 @@ const styles = StyleSheet.create({
     borderRadius: 11,
     backgroundColor: COLORS.primary,
   },
-
-  addButtonPressed: {
-    opacity: 0.8,
-  },
-
+  addButtonPressed: { opacity: 0.8 },
   addButtonText: {
     marginLeft: 5,
     fontSize: 12,
@@ -2371,7 +2292,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.border,
   },
-
   emptyIcon: {
     width: 66,
     height: 66,
@@ -2381,15 +2301,8 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     backgroundColor: COLORS.primaryLight,
   },
-
-  emptyIconStaff: {
-    backgroundColor: COLORS.purpleLight,
-  },
-
-  emptyIconExpense: {
-    backgroundColor: COLORS.successLight,
-  },
-
+  emptyIconStaff: { backgroundColor: COLORS.purpleLight },
+  emptyIconExpense: { backgroundColor: COLORS.successLight },
   emptyTitle: {
     fontSize: 17,
     lineHeight: 23,
@@ -2397,7 +2310,6 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     textAlign: "center",
   },
-
   emptySubtitle: {
     maxWidth: 300,
     marginTop: 7,
@@ -2406,7 +2318,6 @@ const styles = StyleSheet.create({
     color: COLORS.secondary,
     textAlign: "center",
   },
-
   clearFiltersButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -2419,12 +2330,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.primarySoft,
   },
-
-  clearFiltersText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: COLORS.primary,
-  },
+  clearFiltersText: { fontSize: 12, fontWeight: "700", color: COLORS.primary },
 
   memberCard: {
     padding: 13,
@@ -2434,16 +2340,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.border,
   },
-
-  memberCardPressed: {
-    opacity: 0.76,
-  },
-
-  memberTop: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-
+  memberCardPressed: { opacity: 0.76 },
+  memberTop: { flexDirection: "row", alignItems: "center" },
   memberAvatar: {
     width: 45,
     height: 45,
@@ -2454,37 +2352,12 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     backgroundColor: COLORS.primary,
   },
-
-  memberAvatarStaff: {
-    backgroundColor: COLORS.purple,
-  },
-
-  memberAvatarExpense: {
-    backgroundColor: COLORS.success,
-  },
-
-  memberPhoto: {
-    width: "100%",
-    height: "100%",
-  },
-
-  memberInitial: {
-    fontSize: 16,
-    fontWeight: "700",
-    color: COLORS.white,
-  },
-
-  memberInfo: {
-    flex: 1,
-    minWidth: 0,
-  },
-
-  memberNameRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    minWidth: 0,
-  },
-
+  memberAvatarStaff: { backgroundColor: COLORS.purple },
+  memberAvatarExpense: { backgroundColor: COLORS.success },
+  memberPhoto: { width: "100%", height: "100%" },
+  memberInitial: { fontSize: 16, fontWeight: "700", color: COLORS.white },
+  memberInfo: { flex: 1, minWidth: 0 },
+  memberNameRow: { flexDirection: "row", alignItems: "center", minWidth: 0 },
   memberName: {
     flexShrink: 1,
     fontSize: 14,
@@ -2492,7 +2365,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: COLORS.text,
   },
-
   roleBadge: {
     marginLeft: 7,
     paddingHorizontal: 6,
@@ -2500,21 +2372,18 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     backgroundColor: COLORS.purpleLight,
   },
-
   roleBadgeText: {
     fontSize: 9,
     lineHeight: 12,
     fontWeight: "700",
     color: COLORS.purple,
   },
-
   memberSubtitle: {
     marginTop: 3,
     fontSize: 11,
     lineHeight: 16,
     color: COLORS.secondary,
   },
-
   memberDetails: {
     flexDirection: "row",
     alignItems: "center",
@@ -2525,20 +2394,13 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: COLORS.borderLight,
   },
-
-  detailItem: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-  },
-
+  detailItem: { flex: 1, flexDirection: "row", alignItems: "center" },
   detailText: {
     marginLeft: 5,
     fontSize: 11,
     fontWeight: "600",
     color: COLORS.secondary,
   },
-
   paymentBadge: {
     flexDirection: "row",
     alignItems: "center",
@@ -2546,42 +2408,19 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     borderRadius: 8,
   },
-
-  paymentBadgePaid: {
-    backgroundColor: COLORS.successLight,
-  },
-
-  paymentBadgeDue: {
-    backgroundColor: COLORS.dangerLight,
-  },
-
+  paymentBadgePaid: { backgroundColor: COLORS.successLight },
+  paymentBadgeDue: { backgroundColor: COLORS.dangerLight },
   paymentDot: {
     width: 5,
     height: 5,
     marginRight: 5,
     borderRadius: 3,
   },
-
-  paymentDotPaid: {
-    backgroundColor: COLORS.success,
-  },
-
-  paymentDotDue: {
-    backgroundColor: COLORS.danger,
-  },
-
-  paymentBadgeText: {
-    fontSize: 10,
-    fontWeight: "700",
-  },
-
-  paymentTextPaid: {
-    color: COLORS.success,
-  },
-
-  paymentTextDue: {
-    color: COLORS.danger,
-  },
+  paymentDotPaid: { backgroundColor: COLORS.success },
+  paymentDotDue: { backgroundColor: COLORS.danger },
+  paymentBadgeText: { fontSize: 10, fontWeight: "700" },
+  paymentTextPaid: { color: COLORS.success },
+  paymentTextDue: { color: COLORS.danger },
 
   actionButtons: {
     flexDirection: "row",
@@ -2590,7 +2429,6 @@ const styles = StyleSheet.create({
     marginTop: 9,
     gap: 6,
   },
-
   secondaryAction: {
     minHeight: 32,
     flexDirection: "row",
@@ -2602,7 +2440,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.primarySoft,
   },
-
   paymentAction: {
     minHeight: 32,
     flexDirection: "row",
@@ -2614,7 +2451,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.primarySoft,
   },
-
   downloadAction: {
     minHeight: 32,
     flexDirection: "row",
@@ -2626,32 +2462,25 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.successBorder,
   },
-
-  actionPressed: {
-    opacity: 0.65,
-  },
-
+  actionPressed: { opacity: 0.65 },
   secondaryActionText: {
     marginLeft: 5,
     fontSize: 10,
     fontWeight: "700",
     color: COLORS.primary,
   },
-
   paymentActionText: {
     marginLeft: 5,
     fontSize: 10,
     fontWeight: "700",
     color: COLORS.primary,
   },
-
   downloadActionText: {
     marginLeft: 5,
     fontSize: 10,
     fontWeight: "700",
     color: COLORS.success,
   },
-
   historyNotice: {
     flexDirection: "row",
     alignItems: "center",
@@ -2660,7 +2489,6 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: COLORS.borderLight,
   },
-
   historyText: {
     flex: 1,
     marginLeft: 5,
@@ -2676,7 +2504,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingHorizontal: 30,
   },
-
   noPropertyIcon: {
     width: 82,
     height: 82,
@@ -2686,7 +2513,6 @@ const styles = StyleSheet.create({
     borderRadius: 25,
     backgroundColor: COLORS.primaryLight,
   },
-
   noPropertyTitle: {
     fontSize: 20,
     lineHeight: 26,
@@ -2694,7 +2520,6 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     textAlign: "center",
   },
-
   noPropertySubtitle: {
     maxWidth: 310,
     marginTop: 8,
@@ -2703,7 +2528,6 @@ const styles = StyleSheet.create({
     color: COLORS.secondary,
     textAlign: "center",
   },
-
   createButton: {
     height: 47,
     flexDirection: "row",
@@ -2714,7 +2538,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: COLORS.primary,
   },
-
   createButtonText: {
     marginLeft: 7,
     fontSize: 13,
@@ -2730,7 +2553,6 @@ const styles = StyleSheet.create({
     paddingVertical: 22,
     backgroundColor: "rgba(15, 23, 42, 0.52)",
   },
-
   paymentModal: {
     width: "100%",
     maxWidth: 410,
@@ -2739,7 +2561,6 @@ const styles = StyleSheet.create({
     borderRadius: 21,
     backgroundColor: COLORS.white,
   },
-
   paymentModalHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -2748,7 +2569,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: COLORS.borderLight,
   },
-
   paymentHeaderIcon: {
     width: 41,
     height: 41,
@@ -2758,26 +2578,19 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: COLORS.primaryLight,
   },
-
-  paymentHeaderInfo: {
-    flex: 1,
-    minWidth: 0,
-  },
-
+  paymentHeaderInfo: { flex: 1, minWidth: 0 },
   paymentTitle: {
     fontSize: 17,
     lineHeight: 22,
     fontWeight: "700",
     color: COLORS.text,
   },
-
   paymentMemberName: {
     marginTop: 2,
     fontSize: 11,
     lineHeight: 16,
     color: COLORS.secondary,
   },
-
   closeModalButton: {
     width: 34,
     height: 34,
@@ -2786,16 +2599,8 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     backgroundColor: COLORS.background,
   },
-
-  paymentScroll: {
-    flexGrow: 0,
-  },
-
-  paymentScrollContent: {
-    paddingHorizontal: 17,
-    paddingTop: 14,
-  },
-
+  paymentScroll: { flexGrow: 0 },
+  paymentScrollContent: { paddingHorizontal: 17, paddingTop: 14 },
   paymentMonthRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -2805,7 +2610,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: COLORS.primaryLight,
   },
-
   paymentMonthLabel: {
     fontSize: 8,
     lineHeight: 11,
@@ -2813,7 +2617,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.7,
     color: COLORS.muted,
   },
-
   paymentMonthText: {
     marginTop: 2,
     fontSize: 13,
@@ -2827,34 +2630,13 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     borderRadius: 7,
   },
+  statusSmallBadgePaid: { backgroundColor: COLORS.successLight },
+  statusSmallBadgeDue: { backgroundColor: COLORS.dangerLight },
+  statusSmallText: { fontSize: 9, fontWeight: "700" },
+  statusSmallTextPaid: { color: COLORS.success },
+  statusSmallTextDue: { color: COLORS.danger },
 
-  statusSmallBadgePaid: {
-    backgroundColor: COLORS.successLight,
-  },
-
-  statusSmallBadgeDue: {
-    backgroundColor: COLORS.dangerLight,
-  },
-
-  statusSmallText: {
-    fontSize: 9,
-    fontWeight: "700",
-  },
-
-  statusSmallTextPaid: {
-    color: COLORS.success,
-  },
-
-  statusSmallTextDue: {
-    color: COLORS.danger,
-  },
-
-  statusRadioRow: {
-    flexDirection: "row",
-    gap: 10,
-    marginTop: 4,
-  },
-
+  statusRadioRow: { flexDirection: "row", gap: 10, marginTop: 4 },
   statusRadioOption: {
     flex: 1,
     flexDirection: "row",
@@ -2866,24 +2648,13 @@ const styles = StyleSheet.create({
     borderColor: COLORS.border,
     backgroundColor: COLORS.white,
   },
-
   statusRadioOptionSelected: {
     borderColor: COLORS.primary,
     backgroundColor: COLORS.primaryLight,
   },
-
-  statusRadioOptionPaid: {
-    borderColor: COLORS.successBorder,
-  },
-
-  statusRadioOptionDue: {
-    borderColor: COLORS.dangerBorder,
-  },
-
-  statusRadioOptionPressed: {
-    opacity: 0.7,
-  },
-
+  statusRadioOptionPaid: { borderColor: COLORS.successBorder },
+  statusRadioOptionDue: { borderColor: COLORS.dangerBorder },
+  statusRadioOptionPressed: { opacity: 0.7 },
   radioOuter: {
     width: 20,
     height: 20,
@@ -2895,25 +2666,19 @@ const styles = StyleSheet.create({
     marginRight: 8,
     flexShrink: 0,
   },
-
-  radioOuterSelected: {
-    borderColor: COLORS.primary,
-  },
-
+  radioOuterSelected: { borderColor: COLORS.primary },
   radioInner: {
     width: 10,
     height: 10,
     borderRadius: 5,
     backgroundColor: COLORS.primary,
   },
-
   statusRadioContent: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
   },
-
   statusRadioIcon: {
     width: 28,
     height: 28,
@@ -2921,28 +2686,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
-  statusRadioIconPaid: {
-    backgroundColor: COLORS.successLight,
-  },
-
-  statusRadioIconDue: {
-    backgroundColor: COLORS.dangerLight,
-  },
-
-  statusRadioTitle: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: COLORS.text,
-  },
-
-  statusRadioTitlePaid: {
-    color: COLORS.success,
-  },
-
-  statusRadioTitleDue: {
-    color: COLORS.danger,
-  },
+  statusRadioIconPaid: { backgroundColor: COLORS.successLight },
+  statusRadioIconDue: { backgroundColor: COLORS.dangerLight },
+  statusRadioTitle: { fontSize: 13, fontWeight: "700", color: COLORS.text },
+  statusRadioTitlePaid: { color: COLORS.success },
+  statusRadioTitleDue: { color: COLORS.danger },
 
   sectionLabel: {
     marginTop: 16,
@@ -2952,7 +2700,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: COLORS.textSoft,
   },
-
   amountCard: {
     minHeight: 59,
     flexDirection: "row",
@@ -2964,18 +2711,8 @@ const styles = StyleSheet.create({
     borderColor: COLORS.border,
     backgroundColor: COLORS.background,
   },
-
-  amountLeft: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-
-  amountLabel: {
-    marginLeft: 8,
-    fontSize: 11,
-    color: COLORS.secondary,
-  },
-
+  amountLeft: { flexDirection: "row", alignItems: "center" },
+  amountLabel: { marginLeft: 8, fontSize: 11, color: COLORS.secondary },
   amountValue: {
     fontSize: 17,
     lineHeight: 22,
@@ -2988,7 +2725,6 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
   },
-
   modifierIcon: {
     width: 27,
     height: 27,
@@ -2997,30 +2733,16 @@ const styles = StyleSheet.create({
     marginRight: 8,
     borderRadius: 8,
   },
-
-  modifierIconAdd: {
-    backgroundColor: COLORS.primaryLight,
-  },
-
-  modifierIconRemove: {
-    backgroundColor: COLORS.dangerLight,
-  },
-
+  modifierIconAdd: { backgroundColor: COLORS.primaryLight },
+  modifierIconRemove: { backgroundColor: COLORS.dangerLight },
   modifierText: {
     flex: 1,
     fontSize: 12,
     fontWeight: "600",
     color: COLORS.primary,
   },
-
-  modifierTextRemove: {
-    color: COLORS.danger,
-  },
-
-  inputGroup: {
-    marginTop: 1,
-  },
-
+  modifierTextRemove: { color: COLORS.danger },
+  inputGroup: { marginTop: 1 },
   modalInput: {
     minHeight: 45,
     paddingHorizontal: 11,
@@ -3044,7 +2766,6 @@ const styles = StyleSheet.create({
     borderRadius: 13,
     backgroundColor: COLORS.text,
   },
-
   netAmountLabel: {
     fontSize: 9,
     lineHeight: 13,
@@ -3052,14 +2773,12 @@ const styles = StyleSheet.create({
     letterSpacing: 0.7,
     color: "#CBD5E1",
   },
-
   netAmountHint: {
     marginTop: 2,
     fontSize: 9,
     lineHeight: 14,
     color: "#94A3B8",
   },
-
   netAmountValue: {
     fontSize: 20,
     lineHeight: 26,
@@ -3077,7 +2796,6 @@ const styles = StyleSheet.create({
     borderColor: COLORS.border,
     backgroundColor: COLORS.white,
   },
-
   dateIcon: {
     width: 32,
     height: 32,
@@ -3087,18 +2805,8 @@ const styles = StyleSheet.create({
     borderRadius: 9,
     backgroundColor: COLORS.primaryLight,
   },
-
-  dateText: {
-    flex: 1,
-    fontSize: 13,
-    fontWeight: "600",
-    color: COLORS.text,
-  },
-
-  paymentBottomSpace: {
-    height: 17,
-  },
-
+  dateText: { flex: 1, fontSize: 13, fontWeight: "600", color: COLORS.text },
+  paymentBottomSpace: { height: 17 },
   modalActions: {
     flexDirection: "row",
     alignItems: "center",
@@ -3109,7 +2817,6 @@ const styles = StyleSheet.create({
     borderTopColor: COLORS.borderLight,
     backgroundColor: COLORS.white,
   },
-
   cancelButton: {
     minHeight: 42,
     alignItems: "center",
@@ -3118,17 +2825,12 @@ const styles = StyleSheet.create({
     marginRight: 7,
     borderRadius: 10,
   },
-
-  cancelButtonPressed: {
-    backgroundColor: COLORS.background,
-  },
-
+  cancelButtonPressed: { backgroundColor: COLORS.background },
   cancelButtonText: {
     fontSize: 12,
     fontWeight: "600",
     color: COLORS.secondary,
   },
-
   saveButton: {
     minHeight: 42,
     flexDirection: "row",
@@ -3138,19 +2840,9 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     backgroundColor: COLORS.success,
   },
-
-  saveDueButton: {
-    backgroundColor: COLORS.danger,
-  },
-
-  saveButtonPressed: {
-    opacity: 0.8,
-  },
-
-  saveButtonDisabled: {
-    opacity: 0.6,
-  },
-
+  saveDueButton: { backgroundColor: COLORS.danger },
+  saveButtonPressed: { opacity: 0.8 },
+  saveButtonDisabled: { opacity: 0.6 },
   saveButtonText: {
     marginLeft: 6,
     fontSize: 12,

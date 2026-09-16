@@ -163,6 +163,10 @@ function localDateStringToServerISO(local: unknown): string | null {
 
 // ---------------------------------------------------------------------------
 // server row → frontend Member
+//
+// NOTE: We now propagate `due_amount`, `due_month`, and
+// `attendance_for_month` from the server so the UI can display a
+// DB-computed due amount per member / staff without recomputing.
 // ---------------------------------------------------------------------------
 function mapRowToMember(
   row: any,
@@ -172,7 +176,7 @@ function mapRowToMember(
   const segment = endpointFor(kind);
   const groupId = `${accountId}:${segment}`;
 
-  const base = {
+  const base: any = {
     id: row.id,
     groupId,
     name: row.name ?? "",
@@ -189,6 +193,11 @@ function mapRowToMember(
     deductionNote: row.deduction_note ?? undefined,
     monthlyPayments: row.monthly_payments ?? undefined,
     detailsHistory: undefined,
+
+    // ← New: server-computed due fields
+    dueAmount: row.due_amount != null ? Number(row.due_amount) : undefined,
+    dueMonth: row.due_month ?? undefined,
+    attendanceForMonth: row.attendance_for_month ?? undefined,
   };
 
   if (kind === "apartment") {
@@ -239,7 +248,6 @@ async function toServerBody(
     body.phone = input.phone ? String(input.phone).replace(/^\+?91/, "") : null;
   if (input.role !== undefined) body.role = input.role;
 
-  // ── PHOTO: encode device-local file to base64 before sending ──
   if (input.photoUri !== undefined) {
     body.photo_url = input.photoUri
       ? await encodePhotoForServer(String(input.photoUri))
@@ -405,7 +413,10 @@ export const useManagementStore = create<ManagementState>((set) => ({
 // Hook factory
 // ---------------------------------------------------------------------------
 function createManagementHook(kind: ManagementType) {
-  return function useManagement(accountId: string | null) {
+  return function useManagement(
+    accountId: string | null,
+    month?: string | null,
+  ) {
     const segment = endpointFor(kind);
 
     const items = useManagementStore((s) => {
@@ -421,8 +432,12 @@ function createManagementHook(kind: ManagementType) {
       setIsLoading(true);
       setError(null);
       try {
+        // Append ?month=YYYY-MM when the caller provided one. The backend
+        // uses it to compute and return due_amount per row.
+        const qs =
+          month && /^\d{4}-\d{2}$/.test(month) ? `?month=${month}` : "";
         const rows = await apiRequest<any[]>(
-          `/management/${accountId}/${segment}`,
+          `/management/${accountId}/${segment}${qs}`,
         );
         useManagementStore.getState().setItems(
           kind,
@@ -435,7 +450,7 @@ function createManagementHook(kind: ManagementType) {
       } finally {
         setIsLoading(false);
       }
-    }, [accountId, segment]);
+    }, [accountId, segment, month]);
 
     useEffect(() => {
       refresh();
@@ -445,15 +460,17 @@ function createManagementHook(kind: ManagementType) {
       async (input: any) => {
         if (!accountId) throw new Error("No account selected");
         const body = await toServerBody(input, kind);
+        const qs =
+          month && /^\d{4}-\d{2}$/.test(month) ? `?month=${month}` : "";
         const row = await apiRequest<any>(
-          `/management/${accountId}/${segment}`,
+          `/management/${accountId}/${segment}${qs}`,
           { method: "POST", body: JSON.stringify(body) },
         );
         const created = mapRowToMember(row, accountId, kind);
         useManagementStore.getState().appendItem(kind, accountId, created);
         return created;
       },
-      [accountId, segment],
+      [accountId, segment, month],
     );
 
     const update = useCallback(
@@ -469,15 +486,17 @@ function createManagementHook(kind: ManagementType) {
           throw new Error("No permitted fields to update");
         }
 
+        const qs =
+          month && /^\d{4}-\d{2}$/.test(month) ? `?month=${month}` : "";
         const row = await apiRequest<any>(
-          `/management/${accountId}/${segment}/${id}`,
+          `/management/${accountId}/${segment}/${id}${qs}`,
           { method: "PATCH", body: JSON.stringify(body) },
         );
         const updated = mapRowToMember(row, accountId, kind);
         useManagementStore.getState().replaceItem(kind, accountId, id, updated);
         return updated;
       },
-      [accountId, segment],
+      [accountId, segment, month],
     );
 
     const remove = useCallback(

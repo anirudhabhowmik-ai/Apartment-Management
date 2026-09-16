@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import * as SecureStore from "expo-secure-store";
 import { useEffect, useState } from "react";
 import {
   Alert,
@@ -15,6 +16,61 @@ import DatePickerModal from "../../components/DatePickerModal";
 import { useMembers, useStaff } from "../../hooks/useManagement";
 import { usePayments } from "../../hooks/usePayments";
 import { useAttendanceStore } from "../../store/attendanceStore";
+import type { AttendanceStatus } from "../../types";
+
+// ---------------------------------------------------------------------------
+// Inline fetch helper
+// ---------------------------------------------------------------------------
+
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
+const AUTH_TOKEN_KEY = "auth_token";
+const MANAGEMENT_PREFIX = "/management";
+
+async function getAuthToken(): Promise<string | null> {
+  try {
+    return await SecureStore.getItemAsync(AUTH_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+async function apiGet<T>(path: string): Promise<T> {
+  if (!API_BASE_URL) throw new Error("EXPO_PUBLIC_API_URL is not configured.");
+
+  const token = await getAuthToken();
+  const url = `${API_BASE_URL}${MANAGEMENT_PREFIX}${path}`;
+  console.log("apiGet:", url);
+
+  const res = await fetch(url, {
+    method: "GET",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+
+  let data: any = null;
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
+  }
+
+  if (!res.ok) {
+    const err: any = new Error(
+      data?.message || `Request failed with status ${res.status}`,
+    );
+    err.status = res.status;
+    err.body = data;
+    throw err;
+  }
+
+  return data as T;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 const formatMonth = (month: string) =>
   new Date(`${month}-01T00:00:00`).toLocaleString("default", {
@@ -22,29 +78,39 @@ const formatMonth = (month: string) =>
     year: "numeric",
   });
 
+const safeNum = (v: unknown, fallback = 0): number => {
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : fallback;
+};
+
+const defaultPaidDate = (month: string | null): string => {
+  const today = new Date();
+  const y = today.getFullYear();
+  const m = String(today.getMonth() + 1).padStart(2, "0");
+  const d = String(today.getDate()).padStart(2, "0");
+  const todayStr = `${y}-${m}-${d}`;
+  if (!month) return todayStr;
+  return todayStr.slice(0, 7) === month ? todayStr : `${month}-01`;
+};
+
 const getCalculatedStaffSalary = (
   salary: number,
   month: string,
-  statuses: Record<string, string>,
-) => {
+  statuses: Record<string, AttendanceStatus>,
+): number => {
   const daysInMonth = new Date(
     Number(month.slice(0, 4)),
     Number(month.slice(5, 7)),
     0,
   ).getDate();
-
-  const paidDays = Array.from(
-    { length: daysInMonth },
-    (_, index) => index + 1,
-  ).filter((day) => {
-    const date = `${month}-${String(day).padStart(2, "0")}`;
-
-    const defaultStatus =
-      new Date(`${date}T00:00:00`).getDay() % 6 === 0 ? "weekend" : "present";
-
-    return (statuses[date] || defaultStatus) !== "absent";
-  }).length;
-
+  const paidDays = Array.from({ length: daysInMonth }, (_, i) => i + 1).filter(
+    (day) => {
+      const date = `${month}-${String(day).padStart(2, "0")}`;
+      const defaultStatus: AttendanceStatus =
+        new Date(`${date}T00:00:00`).getDay() % 6 === 0 ? "weekend" : "present";
+      return (statuses[date] ?? defaultStatus) !== "absent";
+    },
+  ).length;
   return Math.round((salary / daysInMonth) * paidDays);
 };
 
@@ -61,8 +127,11 @@ export default function MarkPaymentScreen() {
       month?: string;
     }>();
 
-  const membersHook = useMembers(accountId ?? null);
-  const staffHook = useStaff(accountId ?? null);
+  const paymentMonth = month || new Date().toISOString().slice(0, 7);
+
+  // Pass the month so getById reads from a month-scoped list.
+  const membersHook = useMembers(accountId ?? null, paymentMonth);
+  const staffHook = useStaff(accountId ?? null, paymentMonth);
 
   const isStaffMember = !!staffHook.getById(memberId);
 
@@ -71,13 +140,13 @@ export default function MarkPaymentScreen() {
     : membersHook.getById(memberId);
 
   const getAttendanceRecord = useAttendanceStore((state) => state.getRecord);
+  const cacheAttendance = useAttendanceStore((state) => state.saveRecord);
+  const clearRecord = useAttendanceStore((state) => state.clearRecord);
 
   const { editPayment, markAsPaid, upsertMemberPayment, upsertStaffPayment } =
     usePayments(accountId);
 
-  const [paidDate, setPaidDate] = useState(
-    new Date().toISOString().slice(0, 10),
-  );
+  const [paidDate, setPaidDate] = useState(defaultPaidDate(paymentMonth));
 
   const [showDatePicker, setShowDatePicker] = useState(false);
 
@@ -101,25 +170,122 @@ export default function MarkPaymentScreen() {
 
   const [saving, setSaving] = useState(false);
 
-  const paymentMonth = month || new Date().toISOString().slice(0, 7);
+  const [serverAttendance, setServerAttendance] = useState<
+    | {
+        statuses: Record<string, AttendanceStatus>;
+        calculatedSalary: number | null;
+      }
+    | undefined
+  >(undefined);
 
-  const attendanceRecord = member
-    ? getAttendanceRecord(member.id, paymentMonth)
-    : undefined;
+  useEffect(() => {
+    if (!isStaffMember || !accountId || !memberId) return;
 
-  const amount =
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await apiGet<any>(
+          `/${accountId}/staff/${memberId}/attendance/${paymentMonth}`,
+        );
+
+        if (cancelled) return;
+
+        console.log("[mark-payment] attendance server response:", data);
+
+        // Server has no row → authoritative. Wipe the local cache so
+        // stale data from a previous save doesn't resurface.
+        if (!data) {
+          clearRecord(memberId, paymentMonth);
+          setServerAttendance({
+            statuses: {},
+            calculatedSalary: null,
+          });
+          return;
+        }
+
+        const statuses: Record<string, AttendanceStatus> = data?.statuses ?? {};
+
+        const rawCalc =
+          data?.calculated_salary ?? data?.calculatedSalary ?? null;
+
+        const calculatedSalary =
+          rawCalc != null && Number.isFinite(Number(rawCalc))
+            ? Number(rawCalc)
+            : null;
+
+        console.log("[mark-payment] parsed attendance:", {
+          hasData: true,
+          statusCount: Object.keys(statuses).length,
+          rawCalc,
+          calculatedSalary,
+        });
+
+        setServerAttendance({ statuses, calculatedSalary });
+
+        if (Object.keys(statuses).length > 0) {
+          cacheAttendance({
+            memberId,
+            month: paymentMonth,
+            statuses,
+          });
+        } else {
+          // Row exists but has empty statuses — still authoritative.
+          clearRecord(memberId, paymentMonth);
+        }
+      } catch (error) {
+        if (cancelled) return;
+        console.warn("Failed to load server attendance, using cache:", error);
+        const cached = getAttendanceRecord(memberId, paymentMonth);
+        const fallback: Record<string, AttendanceStatus> =
+          cached?.statuses ?? {};
+        setServerAttendance({
+          statuses: fallback,
+          calculatedSalary: null,
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountId, isStaffMember, memberId, paymentMonth]);
+
+  const baseSalary =
     type === "maintenance"
       ? member && "maintenanceAmount" in member
         ? member.maintenanceAmount
         : 0
       : member && "monthlySalary" in member
-        ? (attendanceRecord?.payableSalary ??
-          getCalculatedStaffSalary(
-            member.monthlySalary,
-            paymentMonth,
-            (attendanceRecord?.statuses ?? {}) as Record<string, string>,
-          ))
+        ? member.monthlySalary
         : 0;
+
+  const attendanceAdjustedSalary = (() => {
+    if (!isStaffMember || !member || !("monthlySalary" in member)) return null;
+
+    if (serverAttendance?.calculatedSalary != null) {
+      return serverAttendance.calculatedSalary;
+    }
+
+    const statuses =
+      serverAttendance?.statuses ??
+      getAttendanceRecord(member.id, paymentMonth)?.statuses;
+
+    if (statuses && Object.keys(statuses).length > 0) {
+      return getCalculatedStaffSalary(
+        member.monthlySalary,
+        paymentMonth,
+        statuses,
+      );
+    }
+
+    return null;
+  })();
+
+  const effectiveBase =
+    isStaffMember && attendanceAdjustedSalary != null
+      ? attendanceAdjustedSalary
+      : baseSalary;
 
   const isEditing = mode === "edit";
 
@@ -129,7 +295,7 @@ export default function MarkPaymentScreen() {
 
   const deductionValue = showDeduction ? Number(deductionAmount) || 0 : 0;
 
-  const netPaidAmount = (amount || 0) + additionalValue - deductionValue;
+  const netPaidAmount = effectiveBase + additionalValue - deductionValue;
 
   useEffect(() => {
     if (!member) return;
@@ -150,7 +316,7 @@ export default function MarkPaymentScreen() {
     const existingStatus = paymentForMonth?.status === "paid" ? "paid" : "due";
     setPaymentStatus(existingStatus);
     setSelectedStatus(existingStatus);
-    setPaidDate(paymentForMonth?.paidDate || `${paymentMonth}-01`);
+    setPaidDate(paymentForMonth?.paidDate || defaultPaidDate(paymentMonth));
 
     setAdditionalAmount(paymentForMonth?.additionalAmount?.toString() || "");
     setAdditionalNote(paymentForMonth?.additionalNote || "");
@@ -183,22 +349,18 @@ export default function MarkPaymentScreen() {
     try {
       setSaving(true);
 
-      // ── New: persist to member_monthly_payments / staff_monthly_payments ──
       const payload = {
         status: finalStatus,
-        paidDate: finalStatus === "paid" ? paidDate : null,
-        baseAmount: amount || 0,
-        payableSalary:
-          isStaffMember && attendanceRecord?.payableSalary != null
-            ? attendanceRecord.payableSalary
-            : null,
-        additionalAmount: showAdditionalAmount ? additionalValue : 0,
+        paidDate: finalStatus === "paid" && paidDate ? paidDate : null,
+        additionalAmount: showAdditionalAmount
+          ? safeNum(additionalValue, 0)
+          : 0,
         additionalNote: showAdditionalAmount
           ? additionalNote.trim() || null
           : null,
-        deductionAmount: showDeduction ? deductionValue : 0,
+        deductionAmount: showDeduction ? safeNum(deductionValue, 0) : 0,
         deductionNote: showDeduction ? deductionNote.trim() || null : null,
-        netAmount: netPaidAmount,
+        month: paymentMonth,
       };
 
       if (isStaffMember) {
@@ -207,7 +369,6 @@ export default function MarkPaymentScreen() {
         await upsertMemberPayment(memberId, paymentMonth, payload);
       }
 
-      // ── Legacy payment log (optional; safe to keep) ──
       if (paymentId) {
         try {
           if (finalStatus === "paid") {
@@ -230,7 +391,6 @@ export default function MarkPaymentScreen() {
         }
       }
 
-      // Refresh the management lists so the UI reflects the new payment.
       try {
         if (isStaffMember) await staffHook.refresh();
         else await membersHook.refresh();
@@ -304,12 +464,32 @@ export default function MarkPaymentScreen() {
           bounces
         >
           <Text style={styles.label}>
-            {type === "maintenance" ? "Maintenance Amount" : "Salary Amount"}
+            {type === "maintenance" ? "Maintenance Amount" : "Monthly Salary"}
           </Text>
 
           <View style={styles.amountDisplay}>
-            <Text style={styles.amount}>₹{amount || 0}</Text>
+            <Text style={styles.amount}>₹{baseSalary || 0}</Text>
           </View>
+
+          {isStaffMember && attendanceAdjustedSalary != null ? (
+            <>
+              <Text style={styles.label}>Attendance Adjusted</Text>
+              <View
+                style={[
+                  styles.amountDisplay,
+                  {
+                    backgroundColor: "#eaf2ff",
+                    borderWidth: 1,
+                    borderColor: "#bfdbfe",
+                  },
+                ]}
+              >
+                <Text style={[styles.amount, { color: "#1d4ed8" }]}>
+                  ₹{attendanceAdjustedSalary}
+                </Text>
+              </View>
+            </>
+          ) : null}
 
           <Text style={styles.label}>Payment Status</Text>
 
@@ -656,55 +836,29 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
     paddingHorizontal: 8,
   },
-
   modalCard: {
     flex: 1,
     backgroundColor: "#fff",
     borderRadius: 18,
     overflow: "hidden",
   },
-
   header: {
     paddingHorizontal: 20,
     paddingTop: 18,
     paddingBottom: 8,
     backgroundColor: "#fff",
   },
-
-  memberName: {
-    color: "#555",
-    fontSize: 14,
-  },
-
+  memberName: { color: "#555", fontSize: 14 },
   paymentForRow: {
     alignItems: "center",
     flexDirection: "row",
     justifyContent: "space-between",
     marginTop: 14,
   },
-
-  paymentForLabel: {
-    color: "#555",
-    fontSize: 13,
-    fontWeight: "600",
-  },
-
-  paymentForMonth: {
-    color: "#1a73e8",
-    fontSize: 13,
-    fontWeight: "700",
-  },
-
-  scrollView: {
-    flex: 1,
-    backgroundColor: "#fff",
-  },
-
-  scrollContent: {
-    paddingHorizontal: 20,
-    paddingTop: 4,
-  },
-
+  paymentForLabel: { color: "#555", fontSize: 13, fontWeight: "600" },
+  paymentForMonth: { color: "#1a73e8", fontSize: 13, fontWeight: "700" },
+  scrollView: { flex: 1, backgroundColor: "#fff" },
+  scrollContent: { paddingHorizontal: 20, paddingTop: 4 },
   label: {
     color: "#555",
     fontSize: 13,
@@ -712,19 +866,12 @@ const styles = StyleSheet.create({
     marginTop: 18,
     marginBottom: 8,
   },
-
   amountDisplay: {
     backgroundColor: "#f3f7fd",
     borderRadius: 10,
     padding: 14,
   },
-
-  amount: {
-    color: "#111",
-    fontSize: 17,
-    fontWeight: "700",
-  },
-
+  amount: { color: "#111", fontSize: 17, fontWeight: "700" },
   statusSelector: {
     alignItems: "center",
     borderRadius: 12,
@@ -734,19 +881,16 @@ const styles = StyleSheet.create({
     minHeight: 56,
     paddingHorizontal: 16,
   },
-
   statusSelectorLeft: {
     alignItems: "center",
     flexDirection: "row",
     gap: 10,
   },
-
   statusSelectorRight: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
   },
-
   statusIconContainer: {
     width: 28,
     height: 28,
@@ -754,18 +898,8 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
-  statusSelectorText: {
-    fontSize: 16,
-    fontWeight: "700",
-  },
-
-  statusChangeHint: {
-    fontSize: 11,
-    color: "#2563EB",
-    fontWeight: "600",
-  },
-
+  statusSelectorText: { fontSize: 16, fontWeight: "700" },
+  statusChangeHint: { fontSize: 11, color: "#2563EB", fontWeight: "600" },
   statusOptions: {
     backgroundColor: "#fff",
     borderColor: "#e2e8f0",
@@ -774,7 +908,6 @@ const styles = StyleSheet.create({
     marginTop: 8,
     overflow: "hidden",
   },
-
   statusOption: {
     alignItems: "center",
     flexDirection: "row",
@@ -782,11 +915,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
   },
-
-  statusOptionSelected: {
-    backgroundColor: "#f8fafc",
-  },
-
+  statusOptionSelected: { backgroundColor: "#f8fafc" },
   radioOuter: {
     width: 20,
     height: 20,
@@ -798,24 +927,18 @@ const styles = StyleSheet.create({
     marginRight: 12,
     flexShrink: 0,
   },
-
-  radioOuterSelected: {
-    borderColor: "#2563eb",
-  },
-
+  radioOuterSelected: { borderColor: "#2563eb" },
   radioInner: {
     width: 10,
     height: 10,
     borderRadius: 5,
     backgroundColor: "#2563eb",
   },
-
   statusOptionContent: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
   },
-
   statusOptionIconWrapper: {
     width: 32,
     height: 32,
@@ -825,31 +948,11 @@ const styles = StyleSheet.create({
     marginRight: 10,
     backgroundColor: "#f1f5f9",
   },
-
-  statusOptionInfo: {
-    flex: 1,
-  },
-
-  statusOptionTitle: {
-    color: "#334155",
-    fontSize: 14,
-    fontWeight: "600",
-  },
-
-  statusOptionTitlePaid: {
-    color: "#15803d",
-  },
-
-  statusOptionTitleDue: {
-    color: "#dc2626",
-  },
-
-  statusOptionSubtitle: {
-    color: "#94a3b8",
-    fontSize: 12,
-    marginTop: 2,
-  },
-
+  statusOptionInfo: { flex: 1 },
+  statusOptionTitle: { color: "#334155", fontSize: 14, fontWeight: "600" },
+  statusOptionTitlePaid: { color: "#15803d" },
+  statusOptionTitleDue: { color: "#dc2626" },
+  statusOptionSubtitle: { color: "#94a3b8", fontSize: 12, marginTop: 2 },
   statusChangeIndicator: {
     flexDirection: "row",
     alignItems: "center",
@@ -860,35 +963,21 @@ const styles = StyleSheet.create({
     borderTopColor: "#f1f5f9",
     backgroundColor: "#f0f7ff",
   },
-
   statusChangeIndicatorText: {
     color: "#2563eb",
     fontSize: 12,
     fontWeight: "500",
     flex: 1,
   },
-
   additionalButton: {
     alignItems: "center",
     flexDirection: "row",
     gap: 8,
     marginTop: 18,
   },
-
-  additionalButtonText: {
-    color: "#2563EB",
-    fontSize: 14,
-    fontWeight: "500",
-  },
-
-  removeAdditionalButtonText: {
-    color: "#dc2626",
-  },
-
-  expandedSection: {
-    width: "100%",
-  },
-
+  additionalButtonText: { color: "#2563EB", fontSize: 14, fontWeight: "500" },
+  removeAdditionalButtonText: { color: "#dc2626" },
+  expandedSection: { width: "100%" },
   input: {
     backgroundColor: "#fff",
     borderColor: "#e2e8f0",
@@ -899,7 +988,6 @@ const styles = StyleSheet.create({
     marginTop: 10,
     paddingHorizontal: 12,
   },
-
   netAmountCard: {
     alignItems: "center",
     backgroundColor: "#f3f7fd",
@@ -912,26 +1000,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 16,
   },
-
-  netPaidLabel: {
-    color: "#0f172a",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-
+  netPaidLabel: { color: "#0f172a", fontSize: 14, fontWeight: "700" },
   netAmountHint: {
     color: "#94a3b8",
     fontSize: 11,
     marginTop: 4,
     maxWidth: 210,
   },
-
-  netAmount: {
-    color: "#0f172a",
-    fontSize: 22,
-    fontWeight: "800",
-  },
-
+  netAmount: { color: "#0f172a", fontSize: 22, fontWeight: "800" },
   dateSelector: {
     alignItems: "center",
     borderColor: "#e2e8f0",
@@ -942,12 +1018,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: 12,
   },
-
-  dateText: {
-    color: "#0f172a",
-    fontSize: 14,
-  },
-
+  dateText: { color: "#0f172a", fontSize: 14 },
   bottomActions: {
     alignItems: "center",
     backgroundColor: "#fff",
@@ -959,18 +1030,8 @@ const styles = StyleSheet.create({
     paddingTop: 12,
     paddingBottom: 16,
   },
-
-  cancelButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-  },
-
-  cancelText: {
-    color: "#64748b",
-    fontSize: 14,
-    fontWeight: "600",
-  },
-
+  cancelButton: { paddingHorizontal: 16, paddingVertical: 12 },
+  cancelText: { color: "#64748b", fontSize: 14, fontWeight: "600" },
   saveButton: {
     alignItems: "center",
     backgroundColor: "#16a34a",
@@ -983,11 +1044,7 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     minWidth: 140,
   },
-
-  saveDueButton: {
-    backgroundColor: "#dc2626",
-  },
-
+  saveDueButton: { backgroundColor: "#dc2626" },
   saveButtonHighlight: {
     borderWidth: 2,
     borderColor: "#2563eb",
@@ -997,18 +1054,7 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 2,
   },
-
-  saveButtonDisabled: {
-    opacity: 0.6,
-  },
-
-  saveButtonText: {
-    color: "#fff",
-    fontSize: 14,
-    fontWeight: "700",
-  },
-
-  scrollBottomSpace: {
-    height: 24,
-  },
+  saveButtonDisabled: { opacity: 0.6 },
+  saveButtonText: { color: "#fff", fontSize: 14, fontWeight: "700" },
+  scrollBottomSpace: { height: 24 },
 });

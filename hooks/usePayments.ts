@@ -1,3 +1,4 @@
+// hooks/usePayments.ts
 import * as SecureStore from "expo-secure-store";
 import { useCallback, useEffect } from "react";
 import { usePaymentStore } from "../store/paymentStore";
@@ -16,9 +17,6 @@ import {
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
 
-// ---------------------------------------------------------------------------
-// Auth-aware request helper
-// ---------------------------------------------------------------------------
 async function getToken(): Promise<string | null> {
   try {
     return await SecureStore.getItemAsync("auth_token");
@@ -54,22 +52,56 @@ async function apiRequest<T>(
     );
     err.status = res.status;
     err.code = data?.code;
+    err.body = data;
+    err.path = path;
+    err.method = options.method ?? "GET";
+    console.error(
+      `[usePayments] ${err.method} ${path} → ${res.status}`,
+      JSON.stringify(data),
+    );
     throw err;
   }
 
   return data as T;
 }
 
-// ---------------------------------------------------------------------------
-// Legacy mock API functions (kept so the rest of the app keeps working)
-// ---------------------------------------------------------------------------
+function safeNum(v: unknown, fallback = 0): number {
+  if (v === null || v === undefined) return fallback;
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+export interface UpsertPaymentPayload {
+  status: "paid" | "due";
+  paidDate?: string | null;
+  additionalAmount?: number;
+  additionalNote?: string | null;
+  deductionAmount?: number;
+  deductionNote?: string | null;
+}
+
+function sanitizeUpsertPayload(
+  payload: UpsertPaymentPayload,
+): UpsertPaymentPayload {
+  return {
+    status: payload.status === "due" ? "due" : "paid",
+    paidDate:
+      payload.paidDate && typeof payload.paidDate === "string"
+        ? payload.paidDate
+        : null,
+    additionalAmount: safeNum(payload.additionalAmount, 0),
+    additionalNote: payload.additionalNote ?? null,
+    deductionAmount: safeNum(payload.deductionAmount, 0),
+    deductionNote: payload.deductionNote ?? null,
+  };
+}
+
 async function fetchPayments(accountId: string): Promise<Payment[]> {
   const now = new Date().toISOString();
-
   return [
     {
       id: "p1",
-      accountId: accountId,
+      accountId,
       category: "salary",
       amount: 12000,
       dueDate: new Date(2026, 8, 1).toISOString(),
@@ -83,7 +115,7 @@ async function fetchPayments(accountId: string): Promise<Payment[]> {
     } as SalaryPayment,
     {
       id: "p2",
-      accountId: accountId,
+      accountId,
       category: "electricity",
       amount: 3200,
       dueDate: new Date(2026, 8, 15).toISOString(),
@@ -95,7 +127,7 @@ async function fetchPayments(accountId: string): Promise<Payment[]> {
     } as BillPayment,
     {
       id: "p3",
-      accountId: accountId,
+      accountId,
       category: "maintenance",
       amount: 2500,
       dueDate: new Date(2026, 8, 10).toISOString(),
@@ -132,14 +164,12 @@ async function createPaymentApi(input: AddPaymentInput): Promise<Payment> {
         flatNumber: input.flatNumber!,
         month: input.month!,
       } as MaintenancePayment;
-
     case "rent":
       return {
         ...basePayment,
         category: "rent",
         month: input.month!,
       } as RentPayment;
-
     case "electricity":
     case "water":
       return {
@@ -148,7 +178,6 @@ async function createPaymentApi(input: AddPaymentInput): Promise<Payment> {
         billNumber: input.billNumber,
         units: input.units,
       } as BillPayment;
-
     case "salary":
       return {
         ...basePayment,
@@ -157,7 +186,6 @@ async function createPaymentApi(input: AddPaymentInput): Promise<Payment> {
         month: input.month!,
         presentDays: input.presentDays,
       } as SalaryPayment;
-
     default:
       return basePayment as Payment;
   }
@@ -178,24 +206,6 @@ async function deletePaymentApi(id: string): Promise<void> {
   console.log("Deleting payment:", id);
 }
 
-// ---------------------------------------------------------------------------
-// Payload type for the new backend endpoints
-// ---------------------------------------------------------------------------
-export interface UpsertPaymentPayload {
-  status: "paid" | "due";
-  paidDate?: string | null;
-  baseAmount?: number;
-  payableSalary?: number | null;
-  additionalAmount?: number;
-  additionalNote?: string | null;
-  deductionAmount?: number;
-  deductionNote?: string | null;
-  netAmount?: number;
-}
-
-// ---------------------------------------------------------------------------
-// Hook
-// ---------------------------------------------------------------------------
 export function usePayments(accountId?: string) {
   const {
     payments,
@@ -218,7 +228,6 @@ export function usePayments(accountId?: string) {
 
   useEffect(() => {
     if (!accountId) return;
-
     const load = async (): Promise<void> => {
       setIsLoading(true);
       setError(null);
@@ -235,9 +244,6 @@ export function usePayments(accountId?: string) {
     load();
   }, [accountId, setPayments, setIsLoading, setError]);
 
-  // ─────────────────────────────────────────────────────────────────
-  // NEW: Upsert member payment → PUT /management/:accountId/members/:id/payments/:month
-  // ─────────────────────────────────────────────────────────────────
   const upsertMemberPayment = useCallback(
     async (
       memberId: string,
@@ -248,12 +254,10 @@ export function usePayments(accountId?: string) {
       setIsLoading(true);
       setError(null);
       try {
+        const clean = sanitizeUpsertPayload(payload);
         const row = await apiRequest<any>(
           `/management/${accountId}/members/${memberId}/payments/${month}`,
-          {
-            method: "PUT",
-            body: JSON.stringify(payload),
-          },
+          { method: "PUT", body: JSON.stringify(clean) },
         );
         return row;
       } catch (error: any) {
@@ -266,9 +270,6 @@ export function usePayments(accountId?: string) {
     [accountId, setIsLoading, setError],
   );
 
-  // ─────────────────────────────────────────────────────────────────
-  // NEW: Upsert staff payment → PUT /management/:accountId/staff/:id/payments/:month
-  // ─────────────────────────────────────────────────────────────────
   const upsertStaffPayment = useCallback(
     async (
       staffId: string,
@@ -279,12 +280,10 @@ export function usePayments(accountId?: string) {
       setIsLoading(true);
       setError(null);
       try {
+        const clean = sanitizeUpsertPayload(payload);
         const row = await apiRequest<any>(
           `/management/${accountId}/staff/${staffId}/payments/${month}`,
-          {
-            method: "PUT",
-            body: JSON.stringify(payload),
-          },
+          { method: "PUT", body: JSON.stringify(clean) },
         );
         return row;
       } catch (error: any) {
@@ -297,7 +296,6 @@ export function usePayments(accountId?: string) {
     [accountId, setIsLoading, setError],
   );
 
-  // Existing CRUD
   const addNewPayment = useCallback(
     async (input: AddPaymentInput): Promise<Payment> => {
       try {
@@ -498,7 +496,7 @@ export function usePayments(accountId?: string) {
         byCategory,
         byStatus,
         month: monthName,
-        year: year,
+        year,
       };
     },
     [getPaymentsByMonth],
@@ -506,7 +504,6 @@ export function usePayments(accountId?: string) {
 
   const getAccountPaymentSummary = useCallback((): PaymentSummary | null => {
     if (!accountId) return null;
-
     const summary = getPaymentSummary(accountId);
     if (!summary) return null;
 
@@ -533,9 +530,9 @@ export function usePayments(accountId?: string) {
       totalDue: summary.totalDue,
       totalOverdue: summary.totalOverdue,
       byCategory: summary.byCategory,
-      byStatus: byStatus,
+      byStatus,
       month: monthName,
-      year: year,
+      year,
     };
   }, [accountId, getPaymentSummary]);
 
@@ -544,17 +541,14 @@ export function usePayments(accountId?: string) {
     isLoading,
     error,
 
-    // New
     upsertMemberPayment,
     upsertStaffPayment,
 
-    // Legacy CRUD
     addNewPayment,
     editPayment,
     removePayment,
     markAsPaid,
 
-    // Getters
     getPaymentById,
     getPaymentsByCategory: getPaymentsByCategoryFilter,
     getPaymentsByStatus: getPaymentsByStatusFilter,
