@@ -5,9 +5,11 @@ import {
   ContactsSortOrder,
   requestPermissionsAsync,
 } from "expo-contacts";
+import * as FileSystem from "expo-file-system/legacy";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import * as Sharing from "expo-sharing";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -16,7 +18,6 @@ import {
   GestureResponderEvent,
   Image,
   KeyboardAvoidingView,
-  Linking,
   Modal,
   PanResponder,
   Platform,
@@ -28,7 +29,7 @@ import {
   TextInput,
   TouchableOpacity,
   TouchableWithoutFeedback,
-  View,
+  View
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -120,10 +121,8 @@ function toDateInput(raw: unknown): string {
     const trimmed = raw.trim();
     if (!trimmed) return "";
 
-    // Pure date — trust it as-is.
     if (/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return trimmed;
 
-    // ISO datetime — parse and read the LOCAL calendar day.
     const d = new Date(trimmed);
     if (!isNaN(d.getTime())) {
       const y = d.getFullYear();
@@ -132,12 +131,10 @@ function toDateInput(raw: unknown): string {
       return `${y}-${m}-${dd}`;
     }
 
-    // Fallback — grab a leading YYYY-MM-DD.
     const m = trimmed.match(/^(\d{4})-(\d{2})-(\d{2})/);
     return m ? m[1] : "";
   }
 
-  // Date object — read LOCAL components. Never use .toISOString() here.
   if (raw instanceof Date) {
     if (isNaN(raw.getTime())) return "";
     const y = raw.getFullYear();
@@ -150,7 +147,189 @@ function toDateInput(raw: unknown): string {
 }
 
 // ---------------------------------------------------------------------------
-// Photo Adjust Modal (unchanged)
+// Bill save / download helpers — folder picker on Android, share sheet on iOS
+// ---------------------------------------------------------------------------
+
+const pickExtension = (mimeOrUri?: string | null): string => {
+  const s = String(mimeOrUri || "").toLowerCase();
+  if (s.includes("image/png") || s.endsWith(".png")) return "png";
+  if (s.includes("image/webp") || s.endsWith(".webp")) return "webp";
+  if (s.includes("application/pdf") || s.endsWith(".pdf")) return "pdf";
+  if (s.includes("image/gif") || s.endsWith(".gif")) return "gif";
+  if (s.includes("image/heic") || s.endsWith(".heic")) return "heic";
+  if (s.includes("image/jpeg") || s.endsWith(".jpg")) return "jpg";
+  if (s.includes("image/jpg") || s.endsWith(".jpeg")) return "jpg";
+  return "jpg";
+};
+
+const pickMimeType = (mimeOrUri?: string | null): string => {
+  const ext = pickExtension(mimeOrUri);
+  switch (ext) {
+    case "png":
+      return "image/png";
+    case "webp":
+      return "image/webp";
+    case "pdf":
+      return "application/pdf";
+    case "gif":
+      return "image/gif";
+    case "heic":
+      return "image/heic";
+    default:
+      return "image/jpeg";
+  }
+};
+
+/**
+ * Ask the user where to save the file, then write it there.
+ *
+ * - Android: StorageAccessFramework folder picker.
+ * - iOS:     share sheet → "Save to Files".
+ * - Web:     browser download.
+ *
+ * Accepts a data: URI, file:// URI, or http(s) URL.
+ */
+async function saveBillWithFolderPicker(
+  uri: string,
+  suggestedName: string,
+  sourceHint?: string | null,
+): Promise<{ savedUri: string } | null> {
+  const safeBase = (suggestedName || "bill").replace(/[^\w\-]+/g, "_");
+  const ext = pickExtension(sourceHint || uri);
+  const mimeType = pickMimeType(sourceHint || uri);
+  const fileName = `${safeBase}.${ext}`;
+
+  // ── Web ──────────────────────────────────────────────────────────
+  if (Platform.OS === "web") {
+    try {
+      let href = uri;
+      let isBlob = false;
+
+      if (uri.startsWith("data:")) {
+        const match = uri.match(/^data:([^;]+);base64,(.*)$/);
+        if (!match) throw new Error("Invalid data URI");
+        const mime = match[1] || mimeType;
+        const b64 = match[2];
+        const binary = atob(b64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        const blob = new Blob([bytes], { type: mime });
+        href = URL.createObjectURL(blob);
+        isBlob = true;
+      }
+
+      const a = document.createElement("a");
+      a.href = href;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      if (isBlob) setTimeout(() => URL.revokeObjectURL(href), 1000);
+      return { savedUri: fileName };
+    } catch (e: any) {
+      throw new Error(e?.message || "Browser download failed.");
+    }
+  }
+
+  // ── Stage the file in cache ──────────────────────────────────────
+  const cacheDir = FileSystem.cacheDirectory;
+  if (!cacheDir) throw new Error("Cache directory not available.");
+  const tempUri = `${cacheDir}${fileName}`;
+
+  try {
+    if (uri.startsWith("data:")) {
+      const match = uri.match(/^data:([^;]+);base64,(.*)$/);
+      if (!match) throw new Error("Invalid data URI");
+      const b64 = match[2];
+      await FileSystem.writeAsStringAsync(tempUri, b64, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+    } else if (uri.startsWith("file://")) {
+      await FileSystem.copyAsync({ from: uri, to: tempUri });
+    } else {
+      await FileSystem.downloadAsync(uri, tempUri);
+    }
+  } catch (e: any) {
+    throw new Error(e?.message || "Failed to prepare file for saving.");
+  }
+
+  // ── Android: StorageAccessFramework folder picker ────────────────
+  if (Platform.OS === "android") {
+    const SAF = (FileSystem as any).StorageAccessFramework;
+    if (SAF?.requestDirectoryPermissionsAsync) {
+      const perm = await SAF.requestDirectoryPermissionsAsync();
+      if (!perm.granted) return null;
+
+      const base64Data = await FileSystem.readAsStringAsync(tempUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      const fileUri = await SAF.createFileAsync(
+        perm.directoryUri,
+        fileName,
+        mimeType,
+      );
+
+      await FileSystem.writeAsStringAsync(fileUri, base64Data, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      return { savedUri: fileUri };
+    }
+  }
+
+  // ── iOS / fallback: share sheet ──────────────────────────────────
+  if (await Sharing.isAvailableAsync()) {
+    await Sharing.shareAsync(tempUri, {
+      mimeType,
+      dialogTitle: `Save ${fileName}`,
+    });
+    return { savedUri: tempUri };
+  }
+
+  throw new Error("Saving is not available on this device.");
+}
+
+/**
+ * Download a bill attachment. Preserves original format, opens the folder
+ * picker on Android, share sheet on iOS.
+ */
+async function downloadBillAttachment(
+  uri?: string | null,
+  name?: string | null,
+): Promise<void> {
+  if (!uri) {
+    Alert.alert("No bill", "This attachment has no file.");
+    return;
+  }
+
+  const baseName = (name || "bill").replace(/\.[^.]+$/, "");
+
+  try {
+    let hint: string | null = null;
+    if (uri.startsWith("data:")) {
+      const m = uri.match(/^data:([^;]+);/);
+      hint = m?.[1] || null;
+    } else {
+      hint = uri;
+    }
+
+    const result = await saveBillWithFolderPicker(uri, baseName, hint);
+    if (!result) return;
+    Alert.alert("Downloaded", "Bill saved successfully.");
+  } catch (e: any) {
+    console.warn("downloadBillAttachment failed:", e);
+    Alert.alert(
+      "Download failed",
+      e?.message || "Unable to save the bill attachment.",
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Photo Adjust Modal
 // ---------------------------------------------------------------------------
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -786,7 +965,6 @@ export default function EditMemberScreen() {
       setExpenseAmount(member.amount?.toString() || "");
       setExpenseStatus(member.status || "paid");
       setReminderEnabled(member.reminderEnabled || false);
-      // ── FIX: normalize date before storing
       setDueDate(toDateInput(member.dueDate));
       setExpenseDescription(member.description || "");
       setRole((member.role as MemberRole) || null);
@@ -1138,7 +1316,6 @@ export default function EditMemberScreen() {
         updateData.status = expenseStatus;
         updateData.reminderEnabled =
           expenseStatus === "due" ? reminderEnabled : false;
-        // ── FIX: normalize date before sending
         updateData.dueDate = toDateInput(dueDate) || undefined;
         updateData.description = expenseDescription.trim() || undefined;
         updateData.billAttachments = billAttachments;
@@ -1953,9 +2130,16 @@ export default function EditMemberScreen() {
                     </Text>
                     <TouchableOpacity
                       style={styles.attachmentAction}
-                      onPress={() => Linking.openURL(attachment.uri)}
+                      onPress={() =>
+                        downloadBillAttachment(attachment.uri, attachment.name)
+                      }
+                      activeOpacity={0.7}
                     >
-                      <Ionicons name="open-outline" size={19} color="#2563eb" />
+                      <Ionicons
+                        name="download-outline"
+                        size={19}
+                        color="#2563eb"
+                      />
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={[
@@ -1967,6 +2151,7 @@ export default function EditMemberScreen() {
                           cur.filter((_, i) => i !== index),
                         )
                       }
+                      activeOpacity={0.7}
                     >
                       <Ionicons
                         name="trash-outline"
@@ -2478,7 +2663,6 @@ export default function EditMemberScreen() {
         </TouchableWithoutFeedback>
       </Modal>
 
-      {/* ── DATE PICKER — normalizes the value before writing back ── */}
       <DatePickerModal
         visible={showDatePicker}
         value={dueDate || ""}

@@ -16,7 +16,6 @@ import {
   GestureResponderEvent,
   Image,
   KeyboardAvoidingView,
-  Linking,
   Modal,
   PanResponder,
   Platform,
@@ -28,7 +27,7 @@ import {
   TextInput,
   TouchableOpacity,
   TouchableWithoutFeedback,
-  View,
+  View
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -588,8 +587,6 @@ export default function AddMemberScreen() {
     console.log("[add-member] normalized:", { accountId, groupType });
   }, [rawParams, accountId, groupType]);
 
-  // ── FIX: call all three hooks (Rules of Hooks require unconditional calls)
-  //    and pick the one that matches `groupType`.
   const membersHook = useMembers(accountId || null);
   const staffHook = useStaff(accountId || null);
   const expensesHook = useExpenses(accountId || null);
@@ -1948,13 +1945,6 @@ export default function AddMemberScreen() {
                       </Text>
                       <TouchableOpacity
                         style={styles.attachmentAction}
-                        onPress={() => Linking.openURL(attachment.uri)}
-                        activeOpacity={0.7}
-                      >
-                        <Ionicons name="eye-outline" size={19} color={BLUE} />
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={styles.attachmentAction}
                         onPress={() =>
                           setBillAttachments((cur) =>
                             cur.filter((_, i) => i !== index),
@@ -2147,10 +2137,6 @@ export default function AddMemberScreen() {
     </KeyboardAvoidingView>
   );
 }
-
-// ================================================================
-// STYLES (unchanged from your file)
-// ================================================================
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: BACKGROUND },
