@@ -1,12 +1,13 @@
 import { downloadFinanceReportPdf } from "@/services/financeReportPdf";
 import { Ionicons } from "@expo/vector-icons";
-import { File, Paths } from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import { useRouter } from "expo-router";
 import * as Sharing from "expo-sharing";
 import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   Modal,
   Platform,
   RefreshControl,
@@ -20,7 +21,7 @@ import {
 import * as XLSX from "xlsx";
 
 import { useAccounts } from "../../hooks/useAccounts";
-import { useMembers, useStaff } from "../../hooks/useManagement";
+import { useExpenses, useMembers, useStaff } from "../../hooks/useManagement";
 import { useUserRole } from "../../hooks/useUserRole";
 import { useAccountStore } from "../../store/accountStore";
 import { useFinanceBalanceStore } from "../../store/financeBalanceStore";
@@ -35,7 +36,6 @@ import {
 
 import {
   getPeopleSummary,
-  getPeopleTransactions,
   PeopleTransaction,
 } from "../../utils/peopleTransactions";
 
@@ -44,63 +44,549 @@ import {
 // ============================================================
 
 type FilterType = "all" | "income" | "expense" | "pending";
+type TransactionType = "income" | "expense";
+type BillAttachment = { name?: string; url: string };
 
 // ============================================================
 // HELPERS
 // ============================================================
 
-const getCategoryLabel = (category: string) =>
-  ({
-    salary: "Salary",
-    maintenance: "Maintenance",
-    electricity: "Electricity",
-    water: "Water",
-    other: "Other",
-  })[category] || category;
+const CATEGORY_LABELS: Record<string, string> = {
+  salary: "Salary",
+  maintenance: "Maintenance",
+  electricity: "Electricity",
+  water: "Water",
+  hall_rent: "Hall Rent",
+  parking_rent: "Parking Rent",
+  advertisement: "Advertisement",
+  interest: "Interest / Deposit",
+  other_income: "Other Income",
+  other: "Other",
+};
 
-const escapeHtml = (value: string | number | undefined) =>
-  String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
+const getCategoryLabel = (raw?: string | null): string => {
+  if (!raw) return "—";
+  const s = String(raw).trim();
+  if (!s) return "—";
+  if (CATEGORY_LABELS[s]) return CATEGORY_LABELS[s];
+  const lower = s.toLowerCase();
+  if (CATEGORY_LABELS[lower]) return CATEGORY_LABELS[lower];
+  return lower
+    .split(/[\s_]+/)
+    .filter(Boolean)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+};
 
-const INCOME_CATEGORIES: PaymentCategory[] = ["maintenance"];
+const toMonthKey = (raw?: string | null): string => {
+  if (!raw) return "";
+  const datePart = String(raw).trim().split(/[T ]/)[0];
+  return datePart.slice(0, 7);
+};
 
-const EXPENSE_CATEGORIES: PaymentCategory[] = [
-  "salary",
-  "electricity",
-  "water",
-  "other",
-];
+const toDateOnly = (raw?: string | null): string => {
+  if (!raw) return "";
+  return String(raw).trim().split(/[T ]/)[0];
+};
+
+const formatFullDate = (dateStr?: string | null): string => {
+  if (!dateStr) return "";
+  const datePart = String(dateStr).trim().split(/[T ]/)[0];
+  const parts = datePart.split("-");
+  if (parts.length < 3) return dateStr;
+  return `${parts[2].padStart(2, "0")}/${parts[1].padStart(
+    2,
+    "0",
+  )}/${parts[0]}`;
+};
+
+const formatPhoneForDisplay = (raw?: string | null): string => {
+  if (!raw) return "";
+  const digits = String(raw).replace(/\D/g, "");
+  const ten = digits.length > 10 ? digits.slice(-10) : digits;
+  if (ten.length !== 10) return String(raw);
+  return `+91 ${ten.slice(0, 5)} ${ten.slice(5)}`;
+};
+
+const truncate = (value: string, max = 22): string => {
+  if (!value) return "";
+  return value.length > max ? `${value.slice(0, max - 1)}…` : value;
+};
+
+const callNumber = async (raw?: string | null) => {
+  if (!raw) return;
+  const digits = String(raw).replace(/\D/g, "");
+  const ten = digits.length > 10 ? digits.slice(-10) : digits;
+  if (ten.length !== 10) {
+    Alert.alert("Invalid number", "This phone number looks incomplete.");
+    return;
+  }
+  try {
+    await Linking.openURL(`tel:+91${ten}`);
+  } catch (e) {
+    console.warn("dialer failed:", e);
+    Alert.alert("Cannot call", "Unable to open the phone dialer.");
+  }
+};
+
+// ------------------------------------------------------------
+// File save helpers — preserve original format & let user pick folder
+// ------------------------------------------------------------
+
+/**
+ * Detect a file extension from a mime type or URI.
+ */
+const pickExtension = (mimeOrUri?: string | null): string => {
+  const s = String(mimeOrUri || "").toLowerCase();
+  if (s.includes("image/png") || s.endsWith(".png")) return "png";
+  if (s.includes("image/webp") || s.endsWith(".webp")) return "webp";
+  if (s.includes("application/pdf") || s.endsWith(".pdf")) return "pdf";
+  if (s.includes("image/gif") || s.endsWith(".gif")) return "gif";
+  if (s.includes("image/heic") || s.endsWith(".heic")) return "heic";
+  if (s.includes("image/jpeg") || s.endsWith(".jpg")) return "jpg";
+  if (s.includes("image/jpg") || s.endsWith(".jpeg")) return "jpg";
+  return "jpg";
+};
+
+/**
+ * Detect a MIME type from a mime type or URI.
+ */
+const pickMimeType = (mimeOrUri?: string | null): string => {
+  const ext = pickExtension(mimeOrUri);
+  switch (ext) {
+    case "png":
+      return "image/png";
+    case "webp":
+      return "image/webp";
+    case "pdf":
+      return "application/pdf";
+    case "gif":
+      return "image/gif";
+    case "heic":
+      return "image/heic";
+    default:
+      return "image/jpeg";
+  }
+};
+
+/**
+ * Ask the user where to save a file, then write it there.
+ *
+ * - Android: uses StorageAccessFramework to show the system folder picker.
+ *   The returned `content://` URI is written to directly, preserving the
+ *   original format.
+ * - iOS:     there is no folder picker (app is sandboxed), so we open the
+ *   native share sheet which offers "Save to Files".
+ * - Web:     triggers a browser download.
+ *
+ * @param base64OrLocalUri  Either a base64-encoded payload (without the
+ *                          data: prefix), a `file://` URI, or an http(s)
+ *                          URL.
+ * @param suggestedName     Filename (without extension) the picker will
+ *                          pre-fill.
+ * @param sourceHint        Anything that reveals the format — usually the
+ *                          original mime type or a URL with extension.
+ */
+const saveFileWithFolderPicker = async (
+  base64OrLocalUri: string,
+  suggestedName: string,
+  sourceHint?: string | null,
+): Promise<{ savedUri: string } | null> => {
+  const safeBase = (suggestedName || "file").replace(/[^\w\-]+/g, "_");
+  const ext = pickExtension(sourceHint);
+  const mimeType = pickMimeType(sourceHint);
+  const fileName = `${safeBase}.${ext}`;
+
+  // ---------------- Web ----------------
+  if (Platform.OS === "web") {
+    try {
+      let href = base64OrLocalUri;
+      let isBlob = false;
+      if (base64OrLocalUri.startsWith("data:")) {
+        const match = base64OrLocalUri.match(/^data:([^;]+);base64,(.*)$/);
+        if (!match) throw new Error("Invalid data URI");
+        const mime = match[1] || mimeType;
+        const b64 = match[2];
+        const binary = atob(b64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        const blob = new Blob([bytes], { type: mime });
+        href = URL.createObjectURL(blob);
+        isBlob = true;
+      }
+      const a = document.createElement("a");
+      a.href = href;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      if (isBlob) setTimeout(() => URL.revokeObjectURL(href), 1000);
+      return { savedUri: fileName };
+    } catch (e: any) {
+      throw new Error(e?.message || "Browser download failed.");
+    }
+  }
+
+  // ---------------- Materialise a local temp file first ----------------
+  // Both Android SAF and iOS share sheet operate on a local file URI,
+  // so we always stage the content into cache first, in its original
+  // format. Then the user picks where to save.
+  const cacheDir = FileSystem.cacheDirectory;
+  if (!cacheDir) throw new Error("Cache directory not available.");
+  const tempUri = `${cacheDir}${fileName}`;
+
+  try {
+    if (base64OrLocalUri.startsWith("data:")) {
+      const match = base64OrLocalUri.match(/^data:([^;]+);base64,(.*)$/);
+      if (!match) throw new Error("Invalid data URI");
+      const b64 = match[2];
+      await FileSystem.writeAsStringAsync(tempUri, b64, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+    } else if (base64OrLocalUri.startsWith("file://")) {
+      // Already a local file — copy to cache under our chosen name
+      await FileSystem.copyAsync({ from: base64OrLocalUri, to: tempUri });
+    } else {
+      // Remote URL — download it to cache
+      await FileSystem.downloadAsync(base64OrLocalUri, tempUri);
+    }
+  } catch (e: any) {
+    throw new Error(e?.message || "Failed to prepare file for saving.");
+  }
+
+  // ---------------- Android: StorageAccessFramework ----------------
+  if (Platform.OS === "android") {
+    const SAF = (FileSystem as any).StorageAccessFramework;
+    if (SAF?.requestDirectoryPermissionsAsync) {
+      const perm = await SAF.requestDirectoryPermissionsAsync();
+      if (!perm.granted) {
+        return null; // user cancelled
+      }
+      // Read staged file as base64, write into the picked folder via SAF
+      const base64Data = await FileSystem.readAsStringAsync(tempUri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      const fileUri = await SAF.createFileAsync(
+        perm.directoryUri,
+        fileName,
+        mimeType,
+      );
+
+      await FileSystem.writeAsStringAsync(fileUri, base64Data, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      return { savedUri: fileUri };
+    }
+    // SAF unavailable — fall through to share sheet
+  }
+
+  // ---------------- iOS (and Android fallback): share sheet ----------------
+  if (await Sharing.isAvailableAsync()) {
+    await Sharing.shareAsync(tempUri, {
+      mimeType,
+      dialogTitle: `Save ${fileName}`,
+      UTI: undefined,
+    });
+    return { savedUri: tempUri };
+  }
+
+  throw new Error("Saving is not available on this device.");
+};
+
+/**
+ * Download a bill attachment. Preserves original format and, on Android,
+ * opens the system folder picker.
+ */
+const downloadBillAttachment = async (
+  uri?: string | null,
+  name?: string | null,
+): Promise<void> => {
+  if (!uri) {
+    Alert.alert("No bill", "This transaction has no attachment.");
+    return;
+  }
+
+  // Figure out suggested name (strip any existing extension)
+  const baseName = (name || "bill").replace(/\.[^.]+$/, "");
+
+  try {
+    // Figure out the hint (mime) from a data: URI, otherwise from the URI
+    let hint: string | null = null;
+    if (uri.startsWith("data:")) {
+      const m = uri.match(/^data:([^;]+);/);
+      hint = m?.[1] || null;
+    } else {
+      hint = uri;
+    }
+
+    const result = await saveFileWithFolderPicker(uri, baseName, hint);
+
+    if (!result) {
+      // User cancelled the folder picker
+      return;
+    }
+
+    Alert.alert("Downloaded", "Bill saved successfully.");
+  } catch (e: any) {
+    console.warn("downloadBillAttachment failed:", e);
+    Alert.alert(
+      "Download failed",
+      e?.message || "Unable to save the bill attachment.",
+    );
+  }
+};
+
+const currentMonthKey = (): string => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+};
+
+const previousMonthKey = (): string => {
+  const now = new Date();
+  const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  return `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, "0")}`;
+};
+
+const isDueRelevant = (dueMonth: string): boolean => {
+  const current = currentMonthKey();
+  const previous = previousMonthKey();
+  return dueMonth === current || dueMonth === previous;
+};
+
+const getTransactionType = (txn: any): TransactionType => {
+  if (!txn) return "expense";
+  const raw = String(txn.transactionType ?? txn.transaction_type ?? "")
+    .trim()
+    .toLowerCase();
+  if (raw === "income") return "income";
+  if (raw === "expense") return "expense";
+  if (txn?.category === "maintenance") return "income";
+  return "expense";
+};
+
+function normalizeAttachments(raw: any): BillAttachment[] {
+  if (raw == null) return [];
+  let value = raw;
+  if (typeof value === "string") {
+    try {
+      value = JSON.parse(value);
+    } catch {
+      return [];
+    }
+  }
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    if (Array.isArray(value.bill_attachments)) value = value.bill_attachments;
+    else if (Array.isArray(value.billAttachments))
+      value = value.billAttachments;
+  }
+  if (!Array.isArray(value)) return [];
+
+  return value
+    .map((item) => {
+      if (!item) return null;
+      if (typeof item === "string") return { url: item };
+      const url =
+        item.url ||
+        item.uri ||
+        item.href ||
+        item.link ||
+        item.file_url ||
+        item.fileUrl;
+      if (!url) return null;
+      return {
+        url: String(url),
+        name: item.name || item.filename || item.file_name || undefined,
+      };
+    })
+    .filter(Boolean) as BillAttachment[];
+}
+
+/**
+ * Find the payment record for a member/staff whose **paid_date falls in
+ * `month`**, regardless of which billing month it belongs to.
+ *
+ * `monthlyPayments` is keyed by billing month. Each entry has a
+ * `paidDate`. We scan every entry and return the first one whose
+ * `paidDate` is inside `month`.
+ */
+function findPaidPaymentInMonth(
+  member: any,
+  month: string,
+): { billingMonth: string; paidDate: string } | null {
+  const mp = member?.monthlyPayments;
+  if (!mp || typeof mp !== "object") {
+    // Fallback: legacy top-level paidDate
+    const pd = member?.paidDate ? toDateOnly(member.paidDate) : "";
+    if (pd && toMonthKey(pd) === month) {
+      return { billingMonth: month, paidDate: pd };
+    }
+    return null;
+  }
+
+  const keys = Object.keys(mp);
+  for (const billingMonth of keys) {
+    const entry = mp[billingMonth];
+    if (!entry || entry.status !== "paid" || !entry.paidDate) continue;
+    const pd = toDateOnly(entry.paidDate);
+    if (toMonthKey(pd) === month) {
+      return { billingMonth, paidDate: pd };
+    }
+  }
+
+  // Legacy top-level fallback
+  const pd = member?.paidDate ? toDateOnly(member.paidDate) : "";
+  if (pd && toMonthKey(pd) === month) {
+    return { billingMonth: month, paidDate: pd };
+  }
+  return null;
+}
+
+/**
+ * Check if a member/staff has any due payment in `month`.
+ * A due exists if the billing month matches AND that entry is not paid.
+ */
+function hasDueInMonth(member: any, month: string): boolean {
+  const mp = member?.monthlyPayments;
+  if (mp && typeof mp === "object") {
+    const entry = mp[month];
+    if (entry && entry.status !== "paid") return true;
+  }
+  // No payment record → still due if billing month is current/previous
+  if (!mp || !mp[month]) {
+    return isDueRelevant(month);
+  }
+  return false;
+}
+
+// ============================================================
+// TRANSACTION DETAIL MODAL
+// ============================================================
+
+function TransactionDetailModal({
+  visible,
+  onClose,
+  title,
+  description,
+  attachments,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  title: string;
+  description: string;
+  attachments: BillAttachment[];
+}) {
+  return (
+    <Modal
+      transparent
+      animationType="fade"
+      visible={visible}
+      onRequestClose={onClose}
+    >
+      <View style={styles.modalOverlayCenter}>
+        <View style={styles.detailModal}>
+          <View style={styles.detailHeader}>
+            <View style={styles.detailIconWrap}>
+              <Ionicons name="receipt-outline" size={18} color="#2563EB" />
+            </View>
+            <Text style={styles.detailTitle} numberOfLines={1}>
+              {title || "Transaction"}
+            </Text>
+            <TouchableOpacity
+              style={styles.detailClose}
+              onPress={onClose}
+              hitSlop={8}
+            >
+              <Ionicons name="close" size={18} color="#64748B" />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView
+            style={styles.detailScroll}
+            contentContainerStyle={styles.detailScrollContent}
+            showsVerticalScrollIndicator={false}
+          >
+            <Text style={styles.detailSectionLabel}>Description</Text>
+            <View style={styles.detailDescriptionBox}>
+              <Text style={styles.detailDescriptionText}>
+                {description?.trim() ? description : "No description provided."}
+              </Text>
+            </View>
+
+            <Text style={styles.detailSectionLabel}>
+              Bill Attachment{attachments.length === 1 ? "" : "s"}
+            </Text>
+
+            {attachments.length === 0 ? (
+              <View style={styles.detailEmptyAttachment}>
+                <Ionicons name="document-outline" size={20} color="#94A3B8" />
+                <Text style={styles.detailEmptyAttachmentText}>
+                  No bill attached
+                </Text>
+              </View>
+            ) : (
+              attachments.map((att, index) => (
+                <View key={`${att.url}-${index}`} style={styles.attachmentRow}>
+                  <View style={styles.attachmentIcon}>
+                    <Ionicons
+                      name="document-text-outline"
+                      size={18}
+                      color="#7C3AED"
+                    />
+                  </View>
+                  <View style={styles.attachmentInfo}>
+                    <Text style={styles.attachmentName} numberOfLines={1}>
+                      {att.name || `Bill ${index + 1}`}
+                    </Text>
+                    <Text style={styles.attachmentUrl} numberOfLines={1}>
+                      {att.url.startsWith("data:") ? "Embedded image" : att.url}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.attachmentDownload}
+                    onPress={() => downloadBillAttachment(att.url, att.name)}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="download-outline" size={16} color="#fff" />
+                  </TouchableOpacity>
+                </View>
+              ))
+            )}
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  );
+}
 
 // ============================================================
 // TRANSACTION ITEM
 // ============================================================
 
-function TransactionItem({ payment }: { payment: PeopleTransaction }) {
-  const getCategoryLabelLocal = (category: string) => {
-    const labels: Record<string, string> = {
-      salary: "Salary",
-      maintenance: "Maintenance",
-      electricity: "Electricity",
-      water: "Water",
-      other: "Other",
-    };
-
-    return labels[category] || category;
-  };
-
-  const getIcon = (category: string): keyof typeof Ionicons.glyphMap => {
+function TransactionItem({
+  payment,
+  onShowDetails,
+}: {
+  payment: PeopleTransaction;
+  onShowDetails: (payment: PeopleTransaction) => void;
+}) {
+  const getIcon = (key: string): keyof typeof Ionicons.glyphMap => {
     const icons: Record<string, keyof typeof Ionicons.glyphMap> = {
       salary: "cash-outline",
       maintenance: "construct-outline",
       electricity: "flash-outline",
       water: "water-outline",
+      hall_rent: "business-outline",
+      parking_rent: "car-outline",
+      advertisement: "megaphone-outline",
+      interest: "trending-up-outline",
+      other_income: "ellipsis-horizontal-circle-outline",
       other: "receipt-outline",
     };
-
-    return icons[category] || "receipt-outline";
+    return icons[key] || "receipt-outline";
   };
 
   const getStatusIcon = (
@@ -118,15 +604,104 @@ function TransactionItem({ payment }: { payment: PeopleTransaction }) {
     }
   };
 
+  const anyPayment = payment as any;
+
+  const rawCategory: string =
+    typeof anyPayment.rawCategory === "string" && anyPayment.rawCategory
+      ? anyPayment.rawCategory
+      : typeof anyPayment.role === "string"
+        ? anyPayment.role
+        : typeof anyPayment.category === "string"
+          ? anyPayment.category
+          : "";
+
+  const displayCategory = getCategoryLabel(rawCategory);
+
   const color = getPaymentCategoryColor(payment.category);
   const statusColor = getPaymentStatusColor(payment.status);
-
-  const icon = getIcon(payment.category);
+  const icon = getIcon(rawCategory.toLowerCase() || payment.category);
   const statusIcon = getStatusIcon(payment.status);
 
-  const isIncome = INCOME_CATEGORIES.includes(
-    payment.category as PaymentCategory,
+  const txnType = getTransactionType(payment);
+  const isIncome = txnType === "income";
+
+  const isMaintenance = payment.category === "maintenance";
+  const isSalary = payment.category === "salary";
+  const isTransactionRow = !isMaintenance && !isSalary;
+
+  const rawTitle: string =
+    typeof anyPayment.title === "string" && anyPayment.title.trim()
+      ? anyPayment.title
+      : typeof anyPayment.name === "string" && anyPayment.name.trim()
+        ? anyPayment.name
+        : "";
+
+  let title = "";
+  if (isMaintenance) {
+    title = anyPayment.memberName || rawTitle || "Maintenance";
+  } else if (isSalary) {
+    title = anyPayment.memberName || rawTitle || "Staff Salary";
+  } else {
+    title = rawTitle || displayCategory;
+  }
+
+  const attachments: BillAttachment[] = normalizeAttachments(
+    anyPayment.bill_attachments ??
+      anyPayment.billAttachments ??
+      anyPayment.billAttachment,
   );
+  const hasAttachments = attachments.length > 0;
+
+  const fullDescription: string =
+    typeof anyPayment.description === "string" ? anyPayment.description : "";
+
+  const paidDate: string | null =
+    typeof anyPayment.paidDate === "string" && anyPayment.paidDate
+      ? toDateOnly(anyPayment.paidDate)
+      : null;
+  const dueDate: string | null = payment.dueDate
+    ? toDateOnly(payment.dueDate)
+    : null;
+  const displayDate = payment.status === "paid" ? paidDate || dueDate : dueDate;
+
+  const rawPhone: string | undefined = anyPayment.phone;
+  const phoneDigits = rawPhone
+    ? String(rawPhone).replace(/\D/g, "").slice(-10)
+    : "";
+  const hasCallablePhone =
+    (isMaintenance || isSalary) && phoneDigits.length === 10;
+
+  let metaLine1 = "";
+  let metaIcon1: keyof typeof Ionicons.glyphMap = "pricetag-outline";
+  if (isMaintenance) {
+    const wing = anyPayment.wing ? `${anyPayment.wing} Wing • ` : "";
+    const flat = anyPayment.flatNumber
+      ? `Flat ${anyPayment.flatNumber}`
+      : "Apartment member";
+    metaLine1 = `${wing}${flat}`;
+    metaIcon1 = "home-outline";
+  } else if (isSalary) {
+    metaLine1 = anyPayment.memberRole
+      ? anyPayment.memberRole.charAt(0).toUpperCase() +
+        anyPayment.memberRole.slice(1)
+      : "Staff";
+    metaIcon1 = "person-outline";
+  } else {
+    metaLine1 = displayCategory;
+    metaIcon1 = "pricetag-outline";
+  }
+
+  let dateLine = "";
+  if (displayDate) {
+    if (isMaintenance || isSalary) {
+      dateLine =
+        payment.status === "paid"
+          ? `Paid: ${formatFullDate(displayDate)}`
+          : `Due: ${formatFullDate(displayDate)}`;
+    } else {
+      dateLine = formatFullDate(displayDate);
+    }
+  }
 
   return (
     <View style={styles.transactionItem}>
@@ -135,36 +710,116 @@ function TransactionItem({ payment }: { payment: PeopleTransaction }) {
       </View>
 
       <View style={styles.transactionInfo}>
-        <Text style={styles.transactionTitle} numberOfLines={1}>
-          {getCategoryLabelLocal(payment.category)}
-        </Text>
+        <View style={styles.titleRow}>
+          <Text style={styles.transactionTitle} numberOfLines={1}>
+            {truncate(title, 26)}
+          </Text>
 
-        <Text style={styles.transactionDescription} numberOfLines={1}>
-          {payment.description ||
-            `Due: ${new Date(payment.dueDate).toLocaleDateString()}`}
-        </Text>
+          {isMaintenance ? (
+            <View style={[styles.typeBadge, styles.typeBadgeMaintenance]}>
+              <Text
+                style={[styles.typeBadgeText, styles.typeBadgeTextMaintenance]}
+              >
+                Maintenance
+              </Text>
+            </View>
+          ) : null}
 
-        {payment.category === "salary" && "memberId" in payment && (
+          {isSalary ? (
+            <View style={[styles.typeBadge, styles.typeBadgeSalary]}>
+              <Text style={[styles.typeBadgeText, styles.typeBadgeTextSalary]}>
+                Salary
+              </Text>
+            </View>
+          ) : null}
+
+          {isTransactionRow ? (
+            <View
+              style={[
+                styles.typeBadge,
+                isIncome ? styles.typeBadgeIncome : styles.typeBadgeExpense,
+              ]}
+            >
+              <Text
+                style={[
+                  styles.typeBadgeText,
+                  isIncome
+                    ? styles.typeBadgeTextIncome
+                    : styles.typeBadgeTextExpense,
+                ]}
+              >
+                {isIncome ? "Income" : "Expense"}
+              </Text>
+            </View>
+          ) : null}
+        </View>
+
+        {metaLine1 ? (
           <View style={styles.metaRow}>
-            <Ionicons name="person-outline" size={11} color="#8A94A6" />
-            <Text style={styles.transactionMeta}>
-              {payment.memberRole
-                ? payment.memberRole.charAt(0).toUpperCase() +
-                  payment.memberRole.slice(1)
-                : "Staff"}
+            <Ionicons name={metaIcon1} size={11} color="#8A94A6" />
+            <Text style={styles.transactionMeta} numberOfLines={1}>
+              {metaLine1}
             </Text>
           </View>
-        )}
+        ) : null}
 
-        {payment.category === "maintenance" && "flatNumber" in payment && (
+        {hasCallablePhone ? (
           <View style={styles.metaRow}>
-            <Ionicons name="home-outline" size={11} color="#8A94A6" />
-            <Text style={styles.transactionMeta}>
-              {payment.wing ? `${payment.wing} Wing • ` : ""}
-              Flat {payment.flatNumber}
+            <TouchableOpacity
+              style={styles.phonePill}
+              onPress={(event) => {
+                event.stopPropagation();
+                callNumber(rawPhone);
+              }}
+              hitSlop={6}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="call" size={11} color="#2563EB" />
+              <Text style={styles.phonePillText}>
+                {formatPhoneForDisplay(rawPhone)}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+
+        {dateLine ? (
+          <View style={styles.metaRow}>
+            <Ionicons
+              name={
+                payment.status === "paid"
+                  ? "checkmark-done-outline"
+                  : "calendar-outline"
+              }
+              size={11}
+              color="#8A94A6"
+            />
+            <Text style={styles.transactionMeta} numberOfLines={1}>
+              {dateLine}
             </Text>
           </View>
-        )}
+        ) : null}
+
+        {isTransactionRow ? (
+          <TouchableOpacity
+            style={styles.viewButton}
+            onPress={(event) => {
+              event.stopPropagation();
+              onShowDetails(payment);
+            }}
+            activeOpacity={0.75}
+            hitSlop={6}
+          >
+            <Ionicons name="eye-outline" size={12} color="#2563EB" />
+            <Text style={styles.viewButtonText}>View</Text>
+            {hasAttachments ? (
+              <View style={styles.attachmentCountBadge}>
+                <Text style={styles.attachmentCountText}>
+                  {attachments.length}
+                </Text>
+              </View>
+            ) : null}
+          </TouchableOpacity>
+        ) : null}
       </View>
 
       <View style={styles.transactionRight}>
@@ -178,7 +833,7 @@ function TransactionItem({ payment }: { payment: PeopleTransaction }) {
                 : styles.expenseText,
           ]}
         >
-          {isIncome ? "+" : "-"}₹{payment.amount}
+          {isIncome ? "+" : "-"}₹{payment.amount.toLocaleString("en-IN")}
         </Text>
 
         <View
@@ -217,13 +872,70 @@ function SummaryCard({
         <Ionicons name={icon} size={17} color={color} />
       </View>
 
-      <Text style={[styles.summaryAmount, { color }]}>
+      <Text style={[styles.summaryAmount, { color }]} numberOfLines={1}>
         ₹{amount.toLocaleString("en-IN")}
       </Text>
 
       <Text style={styles.summaryTitle}>{title}</Text>
     </View>
   );
+}
+
+// ============================================================
+// EXPENSE → TRANSACTION MAPPER
+// ============================================================
+
+function mapExpenseToTransaction(expense: any): PeopleTransaction {
+  const row = expense ?? {};
+  const rawCategory: string = String(row.role ?? row.category ?? "").trim();
+
+  const iconCategory: PaymentCategory = (() => {
+    const key = rawCategory.toLowerCase();
+    if (key === "salary") return "salary";
+    if (key === "maintenance") return "maintenance";
+    if (key === "electricity") return "electricity";
+    if (key === "water") return "water";
+    return "other";
+  })();
+
+  const expenseDate = toDateOnly(row.dueDate || row.expense_date || "");
+
+  const rawType = String(row.transactionType ?? row.transaction_type ?? "")
+    .trim()
+    .toLowerCase();
+  const transactionType: TransactionType =
+    rawType === "income" ? "income" : "expense";
+
+  const attachments = normalizeAttachments(
+    row.billAttachments ?? row.bill_attachments,
+  );
+
+  const title: string =
+    typeof row.name === "string"
+      ? row.name
+      : typeof row.title === "string"
+        ? row.title
+        : "";
+
+  const description: string =
+    typeof row.description === "string" ? row.description : "";
+
+  return {
+    id: `expense-${row.id}`,
+    category: iconCategory,
+    rawCategory,
+    amount: Number(row.amount) || 0,
+    status: (row.status === "paid" ? "paid" : "due") as PaymentStatus,
+    dueDate: expenseDate,
+    description,
+    paidDate: null,
+    transactionType,
+    transaction_type: transactionType,
+    title,
+    bill_attachments: attachments,
+    isTransaction: true,
+    __isExpenseRow: true,
+  } as any;
 }
 
 // ============================================================
@@ -239,12 +951,11 @@ export default function FinanceScreen() {
     isLoading: accountsLoading,
   } = useAccounts();
 
-  // ── NEW: pull apartment + staff lists from useManagement ──
   const accountId = selectedAccount?.id ?? null;
   const { items: apartmentMembers } = useMembers(accountId);
   const { items: staffMembers } = useStaff(accountId);
+  const { items: expenses } = useExpenses(accountId);
 
-  // Merged "account members" list — replaces the old group-filtered one
   const members: Member[] = useMemo(
     () => [...apartmentMembers, ...staffMembers],
     [apartmentMembers, staffMembers],
@@ -262,19 +973,13 @@ export default function FinanceScreen() {
     (state) => state.setOpeningBalance,
   );
 
-  /* ------------------------------------------------------------------------ */
-  /* ROLE - admin: edit + download; member: view + download; staff: no access */
-  /* ------------------------------------------------------------------------ */
-
   const { isAdmin, isMember } = useUserRole();
 
   const canEditBalance = isAdmin;
   const canDownloadReport = isAdmin || isMember;
 
   const [refreshing, setRefreshing] = useState(false);
-
   const [filter, setFilter] = useState<FilterType>("all");
-
   const [filteredPayments, setFilteredPayments] = useState<PeopleTransaction[]>(
     [],
   );
@@ -286,33 +991,164 @@ export default function FinanceScreen() {
   });
 
   const [selectedMonth, setSelectedMonth] = useState(new Date());
-
   const [showReportOptions, setShowReportOptions] = useState(false);
 
   const [showOpeningBalanceEditor, setShowOpeningBalanceEditor] =
     useState(false);
-
   const [openingBalanceInput, setOpeningBalanceInput] = useState("");
 
-  // ============================================================
-  // TRANSACTIONS
-  // ============================================================
+  const [detailPayment, setDetailPayment] = useState<PeopleTransaction | null>(
+    null,
+  );
 
-  const getSelectedMonthTransactions = () => {
-    const monthKey = `${selectedMonth.getFullYear()}-${String(
-      selectedMonth.getMonth() + 1,
-    ).padStart(2, "0")}`;
+  const openDetails = (payment: PeopleTransaction) => setDetailPayment(payment);
+  const closeDetails = () => setDetailPayment(null);
 
-    return {
-      monthKey,
-      transactions: getPeopleTransactions(members, monthKey),
-    };
-  };
+  // ============================================================
+  // MONTH HELPERS
+  // ============================================================
 
   const getMonthKey = (date: Date) =>
     `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 
   const selectedMonthKey = getMonthKey(selectedMonth);
+
+  // ============================================================
+  // TRANSACTIONS
+  // ============================================================
+
+  /**
+   * Build transactions visible in `monthKey`.
+   *
+   * Members & staff:
+   *   • PAID rows — shown in the month of their **paid_date**, even if
+   *     the billing month is different. So a March bill paid on
+   *     2025-04-15 appears under April.
+   *   • DUE rows — shown only if the billing month is current or
+   *     previous AND that month is unpaid.
+   *
+   * Expenses / income:
+   *   • Paid rows   → shown in the month of `expense_date`.
+   *   • Due rows    → shown only for current or previous month.
+   */
+  const getTransactionsForMonth = (monthKey: string): PeopleTransaction[] => {
+    const peopleRows: PeopleTransaction[] = [];
+    const seenIds = new Set<string>();
+
+    for (const member of members as any[]) {
+      const category: PaymentCategory =
+        member?.monthlySalary !== undefined ? "salary" : "maintenance";
+
+      // ---------- PAID rows in this month (by paid_date) ----------
+      const paidHit = findPaidPaymentInMonth(member, monthKey);
+      if (paidHit) {
+        const isSalary = category === "salary";
+        const sourceRow: any = {
+          id: `${member.id}:${paidHit.billingMonth}:paid`,
+          category,
+          memberId: member.id,
+          memberName: member.name,
+          memberRole: isSalary ? member.role : undefined,
+          wing: member.wing,
+          flatNumber: member.flatNumber,
+          phone: member.phone,
+          amount: isSalary
+            ? Number(member.monthlySalary) || 0
+            : Number(member.maintenanceAmount) || 0,
+          status: "paid" as PaymentStatus,
+          paidDate: paidHit.paidDate,
+          dueDate: paidHit.paidDate,
+          transactionType: isSalary ? "expense" : "income",
+          transaction_type: isSalary ? "expense" : "income",
+          isTransaction: false,
+        };
+
+        // Pull amount from the actual payment entry if present
+        const entry = member.monthlyPayments?.[paidHit.billingMonth];
+        if (entry?.netAmount != null) {
+          sourceRow.amount = Number(entry.netAmount);
+        } else {
+          const base = isSalary
+            ? Number(member.monthlySalary) || 0
+            : Number(member.maintenanceAmount) || 0;
+          const add = Number(entry?.additionalAmount) || 0;
+          const ded = Number(entry?.deductionAmount) || 0;
+          sourceRow.amount = Math.max(0, base + add - ded);
+        }
+
+        if (!seenIds.has(sourceRow.id)) {
+          seenIds.add(sourceRow.id);
+          peopleRows.push(sourceRow as any);
+        }
+      }
+
+      // ---------- DUE row for this billing month ----------
+      if (hasDueInMonth(member, monthKey)) {
+        const isSalary = category === "salary";
+        const entry = member.monthlyPayments?.[monthKey];
+        if (entry?.status === "paid") continue;
+
+        const dueRow: any = {
+          id: `${member.id}:${monthKey}:due`,
+          category,
+          memberId: member.id,
+          memberName: member.name,
+          memberRole: isSalary ? member.role : undefined,
+          wing: member.wing,
+          flatNumber: member.flatNumber,
+          phone: member.phone,
+          amount: isSalary
+            ? Number(member.monthlySalary) || 0
+            : Number(member.maintenanceAmount) || 0,
+          status: "due" as PaymentStatus,
+          paidDate: null,
+          // due date = 1st of the billing month for display
+          dueDate: `${monthKey}-01`,
+          transactionType: isSalary ? "expense" : "income",
+          transaction_type: isSalary ? "expense" : "income",
+          isTransaction: false,
+        };
+
+        if (entry) {
+          const base = isSalary
+            ? Number(member.monthlySalary) || 0
+            : Number(member.maintenanceAmount) || 0;
+          const add = Number(entry.additionalAmount) || 0;
+          const ded = Number(entry.deductionAmount) || 0;
+          dueRow.amount = Math.max(0, base + add - ded);
+        } else if (isSalary && member.attendanceForMonth?.calculatedSalary) {
+          dueRow.amount = Number(member.attendanceForMonth.calculatedSalary);
+        }
+
+        if (!seenIds.has(dueRow.id)) {
+          seenIds.add(dueRow.id);
+          peopleRows.push(dueRow as any);
+        }
+      }
+    }
+
+    // ---------- Expenses / income ----------
+    const expenseRows: PeopleTransaction[] = (expenses || [])
+      .filter((expense: any) => {
+        const status = expense.status === "paid" ? "paid" : "due";
+        const anchorRaw = expense.dueDate || expense.expense_date;
+        const anchorMonth = toMonthKey(anchorRaw);
+        if (!anchorMonth) return false;
+        if (status === "paid") return anchorMonth === monthKey;
+        return anchorMonth === monthKey && isDueRelevant(anchorMonth);
+      })
+      .map((expense: any) => mapExpenseToTransaction(expense));
+
+    return [...peopleRows, ...expenseRows];
+  };
+
+  const getSelectedMonthTransactions = () => {
+    const monthKey = selectedMonthKey;
+    return {
+      monthKey,
+      transactions: getTransactionsForMonth(monthKey),
+    };
+  };
 
   const firstTrackedMonth = selectedAccount
     ? selectedAccount.createdAt.slice(0, 7)
@@ -323,10 +1159,9 @@ export default function FinanceScreen() {
   const cursor = new Date(`${firstTrackedMonth}-01T00:00:00`);
 
   while (getMonthKey(cursor) < selectedMonthKey) {
-    previousMonthNets.push(
-      getPeopleSummary(getPeopleTransactions(members, getMonthKey(cursor))).net,
-    );
-
+    const monthTxns = getTransactionsForMonth(getMonthKey(cursor));
+    const paidTxns = monthTxns.filter((t) => t.status === "paid");
+    previousMonthNets.push(getPeopleSummary(paidTxns).net);
     cursor.setMonth(cursor.getMonth() + 1);
   }
 
@@ -346,19 +1181,15 @@ export default function FinanceScreen() {
 
   const openOpeningBalanceEditor = () => {
     if (!canEditBalance) return;
-
     setOpeningBalanceInput(
       initialOpeningBalance ? initialOpeningBalance.toString() : "",
     );
-
     setShowOpeningBalanceEditor(true);
   };
 
   const saveOpeningBalance = () => {
     if (!selectedAccount || !canEditBalance) return;
-
     setOpeningBalance(selectedAccount.id, Number(openingBalanceInput) || 0);
-
     setShowOpeningBalanceEditor(false);
   };
 
@@ -371,10 +1202,34 @@ export default function FinanceScreen() {
       loadFinanceData();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedAccount, members, filter, selectedMonth]);
+  }, [selectedAccount, members, expenses, filter, selectedMonth]);
 
   const loadFinanceData = () => {
     const { transactions: accountPayments } = getSelectedMonthTransactions();
+
+    const paidTransactions = accountPayments.filter((p) => p.status === "paid");
+
+    const paidIncome = paidTransactions
+      .filter((p) => getTransactionType(p) === "income")
+      .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+
+    const paidExpense = paidTransactions
+      .filter((p) => getTransactionType(p) === "expense")
+      .reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
+
+    const paidNet = paidIncome - paidExpense;
+
+    setSummary((currentSummary) =>
+      currentSummary.totalIncome === paidIncome &&
+      currentSummary.totalExpense === paidExpense &&
+      currentSummary.net === paidNet
+        ? currentSummary
+        : {
+            totalIncome: paidIncome,
+            totalExpense: paidExpense,
+            net: paidNet,
+          },
+    );
 
     let filtered: PeopleTransaction[] = [];
 
@@ -382,25 +1237,21 @@ export default function FinanceScreen() {
       case "all":
         filtered = accountPayments;
         break;
-
       case "income":
-        filtered = accountPayments.filter((p) =>
-          INCOME_CATEGORIES.includes(p.category as PaymentCategory),
+        filtered = accountPayments.filter(
+          (p) => p.status === "paid" && getTransactionType(p) === "income",
         );
         break;
-
       case "expense":
-        filtered = accountPayments.filter((p) =>
-          EXPENSE_CATEGORIES.includes(p.category as PaymentCategory),
+        filtered = accountPayments.filter(
+          (p) => p.status === "paid" && getTransactionType(p) === "expense",
         );
         break;
-
       case "pending":
         filtered = accountPayments.filter(
           (p) => p.status === "due" || p.status === "overdue",
         );
         break;
-
       default:
         filtered = accountPayments;
     }
@@ -412,20 +1263,6 @@ export default function FinanceScreen() {
       )
         ? currentPayments
         : filtered,
-    );
-
-    const peopleSummary = getPeopleSummary(accountPayments);
-
-    setSummary((currentSummary) =>
-      currentSummary.totalIncome === peopleSummary.income &&
-      currentSummary.totalExpense === peopleSummary.expenses &&
-      currentSummary.net === peopleSummary.net
-        ? currentSummary
-        : {
-            totalIncome: peopleSummary.income,
-            totalExpense: peopleSummary.expenses,
-            net: peopleSummary.net,
-          },
     );
   };
 
@@ -445,13 +1282,8 @@ export default function FinanceScreen() {
 
   const handleMonthChange = (direction: "prev" | "next") => {
     const newDate = new Date(selectedMonth);
-
-    if (direction === "prev") {
-      newDate.setMonth(newDate.getMonth() - 1);
-    } else {
-      newDate.setMonth(newDate.getMonth() + 1);
-    }
-
+    if (direction === "prev") newDate.setMonth(newDate.getMonth() - 1);
+    else newDate.setMonth(newDate.getMonth() + 1);
     setSelectedMonth(newDate);
   };
 
@@ -462,7 +1294,6 @@ export default function FinanceScreen() {
   const getReportData = () => {
     const { monthKey, transactions } = getSelectedMonthTransactions();
     const reportSummary = getPeopleSummary(transactions);
-
     return { monthKey, reportSummary, transactions };
   };
 
@@ -483,7 +1314,7 @@ export default function FinanceScreen() {
       (transaction) => transaction.category === "salary",
     );
 
-    const expenses = transactions.filter(
+    const otherExpenses = transactions.filter(
       (transaction) =>
         transaction.category !== "maintenance" &&
         transaction.category !== "salary",
@@ -501,35 +1332,52 @@ export default function FinanceScreen() {
       ["Net", reportSummary.net],
       [],
       ["Maintenance"],
-      ["Wing", "Flat Number", "Owner Name", "Phone", "Amount", "Status"],
+      [
+        "Wing",
+        "Flat Number",
+        "Owner Name",
+        "Phone",
+        "Amount",
+        "Status",
+        "Date",
+      ],
       ...maintenance.map((transaction) => [
-        transaction.wing || "",
-        transaction.flatNumber || "",
-        transaction.memberName || "",
-        transaction.phone || "",
+        (transaction as any).wing || "",
+        (transaction as any).flatNumber || "",
+        (transaction as any).memberName || "",
+        (transaction as any).phone || "",
         transaction.amount,
         transaction.status.charAt(0).toUpperCase() +
           transaction.status.slice(1),
+        transaction.status === "paid"
+          ? (transaction as any).paidDate || transaction.dueDate
+          : transaction.dueDate,
       ]),
       [],
       ["Staff"],
-      ["Staff Name", "Phone", "Role", "Paid Amount", "Status"],
+      ["Staff Name", "Phone", "Role", "Paid Amount", "Status", "Date"],
       ...staff.map((transaction) => [
-        transaction.memberName || transaction.description || "",
-        transaction.phone || "",
-        transaction.memberRole
-          ? transaction.memberRole.charAt(0).toUpperCase() +
-            transaction.memberRole.slice(1)
+        (transaction as any).memberName || transaction.description || "",
+        (transaction as any).phone || "",
+        (transaction as any).memberRole
+          ? (transaction as any).memberRole.charAt(0).toUpperCase() +
+            (transaction as any).memberRole.slice(1)
           : "Staff",
         transaction.amount,
         transaction.status.charAt(0).toUpperCase() +
           transaction.status.slice(1),
+        transaction.status === "paid"
+          ? (transaction as any).paidDate || transaction.dueDate
+          : transaction.dueDate,
       ]),
       [],
-      ["Expenses"],
-      ["Expense", "Amount", "Due Date", "Status"],
-      ...expenses.map((transaction) => [
-        transaction.description || getCategoryLabel(transaction.category),
+      ["Transactions"],
+      ["Title", "Category", "Type", "Description", "Amount", "Date", "Status"],
+      ...otherExpenses.map((transaction) => [
+        (transaction as any).title || "",
+        getCategoryLabel((transaction as any).rawCategory),
+        getTransactionType(transaction) === "income" ? "Income" : "Expense",
+        (transaction as any).description || "",
         transaction.amount,
         transaction.dueDate,
         transaction.status.charAt(0).toUpperCase() +
@@ -537,64 +1385,43 @@ export default function FinanceScreen() {
       ]),
     ]);
 
-    worksheet["!merges"] = [
-      XLSX.utils.decode_range("A1:F1"),
-      XLSX.utils.decode_range("A9:F9"),
-      XLSX.utils.decode_range(
-        `A${12 + maintenance.length}:E${12 + maintenance.length}`,
-      ),
-      XLSX.utils.decode_range(
-        `A${15 + maintenance.length + staff.length}:D${
-          15 + maintenance.length + staff.length
-        }`,
-      ),
-    ];
-
     worksheet["!cols"] = [
-      { wch: 18 },
-      { wch: 18 },
-      { wch: 24 },
+      { wch: 20 },
       { wch: 16 },
-      { wch: 16 },
+      { wch: 12 },
+      { wch: 30 },
       { wch: 14 },
+      { wch: 14 },
+      { wch: 12 },
     ];
 
     XLSX.utils.book_append_sheet(workbook, worksheet, "Finance Report");
 
     const data = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
 
-    const fileName = `ai-khata-finance-${monthKey}.xlsx`;
+    // Convert to base64 for the folder picker
+    const base64 = (() => {
+      const bytes = new Uint8Array(data as ArrayBuffer);
+      let binary = "";
+      for (let i = 0; i < bytes.length; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      return btoa(binary);
+    })();
+
+    const dataUri = `data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${base64}`;
 
     try {
-      if (Platform.OS === "web") {
-        const url = URL.createObjectURL(
-          new Blob([data], {
-            type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-          }),
-        );
-
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = fileName;
-        link.click();
-
-        URL.revokeObjectURL(url);
-        return;
-      }
-
-      const file = new File(Paths.cache, fileName);
-      file.create({ overwrite: true });
-      file.write(new Uint8Array(data));
-
-      await Sharing.shareAsync(file.uri, {
-        dialogTitle: `Excel report for ${monthKey}`,
-        mimeType:
-          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      });
-    } catch {
+      await saveFileWithFolderPicker(
+        dataUri,
+        `ai-khata-finance-${monthKey}`,
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      );
+      Alert.alert("Downloaded", "Excel report saved successfully.");
+    } catch (e: any) {
       Alert.alert(
         "Report unavailable",
-        "Unable to generate the Excel report. Please try again.",
+        e?.message || "Unable to save the Excel report. Please try again.",
       );
     }
   };
@@ -617,7 +1444,6 @@ export default function FinanceScreen() {
         net: reportSummary.net,
         transactions,
       });
-
       setShowReportOptions(false);
     } catch {
       Alert.alert(
@@ -628,7 +1454,7 @@ export default function FinanceScreen() {
   };
 
   // ============================================================
-  // LOADING
+  // LOADING / NO ACCOUNT
   // ============================================================
 
   if (accountsLoading) {
@@ -645,10 +1471,6 @@ export default function FinanceScreen() {
     );
   }
 
-  // ============================================================
-  // NO ACCOUNT
-  // ============================================================
-
   if (!selectedAccount) {
     return (
       <View style={styles.container}>
@@ -656,15 +1478,12 @@ export default function FinanceScreen() {
           <View style={styles.emptyIcon}>
             <Ionicons name="wallet-outline" size={38} color="#2563EB" />
           </View>
-
           <Text style={styles.emptyTitle}>No Property Selected</Text>
-
           <Text style={styles.emptySubtitle}>
             {accounts.length > 0
               ? "Select a property to view its financial overview."
               : "Create a property to start managing finances."}
           </Text>
-
           <TouchableOpacity
             style={styles.selectButton}
             onPress={() => {
@@ -722,7 +1541,6 @@ export default function FinanceScreen() {
           <View style={styles.headerTextContainer}>
             <Text style={styles.headerEyebrow}>FINANCE</Text>
             <Text style={styles.headerTitle}>Money Overview</Text>
-
             <View style={styles.propertyRow}>
               <Ionicons name="business-outline" size={13} color="#64748B" />
               <Text style={styles.propertyName} numberOfLines={1}>
@@ -730,7 +1548,6 @@ export default function FinanceScreen() {
               </Text>
             </View>
           </View>
-
           <View style={styles.headerIcon}>
             <Ionicons name="wallet" size={21} color="#2563EB" />
           </View>
@@ -798,7 +1615,6 @@ export default function FinanceScreen() {
             <View style={styles.calendarIcon}>
               <Ionicons name="calendar-outline" size={18} color="#2563EB" />
             </View>
-
             <View>
               <Text style={styles.monthCaption}>BILLING MONTH</Text>
               <Text style={styles.monthText}>
@@ -839,33 +1655,43 @@ export default function FinanceScreen() {
 
         <View style={styles.sectionLabelRow}>
           <Text style={styles.sectionLabel}>Monthly Summary</Text>
+          <Text style={styles.sectionLabelHint}>Paid only</Text>
         </View>
 
-        <View style={styles.summaryGrid}>
-          <SummaryCard
-            title="Income"
-            amount={summary.totalIncome}
-            icon="arrow-down"
-            color="#16A34A"
-            backgroundColor="#ECFDF3"
-          />
-          <SummaryCard
-            title="Expenses"
-            amount={summary.totalExpense}
-            icon="arrow-up"
-            color="#DC2626"
-            backgroundColor="#FEF2F2"
-          />
-          <View style={styles.summaryCardLastWrapper}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.summaryScrollContent}
+          style={styles.summaryScroll}
+        >
+          <View style={styles.summaryCardWrapper}>
             <SummaryCard
-              title="Net"
-              amount={Math.abs(summary.net)}
-              icon="calculator-outline"
-              color={summary.net >= 0 ? "#2563EB" : "#DC2626"}
-              backgroundColor={summary.net >= 0 ? "#EFF6FF" : "#FEF2F2"}
+              title="Income"
+              amount={summary.totalIncome}
+              icon="arrow-down"
+              color="#16A34A"
+              backgroundColor="#ECFDF3"
             />
           </View>
-        </View>
+          <View style={styles.summaryCardWrapper}>
+            <SummaryCard
+              title="Expenses"
+              amount={summary.totalExpense}
+              icon="arrow-up"
+              color="#DC2626"
+              backgroundColor="#FEF2F2"
+            />
+          </View>
+          <View style={styles.summaryCardWrapper}>
+            <SummaryCard
+              title="Balance"
+              amount={totalSavings}
+              icon="wallet-outline"
+              color={totalSavings >= 0 ? "#2563EB" : "#DC2626"}
+              backgroundColor={totalSavings >= 0 ? "#EFF6FF" : "#FEF2F2"}
+            />
+          </View>
+        </ScrollView>
 
         <View style={styles.filterHeader}>
           <Text style={styles.sectionLabel}>Transactions</Text>
@@ -900,7 +1726,6 @@ export default function FinanceScreen() {
             }[]
           ).map((item) => {
             const active = filter === item.type;
-
             return (
               <TouchableOpacity
                 key={item.type}
@@ -938,13 +1763,33 @@ export default function FinanceScreen() {
             </View>
           ) : (
             filteredPayments.map((payment) => (
-              <TransactionItem key={payment.id} payment={payment} />
+              <TransactionItem
+                key={payment.id}
+                payment={payment}
+                onShowDetails={openDetails}
+              />
             ))
           )}
         </View>
 
         <View style={styles.bottomPadding} />
       </ScrollView>
+
+      {detailPayment ? (
+        <TransactionDetailModal
+          visible={Boolean(detailPayment)}
+          onClose={closeDetails}
+          title={
+            (detailPayment as any).title ||
+            (detailPayment as any).name ||
+            getCategoryLabel((detailPayment as any).rawCategory)
+          }
+          description={(detailPayment as any).description || ""}
+          attachments={normalizeAttachments(
+            (detailPayment as any).bill_attachments,
+          )}
+        />
+      ) : null}
 
       {canDownloadReport && (
         <Modal
@@ -1365,24 +2210,45 @@ const styles = StyleSheet.create({
     marginLeft: 5,
   },
 
-  sectionLabelRow: { marginBottom: 10 },
+  sectionLabelRow: {
+    marginBottom: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
 
   sectionLabel: { color: "#111827", fontSize: 16, fontWeight: "800" },
 
-  summaryGrid: { flexDirection: "row", marginBottom: 22 },
+  sectionLabelHint: {
+    color: "#94A3B8",
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
+
+  summaryScroll: {
+    marginBottom: 22,
+    marginHorizontal: -16,
+  },
+
+  summaryScrollContent: {
+    paddingHorizontal: 16,
+    gap: 10,
+  },
+
+  summaryCardWrapper: {
+    width: 150,
+  },
 
   summaryCard: {
-    flex: 1,
     backgroundColor: "#fff",
     borderRadius: 17,
     padding: 13,
-    marginRight: 9,
     minHeight: 105,
     borderWidth: 1,
     borderColor: "#E8EDF5",
   },
-
-  summaryCardLastWrapper: { flex: 1 },
 
   summaryIcon: {
     width: 32,
@@ -1448,7 +2314,7 @@ const styles = StyleSheet.create({
 
   transactionItem: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     backgroundColor: "#fff",
     borderRadius: 17,
     padding: 13,
@@ -1468,13 +2334,103 @@ const styles = StyleSheet.create({
 
   transactionInfo: { flex: 1, minWidth: 0 },
 
-  transactionTitle: { color: "#111827", fontSize: 13, fontWeight: "700" },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    minWidth: 0,
+  },
 
-  transactionDescription: { color: "#64748B", fontSize: 10, marginTop: 3 },
+  transactionTitle: {
+    flexShrink: 1,
+    color: "#111827",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+
+  typeBadge: {
+    marginLeft: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    flexShrink: 0,
+  },
+
+  typeBadgeSalary: { backgroundColor: "#F5F3FF" },
+  typeBadgeMaintenance: { backgroundColor: "#EFF6FF" },
+  typeBadgeIncome: { backgroundColor: "#F0FDF4" },
+  typeBadgeExpense: { backgroundColor: "#FEF2F2" },
+
+  typeBadgeText: {
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 0.3,
+  },
+
+  typeBadgeTextSalary: { color: "#7C3AED" },
+  typeBadgeTextMaintenance: { color: "#2563EB" },
+  typeBadgeTextIncome: { color: "#16A34A" },
+  typeBadgeTextExpense: { color: "#DC2626" },
 
   metaRow: { flexDirection: "row", alignItems: "center", marginTop: 4 },
 
   transactionMeta: { color: "#94A3B8", fontSize: 9, marginLeft: 4 },
+
+  phonePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 7,
+    backgroundColor: "#EFF6FF",
+    borderWidth: 1,
+    borderColor: "#DBEAFE",
+    alignSelf: "flex-start",
+  },
+
+  phonePillText: {
+    color: "#2563EB",
+    fontSize: 10,
+    fontWeight: "700",
+  },
+
+  viewButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 7,
+    backgroundColor: "#EFF6FF",
+    borderWidth: 1,
+    borderColor: "#DBEAFE",
+    alignSelf: "flex-start",
+    marginTop: 5,
+  },
+
+  viewButtonText: {
+    color: "#2563EB",
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.3,
+  },
+
+  attachmentCountBadge: {
+    minWidth: 16,
+    height: 16,
+    paddingHorizontal: 4,
+    borderRadius: 8,
+    backgroundColor: "#7C3AED",
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 2,
+  },
+
+  attachmentCountText: {
+    color: "#fff",
+    fontSize: 9,
+    fontWeight: "800",
+  },
 
   transactionRight: { alignItems: "flex-end", marginLeft: 8 },
 
@@ -1606,6 +2562,150 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "flex-end",
     backgroundColor: "rgba(15,23,42,0.45)",
+  },
+
+  modalOverlayCenter: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "rgba(15,23,42,0.45)",
+    paddingHorizontal: 20,
+  },
+
+  detailModal: {
+    width: "100%",
+    maxWidth: 440,
+    maxHeight: "82%",
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    overflow: "hidden",
+  },
+
+  detailHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F1F5F9",
+  },
+
+  detailIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: "#EFF6FF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
+  },
+
+  detailTitle: {
+    flex: 1,
+    color: "#111827",
+    fontSize: 14,
+    fontWeight: "800",
+  },
+
+  detailClose: {
+    width: 32,
+    height: 32,
+    borderRadius: 9,
+    backgroundColor: "#F1F5F9",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  detailScroll: { maxHeight: 480 },
+
+  detailScrollContent: { padding: 16 },
+
+  detailSectionLabel: {
+    marginBottom: 8,
+    color: "#334155",
+    fontSize: 11,
+    fontWeight: "800",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+  },
+
+  detailDescriptionBox: {
+    backgroundColor: "#F8FAFC",
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: "#E8EDF5",
+  },
+
+  detailDescriptionText: {
+    color: "#334155",
+    fontSize: 12.5,
+    lineHeight: 19,
+  },
+
+  detailEmptyAttachment: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 18,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: "#E2E8F0",
+    backgroundColor: "#F8FAFC",
+  },
+
+  detailEmptyAttachmentText: {
+    color: "#94A3B8",
+    fontSize: 11,
+    fontWeight: "600",
+  },
+
+  attachmentRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F8FAFC",
+    borderRadius: 12,
+    padding: 10,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: "#E8EDF5",
+  },
+
+  attachmentIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: "#F5F3FF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
+  },
+
+  attachmentInfo: { flex: 1, minWidth: 0 },
+
+  attachmentName: {
+    color: "#111827",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+
+  attachmentUrl: {
+    color: "#94A3B8",
+    fontSize: 10,
+    marginTop: 2,
+  },
+
+  attachmentDownload: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: "#7C3AED",
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 8,
   },
 
   bottomSheet: {

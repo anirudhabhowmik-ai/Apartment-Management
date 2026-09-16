@@ -1908,7 +1908,7 @@ export default function AddMemberScreen() {
 
             <View style={styles.fieldContainer}>
               <View style={styles.labelRow}>
-                <Text style={styles.inputLabel}>Expense Date</Text>
+                <Text style={styles.inputLabel}>Transaction Date</Text>
               </View>
               <TouchableOpacity
                 style={styles.dateInput}
