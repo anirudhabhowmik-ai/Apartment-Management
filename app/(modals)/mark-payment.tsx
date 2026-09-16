@@ -84,9 +84,28 @@ const formatMonth = (month: string) =>
     year: "numeric",
   });
 
-const safeNum = (v: unknown, fallback = 0): number => {
-  const n = typeof v === "number" ? v : Number(v);
-  return Number.isFinite(n) ? n : fallback;
+const toAmountInput = (raw: unknown): string => {
+  if (raw === null || raw === undefined) return "";
+  const asString = String(raw).trim();
+  if (!asString) return "";
+  const n = Number(asString);
+  if (!Number.isFinite(n) || n <= 0) return "";
+  const truncated = Math.trunc(n);
+  if (truncated <= 0) return "";
+  return String(truncated);
+};
+
+/**
+ * Sanitize what the user types. Keeps only digits and strips leading zeros.
+ *   "0"    → ""
+ *   "02"   → "2"
+ *   "500"  → "500"
+ *   "₹500" → "500"
+ */
+const sanitizeAmountText = (value: string): string => {
+  const digitsOnly = String(value ?? "").replace(/[^0-9]/g, "");
+  if (!digitsOnly) return "";
+  return digitsOnly.replace(/^0+/, "");
 };
 
 const defaultPaidDate = (month: string | null): string => {
@@ -143,9 +162,6 @@ export default function MarkPaymentScreen() {
 
   const paymentMonth = monthParam || new Date().toISOString().slice(0, 7);
 
-  // -------------------------------------------------------------------------
-  // Fetch the member and staff lists for this month.
-  // -------------------------------------------------------------------------
   const membersHook = useMembers(accountId || null, paymentMonth);
   const staffHook = useStaff(accountId || null, paymentMonth);
 
@@ -155,8 +171,6 @@ export default function MarkPaymentScreen() {
   const isStaffMember = !!staffMatch;
   const member = staffMatch ?? memberMatch;
 
-  // "maintenance" vs "salary" — prefer the URL param, fall back to
-  // whatever list actually contains the member.
   const type: "maintenance" | "salary" =
     typeParam === "salary" || typeParam === "maintenance"
       ? (typeParam as "maintenance" | "salary")
@@ -166,7 +180,6 @@ export default function MarkPaymentScreen() {
 
   const isEditing = modeParam === "edit";
 
-  // -------------------------------------------------------------------------
   const getAttendanceRecord = useAttendanceStore((state) => state.getRecord);
   const cacheAttendance = useAttendanceStore((state) => state.saveRecord);
   const clearRecord = useAttendanceStore((state) => state.clearRecord);
@@ -208,9 +221,6 @@ export default function MarkPaymentScreen() {
 
   // -------------------------------------------------------------------------
   // Fetch attendance from the server whenever this is a staff payment.
-  //
-  // We gate on `isStaffMember` (derived from the fetched list), NOT on the
-  // URL `type` param, because some navigations forget to pass `type`.
   // -------------------------------------------------------------------------
   useEffect(() => {
     if (!isStaffMember || !accountId || !memberId) return;
@@ -226,10 +236,6 @@ export default function MarkPaymentScreen() {
 
         if (cancelled) return;
 
-        console.log("[mark-payment] attendance server response:", data);
-
-        // Server has no row → authoritative. Wipe the local cache so
-        // stale data from a previous save doesn't resurface.
         if (!data) {
           clearRecord(memberId, paymentMonth);
           setServerAttendance({
@@ -248,13 +254,6 @@ export default function MarkPaymentScreen() {
           rawCalc != null && Number.isFinite(Number(rawCalc))
             ? Number(rawCalc)
             : null;
-
-        console.log("[mark-payment] parsed attendance:", {
-          hasData: true,
-          statusCount: Object.keys(statuses).length,
-          rawCalc,
-          calculatedSalary,
-        });
 
         setServerAttendance({ statuses, calculatedSalary });
 
@@ -295,9 +294,6 @@ export default function MarkPaymentScreen() {
         ? member.monthlySalary
         : 0;
 
-  // -------------------------------------------------------------------------
-  // Compute the "Payable for this month" value.
-  // -------------------------------------------------------------------------
   const attendanceAdjustedSalary = (() => {
     if (!isStaffMember) return null;
     if (!member || !("monthlySalary" in member)) return null;
@@ -355,20 +351,24 @@ export default function MarkPaymentScreen() {
     setSelectedStatus(existingStatus);
     setPaidDate(paymentForMonth?.paidDate || defaultPaidDate(paymentMonth));
 
-    setAdditionalAmount(paymentForMonth?.additionalAmount?.toString() || "");
-    setAdditionalNote(paymentForMonth?.additionalNote || "");
+    const additionalText = toAmountInput(
+      (paymentForMonth as any)?.additionalAmount,
+    );
+    setAdditionalAmount(additionalText);
+    setAdditionalNote((paymentForMonth as any)?.additionalNote || "");
     setShowAdditionalAmount(
-      Boolean(
-        paymentForMonth?.additionalAmount || paymentForMonth?.additionalNote,
-      ),
+      additionalText.length > 0 ||
+        Boolean((paymentForMonth as any)?.additionalNote),
     );
 
-    setDeductionAmount(paymentForMonth?.deductionAmount?.toString() || "");
-    setDeductionNote(paymentForMonth?.deductionNote || "");
+    const deductionText = toAmountInput(
+      (paymentForMonth as any)?.deductionAmount,
+    );
+    setDeductionAmount(deductionText);
+    setDeductionNote((paymentForMonth as any)?.deductionNote || "");
     setShowDeduction(
-      Boolean(
-        paymentForMonth?.deductionAmount || paymentForMonth?.deductionNote,
-      ),
+      deductionText.length > 0 ||
+        Boolean((paymentForMonth as any)?.deductionNote),
     );
   }, [member, paymentMonth]);
 
@@ -386,17 +386,43 @@ export default function MarkPaymentScreen() {
     try {
       setSaving(true);
 
+      // Send `null` when the field is empty/zero so the backend stores NULL
+      // instead of 0. Send a positive integer when the user typed something.
+      const parsedAdditional = Number(additionalAmount);
+      const additionalPayload: number | null | undefined =
+        showAdditionalAmount &&
+        additionalAmount.trim().length > 0 &&
+        Number.isFinite(parsedAdditional) &&
+        parsedAdditional > 0
+          ? Math.trunc(parsedAdditional)
+          : null;
+
+      const parsedDeduction = Number(deductionAmount);
+      const deductionPayload: number | null | undefined =
+        showDeduction &&
+        deductionAmount.trim().length > 0 &&
+        Number.isFinite(parsedDeduction) &&
+        parsedDeduction > 0
+          ? Math.trunc(parsedDeduction)
+          : null;
+
+      const additionalNotePayload: string | null | undefined =
+        showAdditionalAmount ? additionalNote.trim() || null : null;
+
+      const deductionNotePayload: string | null | undefined = showDeduction
+        ? deductionNote.trim() || null
+        : null;
+
       const payload = {
         status: finalStatus,
-        paidDate: finalStatus === "paid" && paidDate ? paidDate : null,
-        additionalAmount: showAdditionalAmount
-          ? safeNum(additionalValue, 0)
-          : 0,
-        additionalNote: showAdditionalAmount
-          ? additionalNote.trim() || null
-          : null,
-        deductionAmount: showDeduction ? safeNum(deductionValue, 0) : 0,
-        deductionNote: showDeduction ? deductionNote.trim() || null : null,
+        paidDate:
+          finalStatus === "paid" && paidDate
+            ? paidDate
+            : (null as string | null),
+        additionalAmount: additionalPayload,
+        additionalNote: additionalNotePayload,
+        deductionAmount: deductionPayload,
+        deductionNote: deductionNotePayload,
         month: paymentMonth,
       };
 
@@ -718,16 +744,19 @@ export default function MarkPaymentScreen() {
               <TextInput
                 style={styles.input}
                 placeholder="Additional amount"
+                placeholderTextColor="#94a3b8"
                 keyboardType="numeric"
+                inputMode="numeric"
                 value={additionalAmount}
                 onChangeText={(value) =>
-                  setAdditionalAmount(value.replace(/[^0-9]/g, ""))
+                  setAdditionalAmount(sanitizeAmountText(value))
                 }
               />
 
               <TextInput
                 style={styles.input}
                 placeholder="Note, e.g. bonus or event work"
+                placeholderTextColor="#94a3b8"
                 value={additionalNote}
                 onChangeText={setAdditionalNote}
               />
@@ -760,16 +789,19 @@ export default function MarkPaymentScreen() {
               <TextInput
                 style={styles.input}
                 placeholder="Deduction amount"
+                placeholderTextColor="#94a3b8"
                 keyboardType="numeric"
+                inputMode="numeric"
                 value={deductionAmount}
                 onChangeText={(value) =>
-                  setDeductionAmount(value.replace(/[^0-9]/g, ""))
+                  setDeductionAmount(sanitizeAmountText(value))
                 }
               />
 
               <TextInput
                 style={styles.input}
                 placeholder="Note, e.g. advance or absence"
+                placeholderTextColor="#94a3b8"
                 value={deductionNote}
                 onChangeText={setDeductionNote}
               />
@@ -1024,6 +1056,7 @@ const styles = StyleSheet.create({
     height: 48,
     marginTop: 10,
     paddingHorizontal: 12,
+    color: "#111827",
   },
   netAmountCard: {
     alignItems: "center",

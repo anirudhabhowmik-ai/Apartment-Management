@@ -71,12 +71,28 @@ function safeNum(v: unknown, fallback = 0): number {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function toNullableAmount(v: unknown): number | null {
+  if (v === null || v === undefined) return null;
+  if (typeof v === "string" && v.trim() === "") return null;
+  const n = typeof v === "number" ? v : Number(v);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  const truncated = Math.trunc(n);
+  if (truncated <= 0) return null;
+  return truncated;
+}
+
+function toNullableNote(v: unknown): string | null {
+  if (v === null || v === undefined) return null;
+  const s = String(v).trim();
+  return s.length === 0 ? null : s;
+}
+
 export interface UpsertPaymentPayload {
   status: "paid" | "due";
   paidDate?: string | null;
-  additionalAmount?: number;
+  additionalAmount?: number | null;
   additionalNote?: string | null;
-  deductionAmount?: number;
+  deductionAmount?: number | null;
   deductionNote?: string | null;
 }
 
@@ -89,10 +105,10 @@ function sanitizeUpsertPayload(
       payload.paidDate && typeof payload.paidDate === "string"
         ? payload.paidDate
         : null,
-    additionalAmount: safeNum(payload.additionalAmount, 0),
-    additionalNote: payload.additionalNote ?? null,
-    deductionAmount: safeNum(payload.deductionAmount, 0),
-    deductionNote: payload.deductionNote ?? null,
+    additionalAmount: toNullableAmount(payload.additionalAmount),
+    additionalNote: toNullableNote(payload.additionalNote),
+    deductionAmount: toNullableAmount(payload.deductionAmount),
+    deductionNote: toNullableNote(payload.deductionNote),
   };
 }
 
