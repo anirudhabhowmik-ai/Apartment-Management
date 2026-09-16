@@ -2,6 +2,7 @@ import { downloadFinanceReportPdf } from "@/services/financeReportPdf";
 import { Ionicons } from "@expo/vector-icons";
 import * as FileSystem from "expo-file-system/legacy";
 import { useRouter } from "expo-router";
+import * as SecureStore from "expo-secure-store";
 import * as Sharing from "expo-sharing";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -24,7 +25,6 @@ import { useAccounts } from "../../hooks/useAccounts";
 import { useExpenses, useMembers, useStaff } from "../../hooks/useManagement";
 import { useUserRole } from "../../hooks/useUserRole";
 import { useAccountStore } from "../../store/accountStore";
-import { useFinanceBalanceStore } from "../../store/financeBalanceStore";
 import type { Member } from "../../types";
 
 import {
@@ -45,7 +45,91 @@ import {
 
 type FilterType = "all" | "income" | "expense" | "pending";
 type TransactionType = "income" | "expense";
-type BillAttachment = { name?: string; url: string };
+type BillAttachment = { name?: string; url?: string };
+
+type OpeningBalanceResponse = {
+  account_id: string;
+  opening_balance: number;
+  updated_by: string | null;
+  updated_by_phone?: string | null;
+  updated_by_name?: string | null;
+  updated_at: string | null;
+  can_edit?: boolean;
+};
+
+type CarriedForwardResponse = {
+  account_id: string;
+  month: string;
+  opening_balance: number;
+  maintenance_income: number;
+  salary_expense: number;
+  transaction_income: number;
+  transaction_expense: number;
+  previous_net: number;
+  carried_forward: number;
+};
+
+// ============================================================
+// OPENING BALANCE API
+// ============================================================
+
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
+const AUTH_TOKEN_KEY = "auth_token";
+const OPENING_BALANCE_PREFIX = "/opening-balance";
+
+async function getAuthToken(): Promise<string | null> {
+  try {
+    return await SecureStore.getItemAsync(AUTH_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+async function openingBalanceRequest<T>(
+  path: string,
+  options: RequestInit = {},
+): Promise<T> {
+  if (!API_BASE_URL) throw new Error("EXPO_PUBLIC_API_URL is not configured.");
+
+  const token = await getAuthToken();
+  const url = `${API_BASE_URL}${OPENING_BALANCE_PREFIX}${path}`;
+
+  const res = await fetch(url, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(options.headers ?? {}),
+    },
+  });
+
+  let data: any = null;
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
+  }
+
+  if (!res.ok) {
+    const err: any = new Error(
+      data?.message || `Request failed with status ${res.status}`,
+    );
+    err.status = res.status;
+    err.body = data;
+    throw err;
+  }
+
+  return data as T;
+}
+
+async function carriedForwardRequest(
+  accountId: string,
+  month: string,
+): Promise<CarriedForwardResponse> {
+  return openingBalanceRequest<CarriedForwardResponse>(
+    `/${accountId}/carried-forward?month=${encodeURIComponent(month)}`,
+  );
+}
 
 // ============================================================
 // HELPERS
@@ -100,6 +184,20 @@ const formatFullDate = (dateStr?: string | null): string => {
   )}/${parts[0]}`;
 };
 
+const formatEditedAt = (iso?: string | null): string => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const day = String(d.getDate()).padStart(2, "0");
+  const month = String(d.getMonth() + 1).padStart(2, "0");
+  const year = d.getFullYear();
+  let hours = d.getHours();
+  const minutes = String(d.getMinutes()).padStart(2, "0");
+  const ampm = hours >= 12 ? "PM" : "AM";
+  hours = hours % 12 || 12;
+  return `${day}/${month}/${year} · ${hours}:${minutes} ${ampm}`;
+};
+
 const formatPhoneForDisplay = (raw?: string | null): string => {
   if (!raw) return "";
   const digits = String(raw).replace(/\D/g, "");
@@ -130,12 +228,9 @@ const callNumber = async (raw?: string | null) => {
 };
 
 // ------------------------------------------------------------
-// File save helpers — preserve original format & let user pick folder
+// File save helpers
 // ------------------------------------------------------------
 
-/**
- * Detect a file extension from a mime type or URI.
- */
 const pickExtension = (mimeOrUri?: string | null): string => {
   const s = String(mimeOrUri || "").toLowerCase();
   if (s.includes("image/png") || s.endsWith(".png")) return "png";
@@ -148,9 +243,6 @@ const pickExtension = (mimeOrUri?: string | null): string => {
   return "jpg";
 };
 
-/**
- * Detect a MIME type from a mime type or URI.
- */
 const pickMimeType = (mimeOrUri?: string | null): string => {
   const ext = pickExtension(mimeOrUri);
   switch (ext) {
@@ -169,24 +261,6 @@ const pickMimeType = (mimeOrUri?: string | null): string => {
   }
 };
 
-/**
- * Ask the user where to save a file, then write it there.
- *
- * - Android: uses StorageAccessFramework to show the system folder picker.
- *   The returned `content://` URI is written to directly, preserving the
- *   original format.
- * - iOS:     there is no folder picker (app is sandboxed), so we open the
- *   native share sheet which offers "Save to Files".
- * - Web:     triggers a browser download.
- *
- * @param base64OrLocalUri  Either a base64-encoded payload (without the
- *                          data: prefix), a `file://` URI, or an http(s)
- *                          URL.
- * @param suggestedName     Filename (without extension) the picker will
- *                          pre-fill.
- * @param sourceHint        Anything that reveals the format — usually the
- *                          original mime type or a URL with extension.
- */
 const saveFileWithFolderPicker = async (
   base64OrLocalUri: string,
   suggestedName: string,
@@ -197,7 +271,6 @@ const saveFileWithFolderPicker = async (
   const mimeType = pickMimeType(sourceHint);
   const fileName = `${safeBase}.${ext}`;
 
-  // ---------------- Web ----------------
   if (Platform.OS === "web") {
     try {
       let href = base64OrLocalUri;
@@ -229,10 +302,6 @@ const saveFileWithFolderPicker = async (
     }
   }
 
-  // ---------------- Materialise a local temp file first ----------------
-  // Both Android SAF and iOS share sheet operate on a local file URI,
-  // so we always stage the content into cache first, in its original
-  // format. Then the user picks where to save.
   const cacheDir = FileSystem.cacheDirectory;
   if (!cacheDir) throw new Error("Cache directory not available.");
   const tempUri = `${cacheDir}${fileName}`;
@@ -246,25 +315,21 @@ const saveFileWithFolderPicker = async (
         encoding: FileSystem.EncodingType.Base64,
       });
     } else if (base64OrLocalUri.startsWith("file://")) {
-      // Already a local file — copy to cache under our chosen name
       await FileSystem.copyAsync({ from: base64OrLocalUri, to: tempUri });
     } else {
-      // Remote URL — download it to cache
       await FileSystem.downloadAsync(base64OrLocalUri, tempUri);
     }
   } catch (e: any) {
     throw new Error(e?.message || "Failed to prepare file for saving.");
   }
 
-  // ---------------- Android: StorageAccessFramework ----------------
   if (Platform.OS === "android") {
     const SAF = (FileSystem as any).StorageAccessFramework;
     if (SAF?.requestDirectoryPermissionsAsync) {
       const perm = await SAF.requestDirectoryPermissionsAsync();
       if (!perm.granted) {
-        return null; // user cancelled
+        return null;
       }
-      // Read staged file as base64, write into the picked folder via SAF
       const base64Data = await FileSystem.readAsStringAsync(tempUri, {
         encoding: FileSystem.EncodingType.Base64,
       });
@@ -281,10 +346,8 @@ const saveFileWithFolderPicker = async (
 
       return { savedUri: fileUri };
     }
-    // SAF unavailable — fall through to share sheet
   }
 
-  // ---------------- iOS (and Android fallback): share sheet ----------------
   if (await Sharing.isAvailableAsync()) {
     await Sharing.shareAsync(tempUri, {
       mimeType,
@@ -297,10 +360,6 @@ const saveFileWithFolderPicker = async (
   throw new Error("Saving is not available on this device.");
 };
 
-/**
- * Download a bill attachment. Preserves original format and, on Android,
- * opens the system folder picker.
- */
 const downloadBillAttachment = async (
   uri?: string | null,
   name?: string | null,
@@ -310,11 +369,9 @@ const downloadBillAttachment = async (
     return;
   }
 
-  // Figure out suggested name (strip any existing extension)
   const baseName = (name || "bill").replace(/\.[^.]+$/, "");
 
   try {
-    // Figure out the hint (mime) from a data: URI, otherwise from the URI
     let hint: string | null = null;
     if (uri.startsWith("data:")) {
       const m = uri.match(/^data:([^;]+);/);
@@ -326,7 +383,6 @@ const downloadBillAttachment = async (
     const result = await saveFileWithFolderPicker(uri, baseName, hint);
 
     if (!result) {
-      // User cancelled the folder picker
       return;
     }
 
@@ -405,21 +461,12 @@ function normalizeAttachments(raw: any): BillAttachment[] {
     .filter(Boolean) as BillAttachment[];
 }
 
-/**
- * Find the payment record for a member/staff whose **paid_date falls in
- * `month`**, regardless of which billing month it belongs to.
- *
- * `monthlyPayments` is keyed by billing month. Each entry has a
- * `paidDate`. We scan every entry and return the first one whose
- * `paidDate` is inside `month`.
- */
 function findPaidPaymentInMonth(
   member: any,
   month: string,
 ): { billingMonth: string; paidDate: string } | null {
   const mp = member?.monthlyPayments;
   if (!mp || typeof mp !== "object") {
-    // Fallback: legacy top-level paidDate
     const pd = member?.paidDate ? toDateOnly(member.paidDate) : "";
     if (pd && toMonthKey(pd) === month) {
       return { billingMonth: month, paidDate: pd };
@@ -437,7 +484,6 @@ function findPaidPaymentInMonth(
     }
   }
 
-  // Legacy top-level fallback
   const pd = member?.paidDate ? toDateOnly(member.paidDate) : "";
   if (pd && toMonthKey(pd) === month) {
     return { billingMonth: month, paidDate: pd };
@@ -445,17 +491,12 @@ function findPaidPaymentInMonth(
   return null;
 }
 
-/**
- * Check if a member/staff has any due payment in `month`.
- * A due exists if the billing month matches AND that entry is not paid.
- */
 function hasDueInMonth(member: any, month: string): boolean {
   const mp = member?.monthlyPayments;
   if (mp && typeof mp === "object") {
     const entry = mp[month];
     if (entry && entry.status !== "paid") return true;
   }
-  // No payment record → still due if billing month is current/previous
   if (!mp || !mp[month]) {
     return isDueRelevant(month);
   }
@@ -542,12 +583,16 @@ function TransactionDetailModal({
                       {att.name || `Bill ${index + 1}`}
                     </Text>
                     <Text style={styles.attachmentUrl} numberOfLines={1}>
-                      {att.url.startsWith("data:") ? "Embedded image" : att.url}
+                      {att.url?.startsWith("data:")
+                        ? "Embedded image"
+                        : att.url || ""}
                     </Text>
                   </View>
                   <TouchableOpacity
                     style={styles.attachmentDownload}
-                    onPress={() => downloadBillAttachment(att.url, att.name)}
+                    onPress={() =>
+                      att.url && downloadBillAttachment(att.url, att.name)
+                    }
                     activeOpacity={0.7}
                   >
                     <Ionicons name="download-outline" size={16} color="#fff" />
@@ -651,9 +696,6 @@ function TransactionItem({
       anyPayment.billAttachment,
   );
   const hasAttachments = attachments.length > 0;
-
-  const fullDescription: string =
-    typeof anyPayment.description === "string" ? anyPayment.description : "";
 
   const paidDate: string | null =
     typeof anyPayment.paidDate === "string" && anyPayment.paidDate
@@ -965,17 +1007,9 @@ export default function FinanceScreen() {
     (state) => state.setAccountSwitcherOpen,
   );
 
-  const openingBalances = useFinanceBalanceStore(
-    (state) => state.openingBalances,
-  );
-
-  const setOpeningBalance = useFinanceBalanceStore(
-    (state) => state.setOpeningBalance,
-  );
-
   const { isAdmin, isMember } = useUserRole();
 
-  const canEditBalance = isAdmin;
+  const canEditBalance = isAdmin || isMember;
   const canDownloadReport = isAdmin || isMember;
 
   const [refreshing, setRefreshing] = useState(false);
@@ -993,9 +1027,24 @@ export default function FinanceScreen() {
   const [selectedMonth, setSelectedMonth] = useState(new Date());
   const [showReportOptions, setShowReportOptions] = useState(false);
 
+  // ---- Opening balance (server-persisted) ----
+  const [openingBalance, setOpeningBalanceState] = useState(0);
+  const [openingBalanceMeta, setOpeningBalanceMeta] = useState<{
+    updatedAt: string | null;
+    updatedByPhone: string | null;
+  }>({
+    updatedAt: null,
+    updatedByPhone: null,
+  });
+  const [openingBalanceLoading, setOpeningBalanceLoading] = useState(false);
   const [showOpeningBalanceEditor, setShowOpeningBalanceEditor] =
     useState(false);
   const [openingBalanceInput, setOpeningBalanceInput] = useState("");
+
+  // ---- Carried forward (server-computed) ----
+  // Includes opening balance + all previous months' net.
+  const [carriedForwardBalance, setCarriedForwardBalance] = useState(0);
+  const [carriedForwardLoading, setCarriedForwardLoading] = useState(false);
 
   const [detailPayment, setDetailPayment] = useState<PeopleTransaction | null>(
     null,
@@ -1014,23 +1063,107 @@ export default function FinanceScreen() {
   const selectedMonthKey = getMonthKey(selectedMonth);
 
   // ============================================================
+  // OPENING BALANCE — FETCH
+  // ============================================================
+
+  useEffect(() => {
+    if (!selectedAccount?.id) {
+      setOpeningBalanceState(0);
+      setOpeningBalanceMeta({ updatedAt: null, updatedByPhone: null });
+      return;
+    }
+
+    let cancelled = false;
+    setOpeningBalanceLoading(true);
+
+    (async () => {
+      try {
+        const data = await openingBalanceRequest<OpeningBalanceResponse>(
+          `/${selectedAccount.id}`,
+        );
+        if (!cancelled) {
+          setOpeningBalanceState(Number(data.opening_balance) || 0);
+          setOpeningBalanceMeta({
+            updatedAt: data.updated_at ?? null,
+            updatedByPhone: data.updated_by_phone ?? null,
+          });
+        }
+      } catch (e) {
+        if (!cancelled) {
+          console.warn("[finance] opening balance fetch failed:", e);
+          setOpeningBalanceState(0);
+          setOpeningBalanceMeta({ updatedAt: null, updatedByPhone: null });
+        }
+      } finally {
+        if (!cancelled) setOpeningBalanceLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAccount?.id]);
+
+  // ============================================================
+  // CARRIED FORWARD — FETCH (server-computed)
+  // ============================================================
+  //
+  // Refetch whenever:
+  //   - account changes
+  //   - selected month changes (different prior-months window)
+  //   - opening balance changes (owner edited it)
+  //   - expenses reference changes (any expense added/updated)
+  //   - members reference changes (member/JSON updates)
+  //   - summary.net / totals change (this month's paid totals changed,
+  //     meaning a prior month's paid data may have changed too)
+  //
+  useEffect(() => {
+    if (!selectedAccount?.id) {
+      setCarriedForwardBalance(0);
+      return;
+    }
+
+    let cancelled = false;
+    setCarriedForwardLoading(true);
+
+    (async () => {
+      try {
+        const data = await carriedForwardRequest(
+          selectedAccount.id,
+          selectedMonthKey,
+        );
+        if (!cancelled) {
+          setCarriedForwardBalance(Number(data.carried_forward) || 0);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          console.warn("[finance] carried forward fetch failed:", e);
+          setCarriedForwardBalance(0);
+        }
+      } finally {
+        if (!cancelled) setCarriedForwardLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    selectedAccount?.id,
+    selectedMonthKey,
+    openingBalance,
+    openingBalanceMeta.updatedAt,
+    expenses,
+    members,
+    summary.net,
+    summary.totalIncome,
+    summary.totalExpense,
+  ]);
+
+  // ============================================================
   // TRANSACTIONS
   // ============================================================
 
-  /**
-   * Build transactions visible in `monthKey`.
-   *
-   * Members & staff:
-   *   • PAID rows — shown in the month of their **paid_date**, even if
-   *     the billing month is different. So a March bill paid on
-   *     2025-04-15 appears under April.
-   *   • DUE rows — shown only if the billing month is current or
-   *     previous AND that month is unpaid.
-   *
-   * Expenses / income:
-   *   • Paid rows   → shown in the month of `expense_date`.
-   *   • Due rows    → shown only for current or previous month.
-   */
   const getTransactionsForMonth = (monthKey: string): PeopleTransaction[] => {
     const peopleRows: PeopleTransaction[] = [];
     const seenIds = new Set<string>();
@@ -1039,7 +1172,6 @@ export default function FinanceScreen() {
       const category: PaymentCategory =
         member?.monthlySalary !== undefined ? "salary" : "maintenance";
 
-      // ---------- PAID rows in this month (by paid_date) ----------
       const paidHit = findPaidPaymentInMonth(member, monthKey);
       if (paidHit) {
         const isSalary = category === "salary";
@@ -1063,7 +1195,6 @@ export default function FinanceScreen() {
           isTransaction: false,
         };
 
-        // Pull amount from the actual payment entry if present
         const entry = member.monthlyPayments?.[paidHit.billingMonth];
         if (entry?.netAmount != null) {
           sourceRow.amount = Number(entry.netAmount);
@@ -1082,7 +1213,6 @@ export default function FinanceScreen() {
         }
       }
 
-      // ---------- DUE row for this billing month ----------
       if (hasDueInMonth(member, monthKey)) {
         const isSalary = category === "salary";
         const entry = member.monthlyPayments?.[monthKey];
@@ -1102,7 +1232,6 @@ export default function FinanceScreen() {
             : Number(member.maintenanceAmount) || 0,
           status: "due" as PaymentStatus,
           paidDate: null,
-          // due date = 1st of the billing month for display
           dueDate: `${monthKey}-01`,
           transactionType: isSalary ? "expense" : "income",
           transaction_type: isSalary ? "expense" : "income",
@@ -1127,7 +1256,6 @@ export default function FinanceScreen() {
       }
     }
 
-    // ---------- Expenses / income ----------
     const expenseRows: PeopleTransaction[] = (expenses || [])
       .filter((expense: any) => {
         const status = expense.status === "paid" ? "paid" : "due";
@@ -1150,47 +1278,44 @@ export default function FinanceScreen() {
     };
   };
 
-  const firstTrackedMonth = selectedAccount
-    ? selectedAccount.createdAt.slice(0, 7)
-    : selectedMonthKey;
-
-  const previousMonthNets: number[] = [];
-
-  const cursor = new Date(`${firstTrackedMonth}-01T00:00:00`);
-
-  while (getMonthKey(cursor) < selectedMonthKey) {
-    const monthTxns = getTransactionsForMonth(getMonthKey(cursor));
-    const paidTxns = monthTxns.filter((t) => t.status === "paid");
-    previousMonthNets.push(getPeopleSummary(paidTxns).net);
-    cursor.setMonth(cursor.getMonth() + 1);
-  }
-
-  const initialOpeningBalance = selectedAccount
-    ? openingBalances[selectedAccount.id] || 0
-    : 0;
-
-  const carriedForwardBalance =
-    initialOpeningBalance +
-    previousMonthNets.reduce((total, monthNet) => total + monthNet, 0);
-
-  const totalSavings = carriedForwardBalance + summary.net;
-
   // ============================================================
-  // OPENING BALANCE
+  // OPENING BALANCE — EDITOR
   // ============================================================
 
   const openOpeningBalanceEditor = () => {
     if (!canEditBalance) return;
-    setOpeningBalanceInput(
-      initialOpeningBalance ? initialOpeningBalance.toString() : "",
-    );
+    setOpeningBalanceInput(openingBalance ? openingBalance.toString() : "");
     setShowOpeningBalanceEditor(true);
   };
 
-  const saveOpeningBalance = () => {
+  const saveOpeningBalance = async () => {
     if (!selectedAccount || !canEditBalance) return;
-    setOpeningBalance(selectedAccount.id, Number(openingBalanceInput) || 0);
-    setShowOpeningBalanceEditor(false);
+
+    try {
+      const n = Number(openingBalanceInput) || 0;
+
+      const data = await openingBalanceRequest<OpeningBalanceResponse>(
+        `/${selectedAccount.id}`,
+        {
+          method: "PUT",
+          body: JSON.stringify({ openingBalance: n }),
+        },
+      );
+
+      setOpeningBalanceState(Number(data.opening_balance) || 0);
+      setOpeningBalanceMeta({
+        updatedAt: data.updated_at ?? new Date().toISOString(),
+        updatedByPhone: data.updated_by_phone ?? null,
+      });
+
+      setShowOpeningBalanceEditor(false);
+    } catch (e: any) {
+      console.warn("[finance] opening balance save failed:", e);
+      Alert.alert(
+        "Save failed",
+        e?.message || "Could not save the opening balance.",
+      );
+    }
   };
 
   // ============================================================
@@ -1272,6 +1397,24 @@ export default function FinanceScreen() {
 
   const onRefresh = async () => {
     setRefreshing(true);
+    if (selectedAccount?.id) {
+      try {
+        const [obData, cfData] = await Promise.all([
+          openingBalanceRequest<OpeningBalanceResponse>(
+            `/${selectedAccount.id}`,
+          ),
+          carriedForwardRequest(selectedAccount.id, selectedMonthKey),
+        ]);
+        setOpeningBalanceState(Number(obData.opening_balance) || 0);
+        setOpeningBalanceMeta({
+          updatedAt: obData.updated_at ?? null,
+          updatedByPhone: obData.updated_by_phone ?? null,
+        });
+        setCarriedForwardBalance(Number(cfData.carried_forward) || 0);
+      } catch (e) {
+        console.warn("[finance] refresh failed:", e);
+      }
+    }
     loadFinanceData();
     setRefreshing(false);
   };
@@ -1399,7 +1542,6 @@ export default function FinanceScreen() {
 
     const data = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
 
-    // Convert to base64 for the folder picker
     const base64 = (() => {
       const bytes = new Uint8Array(data as ArrayBuffer);
       let binary = "";
@@ -1515,6 +1657,12 @@ export default function FinanceScreen() {
   // MAIN UI
   // ============================================================
 
+  const hasBeenEdited = Boolean(openingBalanceMeta.updatedAt);
+
+  // Net Balance = Carried Forward (already includes opening + previous months)
+  //             + This Month's net
+  const netBalance = carriedForwardBalance + summary.net;
+
   return (
     <View style={styles.container}>
       <ScrollView
@@ -1528,15 +1676,6 @@ export default function FinanceScreen() {
         }
         showsVerticalScrollIndicator={false}
       >
-        {isMember && (
-          <View style={styles.viewOnlyBanner}>
-            <Ionicons name="eye-outline" size={16} color="#2563EB" />
-            <Text style={styles.viewOnlyText}>
-              View-only access · Contact admin to edit opening balance
-            </Text>
-          </View>
-        )}
-
         <View style={styles.header}>
           <View style={styles.headerTextContainer}>
             <Text style={styles.headerEyebrow}>FINANCE</Text>
@@ -1558,24 +1697,55 @@ export default function FinanceScreen() {
           <View style={styles.heroCircleTwo} />
 
           <View style={styles.heroTopRow}>
-            <View>
+            <View style={{ flex: 1, minWidth: 0 }}>
               <Text style={styles.heroSmallLabel}>
                 Start With Opening Balance
               </Text>
+
               <Text
                 style={[
                   styles.heroAmount,
-                  totalSavings < 0 && styles.heroNegative,
+                  openingBalance < 0 && styles.heroNegative,
                 ]}
               >
-                ₹{totalSavings.toLocaleString("en-IN")}
+                ₹{openingBalance.toLocaleString("en-IN")}
               </Text>
+
+              {/* Tappable phone pill + edited date below it */}
+              {hasBeenEdited ? (
+                <View style={styles.heroMetaBlock}>
+                  {openingBalanceMeta.updatedByPhone ? (
+                    <TouchableOpacity
+                      style={styles.heroPhonePill}
+                      onPress={() =>
+                        callNumber(openingBalanceMeta.updatedByPhone)
+                      }
+                      hitSlop={6}
+                      activeOpacity={0.75}
+                    >
+                      <Ionicons name="call" size={11} color="#fff" />
+                      <Text style={styles.heroPhonePillText}>
+                        {formatPhoneForDisplay(
+                          openingBalanceMeta.updatedByPhone,
+                        )}
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
+
+                  {openingBalanceMeta.updatedAt ? (
+                    <Text style={styles.heroMetaText} numberOfLines={1}>
+                      Edited on {formatEditedAt(openingBalanceMeta.updatedAt)}
+                    </Text>
+                  ) : null}
+                </View>
+              ) : null}
             </View>
 
             {canEditBalance && (
               <TouchableOpacity
                 style={styles.heroEditButton}
                 onPress={openOpeningBalanceEditor}
+                disabled={openingBalanceLoading}
               >
                 <Ionicons name="create-outline" size={16} color="#fff" />
                 <Text style={styles.heroEditText}>Edit</Text>
@@ -1585,12 +1755,21 @@ export default function FinanceScreen() {
 
           <View style={styles.heroDivider} />
 
+          {/* Carried Forward | This Month | Net Balance */}
           <View style={styles.heroBottomRow}>
             <View style={styles.heroMetric}>
               <Text style={styles.heroMetricLabel}>Carried Forward</Text>
-              <Text style={styles.heroMetricValue}>
-                ₹{carriedForwardBalance.toLocaleString("en-IN")}
-              </Text>
+              {carriedForwardLoading ? (
+                <ActivityIndicator
+                  size="small"
+                  color="#fff"
+                  style={{ alignSelf: "flex-start", marginTop: 4 }}
+                />
+              ) : (
+                <Text style={styles.heroMetricValue}>
+                  ₹{carriedForwardBalance.toLocaleString("en-IN")}
+                </Text>
+              )}
             </View>
 
             <View style={styles.heroMetricDivider} />
@@ -1605,6 +1784,22 @@ export default function FinanceScreen() {
               >
                 {summary.net >= 0 ? "+" : "-"}₹
                 {Math.abs(summary.net).toLocaleString("en-IN")}
+              </Text>
+            </View>
+
+            <View style={styles.heroMetricDivider} />
+
+            <View style={styles.heroMetric}>
+              <Text style={styles.heroMetricLabel}>Net Balance</Text>
+              <Text
+                style={[
+                  styles.heroMetricValue,
+                  netBalance < 0 && styles.heroNegativeSmall,
+                ]}
+                numberOfLines={1}
+              >
+                {netBalance < 0 ? "-" : ""}₹
+                {Math.abs(netBalance).toLocaleString("en-IN")}
               </Text>
             </View>
           </View>
@@ -1680,15 +1875,6 @@ export default function FinanceScreen() {
               icon="arrow-up"
               color="#DC2626"
               backgroundColor="#FEF2F2"
-            />
-          </View>
-          <View style={styles.summaryCardWrapper}>
-            <SummaryCard
-              title="Balance"
-              amount={totalSavings}
-              icon="wallet-outline"
-              color={totalSavings >= 0 ? "#2563EB" : "#DC2626"}
-              backgroundColor={totalSavings >= 0 ? "#EFF6FF" : "#FEF2F2"}
             />
           </View>
         </ScrollView>
@@ -1926,10 +2112,27 @@ export default function FinanceScreen() {
                 />
               </View>
 
-              <Text style={styles.inputHint}>
-                This balance will be carried forward to future months
-                automatically.
-              </Text>
+              {hasBeenEdited ? (
+                <View style={styles.editedInfoRow}>
+                  <Ionicons name="call-outline" size={14} color="#64748B" />
+                  <Text style={styles.editedInfoText}>
+                    Last edited
+                    {openingBalanceMeta.updatedByPhone
+                      ? ` by ${formatPhoneForDisplay(
+                          openingBalanceMeta.updatedByPhone,
+                        )}`
+                      : ""}
+                    {openingBalanceMeta.updatedAt
+                      ? ` on ${formatEditedAt(openingBalanceMeta.updatedAt)}`
+                      : ""}
+                  </Text>
+                </View>
+              ) : (
+                <Text style={styles.inputHint}>
+                  This balance will be carried forward to future months
+                  automatically.
+                </Text>
+              )}
 
               <View style={styles.openingBalanceActions}>
                 <TouchableOpacity
@@ -1971,26 +2174,6 @@ const styles = StyleSheet.create({
   },
 
   bottomPadding: { height: 30 },
-
-  viewOnlyBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#EFF6FF",
-    borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    marginBottom: 14,
-    gap: 8,
-    borderWidth: 1,
-    borderColor: "#DBEAFE",
-  },
-
-  viewOnlyText: {
-    color: "#1D4ED8",
-    fontSize: 11.5,
-    fontWeight: "600",
-    flex: 1,
-  },
 
   header: {
     flexDirection: "row",
@@ -2092,6 +2275,36 @@ const styles = StyleSheet.create({
 
   heroNegative: { color: "#FECACA" },
 
+  heroMetaBlock: {
+    marginTop: 8,
+    gap: 5,
+  },
+
+  heroPhonePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: "rgba(255,255,255,0.18)",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.22)",
+  },
+
+  heroPhonePillText: {
+    color: "#fff",
+    fontSize: 10.5,
+    fontWeight: "700",
+  },
+
+  heroMetaText: {
+    color: "rgba(255,255,255,0.82)",
+    fontSize: 10.5,
+    fontWeight: "600",
+  },
+
   heroEditButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -2101,6 +2314,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     paddingHorizontal: 10,
     paddingVertical: 7,
+    marginLeft: 10,
   },
 
   heroEditText: {
@@ -2124,18 +2338,18 @@ const styles = StyleSheet.create({
     width: 1,
     height: 30,
     backgroundColor: "rgba(255,255,255,0.18)",
-    marginHorizontal: 16,
+    marginHorizontal: 12,
   },
 
   heroMetricLabel: {
     color: "rgba(255,255,255,0.66)",
-    fontSize: 10,
+    fontSize: 9.5,
     fontWeight: "500",
   },
 
   heroMetricValue: {
     color: "#fff",
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "700",
     marginTop: 3,
   },
@@ -2828,6 +3042,28 @@ const styles = StyleSheet.create({
     lineHeight: 15,
     marginTop: 8,
     marginBottom: 20,
+  },
+
+  editedInfoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#F8FAFC",
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginTop: 10,
+    marginBottom: 18,
+    borderWidth: 1,
+    borderColor: "#E8EDF5",
+  },
+
+  editedInfoText: {
+    flex: 1,
+    color: "#475569",
+    fontSize: 11,
+    lineHeight: 16,
+    fontWeight: "500",
   },
 
   openingBalanceActions: { flexDirection: "row", alignItems: "center" },
