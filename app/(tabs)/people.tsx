@@ -9,6 +9,7 @@ import {
   Image,
   Keyboard,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -32,7 +33,7 @@ import { BillMemberType, useBillStore } from "../../store/billStore";
 import type { AttendanceStatus, ManagementType } from "../../types";
 
 // ---------------------------------------------------------------------------
-// Inline fetch helper — same pattern as the other screens
+// Inline fetch helper
 // ---------------------------------------------------------------------------
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
@@ -119,6 +120,93 @@ type PaymentFilter = "all" | "paid" | "due";
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Normalizes any date-ish string to { year, month, day }.
+ * Accepts:
+ *   • "YYYY-MM-DD"
+ *   • "YYYY-MM-DDTHH:MM:SS.sssZ"
+ *   • "YYYY-MM-DD HH:MM:SS"
+ * Returns null if the input can't be parsed.
+ */
+function parseDateParts(raw: string): {
+  year: string;
+  month: string;
+  day: string;
+} | null {
+  if (!raw) return null;
+
+  const datePart = String(raw).trim().split(/[T ]/)[0];
+  const parts = datePart.split("-");
+
+  if (parts.length < 3) return null;
+
+  const year = parts[0];
+  const month = parts[1];
+  const day = parts[2];
+
+  if (!year || !month || !day) return null;
+  if (year.length !== 4) return null;
+
+  return {
+    year,
+    month: month.padStart(2, "0"),
+    day: day.padStart(2, "0"),
+  };
+}
+
+/** Indian format: DD/MM/YYYY. Falls back to the raw string. */
+const formatFullDate = (dateStr: string): string => {
+  const parts = parseDateParts(dateStr);
+  if (!parts) return dateStr;
+  return `${parts.day}/${parts.month}/${parts.year}`;
+};
+
+/**
+ * Compact Indian format used inside the badge.
+ * Now includes the year: DD/MM/YYYY.
+ * Falls back to the raw string if the input can't be parsed.
+ */
+const formatBadgeDate = (dateStr: string): string => {
+  const parts = parseDateParts(dateStr);
+  if (!parts) return dateStr;
+  return `${parts.day}/${parts.month}/${parts.year}`;
+};
+
+const formatPhoneForDisplay = (raw?: string | null): string => {
+  if (!raw) return "";
+  const digits = String(raw).replace(/\D/g, "");
+  const ten = digits.length > 10 ? digits.slice(-10) : digits;
+  if (ten.length !== 10) return String(raw);
+  return `+91 ${ten.slice(0, 5)} ${ten.slice(5)}`;
+};
+
+/**
+ * Open the phone dialer.
+ *
+ * `Linking.canOpenURL("tel:")` is unreliable on Android 11+ due to package
+ * visibility rules and returns false even when dialing works. Skip the check
+ * and let `openURL` throw on genuine failure.
+ */
+const callNumber = async (raw?: string | null) => {
+  if (!raw) return;
+
+  const digits = String(raw).replace(/\D/g, "");
+  const ten = digits.length > 10 ? digits.slice(-10) : digits;
+  if (ten.length !== 10) {
+    Alert.alert("Invalid number", "This phone number looks incomplete.");
+    return;
+  }
+
+  const url = `tel:+91${ten}`;
+
+  try {
+    await Linking.openURL(url);
+  } catch (error) {
+    console.warn("Failed to open dialer:", error);
+    Alert.alert("Cannot call", "Unable to open the phone dialer.");
+  }
+};
 
 const getTabLabel = (
   type: ManagementType,
@@ -211,19 +299,6 @@ const formatMonthLong = (month: string) =>
     month: "long",
     year: "numeric",
   });
-
-const formatFullDate = (dateStr: string) => {
-  const parts = dateStr.split("-");
-  const year = parts[0];
-  const monthNum = parts[1];
-  const day = parts[2] || "01";
-  const date = new Date(`${year}-${monthNum}-${day}`);
-  return date.toLocaleString("default", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-  });
-};
 
 const navigateMonth = (
   currentMonth: string | null,
@@ -383,9 +458,6 @@ export default function PeopleScreen() {
 
   const [paymentMember, setPaymentMember] = useState<any>(null);
 
-  // -----------------------------------------------------------------------
-  // Server-fetched attendance for the currently-open payment modal.
-  // -----------------------------------------------------------------------
   const [modalAttendance, setModalAttendance] = useState<{
     statuses: Record<string, AttendanceStatus>;
     calculatedSalary: number | null;
@@ -468,9 +540,6 @@ export default function PeopleScreen() {
   const setActiveFilter = (value: PaymentFilter) =>
     setPaymentFilter((current) => ({ ...current, [activeTab]: value }));
 
-  // -------------------------------------------------------------------
-  // Initial refresh when account / refreshKey changes.
-  // -------------------------------------------------------------------
   useEffect(() => {
     if (!selectedAccountId) return;
     let cancelled = false;
@@ -487,9 +556,6 @@ export default function PeopleScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedAccountId, refreshKey]);
 
-  // -------------------------------------------------------------------
-  // Refresh when the screen regains focus (after returning from a modal).
-  // -------------------------------------------------------------------
   useFocusEffect(
     useCallback(() => {
       if (!selectedAccountId) return;
@@ -508,10 +574,6 @@ export default function PeopleScreen() {
     }, [selectedAccountId, selectedMonth]),
   );
 
-  // -------------------------------------------------------------------
-  // Fetch attendance for the staff member when the inline payment modal
-  // opens. Prefer the server value; fall back to cache when offline.
-  // -------------------------------------------------------------------
   useEffect(() => {
     if (!paymentMember) {
       setModalAttendance(null);
@@ -524,7 +586,6 @@ export default function PeopleScreen() {
 
     if (!accountId || !targetMemberId) return;
 
-    // Only fetch for staff rows.
     const isStaffRow = !!staffHook.getById(targetMemberId);
     if (!isStaffRow) {
       setModalAttendance(null);
@@ -541,8 +602,6 @@ export default function PeopleScreen() {
         } | null>(`/${accountId}/staff/${targetMemberId}/attendance/${month}`);
 
         if (cancelled) return;
-
-        console.log("[people] attendance response:", data);
 
         if (!data) {
           clearRecord(targetMemberId, month);
@@ -611,7 +670,6 @@ export default function PeopleScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showFilterDropdown]);
 
-  // Wipe stale attendance cache if the server says there's none for the month.
   useEffect(() => {
     if (!selectedAccountId || !selectedMonth) return;
     if (staffHook.items.length === 0) return;
@@ -732,12 +790,6 @@ export default function PeopleScreen() {
     ? getAttendanceRecord(paymentMember.id, month)
     : undefined;
 
-  // ------------------------------------------------------------------
-  // Attendance-adjusted salary for the modal.
-  //   1. Prefer the value from the server.
-  //   2. Fall back to recomputing from the server-returned statuses.
-  //   3. Fall back to the cached store (offline).
-  // ------------------------------------------------------------------
   const attendanceAdjustedSalary = (() => {
     if (!isStaffTab || !paymentMember) return null;
     if (!("monthlySalary" in paymentMember)) return null;
@@ -1431,6 +1483,17 @@ export default function PeopleScreen() {
 
                   const isPaidThisMonth = monthlyPaymentData.status === "paid";
 
+                  const paidDateForMonth: string | null =
+                    isPaidThisMonth &&
+                    typeof monthlyPaymentData.paidDate === "string" &&
+                    monthlyPaymentData.paidDate.length >= 10
+                      ? monthlyPaymentData.paidDate
+                      : null;
+
+                  const phoneAvailable =
+                    typeof member.phone === "string" &&
+                    member.phone.replace(/\D/g, "").length >= 10;
+
                   return (
                     <Pressable
                       key={`${member.id}-${refreshKey}`}
@@ -1507,13 +1570,40 @@ export default function PeopleScreen() {
                             </Text>
                           )}
 
-                          {isStaffTab && (
-                            <Text
-                              style={styles.memberSubtitle}
-                              numberOfLines={1}
-                            >
-                              {member.phone || "Staff member"}
-                            </Text>
+                          {!isExpenseTab && (
+                            <View style={styles.phoneRow}>
+                              {phoneAvailable ? (
+                                <Pressable
+                                  style={({ pressed }) => [
+                                    styles.phonePill,
+                                    pressed && styles.pressedButton,
+                                  ]}
+                                  onPress={(event) => {
+                                    event.stopPropagation();
+                                    Keyboard.dismiss();
+                                    callNumber(member.phone);
+                                  }}
+                                  hitSlop={6}
+                                  accessibilityRole="button"
+                                  accessibilityLabel={`Call ${member.name}`}
+                                >
+                                  <Ionicons
+                                    name="call"
+                                    size={12}
+                                    color={COLORS.primary}
+                                  />
+                                  <Text style={styles.phonePillText}>
+                                    {formatPhoneForDisplay(member.phone)}
+                                  </Text>
+                                </Pressable>
+                              ) : (
+                                <Text style={styles.memberSubtitle}>
+                                  {isStaffTab
+                                    ? "No phone on file"
+                                    : "Phone hidden"}
+                                </Text>
+                              )}
+                            </View>
                           )}
 
                           {isExpenseTab && (
@@ -1591,9 +1681,14 @@ export default function PeopleScreen() {
                                     ? styles.paymentTextPaid
                                     : styles.paymentTextDue,
                                 ]}
+                                numberOfLines={1}
                               >
                                 {monthlyPaymentData.status === "paid"
-                                  ? `Paid ₹${statusPaymentAmount}`
+                                  ? paidDateForMonth
+                                    ? `Paid ₹${statusPaymentAmount} · ${formatBadgeDate(
+                                        paidDateForMonth,
+                                      )}`
+                                    : `Paid ₹${statusPaymentAmount}`
                                   : `Due ₹${statusPaymentAmount}`}
                               </Text>
                             </View>
@@ -2523,6 +2618,28 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     color: COLORS.secondary,
   },
+  phoneRow: {
+    marginTop: 4,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  phonePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    backgroundColor: COLORS.primaryLight,
+    borderWidth: 1,
+    borderColor: COLORS.primarySoft,
+    alignSelf: "flex-start",
+  },
+  phonePillText: {
+    color: COLORS.primary,
+    fontSize: 11,
+    fontWeight: "700",
+  },
   memberDetails: {
     flexDirection: "row",
     alignItems: "center",
@@ -2546,6 +2663,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 5,
     borderRadius: 8,
+    maxWidth: "65%",
   },
   paymentBadgePaid: { backgroundColor: COLORS.successLight },
   paymentBadgeDue: { backgroundColor: COLORS.dangerLight },
@@ -2557,7 +2675,7 @@ const styles = StyleSheet.create({
   },
   paymentDotPaid: { backgroundColor: COLORS.success },
   paymentDotDue: { backgroundColor: COLORS.danger },
-  paymentBadgeText: { fontSize: 10, fontWeight: "700" },
+  paymentBadgeText: { fontSize: 10, fontWeight: "700", flexShrink: 1 },
   paymentTextPaid: { color: COLORS.success },
   paymentTextDue: { color: COLORS.danger },
 
