@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -30,6 +30,10 @@ import { generateBillPDF, savePDFToDevice } from "../../services/pdfGenerator";
 import { useAttendanceStore } from "../../store/attendanceStore";
 import { BillMemberType, useBillStore } from "../../store/billStore";
 import type { AttendanceStatus, ManagementType } from "../../types";
+
+// ---------------------------------------------------------------------------
+// Inline fetch helper — same pattern as the other screens
+// ---------------------------------------------------------------------------
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
 const AUTH_TOKEN_KEY = "auth_token";
@@ -76,6 +80,10 @@ async function apiGet<T>(path: string): Promise<T> {
   return data as T;
 }
 
+// ---------------------------------------------------------------------------
+// Colors
+// ---------------------------------------------------------------------------
+
 const COLORS = {
   primary: "#2563EB",
   primaryDark: "#1D4ED8",
@@ -107,6 +115,10 @@ const COLORS = {
 };
 
 type PaymentFilter = "all" | "paid" | "due";
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
 
 const getTabLabel = (
   type: ManagementType,
@@ -279,13 +291,6 @@ const getCalculatedStaffSalary = (
   return Math.round((salary / daysInMonth) * paidDays);
 };
 
-/**
- * Resolve the "due" amount for a member/staff row for the selected month.
- *
- * Prefers the server-computed value (due_amount / dueAmount). Falls back
- * to (a) the net_amount on the saved monthly payment, or (b) a client-side
- * computation using base + attendance + additions − deductions.
- */
 const resolveDueAmount = (
   member: any,
   month: string | null,
@@ -298,19 +303,16 @@ const resolveDueAmount = (
     ) => { statuses?: Record<string, AttendanceStatus> } | undefined;
   },
 ): number => {
-  // 1. Direct server value.
   const raw = member?.due_amount ?? member?.dueAmount;
   if (raw != null && Number.isFinite(Number(raw))) {
     return Number(raw);
   }
 
-  // 2. Saved net amount.
   const payment = getPaymentForMonth(member, month);
   if (payment?.netAmount != null) {
     return Number(payment.netAmount);
   }
 
-  // 3. Fallback: compute from base + attendance + adjustments.
   const base = opts.isApartmentTab
     ? Number(member?.maintenanceAmount) || 0
     : Number(member?.monthlySalary) || 0;
@@ -327,6 +329,10 @@ const resolveDueAmount = (
   const deduction = Number(payment?.deductionAmount) || 0;
   return Math.max(0, effectiveBase + additional - deduction);
 };
+
+// ---------------------------------------------------------------------------
+// Screen
+// ---------------------------------------------------------------------------
 
 export default function PeopleScreen() {
   const router = useRouter();
@@ -352,6 +358,7 @@ export default function PeopleScreen() {
   );
 
   const getAttendanceRecord = useAttendanceStore((state) => state.getRecord);
+  const cacheAttendance = useAttendanceStore((state) => state.saveRecord);
   const clearRecord = useAttendanceStore((state) => state.clearRecord);
 
   const { getBillConfig, templates: billTemplates } = useBillStore();
@@ -375,6 +382,14 @@ export default function PeopleScreen() {
   const [showMonthPicker, setShowMonthPicker] = useState(false);
 
   const [paymentMember, setPaymentMember] = useState<any>(null);
+
+  // -----------------------------------------------------------------------
+  // Server-fetched attendance for the currently-open payment modal.
+  // -----------------------------------------------------------------------
+  const [modalAttendance, setModalAttendance] = useState<{
+    statuses: Record<string, AttendanceStatus>;
+    calculatedSalary: number | null;
+  } | null>(null);
 
   const [selectedStatus, setSelectedStatus] = useState<"paid" | "due">("due");
 
@@ -453,8 +468,9 @@ export default function PeopleScreen() {
   const setActiveFilter = (value: PaymentFilter) =>
     setPaymentFilter((current) => ({ ...current, [activeTab]: value }));
 
-  // Refresh only when the account changes or refreshKey is bumped.
-  // Month changes are handled by the hooks themselves.
+  // -------------------------------------------------------------------
+  // Initial refresh when account / refreshKey changes.
+  // -------------------------------------------------------------------
   useEffect(() => {
     if (!selectedAccountId) return;
     let cancelled = false;
@@ -470,6 +486,105 @@ export default function PeopleScreen() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedAccountId, refreshKey]);
+
+  // -------------------------------------------------------------------
+  // Refresh when the screen regains focus (after returning from a modal).
+  // -------------------------------------------------------------------
+  useFocusEffect(
+    useCallback(() => {
+      if (!selectedAccountId) return;
+      let cancelled = false;
+      (async () => {
+        try {
+          await Promise.all([membersHook.refresh(), staffHook.refresh()]);
+        } catch (e) {
+          if (!cancelled) console.warn("Focus refresh failed:", e);
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedAccountId, selectedMonth]),
+  );
+
+  // -------------------------------------------------------------------
+  // Fetch attendance for the staff member when the inline payment modal
+  // opens. Prefer the server value; fall back to cache when offline.
+  // -------------------------------------------------------------------
+  useEffect(() => {
+    if (!paymentMember) {
+      setModalAttendance(null);
+      return;
+    }
+
+    const month = selectedMonth || new Date().toISOString().slice(0, 7);
+    const targetMemberId = paymentMember.id;
+    const accountId = selectedAccountId;
+
+    if (!accountId || !targetMemberId) return;
+
+    // Only fetch for staff rows.
+    const isStaffRow = !!staffHook.getById(targetMemberId);
+    if (!isStaffRow) {
+      setModalAttendance(null);
+      return;
+    }
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await apiGet<{
+          statuses?: Record<string, AttendanceStatus>;
+          calculated_salary?: number | string | null;
+          calculatedSalary?: number | string | null;
+        } | null>(`/${accountId}/staff/${targetMemberId}/attendance/${month}`);
+
+        if (cancelled) return;
+
+        console.log("[people] attendance response:", data);
+
+        if (!data) {
+          clearRecord(targetMemberId, month);
+          setModalAttendance({ statuses: {}, calculatedSalary: null });
+          return;
+        }
+
+        const statuses: Record<string, AttendanceStatus> = data?.statuses ?? {};
+
+        const rawCalc =
+          data?.calculated_salary ?? data?.calculatedSalary ?? null;
+
+        const calculatedSalary =
+          rawCalc != null && Number.isFinite(Number(rawCalc))
+            ? Number(rawCalc)
+            : null;
+
+        setModalAttendance({ statuses, calculatedSalary });
+
+        if (Object.keys(statuses).length > 0) {
+          cacheAttendance({
+            memberId: targetMemberId,
+            month,
+            statuses,
+          });
+        }
+      } catch (err) {
+        if (cancelled) return;
+        console.warn("[people] attendance fetch failed:", err);
+        const cached = getAttendanceRecord(targetMemberId, month);
+        setModalAttendance({
+          statuses: cached?.statuses ?? {},
+          calculatedSalary: null,
+        });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paymentMember, selectedMonth, selectedAccountId]);
 
   useEffect(() => {
     if (tab === "apartment" || tab === "staff" || tab === "expense") {
@@ -496,9 +611,7 @@ export default function PeopleScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [showFilterDropdown]);
 
-  // When the server returns `attendance_for_month == null` for a staff,
-  // the DB has no attendance for that (staff, month). Wipe the local cache
-  // so a stale record from an earlier save doesn't drive the badge.
+  // Wipe stale attendance cache if the server says there's none for the month.
   useEffect(() => {
     if (!selectedAccountId || !selectedMonth) return;
     if (staffHook.items.length === 0) return;
@@ -619,19 +732,44 @@ export default function PeopleScreen() {
     ? getAttendanceRecord(paymentMember.id, month)
     : undefined;
 
-  const attendanceAdjustedSalary =
-    isStaffTab && paymentMember
-      ? attendanceRecordForModal
-        ? getCalculatedStaffSalary(
-            paymentMember.monthlySalary || 0,
-            month,
-            (attendanceRecordForModal.statuses ?? {}) as Record<
-              string,
-              AttendanceStatus
-            >,
-          )
-        : null
-      : null;
+  // ------------------------------------------------------------------
+  // Attendance-adjusted salary for the modal.
+  //   1. Prefer the value from the server.
+  //   2. Fall back to recomputing from the server-returned statuses.
+  //   3. Fall back to the cached store (offline).
+  // ------------------------------------------------------------------
+  const attendanceAdjustedSalary = (() => {
+    if (!isStaffTab || !paymentMember) return null;
+    if (!("monthlySalary" in paymentMember)) return null;
+
+    if (modalAttendance?.calculatedSalary != null) {
+      return modalAttendance.calculatedSalary;
+    }
+
+    if (
+      modalAttendance?.statuses &&
+      Object.keys(modalAttendance.statuses).length > 0
+    ) {
+      return getCalculatedStaffSalary(
+        paymentMember.monthlySalary || 0,
+        month,
+        modalAttendance.statuses,
+      );
+    }
+
+    if (
+      attendanceRecordForModal?.statuses &&
+      Object.keys(attendanceRecordForModal.statuses).length > 0
+    ) {
+      return getCalculatedStaffSalary(
+        paymentMember.monthlySalary || 0,
+        month,
+        attendanceRecordForModal.statuses as Record<string, AttendanceStatus>,
+      );
+    }
+
+    return null;
+  })();
 
   const effectiveBase =
     isStaffTab && attendanceAdjustedSalary != null
@@ -647,6 +785,7 @@ export default function PeopleScreen() {
     if (!canEdit) return;
     const m = selectedMonth || new Date().toISOString().slice(0, 7);
     const monthlyPayment = getPaymentForMonth(member, m);
+    setModalAttendance(null);
     setPaymentMember(member);
     setSelectedStatus(monthlyPayment.status === "paid" ? "paid" : "due");
     setPaidDate(monthlyPayment.paidDate || defaultPaidDate(selectedMonth));

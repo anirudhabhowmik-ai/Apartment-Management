@@ -72,6 +72,12 @@ async function apiGet<T>(path: string): Promise<T> {
 // Helpers
 // ---------------------------------------------------------------------------
 
+/** URL params can be `string | string[]`; normalize to a plain string. */
+function pickParam(raw: string | string[] | undefined): string {
+  if (Array.isArray(raw)) return raw[0] ?? "";
+  return typeof raw === "string" ? raw : "";
+}
+
 const formatMonth = (month: string) =>
   new Date(`${month}-01T00:00:00`).toLocaleString("default", {
     month: "long",
@@ -114,37 +120,59 @@ const getCalculatedStaffSalary = (
   return Math.round((salary / daysInMonth) * paidDays);
 };
 
+// ---------------------------------------------------------------------------
+
 export default function MarkPaymentScreen() {
   const router = useRouter();
 
-  const { accountId, paymentId, memberId, type, mode, month } =
-    useLocalSearchParams<{
-      accountId: string;
-      paymentId?: string;
-      memberId: string;
-      type: "maintenance" | "salary";
-      mode?: "edit";
-      month?: string;
-    }>();
+  const params = useLocalSearchParams<{
+    accountId?: string | string[];
+    paymentId?: string | string[];
+    memberId?: string | string[];
+    type?: string | string[];
+    mode?: string | string[];
+    month?: string | string[];
+  }>();
 
-  const paymentMonth = month || new Date().toISOString().slice(0, 7);
+  const accountId = pickParam(params.accountId);
+  const memberId = pickParam(params.memberId);
+  const paymentId = pickParam(params.paymentId) || undefined;
+  const typeParam = pickParam(params.type);
+  const modeParam = pickParam(params.mode) || undefined;
+  const monthParam = pickParam(params.month);
 
-  // Pass the month so getById reads from a month-scoped list.
-  const membersHook = useMembers(accountId ?? null, paymentMonth);
-  const staffHook = useStaff(accountId ?? null, paymentMonth);
+  const paymentMonth = monthParam || new Date().toISOString().slice(0, 7);
 
-  const isStaffMember = !!staffHook.getById(memberId);
+  // -------------------------------------------------------------------------
+  // Fetch the member and staff lists for this month.
+  // -------------------------------------------------------------------------
+  const membersHook = useMembers(accountId || null, paymentMonth);
+  const staffHook = useStaff(accountId || null, paymentMonth);
 
-  const member = isStaffMember
-    ? staffHook.getById(memberId)
-    : membersHook.getById(memberId);
+  const staffMatch = memberId ? staffHook.getById(memberId) : undefined;
+  const memberMatch = memberId ? membersHook.getById(memberId) : undefined;
 
+  const isStaffMember = !!staffMatch;
+  const member = staffMatch ?? memberMatch;
+
+  // "maintenance" vs "salary" — prefer the URL param, fall back to
+  // whatever list actually contains the member.
+  const type: "maintenance" | "salary" =
+    typeParam === "salary" || typeParam === "maintenance"
+      ? (typeParam as "maintenance" | "salary")
+      : isStaffMember
+        ? "salary"
+        : "maintenance";
+
+  const isEditing = modeParam === "edit";
+
+  // -------------------------------------------------------------------------
   const getAttendanceRecord = useAttendanceStore((state) => state.getRecord);
   const cacheAttendance = useAttendanceStore((state) => state.saveRecord);
   const clearRecord = useAttendanceStore((state) => state.clearRecord);
 
   const { editPayment, markAsPaid, upsertMemberPayment, upsertStaffPayment } =
-    usePayments(accountId);
+    usePayments(accountId || undefined);
 
   const [paidDate, setPaidDate] = useState(defaultPaidDate(paymentMonth));
 
@@ -178,15 +206,23 @@ export default function MarkPaymentScreen() {
     | undefined
   >(undefined);
 
+  // -------------------------------------------------------------------------
+  // Fetch attendance from the server whenever this is a staff payment.
+  //
+  // We gate on `isStaffMember` (derived from the fetched list), NOT on the
+  // URL `type` param, because some navigations forget to pass `type`.
+  // -------------------------------------------------------------------------
   useEffect(() => {
     if (!isStaffMember || !accountId || !memberId) return;
 
     let cancelled = false;
     (async () => {
       try {
-        const data = await apiGet<any>(
-          `/${accountId}/staff/${memberId}/attendance/${paymentMonth}`,
-        );
+        const data = await apiGet<{
+          statuses?: Record<string, AttendanceStatus>;
+          calculated_salary?: number | string | null;
+          calculatedSalary?: number | string | null;
+        } | null>(`/${accountId}/staff/${memberId}/attendance/${paymentMonth}`);
 
         if (cancelled) return;
 
@@ -229,7 +265,6 @@ export default function MarkPaymentScreen() {
             statuses,
           });
         } else {
-          // Row exists but has empty statuses — still authoritative.
           clearRecord(memberId, paymentMonth);
         }
       } catch (error) {
@@ -260,8 +295,12 @@ export default function MarkPaymentScreen() {
         ? member.monthlySalary
         : 0;
 
+  // -------------------------------------------------------------------------
+  // Compute the "Payable for this month" value.
+  // -------------------------------------------------------------------------
   const attendanceAdjustedSalary = (() => {
-    if (!isStaffMember || !member || !("monthlySalary" in member)) return null;
+    if (!isStaffMember) return null;
+    if (!member || !("monthlySalary" in member)) return null;
 
     if (serverAttendance?.calculatedSalary != null) {
       return serverAttendance.calculatedSalary;
@@ -286,8 +325,6 @@ export default function MarkPaymentScreen() {
     isStaffMember && attendanceAdjustedSalary != null
       ? attendanceAdjustedSalary
       : baseSalary;
-
-  const isEditing = mode === "edit";
 
   const additionalValue = showAdditionalAmount
     ? Number(additionalAmount) || 0
