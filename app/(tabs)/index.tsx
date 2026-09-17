@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import * as SecureStore from "expo-secure-store";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -14,14 +15,11 @@ import {
 } from "react-native";
 
 import { useAccounts } from "../../hooks/useAccounts";
-import { useMembers, useStaff } from "../../hooks/useManagement";
+import { useExpenses, useMembers, useStaff } from "../../hooks/useManagement";
 import { useUserRole } from "../../hooks/useUserRole";
 import { useAuthStore } from "../../store/useAuthStore";
 import type { Member } from "../../types";
-import {
-  getPeopleSummary,
-  getPeopleTransactions,
-} from "../../utils/peopleTransactions";
+import { PaymentCategory } from "../../types/payment";
 
 /* ========================================================================== */
 /* TYPES                                                                      */
@@ -44,6 +42,17 @@ interface AttendanceRecord {
   checkIn?: string;
   checkOut?: string;
 }
+
+type TransactionType = "income" | "expense";
+
+type OpeningBalanceResponse = {
+  account_id: string;
+  opening_balance: number;
+  updated_by: string | null;
+  updated_by_phone?: string | null;
+  updated_at: string | null;
+  can_edit?: boolean;
+};
 
 /* ========================================================================== */
 /* CONSTANTS                                                                  */
@@ -126,9 +135,53 @@ const STATUS_COLORS: Record<
   none: { bg: "#F1F5F9", text: "#94A3B8", label: "—" },
 };
 
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
+const AUTH_TOKEN_KEY = "auth_token";
+const OPENING_BALANCE_PREFIX = "/opening-balance";
+
 /* ========================================================================== */
 /* HELPERS                                                                    */
 /* ========================================================================== */
+
+async function getAuthToken(): Promise<string | null> {
+  try {
+    return await SecureStore.getItemAsync(AUTH_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
+async function openingBalanceRequest<T>(
+  path: string,
+  options: RequestInit = {},
+): Promise<T> {
+  if (!API_BASE_URL) throw new Error("EXPO_PUBLIC_API_URL is not configured.");
+  const token = await getAuthToken();
+  const url = `${API_BASE_URL}${OPENING_BALANCE_PREFIX}${path}`;
+  const res = await fetch(url, {
+    ...options,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(options.headers ?? {}),
+    },
+  });
+  let data: any = null;
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
+  }
+  if (!res.ok) {
+    const err: any = new Error(
+      data?.message || `Request failed with status ${res.status}`,
+    );
+    err.status = res.status;
+    err.body = data;
+    throw err;
+  }
+  return data as T;
+}
 
 function formatCurrency(amount: number) {
   const safeAmount = Number.isFinite(amount) ? amount : 0;
@@ -175,6 +228,145 @@ function normalizePhone(raw?: string): string {
   if (!raw) return "";
   const digits = String(raw).replace(/\D/g, "");
   return digits.length > 10 ? digits.slice(-10) : digits;
+}
+
+function toDateOnly(raw?: string | null): string {
+  if (!raw) return "";
+  return String(raw).trim().split(/[T ]/)[0];
+}
+
+function toMonthKey(raw?: string | null): string {
+  if (!raw) return "";
+  return toDateOnly(raw).slice(0, 7);
+}
+
+function getTransactionType(txn: any): TransactionType {
+  if (!txn) return "expense";
+  const raw = String(txn.transactionType ?? txn.transaction_type ?? "")
+    .trim()
+    .toLowerCase();
+  if (raw === "income") return "income";
+  if (raw === "expense") return "expense";
+  if (txn?.category === "maintenance") return "income";
+  return "expense";
+}
+
+/* -------------------------------------------------------------------------- */
+/* MEMBER paid entry collection                                                */
+/* -------------------------------------------------------------------------- */
+
+type PaidEntry = {
+  category: PaymentCategory;
+  amount: number;
+  paidDate: string; // used for monthly bucketing
+};
+
+function collectMemberPaidEntries(members: any[]): PaidEntry[] {
+  const out: PaidEntry[] = [];
+
+  for (const member of members) {
+    const isSalary = member?.monthlySalary !== undefined;
+    const category: PaymentCategory = isSalary ? "salary" : "maintenance";
+    const mp = member?.monthlyPayments;
+
+    if (!mp || typeof mp !== "object") {
+      const pd = member?.paidDate ? toDateOnly(member.paidDate) : "";
+      if (pd) {
+        const base = isSalary
+          ? Number(member.monthlySalary) || 0
+          : Number(member.maintenanceAmount) || 0;
+        out.push({ category, amount: base, paidDate: pd });
+      }
+      continue;
+    }
+
+    for (const billingMonth of Object.keys(mp)) {
+      const entry = mp[billingMonth];
+      if (!entry || entry.status !== "paid") continue;
+
+      const pd = entry.paidDate
+        ? toDateOnly(entry.paidDate)
+        : `${billingMonth}-01`;
+
+      let amount = 0;
+      if (entry?.netAmount != null) {
+        amount = Number(entry.netAmount) || 0;
+      } else {
+        const base = isSalary
+          ? Number(member.monthlySalary) || 0
+          : Number(member.maintenanceAmount) || 0;
+        const add = Number(entry?.additionalAmount) || 0;
+        const ded = Number(entry?.deductionAmount) || 0;
+        amount = Math.max(0, base + add - ded);
+      }
+
+      out.push({ category, amount, paidDate: pd });
+    }
+  }
+
+  return out;
+}
+
+/* -------------------------------------------------------------------------- */
+/* FINANCE calculations                                                        */
+/* -------------------------------------------------------------------------- */
+
+/** Monthly paid income/expense for a specific month. */
+function computeMonthlyFinance(
+  members: any[],
+  expenses: any[],
+  monthKey: string,
+): { income: number; expense: number; net: number } {
+  const entries = collectMemberPaidEntries(members);
+
+  let income = 0;
+  let expense = 0;
+
+  for (const row of entries) {
+    if (toMonthKey(row.paidDate) !== monthKey) continue;
+    if (row.category === "salary") expense += row.amount;
+    else income += row.amount;
+  }
+
+  for (const expenseRow of expenses || []) {
+    if (expenseRow.status !== "paid") continue;
+    const anchor = toMonthKey(
+      expenseRow.dueDate || expenseRow.expense_date || "",
+    );
+    if (anchor !== monthKey) continue;
+    const type = getTransactionType(expenseRow);
+    const amt = Number(expenseRow.amount) || 0;
+    if (type === "income") income += amt;
+    else expense += amt;
+  }
+
+  return { income, expense, net: income - expense };
+}
+
+/** All-time paid income/expense across every month. */
+function computeAllTimeFinance(
+  members: any[],
+  expenses: any[],
+): { income: number; expense: number; net: number } {
+  const entries = collectMemberPaidEntries(members);
+
+  let income = 0;
+  let expense = 0;
+
+  for (const row of entries) {
+    if (row.category === "salary") expense += row.amount;
+    else income += row.amount;
+  }
+
+  for (const expenseRow of expenses || []) {
+    if (expenseRow.status !== "paid") continue;
+    const type = getTransactionType(expenseRow);
+    const amt = Number(expenseRow.amount) || 0;
+    if (type === "income") income += amt;
+    else expense += amt;
+  }
+
+  return { income, expense, net: income - expense };
 }
 
 /* -------------------------------------------------------------------------- */
@@ -305,49 +497,6 @@ function QuickActionCard({
 }
 
 /* ========================================================================== */
-/* STAFF CARD                                                                 */
-/* ========================================================================== */
-
-function StaffCard({
-  name,
-  role,
-  onPress,
-}: {
-  name: string;
-  role: string;
-  onPress: () => void;
-}) {
-  const roleColor = getRoleColor(role);
-  const roleLabel = getRoleLabel(role);
-  const initial = name?.trim()?.charAt(0)?.toUpperCase() || "?";
-
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [styles.staffCard, pressed && styles.pressed]}
-    >
-      <View style={[styles.staffAvatar, { backgroundColor: `${roleColor}12` }]}>
-        <Text style={[styles.staffInitial, { color: roleColor }]}>
-          {initial}
-        </Text>
-      </View>
-      <View style={styles.staffInfo}>
-        <Text style={styles.staffName} numberOfLines={1}>
-          {name || "Unnamed Staff"}
-        </Text>
-        <View style={styles.staffRoleRow}>
-          <View style={[styles.roleDot, { backgroundColor: roleColor }]} />
-          <Text style={styles.staffRole}>{roleLabel}</Text>
-        </View>
-      </View>
-      <View style={styles.staffArrow}>
-        <Ionicons name="chevron-forward" size={17} color="#94A3B8" />
-      </View>
-    </Pressable>
-  );
-}
-
-/* ========================================================================== */
 /* FINANCIAL CARD                                                             */
 /* ========================================================================== */
 
@@ -357,12 +506,14 @@ function FinancialCard({
   icon,
   color,
   background,
+  period,
 }: {
   title: string;
   amount: number;
   icon: keyof typeof Ionicons.glyphMap;
   color: string;
   background: string;
+  period?: string;
 }) {
   return (
     <View style={styles.financialCard}>
@@ -378,7 +529,7 @@ function FinancialCard({
         {amount < 0 ? "-" : ""}
         {formatCurrency(amount)}
       </Text>
-      <Text style={styles.financialPeriod}>This month</Text>
+      <Text style={styles.financialPeriod}>{period ?? "This month"}</Text>
     </View>
   );
 }
@@ -844,10 +995,10 @@ export default function HomeScreen() {
     isLoading: accountsLoading,
   } = useAccounts();
 
-  // ── NEW: pull apartment + staff lists from useManagement ──
   const accountId = selectedAccount?.id ?? null;
   const { items: apartmentMembers } = useMembers(accountId);
   const { items: staffMembers } = useStaff(accountId);
+  const { items: expenses } = useExpenses(accountId);
 
   const allMembers: Member[] = useMemo(
     () => [...apartmentMembers, ...staffMembers],
@@ -859,6 +1010,9 @@ export default function HomeScreen() {
 
   const [refreshing, setRefreshing] = useState(false);
 
+  // Opening balance from server (used in both monthly + all-time nets)
+  const [openingBalance, setOpeningBalance] = useState(0);
+
   const now = new Date();
   const [attYear, setAttYear] = useState(now.getFullYear());
   const [attMonth, setAttMonth] = useState(now.getMonth());
@@ -867,6 +1021,39 @@ export default function HomeScreen() {
     setAttYear(y);
     setAttMonth(m);
   };
+
+  /* ------------------------------------------------------------------------ */
+  /* FETCH OPENING BALANCE                                                    */
+  /* ------------------------------------------------------------------------ */
+
+  useEffect(() => {
+    if (!selectedAccount?.id) {
+      setOpeningBalance(0);
+      return;
+    }
+
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const data = await openingBalanceRequest<OpeningBalanceResponse>(
+          `/${selectedAccount.id}`,
+        );
+        if (!cancelled) {
+          setOpeningBalance(Number(data.opening_balance) || 0);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          console.warn("[home] opening balance fetch failed:", e);
+          setOpeningBalance(0);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAccount?.id]);
 
   /* ------------------------------------------------------------------------ */
   /* MATCH USER TO MEMBER / STAFF PROFILE                                     */
@@ -887,7 +1074,7 @@ export default function HomeScreen() {
   }, [user, selectedAccount, allMembers]);
 
   /* ------------------------------------------------------------------------ */
-  /* DASHBOARD DATA - Only for admin                                          */
+  /* DASHBOARD DATA                                                           */
   /* ------------------------------------------------------------------------ */
 
   const dashboardData = useMemo(() => {
@@ -898,7 +1085,11 @@ export default function HomeScreen() {
         monthlyIncome: 0,
         monthlyExpense: 0,
       },
-      recentStaff: [] as any[],
+      allTime: {
+        income: 0,
+        expense: 0,
+        net: 0,
+      },
     };
 
     if (!isAdmin || !selectedAccount) return emptyData;
@@ -908,30 +1099,54 @@ export default function HomeScreen() {
         new Date().getMonth() + 1,
       ).padStart(2, "0")}`;
 
-      const transactions = getPeopleTransactions(allMembers, currentMonth);
-      const financialSummary = getPeopleSummary(transactions);
-      const recentStaff = [...staffMembers].reverse().slice(0, 5);
+      const monthly = computeMonthlyFinance(
+        allMembers,
+        expenses ?? [],
+        currentMonth,
+      );
+      const allTime = computeAllTimeFinance(allMembers, expenses ?? []);
 
       return {
         stats: {
           totalProperties: apartmentMembers.length,
           totalStaff: staffMembers.length,
-          monthlyIncome: Number(financialSummary.income) || 0,
-          monthlyExpense: Number(financialSummary.expenses) || 0,
+          monthlyIncome: monthly.income,
+          monthlyExpense: monthly.expense,
         },
-        recentStaff,
+        allTime,
       };
     } catch (error) {
       console.error("Error calculating dashboard data:", error);
       return emptyData;
     }
-  }, [selectedAccount, allMembers, apartmentMembers, staffMembers, isAdmin]);
+  }, [
+    selectedAccount,
+    allMembers,
+    apartmentMembers,
+    staffMembers,
+    isAdmin,
+    expenses,
+  ]);
 
   const stats = dashboardData.stats;
-  const recentStaff = dashboardData.recentStaff;
+  const allTime = dashboardData.allTime;
 
-  const netBalance = stats.monthlyIncome - stats.monthlyExpense;
-  const isPositiveBalance = netBalance >= 0;
+  /* ------------------------------------------------------------------------ */
+  /* FINANCE NUMBERS                                                          */
+  /* ------------------------------------------------------------------------ */
+
+  // TOP blue card = MONTHLY net, includes opening balance.
+  // Net = opening_balance + (this_month_income − this_month_expense)
+  const monthlyNet =
+    openingBalance + (stats.monthlyIncome - stats.monthlyExpense);
+  const isMonthlyPositive = monthlyNet >= 0;
+
+  // BOTTOM Financial Overview = ALL-TIME / overall totals,
+  // with Net Balance also including opening balance.
+  const overallIncome = allTime.income;
+  const overallExpense = allTime.expense;
+  const overallNet = openingBalance + allTime.net;
+  const isOverallPositive = overallNet >= 0;
 
   /* ------------------------------------------------------------------------ */
   /* REFRESH                                                                  */
@@ -940,6 +1155,16 @@ export default function HomeScreen() {
   const onRefresh = async () => {
     setRefreshing(true);
     try {
+      if (selectedAccount?.id) {
+        try {
+          const data = await openingBalanceRequest<OpeningBalanceResponse>(
+            `/${selectedAccount.id}`,
+          );
+          setOpeningBalance(Number(data.opening_balance) || 0);
+        } catch (e) {
+          console.warn("[home] refresh opening balance failed:", e);
+        }
+      }
       await new Promise((resolve) => setTimeout(resolve, 400));
     } finally {
       setRefreshing(false);
@@ -1251,7 +1476,7 @@ export default function HomeScreen() {
               <View>
                 <Text style={styles.sectionTitle}>Society Finance</Text>
                 <Text style={styles.sectionSubtitle}>
-                  View-only · This month
+                  Overall · all-time totals
                 </Text>
               </View>
               <Pressable
@@ -1265,26 +1490,29 @@ export default function HomeScreen() {
             <View style={styles.financialGrid}>
               <FinancialCard
                 title="Income"
-                amount={stats.monthlyIncome}
+                amount={overallIncome}
                 icon="arrow-down-outline"
                 color="#16A34A"
                 background="#DCFCE7"
+                period="Overall"
               />
               <FinancialCard
                 title="Expenses"
-                amount={stats.monthlyExpense}
+                amount={overallExpense}
                 icon="arrow-up-outline"
                 color="#EA580C"
                 background="#FFEDD5"
+                period="Overall"
               />
               <FinancialCard
                 title="Net"
-                amount={netBalance}
+                amount={overallNet}
                 icon={
-                  isPositiveBalance ? "wallet-outline" : "alert-circle-outline"
+                  isOverallPositive ? "wallet-outline" : "alert-circle-outline"
                 }
-                color={isPositiveBalance ? "#2563EB" : "#DC2626"}
-                background={isPositiveBalance ? "#DBEAFE" : "#FEE2E2"}
+                color={isOverallPositive ? "#2563EB" : "#DC2626"}
+                background={isOverallPositive ? "#DBEAFE" : "#FEE2E2"}
+                period="Incl. opening"
               />
             </View>
           </View>
@@ -1337,46 +1565,49 @@ export default function HomeScreen() {
           </View>
         </View>
 
+        {/* Top card — MONTHLY net balance (includes opening balance) */}
         <View style={styles.balanceCard}>
           <View style={styles.balanceTop}>
             <View>
               <Text style={styles.balanceLabel}>Net Balance</Text>
-              <Text style={styles.balancePeriod}>{getCurrentMonth()}</Text>
+              <Text style={styles.balancePeriod}>Monthly · incl. opening</Text>
             </View>
             <View
               style={[
                 styles.balanceIcon,
-                { backgroundColor: isPositiveBalance ? "#DCFCE7" : "#FEE2E2" },
+                {
+                  backgroundColor: isMonthlyPositive ? "#DCFCE7" : "#FEE2E2",
+                },
               ]}
             >
               <Ionicons
                 name={
-                  isPositiveBalance
+                  isMonthlyPositive
                     ? "trending-up-outline"
                     : "trending-down-outline"
                 }
                 size={21}
-                color={isPositiveBalance ? "#16A34A" : "#DC2626"}
+                color={isMonthlyPositive ? "#16A34A" : "#DC2626"}
               />
             </View>
           </View>
           <Text
             style={[
               styles.balanceAmount,
-              { color: isPositiveBalance ? "#15803D" : "#DC2626" },
+              { color: isMonthlyPositive ? "#15803D" : "#DC2626" },
             ]}
             numberOfLines={1}
             adjustsFontSizeToFit
           >
-            {isPositiveBalance ? "" : "-"}
-            {formatCurrency(netBalance)}
+            {isMonthlyPositive ? "" : "-"}
+            {formatCurrency(monthlyNet)}
           </Text>
           <View style={styles.balanceDivider} />
           <View style={styles.balanceBottom}>
             <View style={styles.balanceMiniItem}>
               <View style={[styles.miniDot, { backgroundColor: "#16A34A" }]} />
               <View>
-                <Text style={styles.miniLabel}>Income</Text>
+                <Text style={styles.miniLabel}>Monthly Income</Text>
                 <Text style={styles.miniValue}>
                   {formatCurrency(stats.monthlyIncome)}
                 </Text>
@@ -1385,12 +1616,59 @@ export default function HomeScreen() {
             <View style={styles.balanceMiniItem}>
               <View style={[styles.miniDot, { backgroundColor: "#EA580C" }]} />
               <View>
-                <Text style={styles.miniLabel}>Expenses</Text>
+                <Text style={styles.miniLabel}>Monthly Expenses</Text>
                 <Text style={styles.miniValue}>
                   {formatCurrency(stats.monthlyExpense)}
                 </Text>
               </View>
             </View>
+          </View>
+        </View>
+
+        {/* Financial Overview — ALL-TIME totals (with Net incl. opening) */}
+        <View style={styles.section}>
+          <View style={styles.sectionHeader}>
+            <View>
+              <Text style={styles.sectionTitle}>Financial Overview</Text>
+              <Text style={styles.sectionSubtitle}>
+                Overall · all-time totals
+              </Text>
+            </View>
+            <Pressable
+              style={styles.seeAllButton}
+              onPress={() => router.push("/(tabs)/finance")}
+            >
+              <Text style={styles.seeAllText}>View All</Text>
+              <Ionicons name="chevron-forward" size={15} color="#2563EB" />
+            </Pressable>
+          </View>
+          <View style={styles.financialGrid}>
+            <FinancialCard
+              title="Total Income"
+              amount={overallIncome}
+              icon="arrow-down-outline"
+              color="#16A34A"
+              background="#DCFCE7"
+              period="Overall"
+            />
+            <FinancialCard
+              title="Total Expenses"
+              amount={overallExpense}
+              icon="arrow-up-outline"
+              color="#EA580C"
+              background="#FFEDD5"
+              period="Overall"
+            />
+            <FinancialCard
+              title="Net Balance"
+              amount={overallNet}
+              icon={
+                isOverallPositive ? "wallet-outline" : "alert-circle-outline"
+              }
+              color={isOverallPositive ? "#2563EB" : "#DC2626"}
+              background={isOverallPositive ? "#DBEAFE" : "#FEE2E2"}
+              period="Incl. opening"
+            />
           </View>
         </View>
 
@@ -1445,101 +1723,6 @@ export default function HomeScreen() {
               />
             ))}
           </View>
-        </View>
-
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <View>
-              <Text style={styles.sectionTitle}>Financial Summary</Text>
-              <Text style={styles.sectionSubtitle}>This month's activity</Text>
-            </View>
-            <Pressable
-              style={styles.seeAllButton}
-              onPress={() => router.push("/(tabs)/finance")}
-            >
-              <Text style={styles.seeAllText}>View All</Text>
-              <Ionicons name="chevron-forward" size={15} color="#2563EB" />
-            </Pressable>
-          </View>
-          <View style={styles.financialGrid}>
-            <FinancialCard
-              title="Income"
-              amount={stats.monthlyIncome}
-              icon="arrow-down-outline"
-              color="#16A34A"
-              background="#DCFCE7"
-            />
-            <FinancialCard
-              title="Expenses"
-              amount={stats.monthlyExpense}
-              icon="arrow-up-outline"
-              color="#EA580C"
-              background="#FFEDD5"
-            />
-            <FinancialCard
-              title="Net"
-              amount={netBalance}
-              icon={
-                isPositiveBalance ? "wallet-outline" : "alert-circle-outline"
-              }
-              color={isPositiveBalance ? "#2563EB" : "#DC2626"}
-              background={isPositiveBalance ? "#DBEAFE" : "#FEE2E2"}
-            />
-          </View>
-        </View>
-
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <View>
-              <Text style={styles.sectionTitle}>Recent Staff</Text>
-              <Text style={styles.sectionSubtitle}>Your property team</Text>
-            </View>
-            {recentStaff.length > 0 && (
-              <Pressable
-                style={styles.seeAllButton}
-                onPress={() => router.push("/(tabs)/people")}
-              >
-                <Text style={styles.seeAllText}>View All</Text>
-                <Ionicons name="chevron-forward" size={15} color="#2563EB" />
-              </Pressable>
-            )}
-          </View>
-          {recentStaff.length === 0 ? (
-            <View style={styles.staffEmptyCard}>
-              <View style={styles.staffEmptyIcon}>
-                <Ionicons name="people-outline" size={25} color="#94A3B8" />
-              </View>
-              <View style={styles.staffEmptyContent}>
-                <Text style={styles.staffEmptyTitle}>No staff yet</Text>
-                <Text style={styles.staffEmptyText}>
-                  Add your first staff member to start managing your property
-                  team.
-                </Text>
-              </View>
-              <Pressable
-                style={styles.staffEmptyButton}
-                onPress={() =>
-                  router.push({
-                    pathname: "/(tabs)/people",
-                    params: { tab: "staff" },
-                  })
-                }
-              >
-                <Ionicons name="add" size={19} color="#FFFFFF" />
-              </Pressable>
-            </View>
-          ) : (
-            <View style={styles.staffList}>
-              {recentStaff.map((staff, index) => (
-                <StaffCard
-                  key={staff.id || `${staff.name}-${index}`}
-                  name={staff.name || "Unnamed Staff"}
-                  role={staff.role || "other"}
-                  onPress={() => handleStaffPress(staff)}
-                />
-              ))}
-            </View>
-          )}
         </View>
 
         <View style={styles.bottomSpace} />
@@ -1771,76 +1954,6 @@ const styles = StyleSheet.create({
   financialAmount: { fontSize: 17, fontWeight: "800", marginTop: 5 },
   financialPeriod: { fontSize: 10, color: "#94A3B8", marginTop: 4 },
 
-  /* STAFF */
-  staffList: { gap: 9 },
-  staffCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 17,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: "#E2E8F0",
-    minHeight: 68,
-  },
-  staffAvatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 15,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 12,
-  },
-  staffInitial: { fontSize: 17, fontWeight: "800" },
-  staffInfo: { flex: 1 },
-  staffName: { fontSize: 14, fontWeight: "700", color: "#0F172A" },
-  staffRoleRow: { flexDirection: "row", alignItems: "center", marginTop: 5 },
-  roleDot: { width: 6, height: 6, borderRadius: 3, marginRight: 6 },
-  staffRole: { fontSize: 11, color: "#64748B", fontWeight: "500" },
-  staffArrow: {
-    width: 31,
-    height: 31,
-    borderRadius: 10,
-    backgroundColor: "#F8FAFC",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  staffEmptyCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 18,
-    padding: 15,
-    borderWidth: 1,
-    borderColor: "#E2E8F0",
-  },
-  staffEmptyIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    backgroundColor: "#F1F5F9",
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 12,
-  },
-  staffEmptyContent: { flex: 1 },
-  staffEmptyTitle: { fontSize: 14, fontWeight: "700", color: "#334155" },
-  staffEmptyText: {
-    fontSize: 11,
-    lineHeight: 16,
-    color: "#94A3B8",
-    marginTop: 3,
-  },
-  staffEmptyButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    backgroundColor: "#2563EB",
-    alignItems: "center",
-    justifyContent: "center",
-    marginLeft: 10,
-  },
-
   /* PERSONAL CARD */
   personalCard: {
     backgroundColor: "#FFFFFF",
@@ -1879,6 +1992,10 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   personalRole: { fontSize: 13, color: "#64748B", fontWeight: "500" },
+
+  // Used by StaffPersonalCard's role indicator dot
+  roleDot: { width: 6, height: 6, borderRadius: 3, marginRight: 6 },
+
   personalDetails: {
     flexDirection: "row",
     gap: 16,
