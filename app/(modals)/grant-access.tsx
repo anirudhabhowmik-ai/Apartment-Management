@@ -23,7 +23,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { useMembers, useStaff } from "../../hooks/useManagement";
+import { useMembers } from "../../hooks/useManagement";
 import { useAccessStore } from "../../store/accessStore";
 import { useAccountStore } from "../../store/accountStore";
 import { useAuthStore } from "../../store/useAuthStore";
@@ -33,7 +33,7 @@ import { ACCESS_ROLE_LABEL } from "../../types";
 type RecipientSource = "new" | "existing";
 
 // "ownership" is a memberType — behaves like admin.
-type MemberType = "owner" | "staff" | "ownership";
+type MemberType = "owner" | "ownership";
 
 interface ContactData {
   id: string;
@@ -59,14 +59,12 @@ export default function GrantAccessScreen() {
   const accounts = useAccountStore((state) => state.accounts);
   const account = accounts.find((a) => a.id === accountId);
 
-  // ── NEW: fetch members & staff directly from useManagement ──
+  // ── Members come straight from useManagement (staff removed) ──
   const { items: apartmentMembers } = useMembers(accountId ?? null);
-  const { items: staffMembers } = useStaff(accountId ?? null);
 
-  // ── NEW: eligible members = all apartment + all staff (already typed) ──
   const eligibleMembers: Member[] = useMemo(
-    () => [...apartmentMembers, ...staffMembers],
-    [apartmentMembers, staffMembers],
+    () => [...apartmentMembers],
+    [apartmentMembers],
   );
 
   const addGrant = useAccessStore((state) => state.addGrant);
@@ -91,20 +89,12 @@ export default function GrantAccessScreen() {
 
   const isOwnershipFlow = memberType === "ownership";
 
+  // Visibility flow is now owner-only (staff_visibility removed).
   const isVisibilityFlow =
     !isOwnershipFlow &&
-    (memberType === "owner" ||
-      memberType === "staff" ||
-      role === "member_visibility" ||
-      role === "staff_visibility");
+    (memberType === "owner" || role === "member_visibility");
 
-  const effectiveMemberType: "owner" | "staff" =
-    memberType === "staff" || role === "staff_visibility" ? "staff" : "owner";
-
-  const visibilityTitle =
-    effectiveMemberType === "owner"
-      ? "Manage Apartment Owner Visibility"
-      : "Manage Staff Visibility";
+  const visibilityTitle = "Manage Apartment Owner Visibility";
 
   const title = isOwnershipFlow
     ? "Ownership"
@@ -114,25 +104,12 @@ export default function GrantAccessScreen() {
   // MEMBERS
   // ============================================================
 
-  // NEW: apartment/staff members come straight from the hooks above.
-  //      No more group filtering.
   const apartmentMembersList = apartmentMembers;
 
-  const staffMembersList = staffMembers;
-
   const activeMembers = useMemo(() => {
-    if (isVisibilityFlow) {
-      return effectiveMemberType === "owner"
-        ? apartmentMembersList
-        : staffMembersList;
-    }
-    return [...apartmentMembersList, ...staffMembersList];
-  }, [
-    isVisibilityFlow,
-    effectiveMemberType,
-    apartmentMembersList,
-    staffMembersList,
-  ]);
+    if (isVisibilityFlow) return apartmentMembersList;
+    return apartmentMembersList;
+  }, [isVisibilityFlow, apartmentMembersList]);
 
   const currentUserMember = useMemo(() => {
     if (!currentUser?.phone) return null;
@@ -186,20 +163,6 @@ export default function GrantAccessScreen() {
       );
     });
   }, [apartmentMembersList, searchLower]);
-
-  const filteredStaff = useMemo(() => {
-    if (!searchLower) return staffMembersList;
-
-    return staffMembersList.filter((member) => {
-      const staffRole = ((member as any).role ?? "").toString().toLowerCase();
-
-      return (
-        member.name.toLowerCase().includes(searchLower) ||
-        member.phone.toLowerCase().includes(searchLower) ||
-        staffRole.includes(searchLower)
-      );
-    });
-  }, [staffMembersList, searchLower]);
 
   const filteredActiveMembers = useMemo(() => {
     if (!searchLower) return activeMembers;
@@ -376,10 +339,7 @@ export default function GrantAccessScreen() {
 
   const handleSave = () => {
     const grantRole: AccountAccessRole =
-      role ||
-      (effectiveMemberType === "staff"
-        ? "staff_visibility"
-        : "member_visibility");
+      role || (isVisibilityFlow ? "member_visibility" : "member_visibility");
 
     const baseGrant: any = {
       accountId,
@@ -403,11 +363,7 @@ export default function GrantAccessScreen() {
 
     if (isVisibilityFlow) {
       if (selectedMemberIds.length === 0) {
-        setError(
-          effectiveMemberType === "owner"
-            ? "Please select at least one apartment owner."
-            : "Please select at least one staff member.",
-        );
+        setError("Please select at least one apartment owner.");
         return;
       }
 
@@ -458,11 +414,11 @@ export default function GrantAccessScreen() {
     }
 
     if (selectedMemberIds.length === 0) {
-      setError("Please select at least one member or staff member.");
+      setError("Please select at least one member.");
       return;
     }
 
-    const allMembers = [...apartmentMembersList, ...staffMembersList];
+    const allMembers = [...apartmentMembersList];
 
     selectedMemberIds.forEach((memberId, index) => {
       const member = allMembers.find((m) => m.id === memberId);
@@ -493,18 +449,12 @@ export default function GrantAccessScreen() {
       | string
       | undefined;
     const wing = (member as any).wing as string | undefined;
-    const staffRole = (member as any).role as string | undefined;
 
-    let meta = "";
-
-    if (effectiveMemberType === "owner") {
-      const parts: string[] = [];
-      if (wing) parts.push(`Wing ${wing}`);
-      if (apartmentNumber) parts.push(`Apt ${apartmentNumber}`);
-      meta = parts.join("  •  ");
-    } else if (effectiveMemberType === "staff") {
-      meta = staffRole || "Staff";
-    }
+    // Member rows always show wing / apartment now (no staff rows).
+    const parts: string[] = [];
+    if (wing) parts.push(`Wing ${wing}`);
+    if (apartmentNumber) parts.push(`Apt ${apartmentNumber}`);
+    const meta = parts.join("  •  ");
 
     const selected = selectedMemberIds.includes(member.id);
 
@@ -542,15 +492,7 @@ export default function GrantAccessScreen() {
 
           {meta ? (
             <View style={styles.memberMetaRow}>
-              <Ionicons
-                name={
-                  effectiveMemberType === "staff"
-                    ? "briefcase-outline"
-                    : "home-outline"
-                }
-                size={13}
-                color="#2563EB"
-              />
+              <Ionicons name="home-outline" size={13} color="#2563EB" />
               <Text style={styles.memberMeta}>{meta}</Text>
             </View>
           ) : null}
@@ -721,16 +663,13 @@ export default function GrantAccessScreen() {
   // EMPTY STATE
   // ============================================================
 
-  const hasMembersOrStaff =
-    apartmentMembersList.length > 0 || staffMembersList.length > 0;
+  const hasMembers = apartmentMembersList.length > 0;
 
   const getEmptyStateText = () => {
     if (isVisibilityFlow) {
-      return effectiveMemberType === "owner"
-        ? "No apartment owners available to select."
-        : "No staff members available to select.";
+      return "No apartment owners available to select.";
     }
-    return "No members or staff are available.";
+    return "No members are available.";
   };
 
   const saveButtonDisabled =
@@ -766,9 +705,7 @@ export default function GrantAccessScreen() {
             <Ionicons
               name={
                 isVisibilityFlow
-                  ? effectiveMemberType === "owner"
-                    ? "person-add-outline"
-                    : "briefcase-outline"
+                  ? "person-add-outline"
                   : "shield-checkmark-outline"
               }
               size={24}
@@ -781,9 +718,7 @@ export default function GrantAccessScreen() {
             </Text>
             <Text style={styles.introDescription}>
               {isVisibilityFlow
-                ? effectiveMemberType === "owner"
-                  ? "Select one or more apartment owners to grant visibility access."
-                  : "Select one or more staff members to grant visibility access."
+                ? "Select one or more apartment owners to grant visibility access."
                 : "Choose who should receive access to this account."}
             </Text>
           </View>
@@ -871,7 +806,7 @@ export default function GrantAccessScreen() {
                   Existing person
                 </Text>
                 <Text style={styles.sourceTileDescription} numberOfLines={2}>
-                  Pick from members or staff
+                  Pick from members
                 </Text>
                 {source === "existing" ? (
                   <View style={styles.sourceTileCheck}>
@@ -956,7 +891,7 @@ export default function GrantAccessScreen() {
         {!isVisibilityFlow && source === "existing" ? (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>SELECT PEOPLE</Text>
-            {hasMembersOrStaff ? (
+            {hasMembers ? (
               <>
                 <View style={styles.selectControlsRow}>
                   <View style={styles.searchBoxInline}>
@@ -1009,8 +944,7 @@ export default function GrantAccessScreen() {
                   </TouchableOpacity>
                 </View>
 
-                {apartmentMembersList.length === 0 &&
-                staffMembersList.length === 0 ? (
+                {apartmentMembersList.length === 0 ? (
                   <View style={styles.emptyCard}>
                     <View style={styles.emptyIcon}>
                       <Ionicons
@@ -1040,39 +974,8 @@ export default function GrantAccessScreen() {
                       </Text>
                     </View>
 
-                    {apartmentMembersList.length === 0 ? (
-                      <Text style={styles.emptySmall}>
-                        No members are available.
-                      </Text>
-                    ) : (
-                      (searchLower
-                        ? filteredMembers
-                        : apartmentMembersList
-                      ).map(renderMemberRow)
-                    )}
-
-                    <View style={[styles.groupHeader, styles.staffGroupHeader]}>
-                      <View style={styles.groupTitleRow}>
-                        <Ionicons
-                          name="briefcase-outline"
-                          size={17}
-                          color="#2563EB"
-                        />
-                        <Text style={styles.groupTitle}>Staff</Text>
-                      </View>
-                      <Text style={styles.groupCount}>
-                        {staffMembersList.length}
-                      </Text>
-                    </View>
-
-                    {staffMembersList.length === 0 ? (
-                      <Text style={styles.emptySmall}>
-                        No staff members are available.
-                      </Text>
-                    ) : (
-                      (searchLower ? filteredStaff : staffMembersList).map(
-                        renderMemberRow,
-                      )
+                    {(searchLower ? filteredMembers : apartmentMembersList).map(
+                      renderMemberRow,
                     )}
                   </>
                 )}
@@ -1093,7 +996,7 @@ export default function GrantAccessScreen() {
 
         {isVisibilityFlow ? (
           <View style={styles.section}>
-            {hasMembersOrStaff ? (
+            {hasMembers ? (
               <>
                 <View style={styles.selectControlsRow}>
                   <View style={styles.searchBoxInline}>
@@ -1146,52 +1049,28 @@ export default function GrantAccessScreen() {
                   </TouchableOpacity>
                 </View>
 
-                {effectiveMemberType === "owner" ? (
-                  filteredMembers.length === 0 ? (
-                    <View style={styles.emptyCard}>
-                      <View style={styles.emptyIcon}>
-                        <Ionicons
-                          name="people-outline"
-                          size={28}
-                          color="#64748B"
-                        />
-                      </View>
-                      <Text style={styles.emptyTitle}>
-                        {apartmentMembersList.length === 0
-                          ? "No apartment owners available"
-                          : "No matching apartment owners"}
-                      </Text>
-                      <Text style={styles.emptyDescription}>
-                        {apartmentMembersList.length === 0
-                          ? "There are currently no apartment owners available to select."
-                          : "Try searching with another name, phone number, apartment or wing."}
-                      </Text>
-                    </View>
-                  ) : (
-                    filteredMembers.map(renderMemberRow)
-                  )
-                ) : filteredStaff.length === 0 ? (
+                {filteredMembers.length === 0 ? (
                   <View style={styles.emptyCard}>
                     <View style={styles.emptyIcon}>
                       <Ionicons
-                        name="briefcase-outline"
+                        name="people-outline"
                         size={28}
                         color="#64748B"
                       />
                     </View>
                     <Text style={styles.emptyTitle}>
-                      {staffMembersList.length === 0
-                        ? "No staff available"
-                        : "No matching staff"}
+                      {apartmentMembersList.length === 0
+                        ? "No apartment owners available"
+                        : "No matching apartment owners"}
                     </Text>
                     <Text style={styles.emptyDescription}>
-                      {staffMembersList.length === 0
-                        ? "There are currently no staff members available to select."
-                        : "Try searching with another name, phone number or role."}
+                      {apartmentMembersList.length === 0
+                        ? "There are currently no apartment owners available to select."
+                        : "Try searching with another name, phone number, apartment or wing."}
                     </Text>
                   </View>
                 ) : (
-                  filteredStaff.map(renderMemberRow)
+                  filteredMembers.map(renderMemberRow)
                 )}
               </>
             ) : (
@@ -1467,7 +1346,6 @@ const styles = StyleSheet.create({
     marginBottom: 9,
     paddingHorizontal: 2,
   },
-  staffGroupHeader: { marginTop: 20 },
   groupTitleRow: { flexDirection: "row", alignItems: "center", gap: 7 },
   groupTitle: { color: "#334155", fontSize: 13, fontWeight: "700" },
   groupCount: {
