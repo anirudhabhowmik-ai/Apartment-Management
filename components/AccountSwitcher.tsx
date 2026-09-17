@@ -1,10 +1,13 @@
+// components/AccountSwitcher.tsx
 import { Ionicons } from "@expo/vector-icons";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
+import * as SecureStore from "expo-secure-store";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Dimensions,
   FlatList,
   GestureResponderEvent,
@@ -23,25 +26,24 @@ import { useAccounts } from "../hooks/useAccounts";
 import { useAccountStore } from "../store/accountStore";
 import { Account } from "../types";
 
+const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
+
 const COLORS = {
   primary: "#2563EB",
   primaryLight: "#EFF6FF",
   background: "#F8FAFC",
   white: "#FFFFFF",
-
   text: "#0F172A",
   secondary: "#64748B",
   muted: "#94A3B8",
-
   border: "#E2E8F0",
   borderLight: "#F1F5F9",
-
   success: "#16A34A",
   successLight: "#F0FDF4",
 };
 
 // ---------------------------------------------------------------------------
-// Photo Adjust Modal - Same as in AddAccountScreen
+// Photo Adjust Modal
 // ---------------------------------------------------------------------------
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -111,7 +113,6 @@ function PhotoAdjustModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [zoom, image]);
 
-  // ----- Refs kept in sync with the latest state, for the PanResponder -----
   const zoomRef = useRef(zoom);
   const translateRef = useRef(translate);
   const imageRef = useRef(image);
@@ -120,15 +121,12 @@ function PhotoAdjustModal({
   useEffect(() => {
     zoomRef.current = zoom;
   }, [zoom]);
-
   useEffect(() => {
     translateRef.current = translate;
   }, [translate]);
-
   useEffect(() => {
     imageRef.current = image;
   }, [image]);
-
   useEffect(() => {
     baseScaleRef.current = baseScale;
   }, [baseScale]);
@@ -149,10 +147,6 @@ function PhotoAdjustModal({
       y: clampNumber(t.y, -maxY, maxY),
     };
   };
-
-  // -------------------------------------------------------------------
-  // Gesture tracking - fixed for proper two-finger pinch
-  // -------------------------------------------------------------------
 
   type ActiveGesture =
     | {
@@ -218,47 +212,39 @@ function PhotoAdjustModal({
 
       onPanResponderMove: (evt: GestureResponderEvent) => {
         const touches = evt.nativeEvent.touches;
-        const gesture = gestureRef.current;
-
+        const g = gestureRef.current;
         const expectedCount =
-          gesture?.mode === "pinch" ? 2 : gesture?.mode === "pan" ? 1 : 0;
-
+          g?.mode === "pinch" ? 2 : g?.mode === "pan" ? 1 : 0;
         if (touches.length > 0 && touches.length !== expectedCount) {
           beginGesture(touches);
         }
+        const g2 = gestureRef.current;
+        if (!g2) return;
 
-        const g = gestureRef.current;
-        if (!g) return;
-
-        if (g.mode === "pinch" && touches.length >= 2) {
+        if (g2.mode === "pinch" && touches.length >= 2) {
           const sorted = getSortedTouches(touches);
           const tracked = sorted.filter((p) =>
-            g.touchIds.includes(p.identifier),
+            g2.touchIds.includes(p.identifier),
           );
           const [a, b] = tracked.length >= 2 ? tracked : sorted.slice(0, 2);
-
           const dx = a.pageX - b.pageX;
           const dy = a.pageY - b.pageY;
           const distance = Math.sqrt(dx * dx + dy * dy);
-
-          if (g.startDistance > 0) {
+          if (g2.startDistance > 0) {
             const nextZoom = clampNumber(
-              g.startZoom * (distance / g.startDistance),
+              g2.startZoom * (distance / g2.startDistance),
               MIN_ZOOM,
               MAX_ZOOM,
             );
             zoomRef.current = nextZoom;
             setZoom(nextZoom);
           }
-        } else if (g.mode === "pan" && touches.length === 1) {
+        } else if (g2.mode === "pan" && touches.length === 1) {
           const touch = touches[0];
-          const dx = touch.pageX - g.startTouch.x;
-          const dy = touch.pageY - g.startTouch.y;
+          const dx = touch.pageX - g2.startTouch.x;
+          const dy = touch.pageY - g2.startTouch.y;
           const next = clampTranslateFromRefs(
-            {
-              x: g.startTranslate.x + dx,
-              y: g.startTranslate.y + dy,
-            },
+            { x: g2.startTranslate.x + dx, y: g2.startTranslate.y + dy },
             zoomRef.current,
           );
           translateRef.current = next;
@@ -268,11 +254,8 @@ function PhotoAdjustModal({
 
       onPanResponderRelease: (evt: GestureResponderEvent) => {
         const remaining = evt.nativeEvent.touches;
-        if (remaining.length > 0) {
-          beginGesture(remaining);
-        } else {
-          gestureRef.current = null;
-        }
+        if (remaining.length > 0) beginGesture(remaining);
+        else gestureRef.current = null;
         const clamped = clampTranslateFromRefs(
           translateRef.current,
           zoomRef.current,
@@ -298,39 +281,21 @@ function PhotoAdjustModal({
     try {
       const scale = baseScale * zoom;
       const cropSize = VIEWPORT / scale;
-
       let originX =
         image.width / 2 - VIEWPORT / (2 * scale) - translate.x / scale;
       let originY =
         image.height / 2 - VIEWPORT / (2 * scale) - translate.y / scale;
-
       originX = clampNumber(originX, 0, Math.max(0, image.width - cropSize));
       originY = clampNumber(originY, 0, Math.max(0, image.height - cropSize));
 
       const result = await ImageManipulator.manipulateAsync(
         image.uri,
         [
-          {
-            crop: {
-              originX,
-              originY,
-              width: cropSize,
-              height: cropSize,
-            },
-          },
-          {
-            resize: {
-              width: 500,
-              height: 500,
-            },
-          },
+          { crop: { originX, originY, width: cropSize, height: cropSize } },
+          { resize: { width: 500, height: 500 } },
         ],
-        {
-          compress: 0.8,
-          format: ImageManipulator.SaveFormat.JPEG,
-        },
+        { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG },
       );
-
       onConfirm(result.uri);
     } catch (err) {
       console.error("Error adjusting photo:", err);
@@ -378,7 +343,6 @@ function PhotoAdjustModal({
               <View
                 style={[adjustStyles.circleGuide, { pointerEvents: "none" }]}
               />
-
               <View style={adjustStyles.zoomLevelBadge}>
                 <Text style={adjustStyles.zoomLevelText}>
                   {Math.round(zoom * 100)}%
@@ -405,7 +369,6 @@ function PhotoAdjustModal({
             >
               <Text style={adjustStyles.cancelText}>Cancel</Text>
             </TouchableOpacity>
-
             <TouchableOpacity
               style={adjustStyles.confirmButton}
               onPress={handleConfirm}
@@ -444,21 +407,9 @@ const adjustStyles = StyleSheet.create({
     maxWidth: 420,
     alignItems: "center",
   },
-  title: {
-    fontSize: 17,
-    fontWeight: "800",
-    color: "#0f172a",
-    marginBottom: 2,
-  },
-  subtitle: {
-    fontSize: 12.5,
-    color: "#64748b",
-    marginBottom: 16,
-  },
-  viewportWrapper: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
+  title: { fontSize: 17, fontWeight: "800", color: "#0f172a", marginBottom: 2 },
+  subtitle: { fontSize: 12.5, color: "#64748b", marginBottom: 16 },
+  viewportWrapper: { alignItems: "center", justifyContent: "center" },
   viewport: {
     backgroundColor: "#0f172a",
     borderRadius: 16,
@@ -484,11 +435,7 @@ const adjustStyles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 8,
   },
-  zoomLevelText: {
-    color: "#ffffff",
-    fontSize: 12,
-    fontWeight: "600",
-  },
+  zoomLevelText: { color: "#ffffff", fontSize: 12, fontWeight: "600" },
   resetButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -497,17 +444,8 @@ const adjustStyles = StyleSheet.create({
     paddingVertical: 4,
     paddingHorizontal: 10,
   },
-  resetText: {
-    fontSize: 12.5,
-    fontWeight: "600",
-    color: "#64748b",
-  },
-  actionRow: {
-    flexDirection: "row",
-    gap: 10,
-    width: "100%",
-    marginTop: 16,
-  },
+  resetText: { fontSize: 12.5, fontWeight: "600", color: "#64748b" },
+  actionRow: { flexDirection: "row", gap: 10, width: "100%", marginTop: 16 },
   cancelButton: {
     flex: 1,
     paddingVertical: 13,
@@ -517,11 +455,7 @@ const adjustStyles = StyleSheet.create({
     backgroundColor: "#f8fafc",
     alignItems: "center",
   },
-  cancelText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#475569",
-  },
+  cancelText: { fontSize: 14, fontWeight: "700", color: "#475569" },
   confirmButton: {
     flex: 1,
     flexDirection: "row",
@@ -532,11 +466,7 @@ const adjustStyles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: "#1a73e8",
   },
-  confirmText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#ffffff",
-  },
+  confirmText: { fontSize: 14, fontWeight: "700", color: "#ffffff" },
 });
 
 // ---------------------------------------------------------------------------
@@ -550,13 +480,11 @@ export default function AccountSwitcher() {
     useAccounts();
 
   const visible = useAccountStore((state) => state.isAccountSwitcherOpen);
-
   const setAccountSwitcherOpen = useAccountStore(
     (state) => state.setAccountSwitcherOpen,
   );
 
   const [editingNameId, setEditingNameId] = useState<string | null>(null);
-
   const [tempName, setTempName] = useState("");
 
   const [showPhotoOptions, setShowPhotoOptions] = useState(false);
@@ -566,11 +494,79 @@ export default function AccountSwitcher() {
     string | null
   >(null);
 
-  const handleSelect = (account: Account) => {
+  const getAuthToken = async (): Promise<string | null> => {
+    try {
+      return await SecureStore.getItemAsync("auth_token");
+    } catch (err) {
+      console.warn("[account-switcher] SecureStore read failed:", err);
+      return null;
+    }
+  };
+
+  /**
+   * PATCH {API_URL}/accounts/:id
+   *
+   * NOTE: API_URL already ends with "/api" (from .env), so we do NOT prefix
+   * this path with another "/api".
+   */
+  const patchAccount = async (
+    accountId: string,
+    payload: { name?: string; photoUrl?: string | null },
+  ): Promise<Account | null> => {
+    const authToken = await getAuthToken();
+    if (!authToken) {
+      throw new Error("You're not signed in. Please log in again.");
+    }
+
+    const body: Record<string, any> = {};
+    if (payload.name !== undefined) body.name = payload.name;
+    if (payload.photoUrl !== undefined) body.photo_url = payload.photoUrl;
+
+    const url = `${API_URL}/accounts/${accountId}`;
+    console.log("[account-switcher] PATCH →", url, body);
+
+    const res = await fetch(url, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${authToken}`,
+      },
+      body: JSON.stringify(body),
+    });
+
+    const data = await res.json().catch(() => null);
+
+    if (!res.ok) {
+      console.warn("[account-switcher] PATCH failed:", res.status, data);
+      throw new Error(data?.message || "Failed to update account");
+    }
+
+    return data as Account;
+  };
+
+  const handleSelect = async (account: Account) => {
     if (editingNameId) return;
 
     selectAccount(account.id);
     setAccountSwitcherOpen(false);
+
+    // Best-effort: remember this as the user's last account.
+    // Path is relative to API_URL (which already includes /api).
+    try {
+      const authToken = await getAuthToken();
+      if (!authToken) return;
+
+      await fetch(`${API_URL}/accounts/me/last-account`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({ accountId: account.id }),
+      });
+    } catch (err) {
+      console.warn("[account-switcher] last-account update failed:", err);
+    }
   };
 
   const handleAddNew = () => {
@@ -581,7 +577,6 @@ export default function AccountSwitcher() {
     });
   };
 
-  // Photo picker functions - exactly matching AddAccountScreen
   const showPhotoSelectionOptions = (accountId: string) => {
     setEditingPhotoAccountId(accountId);
     setShowPhotoOptions(true);
@@ -591,22 +586,20 @@ export default function AccountSwitcher() {
     setShowPhotoOptions(false);
     const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) {
+      Alert.alert(
+        "Permission needed",
+        "Please grant camera permission to take a photo.",
+      );
       return;
     }
-
     const result = await ImagePicker.launchCameraAsync({
       mediaTypes: ["images"],
       allowsEditing: false,
       quality: 1,
     });
-
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];
-      setRawImage({
-        uri: asset.uri,
-        width: asset.width,
-        height: asset.height,
-      });
+      setRawImage({ uri: asset.uri, width: asset.width, height: asset.height });
       setShowAdjustModal(true);
     }
   };
@@ -615,39 +608,46 @@ export default function AccountSwitcher() {
     setShowPhotoOptions(false);
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
+      Alert.alert(
+        "Permission needed",
+        "Please grant photo library permission to choose a photo.",
+      );
       return;
     }
-
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
       allowsEditing: false,
       quality: 1,
     });
-
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];
-      setRawImage({
-        uri: asset.uri,
-        width: asset.width,
-        height: asset.height,
-      });
+      setRawImage({ uri: asset.uri, width: asset.width, height: asset.height });
       setShowAdjustModal(true);
     }
   };
 
   const handleAdjustConfirm = async (uri: string) => {
-    if (editingPhotoAccountId) {
-      try {
-        await editAccount(editingPhotoAccountId, {
-          photoUri: uri,
-        });
-      } catch (error) {
-        console.error("Failed to update account photo:", error);
-      }
-    }
+    const accountId = editingPhotoAccountId;
+
     setShowAdjustModal(false);
     setRawImage(null);
     setEditingPhotoAccountId(null);
+
+    if (!accountId) return;
+
+    try {
+      await patchAccount(accountId, { photoUrl: uri });
+    } catch (err: any) {
+      console.error("[account-switcher] save photo failed:", err);
+      Alert.alert("Couldn't save photo", err?.message || "Please try again.");
+      return;
+    }
+
+    try {
+      await editAccount(accountId, { photoUri: uri });
+    } catch {
+      // ignore — backend is the source of truth
+    }
   };
 
   const handleAdjustCancel = () => {
@@ -669,18 +669,24 @@ export default function AccountSwitcher() {
   const saveEditName = async (accountId: string) => {
     const trimmed = tempName.trim();
 
-    if (trimmed) {
-      try {
-        await editAccount(accountId, {
-          name: trimmed,
-        });
-      } catch (error) {
-        console.error("Failed to update account name:", error);
-      }
-    }
-
     setEditingNameId(null);
     setTempName("");
+
+    if (!trimmed) return;
+
+    try {
+      await patchAccount(accountId, { name: trimmed });
+    } catch (err: any) {
+      console.error("[account-switcher] save name failed:", err);
+      Alert.alert("Couldn't save name", err?.message || "Please try again.");
+      return;
+    }
+
+    try {
+      await editAccount(accountId, { name: trimmed });
+    } catch {
+      // ignore — backend is the source of truth
+    }
   };
 
   const closeSwitcher = () => {
@@ -688,28 +694,18 @@ export default function AccountSwitcher() {
     setAccountSwitcherOpen(false);
   };
 
-  // ---------------------------------------------------------
-  // Selected account information for header
-  // ---------------------------------------------------------
-
   const selectedName = selectedAccount?.name ?? "No Account";
-
   const selectedType =
     selectedAccount?.type === "apartment"
       ? "Apartment"
       : selectedAccount
         ? "Home"
         : "No Account";
-
   const selectedIcon =
     selectedAccount?.type === "apartment" ? "business-outline" : "home-outline";
 
   return (
     <>
-      {/* ===================================================== */}
-      {/* HEADER ACCOUNT SWITCHER */}
-      {/* ===================================================== */}
-
       <Pressable
         onPress={() => setAccountSwitcherOpen(true)}
         style={({ pressed }) => [
@@ -717,12 +713,9 @@ export default function AccountSwitcher() {
           pressed && styles.triggerPressed,
         ]}
       >
-        {/* Property Avatar */}
         {selectedAccount?.photoUri ? (
           <Image
-            source={{
-              uri: selectedAccount.photoUri,
-            }}
+            source={{ uri: selectedAccount.photoUri }}
             style={styles.triggerAvatar}
           />
         ) : (
@@ -735,7 +728,6 @@ export default function AccountSwitcher() {
           </View>
         )}
 
-        {/* Property Name + Type */}
         <View style={styles.triggerInfo}>
           <Text
             style={styles.triggerName}
@@ -744,25 +736,18 @@ export default function AccountSwitcher() {
           >
             {selectedName}
           </Text>
-
           <View style={styles.triggerTypeRow}>
             <Ionicons name={selectedIcon} size={11} color={COLORS.secondary} />
-
             <Text style={styles.triggerType} numberOfLines={1}>
               {selectedType}
             </Text>
           </View>
         </View>
 
-        {/* Dropdown */}
         <View style={styles.triggerChevron}>
           <Ionicons name="chevron-down" size={15} color={COLORS.secondary} />
         </View>
       </Pressable>
-
-      {/* ===================================================== */}
-      {/* ACCOUNT MODAL */}
-      {/* ===================================================== */}
 
       <Modal
         visible={visible}
@@ -771,24 +756,18 @@ export default function AccountSwitcher() {
         onRequestClose={closeSwitcher}
       >
         <View style={styles.modalContainer}>
-          {/* Background Overlay */}
           <Pressable style={styles.overlay} onPress={closeSwitcher} />
 
-          {/* Bottom Sheet */}
           <View style={styles.sheet}>
-            {/* Handle */}
             <View style={styles.handle} />
 
-            {/* Header */}
             <View style={styles.sheetHeader}>
               <View style={styles.sheetHeaderText}>
                 <Text style={styles.sheetTitle}>Switch Account</Text>
-
                 <Text style={styles.sheetSubtitle}>
                   Select a property to manage
                 </Text>
               </View>
-
               <Pressable
                 onPress={closeSwitcher}
                 style={({ pressed }) => [
@@ -800,20 +779,14 @@ export default function AccountSwitcher() {
               </Pressable>
             </View>
 
-            {/* Account Count */}
             {accounts.length > 0 && (
               <View style={styles.accountCountRow}>
                 <Text style={styles.accountCountLabel}>Your accounts</Text>
-
                 <View style={styles.countBadge}>
                   <Text style={styles.countText}>{accounts.length}</Text>
                 </View>
               </View>
             )}
-
-            {/* ================================================= */}
-            {/* ACCOUNT LIST */}
-            {/* ================================================= */}
 
             <FlatList
               data={accounts}
@@ -826,7 +799,6 @@ export default function AccountSwitcher() {
               }
               renderItem={({ item }) => {
                 const isSelected = item.id === selectedAccount?.id;
-
                 const isEditingName = editingNameId === item.id;
 
                 return (
@@ -836,7 +808,6 @@ export default function AccountSwitcher() {
                       isSelected && styles.accountCardSelected,
                     ]}
                   >
-                    {/* Property Avatar */}
                     <View style={styles.avatarWrapper}>
                       <Pressable
                         onPress={() => handleSelect(item)}
@@ -846,9 +817,7 @@ export default function AccountSwitcher() {
                       >
                         {item.photoUri ? (
                           <Image
-                            source={{
-                              uri: item.photoUri,
-                            }}
+                            source={{ uri: item.photoUri }}
                             style={styles.itemAvatar}
                           />
                         ) : (
@@ -864,7 +833,6 @@ export default function AccountSwitcher() {
                         )}
                       </Pressable>
 
-                      {/* Camera */}
                       <Pressable
                         onPress={() => showPhotoSelectionOptions(item.id)}
                         style={({ pressed }) => [
@@ -880,7 +848,6 @@ export default function AccountSwitcher() {
                       </Pressable>
                     </View>
 
-                    {/* Property Information */}
                     <View style={styles.accountDetails}>
                       {isEditingName ? (
                         <View style={styles.editContainer}>
@@ -893,12 +860,9 @@ export default function AccountSwitcher() {
                             returnKeyType="done"
                             onSubmitEditing={() => saveEditName(item.id)}
                             {...(Platform.OS === "web"
-                              ? ({
-                                  outlineStyle: "none",
-                                } as any)
+                              ? ({ outlineStyle: "none" } as any)
                               : {})}
                           />
-
                           <Pressable
                             onPress={() => saveEditName(item.id)}
                             style={({ pressed }) => [
@@ -912,7 +876,6 @@ export default function AccountSwitcher() {
                               color={COLORS.white}
                             />
                           </Pressable>
-
                           <Pressable
                             onPress={cancelEditName}
                             style={({ pressed }) => [
@@ -929,7 +892,6 @@ export default function AccountSwitcher() {
                         </View>
                       ) : (
                         <>
-                          {/* Name */}
                           <View style={styles.nameRow}>
                             <Pressable
                               onPress={() => handleSelect(item)}
@@ -939,8 +901,6 @@ export default function AccountSwitcher() {
                                 {item.name}
                               </Text>
                             </Pressable>
-
-                            {/* Edit */}
                             <Pressable
                               onPress={() => startEditName(item)}
                               style={({ pressed }) => [
@@ -956,7 +916,6 @@ export default function AccountSwitcher() {
                             </Pressable>
                           </View>
 
-                          {/* Type */}
                           <Pressable
                             onPress={() => handleSelect(item)}
                             style={styles.typePressable}
@@ -970,11 +929,9 @@ export default function AccountSwitcher() {
                               size={13}
                               color={COLORS.secondary}
                             />
-
                             <Text style={styles.itemType}>
                               {item.type === "apartment" ? "Apartment" : "Home"}
                             </Text>
-
                             {isSelected && (
                               <View style={styles.currentBadge}>
                                 <Text style={styles.currentBadgeText}>
@@ -987,7 +944,6 @@ export default function AccountSwitcher() {
                       )}
                     </View>
 
-                    {/* Radio */}
                     {!isEditingName && (
                       <Pressable
                         onPress={() => handleSelect(item)}
@@ -1015,19 +971,13 @@ export default function AccountSwitcher() {
                       color={COLORS.primary}
                     />
                   </View>
-
                   <Text style={styles.emptyTitle}>No accounts yet</Text>
-
                   <Text style={styles.emptySubtitle}>
                     Add your first apartment or home property to get started.
                   </Text>
                 </View>
               }
             />
-
-            {/* ================================================= */}
-            {/* JOIN WITH NEW PROPERTY */}
-            {/* ================================================= */}
 
             <Pressable
               onPress={handleAddNew}
@@ -1039,26 +989,20 @@ export default function AccountSwitcher() {
               <View style={styles.addIconContainer}>
                 <Ionicons name="add" size={21} color={COLORS.primary} />
               </View>
-
               <View style={styles.addTextContainer}>
                 <Text style={styles.addButtonTitle}>
                   Join With New Property
                 </Text>
-
                 <Text style={styles.addButtonSubtitle}>
                   Create or join another property
                 </Text>
               </View>
-
               <Ionicons name="chevron-forward" size={19} color={COLORS.muted} />
             </Pressable>
           </View>
         </View>
       </Modal>
 
-      {/* =========================================================
-          PHOTO OPTIONS MODAL - Matches AddAccountScreen exactly
-      ========================================================= */}
       <Modal
         visible={showPhotoOptions}
         transparent
@@ -1123,9 +1067,6 @@ export default function AccountSwitcher() {
         </Pressable>
       </Modal>
 
-      {/* =========================================================
-          PHOTO ADJUST MODAL - Pinch to zoom / drag
-      ========================================================= */}
       <PhotoAdjustModal
         visible={showAdjustModal}
         image={rawImage}
@@ -1136,11 +1077,11 @@ export default function AccountSwitcher() {
   );
 }
 
-const styles = StyleSheet.create({
-  // =========================================================
-  // Header Trigger
-  // =========================================================
+// =========================================================
+// STYLES
+// =========================================================
 
+const styles = StyleSheet.create({
   trigger: {
     flexDirection: "row",
     alignItems: "center",
@@ -1150,19 +1091,8 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 12,
   },
-
-  triggerPressed: {
-    opacity: 0.7,
-    backgroundColor: COLORS.background,
-  },
-
-  triggerAvatar: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    marginRight: 8,
-  },
-
+  triggerPressed: { opacity: 0.7, backgroundColor: COLORS.background },
+  triggerAvatar: { width: 34, height: 34, borderRadius: 17, marginRight: 8 },
   triggerAvatarPlaceholder: {
     width: 34,
     height: 34,
@@ -1172,33 +1102,20 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primaryLight,
     marginRight: 8,
   },
-
-  triggerInfo: {
-    flexShrink: 1,
-    minWidth: 0,
-    marginRight: 5,
-  },
-
+  triggerInfo: { flexShrink: 1, minWidth: 0, marginRight: 5 },
   triggerName: {
     fontSize: 14,
     lineHeight: 18,
     fontWeight: "700",
     color: COLORS.text,
   },
-
   triggerTypeRow: {
     flexDirection: "row",
     alignItems: "center",
     marginTop: 1,
     gap: 4,
   },
-
-  triggerType: {
-    fontSize: 10,
-    lineHeight: 14,
-    color: COLORS.secondary,
-  },
-
+  triggerType: { fontSize: 10, lineHeight: 14, color: COLORS.secondary },
   triggerChevron: {
     width: 24,
     height: 24,
@@ -1208,20 +1125,11 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
   },
 
-  // =========================================================
-  // Modal
-  // =========================================================
-
-  modalContainer: {
-    flex: 1,
-    justifyContent: "flex-end",
-  },
-
+  modalContainer: { flex: 1, justifyContent: "flex-end" },
   overlay: {
     ...StyleSheet.absoluteFill,
     backgroundColor: "rgba(15, 23, 42, 0.48)",
   },
-
   sheet: {
     backgroundColor: COLORS.white,
     borderTopLeftRadius: 26,
@@ -1231,7 +1139,6 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
     maxHeight: "78%",
   },
-
   handle: {
     width: 38,
     height: 4,
@@ -1241,33 +1148,15 @@ const styles = StyleSheet.create({
     marginBottom: 17,
   },
 
-  // =========================================================
-  // Sheet Header
-  // =========================================================
-
   sheetHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 18,
   },
-
-  sheetHeaderText: {
-    flex: 1,
-  },
-
-  sheetTitle: {
-    fontSize: 21,
-    fontWeight: "700",
-    color: COLORS.text,
-  },
-
-  sheetSubtitle: {
-    fontSize: 13,
-    color: COLORS.secondary,
-    marginTop: 4,
-  },
-
+  sheetHeaderText: { flex: 1 },
+  sheetTitle: { fontSize: 21, fontWeight: "700", color: COLORS.text },
+  sheetSubtitle: { fontSize: 13, color: COLORS.secondary, marginTop: 4 },
   closeButton: {
     width: 38,
     height: 38,
@@ -1277,27 +1166,18 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
     marginLeft: 12,
   },
-
-  closeButtonPressed: {
-    opacity: 0.6,
-  },
-
-  // =========================================================
-  // Count
-  // =========================================================
+  closeButtonPressed: { opacity: 0.6 },
 
   accountCountRow: {
     flexDirection: "row",
     alignItems: "center",
     marginBottom: 10,
   },
-
   accountCountLabel: {
     fontSize: 13,
     fontWeight: "600",
     color: COLORS.secondary,
   },
-
   countBadge: {
     minWidth: 24,
     height: 22,
@@ -1308,25 +1188,10 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primaryLight,
     marginLeft: 7,
   },
+  countText: { fontSize: 11, fontWeight: "700", color: COLORS.primary },
 
-  countText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: COLORS.primary,
-  },
-
-  listContent: {
-    paddingBottom: 8,
-  },
-
-  emptyListContent: {
-    flexGrow: 1,
-    justifyContent: "center",
-  },
-
-  // =========================================================
-  // Account Card
-  // =========================================================
+  listContent: { paddingBottom: 8 },
+  emptyListContent: { flexGrow: 1, justifyContent: "center" },
 
   accountCard: {
     flexDirection: "row",
@@ -1340,27 +1205,13 @@ const styles = StyleSheet.create({
     borderColor: COLORS.border,
     backgroundColor: COLORS.white,
   },
-
   accountCardSelected: {
     borderColor: COLORS.primary,
     backgroundColor: COLORS.primaryLight,
   },
 
-  // =========================================================
-  // Avatar
-  // =========================================================
-
-  avatarWrapper: {
-    position: "relative",
-    marginRight: 12,
-  },
-
-  itemAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 15,
-  },
-
+  avatarWrapper: { position: "relative", marginRight: 12 },
+  itemAvatar: { width: 48, height: 48, borderRadius: 15 },
   itemAvatarPlaceholder: {
     width: 48,
     height: 48,
@@ -1369,10 +1220,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: COLORS.primaryLight,
   },
-
-  avatarPressed: {
-    opacity: 0.7,
-  },
+  avatarPressed: { opacity: 0.7 },
 
   cameraBadge: {
     position: "absolute",
@@ -1387,36 +1235,12 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: COLORS.white,
   },
+  cameraBadgePressed: { opacity: 0.7 },
 
-  cameraBadgePressed: {
-    opacity: 0.7,
-  },
-
-  // =========================================================
-  // Account Details
-  // =========================================================
-
-  accountDetails: {
-    flex: 1,
-    minWidth: 0,
-  },
-
-  nameRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-
-  namePressable: {
-    flex: 1,
-    minWidth: 0,
-  },
-
-  itemName: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: COLORS.text,
-  },
-
+  accountDetails: { flex: 1, minWidth: 0 },
+  nameRow: { flexDirection: "row", alignItems: "center" },
+  namePressable: { flex: 1, minWidth: 0 },
+  itemName: { fontSize: 15, fontWeight: "700", color: COLORS.text },
   editButton: {
     width: 26,
     height: 26,
@@ -1426,23 +1250,10 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
     marginLeft: 6,
   },
+  editButtonPressed: { opacity: 0.6 },
 
-  editButtonPressed: {
-    opacity: 0.6,
-  },
-
-  typePressable: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 5,
-  },
-
-  itemType: {
-    fontSize: 12,
-    color: COLORS.secondary,
-    marginLeft: 5,
-  },
-
+  typePressable: { flexDirection: "row", alignItems: "center", marginTop: 5 },
+  itemType: { fontSize: 12, color: COLORS.secondary, marginLeft: 5 },
   currentBadge: {
     paddingHorizontal: 7,
     paddingVertical: 3,
@@ -1450,16 +1261,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.successLight,
     marginLeft: 8,
   },
-
-  currentBadgeText: {
-    fontSize: 9,
-    fontWeight: "700",
-    color: COLORS.success,
-  },
-
-  // =========================================================
-  // Selection
-  // =========================================================
+  currentBadgeText: { fontSize: 9, fontWeight: "700", color: COLORS.success },
 
   selectionButton: {
     width: 32,
@@ -1468,7 +1270,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginLeft: 6,
   },
-
   radioOuter: {
     width: 21,
     height: 21,
@@ -1478,11 +1279,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
-  radioOuterSelected: {
-    borderColor: COLORS.primary,
-  },
-
+  radioOuterSelected: { borderColor: COLORS.primary },
   radioInner: {
     width: 11,
     height: 11,
@@ -1490,15 +1287,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
   },
 
-  // =========================================================
-  // Edit Name
-  // =========================================================
-
-  editContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-
+  editContainer: { flexDirection: "row", alignItems: "center" },
   nameInput: {
     flex: 1,
     minWidth: 0,
@@ -1513,7 +1302,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: COLORS.text,
   },
-
   saveButton: {
     width: 32,
     height: 32,
@@ -1523,11 +1311,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
     marginLeft: 6,
   },
-
-  saveButtonPressed: {
-    opacity: 0.7,
-  },
-
+  saveButtonPressed: { opacity: 0.7 },
   cancelButton: {
     width: 32,
     height: 32,
@@ -1537,14 +1321,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
     marginLeft: 5,
   },
-
-  cancelButtonPressed: {
-    opacity: 0.6,
-  },
-
-  // =========================================================
-  // Empty State
-  // =========================================================
+  cancelButtonPressed: { opacity: 0.6 },
 
   emptyState: {
     alignItems: "center",
@@ -1552,7 +1329,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 30,
     paddingVertical: 30,
   },
-
   emptyIcon: {
     width: 76,
     height: 76,
@@ -1562,14 +1338,12 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primaryLight,
     marginBottom: 16,
   },
-
   emptyTitle: {
     fontSize: 18,
     fontWeight: "700",
     color: COLORS.text,
     marginBottom: 7,
   },
-
   emptySubtitle: {
     fontSize: 13,
     lineHeight: 20,
@@ -1577,10 +1351,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
     maxWidth: 280,
   },
-
-  // =========================================================
-  // Join With New Property
-  // =========================================================
 
   addButton: {
     flexDirection: "row",
@@ -1594,12 +1364,7 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.white,
     marginTop: 4,
   },
-
-  addButtonPressed: {
-    opacity: 0.7,
-    backgroundColor: COLORS.primaryLight,
-  },
-
+  addButtonPressed: { opacity: 0.7, backgroundColor: COLORS.primaryLight },
   addIconContainer: {
     width: 42,
     height: 42,
@@ -1609,26 +1374,9 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primaryLight,
     marginRight: 12,
   },
-
-  addTextContainer: {
-    flex: 1,
-  },
-
-  addButtonTitle: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: COLORS.text,
-  },
-
-  addButtonSubtitle: {
-    fontSize: 11,
-    color: COLORS.secondary,
-    marginTop: 3,
-  },
-
-  // =========================================================
-  // PHOTO OPTIONS MODAL - Matches AddAccountScreen
-  // =========================================================
+  addTextContainer: { flex: 1 },
+  addButtonTitle: { fontSize: 14, fontWeight: "700", color: COLORS.text },
+  addButtonSubtitle: { fontSize: 11, color: COLORS.secondary, marginTop: 3 },
 
   modalBackdrop: {
     flex: 1,
@@ -1636,7 +1384,6 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
     alignItems: "center",
   },
-
   modalHandle: {
     width: 40,
     height: 4,
@@ -1645,7 +1392,6 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     marginBottom: 16,
   },
-
   photoOptionsModal: {
     backgroundColor: "#ffffff",
     borderTopLeftRadius: 24,
@@ -1655,7 +1401,6 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 480,
   },
-
   photoOptionsTitle: {
     fontSize: 20,
     fontWeight: "700",
@@ -1663,14 +1408,12 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     textAlign: "center",
   },
-
   photoOptionsSubtitle: {
     fontSize: 13,
     color: "#64748b",
     textAlign: "center",
     marginBottom: 20,
   },
-
   photoOptionButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -1682,7 +1425,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e2e8f0",
   },
-
   photoOptionIcon: {
     width: 44,
     height: 44,
@@ -1692,23 +1434,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginRight: 14,
   },
-
-  photoOptionTextContainer: {
-    flex: 1,
-  },
-
-  photoOptionTitle: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#0f172a",
-  },
-
-  photoOptionDescription: {
-    fontSize: 12,
-    color: "#64748b",
-    marginTop: 1,
-  },
-
+  photoOptionTextContainer: { flex: 1 },
+  photoOptionTitle: { fontSize: 15, fontWeight: "600", color: "#0f172a" },
+  photoOptionDescription: { fontSize: 12, color: "#64748b", marginTop: 1 },
   photoOptionsCancel: {
     paddingVertical: 14,
     alignItems: "center",
@@ -1716,10 +1444,5 @@ const styles = StyleSheet.create({
     backgroundColor: "#f8fafc",
     borderRadius: 12,
   },
-
-  photoOptionsCancelText: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: "#dc2626",
-  },
+  photoOptionsCancelText: { fontSize: 15, fontWeight: "700", color: "#dc2626" },
 });
