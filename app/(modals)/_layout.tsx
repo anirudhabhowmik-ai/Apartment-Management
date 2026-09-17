@@ -1,3 +1,4 @@
+// app/(modals)/_layout.tsx
 import { Stack } from "expo-router";
 
 // Local type documenting what each modal route expects as params —
@@ -26,6 +27,7 @@ export type ModalRouteParams = {
     role: "admin" | "member_visibility" | "staff_visibility";
     memberType?: "owner" | "staff";
   };
+  "account-profile": undefined;
 };
 
 export default function ModalsLayout() {
@@ -45,6 +47,10 @@ export default function ModalsLayout() {
       <Stack.Screen
         name="select-account"
         options={{ title: "Select Account" }}
+      />
+      <Stack.Screen
+        name="account-profile"
+        options={{ title: "Manage Account Profile" }}
       />
     </Stack>
   );
