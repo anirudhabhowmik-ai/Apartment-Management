@@ -2,14 +2,14 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Modal,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 
 export type BillingPeriod = "monthly" | "yearly";
@@ -32,13 +32,7 @@ export const DEFAULT_PLANS: SubscriptionPlan[] = [
     name: "Free",
     monthlyPrice: 0,
     yearlyPrice: 0,
-    features: [
-      "Up to 10 members",
-      "1 Ownership",
-      "1 Admin",
-      "1 Staff",
-      "Basic support",
-    ],
+    features: ["Up to 10 members", "1 Admin", "1 Staff", "Basic support"],
     color: "#64748B",
     icon: "people-outline",
     yearlyDiscountPercent: 0,
@@ -50,7 +44,6 @@ export const DEFAULT_PLANS: SubscriptionPlan[] = [
     yearlyPrice: 1990,
     features: [
       "Up to 30 members",
-      "2 Ownerships",
       "2 Admins",
       "2 Staffs",
       "History access",
@@ -68,7 +61,6 @@ export const DEFAULT_PLANS: SubscriptionPlan[] = [
     yearlyPrice: 8990,
     features: [
       "Unlimited members",
-      "Unlimited Ownerships",
       "Unlimited Admins",
       "Unlimited Staffs",
       "Full feature access",
