@@ -4,7 +4,6 @@ import { Stack } from "expo-router";
 // helps when navigating with router.push({ pathname, params })
 export type ModalRouteParams = {
   "add-account": { mode?: string } | undefined;
-  "switch-account": undefined;
   "add-member": {
     groupId: string;
     groupType: "apartment" | "staff" | "expense";
@@ -43,10 +42,6 @@ export default function ModalsLayout() {
       />
       <Stack.Screen name="mark-payment" options={{ title: "Mark as Paid" }} />
       <Stack.Screen name="grant-access" options={{ title: "Grant Access" }} />
-      <Stack.Screen
-        name="switch-account"
-        options={{ title: "Switch Property" }}
-      />
       <Stack.Screen
         name="select-account"
         options={{ title: "Select Account" }}
