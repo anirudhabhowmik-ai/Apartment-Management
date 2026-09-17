@@ -683,10 +683,26 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 6,
   },
+  phonePressable: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 2,
+    paddingRight: 4,
+    flexShrink: 1,
+  },
   userPhone: {
     color: "#64748B",
     fontSize: 13,
     marginLeft: 6,
+  },
+  phoneInfoIcon: {
+    marginLeft: 6,
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: "#EFF6FF",
+    alignItems: "center",
+    justifyContent: "center",
   },
   accountTypeBadge: {
     flexDirection: "row",
@@ -1035,9 +1051,6 @@ const styles = StyleSheet.create({
   ownerAvatar: {
     backgroundColor: "#DBEAFE",
   },
-  ownershipAvatar: {
-    backgroundColor: "#CFFAFE",
-  },
   adminAvatar: {
     backgroundColor: "#EDE9FE",
   },
@@ -1051,9 +1064,6 @@ const styles = StyleSheet.create({
     color: "#2563EB",
     fontSize: 15,
     fontWeight: "700",
-  },
-  ownershipAvatarText: {
-    color: "#0E7490",
   },
   memberAvatarText: {
     color: "#16A34A",
@@ -1102,14 +1112,6 @@ const styles = StyleSheet.create({
   },
   ownerBadgeText: {
     color: "#1D4ED8",
-    fontSize: 9,
-    fontWeight: "700",
-  },
-  ownershipBadge: {
-    backgroundColor: "#CFFAFE",
-  },
-  ownershipBadgeText: {
-    color: "#0E7490",
     fontSize: 9,
     fontWeight: "700",
   },
@@ -2047,6 +2049,90 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+
+  // ── Phone tooltip ─────────────────────────────────────────────
+  tooltipCard: {
+    width: "100%",
+    maxWidth: 400,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    padding: 22,
+    alignItems: "center",
+  },
+  tooltipIconCircle: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: "#EFF6FF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+  tooltipTitle: {
+    color: "#0F172A",
+    fontSize: 17,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  tooltipSubtitle: {
+    color: "#64748B",
+    fontSize: 12.5,
+    lineHeight: 18,
+    textAlign: "center",
+    marginTop: 6,
+    maxWidth: 320,
+  },
+  tooltipList: {
+    width: "100%",
+    marginTop: 16,
+    gap: 10,
+  },
+  tooltipRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    borderRadius: 12,
+    padding: 12,
+  },
+  tooltipRowIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: "#EFF6FF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tooltipRowTextContainer: {
+    flex: 1,
+  },
+  tooltipRowTitle: {
+    color: "#0F172A",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  tooltipRowText: {
+    color: "#64748B",
+    fontSize: 11.5,
+    lineHeight: 16,
+    marginTop: 3,
+  },
+  tooltipActionButton: {
+    marginTop: 18,
+    width: "100%",
+    minHeight: 47,
+    borderRadius: 12,
+    backgroundColor: "#2563EB",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tooltipActionText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "700",
+  },
 });
 
 // ---------------------------------------------------------------------------
@@ -2112,6 +2198,9 @@ export default function ProfileScreen() {
   const [activePlanPeriod, setActivePlanPeriod] =
     useState<BillingPeriod>("monthly");
 
+  // 🆕 Phone-help tooltip visibility
+  const [showPhoneTooltip, setShowPhoneTooltip] = useState(false);
+
   const plans = DEFAULT_PLANS;
 
   const otpInputs = useRef<(TextInput | null)[]>([]);
@@ -2127,21 +2216,8 @@ export default function ProfileScreen() {
 
   const pendingInvitations = accountGrants.filter((grant) => !grant.acceptedAt);
 
-  // Ownership grants are stored with role: "admin" but tagged via
-  // (grant as any).memberType === "ownership" so we can display them
-  // in a distinct group. They have identical permissions to admins.
-  const acceptedOwnerships = accountGrants.filter(
-    (grant) =>
-      grant.acceptedAt &&
-      grant.role === "admin" &&
-      (grant as any).memberType === "ownership",
-  );
-
   const acceptedAdmins = accountGrants.filter(
-    (grant) =>
-      grant.acceptedAt &&
-      grant.role === "admin" &&
-      (grant as any).memberType !== "ownership",
+    (grant) => grant.acceptedAt && grant.role === "admin",
   );
 
   const visibleMembers = accountGrants.filter(
@@ -2153,7 +2229,6 @@ export default function ProfileScreen() {
   );
 
   const totalPeopleWithAccess =
-    acceptedOwnerships.length +
     acceptedAdmins.length +
     visibleMembers.length +
     visibleStaff.length +
@@ -2954,22 +3029,6 @@ export default function ProfileScreen() {
       },
     },
     {
-      id: "add_ownership",
-      title: "Add Ownership",
-      description: "Give another person ownership access",
-      icon: "shield-checkmark-outline",
-      color: "#0E7490",
-      onPress: () =>
-        router.push({
-          pathname: "/(modals)/grant-access",
-          params: {
-            accountId: selectedAccount?.id || "",
-            role: "admin",
-            memberType: "ownership",
-          },
-        }),
-    },
-    {
       id: "add_admin",
       title: "Add Admin",
       description: "Give another person administrator access",
@@ -3107,12 +3166,7 @@ export default function ProfileScreen() {
       },
       {
         title: "ACCESS & ROLES",
-        itemIds: [
-          "add_ownership",
-          "add_admin",
-          "invite_member",
-          "invite_staff",
-        ],
+        itemIds: ["add_admin", "invite_member", "invite_staff"],
       },
       {
         title: "PREFERENCES",
@@ -3553,6 +3607,96 @@ export default function ProfileScreen() {
   };
 
   // ============================================================
+  // PHONE TOOLTIP MODAL
+  // ============================================================
+
+  const renderPhoneTooltip = () => {
+    if (!showPhoneTooltip) return null;
+
+    return (
+      <Modal
+        transparent
+        animationType="fade"
+        visible={showPhoneTooltip}
+        onRequestClose={() => setShowPhoneTooltip(false)}
+      >
+        <TouchableWithoutFeedback onPress={() => setShowPhoneTooltip(false)}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback
+              onPress={(event) => event.stopPropagation()}
+            >
+              <View style={styles.tooltipCard}>
+                <View style={styles.tooltipIconCircle}>
+                  <Ionicons name="call-outline" size={26} color="#2563EB" />
+                </View>
+
+                <Text style={styles.tooltipTitle}>Phone Number</Text>
+                <Text style={styles.tooltipSubtitle}>
+                  The phone number here is the account owner's. You can change
+                  it or transfer ownership to another person.
+                </Text>
+
+                <View style={styles.tooltipList}>
+                  <View style={styles.tooltipRow}>
+                    <View style={styles.tooltipRowIcon}>
+                      <Ionicons
+                        name="create-outline"
+                        size={17}
+                        color="#2563EB"
+                      />
+                    </View>
+                    <View style={styles.tooltipRowTextContainer}>
+                      <Text style={styles.tooltipRowTitle}>
+                        Change your number
+                      </Text>
+                      <Text style={styles.tooltipRowText}>
+                        Tap the phone number to update it. We'll send an OTP to
+                        verify the new number.
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.tooltipRow}>
+                    <View
+                      style={[
+                        styles.tooltipRowIcon,
+                        { backgroundColor: "#FEF3C7" },
+                      ]}
+                    >
+                      <Ionicons
+                        name="swap-horizontal-outline"
+                        size={17}
+                        color="#D97706"
+                      />
+                    </View>
+                    <View style={styles.tooltipRowTextContainer}>
+                      <Text style={styles.tooltipRowTitle}>
+                        Transfer ownership
+                      </Text>
+                      <Text style={styles.tooltipRowText}>
+                        Add someone else's number and verify it with OTP to
+                        transfer ownership of this account to them.
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+
+                <TouchableOpacity
+                  style={styles.tooltipActionButton}
+                  onPress={() => setShowPhoneTooltip(false)}
+                  activeOpacity={0.85}
+                >
+                  <Text style={styles.tooltipActionText}>Got it</Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+    );
+  };
+
+  // ============================================================
   // DELETE INVITATION MODAL
   // ============================================================
 
@@ -3837,11 +3981,32 @@ export default function ProfileScreen() {
                 </View>
               )}
 
+              {/* Phone row — tappable + info icon opens tooltip */}
               <View style={styles.phoneDisplayRow}>
                 <Ionicons name="call-outline" size={14} color="#64748B" />
-                <Text style={styles.userPhone}>
-                  {user?.phone || "+91 9876543210"}
-                </Text>
+                <TouchableOpacity
+                  style={styles.phonePressable}
+                  activeOpacity={0.7}
+                  onPress={
+                    canEditAccount
+                      ? openPhoneEditor
+                      : () => setShowPhoneTooltip(true)
+                  }
+                >
+                  <Text style={styles.userPhone} numberOfLines={1}>
+                    {user?.phone || "+91 9876543210"}
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.phoneInfoIcon}
+                  onPress={() => setShowPhoneTooltip(true)}
+                  activeOpacity={0.7}
+                  hitSlop={6}
+                >
+                  <Ionicons name="information" size={11} color="#2563EB" />
+                </TouchableOpacity>
+
                 {canEditAccount && (
                   <TouchableOpacity
                     style={styles.editButton}
@@ -4020,8 +4185,7 @@ export default function ProfileScreen() {
               <View
                 style={[
                   styles.accessRow,
-                  acceptedOwnerships.length === 0 &&
-                    acceptedAdmins.length === 0 &&
+                  acceptedAdmins.length === 0 &&
                     visibleMembers.length === 0 &&
                     pendingInvitations.length === 0 &&
                     styles.lastAccessRow,
@@ -4045,44 +4209,6 @@ export default function ProfileScreen() {
                   <Text style={styles.ownerBadgeText}>Owner</Text>
                 </View>
               </View>
-            </View>
-          )}
-
-          {acceptedOwnerships.length > 0 && (
-            <View style={styles.accessGroup}>
-              <Text style={styles.accessHeading}>Ownership</Text>
-
-              {acceptedOwnerships.map((grant, index) => (
-                <View
-                  key={grant.id}
-                  style={[
-                    styles.accessRow,
-                    index === acceptedOwnerships.length - 1 &&
-                      acceptedAdmins.length === 0 &&
-                      visibleMembers.length === 0 &&
-                      pendingInvitations.length === 0 &&
-                      styles.lastAccessRow,
-                  ]}
-                >
-                  <View style={[styles.accessAvatar, styles.ownershipAvatar]}>
-                    <Text
-                      style={[
-                        styles.accessAvatarText,
-                        styles.ownershipAvatarText,
-                      ]}
-                    >
-                      {grant.name.charAt(0).toUpperCase()}
-                    </Text>
-                  </View>
-                  <View style={styles.accessInfo}>
-                    <Text style={styles.accessName}>{grant.name}</Text>
-                    <Text style={styles.accessPhone}>{grant.phone}</Text>
-                  </View>
-                  <View style={[styles.accessBadge, styles.ownershipBadge]}>
-                    <Text style={styles.ownershipBadgeText}>Owner</Text>
-                  </View>
-                </View>
-              ))}
             </View>
           )}
 
@@ -4227,7 +4353,6 @@ export default function ProfileScreen() {
           )}
 
           {selectedAccount?.ownerId !== user?.id &&
-            acceptedOwnerships.length === 0 &&
             acceptedAdmins.length === 0 &&
             visibleMembers.length === 0 &&
             pendingInvitations.length === 0 && (
@@ -4326,6 +4451,7 @@ export default function ProfileScreen() {
 
         {/* Modals */}
         {canEditAccount && renderPhoneModal()}
+        {renderPhoneTooltip()}
         {canEditAccount && renderDeleteInvitationModal()}
         {canEditAccount && renderContactPickerModal()}
         {renderHistoryModal()}
