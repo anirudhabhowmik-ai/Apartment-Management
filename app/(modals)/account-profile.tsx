@@ -9,6 +9,7 @@ import {
 import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
+import * as SecureStore from "expo-secure-store";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
     ActivityIndicator,
@@ -23,6 +24,7 @@ import {
     Pressable,
     ScrollView,
     StyleSheet,
+    Switch,
     Text,
     TextInput,
     TouchableOpacity,
@@ -33,9 +35,14 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAccounts } from "../../hooks/useAccounts";
 import { useUserRole } from "../../hooks/useUserRole";
-import { sendOtp, verifyOtp } from "../../services/otpService";
 import { useAccessStore } from "../../store/accessStore";
 import { useAuthStore } from "../../store/useAuthStore";
+
+const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
+
+// When the backend /change-preview route is reachable, flip to true.
+// Kept false here so tapping "Edit phone" doesn't spam a 404 warning.
+const ENABLE_LINKED_PROFILE_PREVIEW = false;
 
 interface ContactData {
   id: string;
@@ -47,6 +54,21 @@ interface RawImage {
   uri: string;
   width: number;
   height: number;
+}
+
+interface LinkedProfileInfo {
+  exists: boolean;
+  id?: string;
+  name?: string;
+  role?: string;
+  wing?: string;
+  flatNumber?: string;
+}
+
+interface PhoneChangePreview {
+  currentPhone: string | null;
+  linkedMember: LinkedProfileInfo;
+  linkedStaff: LinkedProfileInfo;
 }
 
 // ---------------------------------------------------------------------------
@@ -241,10 +263,7 @@ function PhotoAdjustModal({
           const dx = touch.pageX - g2.startTouch.x;
           const dy = touch.pageY - g2.startTouch.y;
           const next = clampTranslateFromRefs(
-            {
-              x: g2.startTranslate.x + dx,
-              y: g2.startTranslate.y + dy,
-            },
+            { x: g2.startTranslate.x + dx, y: g2.startTranslate.y + dy },
             zoomRef.current,
           );
           translateRef.current = next;
@@ -291,14 +310,7 @@ function PhotoAdjustModal({
       const result = await ImageManipulator.manipulateAsync(
         image.uri,
         [
-          {
-            crop: {
-              originX,
-              originY,
-              width: cropSize,
-              height: cropSize,
-            },
-          },
+          { crop: { originX, originY, width: cropSize, height: cropSize } },
           { resize: { width: 500, height: 500 } },
         ],
         { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG },
@@ -523,7 +535,7 @@ export default function AccountProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
-  const { user, setUser } = useAuthStore();
+  const { user, setUser, logout } = useAuthStore();
   const { selectedAccount, editAccount } = useAccounts();
   const { isAdmin } = useUserRole();
   const canEdit = isAdmin;
@@ -549,6 +561,15 @@ export default function AccountProfileScreen() {
   const [isTimerActive, setIsTimerActive] = useState(false);
   const otpInputs = useRef<(TextInput | null)[]>([]);
   const timerInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const [linkedProfile, setLinkedProfile] = useState<PhoneChangePreview | null>(
+    null,
+  );
+  const [linkedProfileLoading, setLinkedProfileLoading] = useState(false);
+  const [updateMemberPhone, setUpdateMemberPhone] = useState(false);
+  const [updateStaffPhone, setUpdateStaffPhone] = useState(false);
+
+  const [processingChange, setProcessingChange] = useState(false);
 
   const [invitationToDelete, setInvitationToDelete] = useState<string | null>(
     null,
@@ -579,7 +600,6 @@ export default function AccountProfileScreen() {
     pendingInvitations.length +
     (selectedAccount?.ownerId === user?.id ? 1 : 0);
 
-  // ── Timer ───────────────────────────────────────────────────────
   useEffect(() => {
     if (isTimerActive && timer > 0) {
       timerInterval.current = setInterval(() => setTimer((p) => p - 1), 1000);
@@ -601,12 +621,21 @@ export default function AccountProfileScreen() {
   const getInitials = (name: string) =>
     name
       .split(" ")
+      .filter(Boolean)
       .map((p) => p[0])
       .join("")
       .toUpperCase()
       .slice(0, 2);
 
-  // ── Photo ───────────────────────────────────────────────────────
+  const getAuthToken = async (): Promise<string | null> => {
+    try {
+      return await SecureStore.getItemAsync("auth_token");
+    } catch (err) {
+      console.warn("[account-profile] SecureStore read failed:", err);
+      return null;
+    }
+  };
+
   const takePhoto = async () => {
     if (!canEdit) return;
     setShowPhotoOptions(false);
@@ -671,7 +700,6 @@ export default function AccountProfileScreen() {
     setRawImage(null);
   };
 
-  // ── Name ────────────────────────────────────────────────────────
   const startEditingName = () => {
     if (!canEdit) return;
     setPropertyName(selectedAccount?.name || "");
@@ -686,9 +714,9 @@ export default function AccountProfileScreen() {
     setEditingName(false);
   };
 
-  // ── Phone ───────────────────────────────────────────────────────
-  const openPhoneEditor = () => {
+  const openPhoneEditor = async () => {
     if (!canEdit) return;
+
     setPhone("");
     setPhoneOtp(["", "", "", "", "", ""]);
     setPhoneError("");
@@ -696,24 +724,102 @@ export default function AccountProfileScreen() {
     setOtpMessage("");
     setTimer(30);
     setIsTimerActive(false);
+    setLinkedProfile(null);
+    setUpdateMemberPhone(false);
+    setUpdateStaffPhone(false);
+
     setShowPhoneModal(true);
+
+    if (!ENABLE_LINKED_PROFILE_PREVIEW) return;
+
+    setLinkedProfileLoading(true);
+
+    const authToken = await getAuthToken();
+    if (!authToken) {
+      setLinkedProfileLoading(false);
+      setPhoneError("You're not signed in. Please log in again.");
+      return;
+    }
+
+    try {
+      const res = await fetch(
+        `${API_URL}/api/accounts/${selectedAccount?.id}/profile/phone/change-preview`,
+        { headers: { Authorization: `Bearer ${authToken}` } },
+      );
+
+      const data: PhoneChangePreview = await res.json();
+
+      if (!res.ok) {
+        console.warn("[account-profile] change-preview failed:", data);
+        setLinkedProfile(null);
+        return;
+      }
+
+      setLinkedProfile(data);
+      setUpdateMemberPhone(!!data.linkedMember?.exists);
+      setUpdateStaffPhone(!!data.linkedStaff?.exists);
+    } catch (err) {
+      console.warn("[account-profile] change-preview error:", err);
+      setLinkedProfile(null);
+    } finally {
+      setLinkedProfileLoading(false);
+    }
   };
 
+  /**
+   * Request OTP from the backend.
+   * POST /api/accounts/:accountId/profile/phone/request-otp
+   * Body: { phone }
+   */
   const handleSendPhoneOtp = async () => {
     if (phone.length !== 10) {
       setPhoneError("Enter a valid 10-digit phone number");
       return;
     }
     setPhoneError("");
-    const result = await sendOtp(`+91${phone}`);
-    if (result.success) {
+
+    const authToken = await getAuthToken();
+    if (!authToken) {
+      setPhoneError("You're not signed in. Please log in again.");
+      return;
+    }
+
+    setProcessingChange(true);
+    try {
+      const res = await fetch(
+        `${API_URL}/api/accounts/${selectedAccount?.id}/profile/phone/request-otp`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${authToken}`,
+          },
+          body: JSON.stringify({ phone }),
+        },
+      );
+
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
+
+      if (!res.ok) {
+        setPhoneError(data?.message || "Unable to send OTP");
+        return;
+      }
+
       setPhoneOtpSent(true);
-      setOtpMessage(`OTP sent to +91${phone}`);
+      setOtpMessage(data?.message || `OTP sent to +91${phone}`);
       setTimer(30);
       setIsTimerActive(true);
       setTimeout(() => otpInputs.current[0]?.focus(), 300);
-    } else {
-      setPhoneError(result.message || "Unable to send OTP");
+    } catch (err) {
+      console.error("request-otp error:", err);
+      setPhoneError("Network error. Please check your connection.");
+    } finally {
+      setProcessingChange(false);
     }
   };
 
@@ -723,30 +829,88 @@ export default function AccountProfileScreen() {
       return;
     }
     setPhoneError("");
-    const result = await sendOtp(`+91${phone}`);
-    if (result.success) {
-      setOtpMessage(`OTP resent to +91${phone}`);
-      setTimer(30);
-      setIsTimerActive(true);
-      setTimeout(() => otpInputs.current[0]?.focus(), 300);
-    } else {
-      setPhoneError(result.message || "Unable to resend OTP");
-    }
+    await handleSendPhoneOtp();
   };
 
-  const verifyPhoneOtp = async () => {
+  /**
+   * Verify the 6-digit OTP and complete ownership transfer.
+   * POST /api/accounts/:accountId/profile/phone/verify-otp
+   * Body: { phone, otp, updateMemberPhone, updateStaffPhone }
+   */
+  const handleVerifyPressed = async () => {
     const otpString = phoneOtp.join("");
     if (otpString.length !== 6) {
       setPhoneError("Please enter complete 6-digit OTP");
       return;
     }
-    const result = await verifyOtp(`+91${phone}`, otpString);
-    if (!result.success) {
-      setPhoneError(result.message || "Invalid OTP");
+    setPhoneError("");
+
+    const authToken = await getAuthToken();
+    if (!authToken) {
+      setPhoneError("You're not signed in. Please log in again.");
       return;
     }
-    if (user) setUser({ ...user, phone: `+91${phone}` });
-    closePhoneModal();
+
+    setProcessingChange(true);
+    try {
+      const res = await fetch(
+        `${API_URL}/api/accounts/${selectedAccount?.id}/profile/phone/verify-otp`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${authToken}`,
+          },
+          body: JSON.stringify({
+            phone,
+            otp: otpString,
+            updateMemberPhone,
+            updateStaffPhone,
+          }),
+        },
+      );
+
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
+
+      if (!res.ok) {
+        setPhoneError(data?.message || "Failed to transfer ownership");
+        return;
+      }
+
+      closePhoneModal();
+
+      if (data?.requiresLogout) {
+        Alert.alert(
+          "Ownership Transferred",
+          data?.message ||
+            "Your number has been updated. Please sign in again with the new number.",
+          [
+            {
+              text: "Sign Out",
+              onPress: async () => {
+                try {
+                  await logout();
+                } catch (e) {
+                  console.error("Logout error:", e);
+                }
+                router.replace("/(auth)/login");
+              },
+            },
+          ],
+          { cancelable: false },
+        );
+      }
+    } catch (err) {
+      console.error("verify-otp error:", err);
+      setPhoneError("Network error. Please check your connection.");
+    } finally {
+      setProcessingChange(false);
+    }
   };
 
   const closePhoneModal = () => {
@@ -758,6 +922,10 @@ export default function AccountProfileScreen() {
     setOtpMessage("");
     setTimer(30);
     setIsTimerActive(false);
+    setLinkedProfile(null);
+    setLinkedProfileLoading(false);
+    setUpdateMemberPhone(false);
+    setUpdateStaffPhone(false);
     if (timerInterval.current) {
       clearInterval(timerInterval.current);
       timerInterval.current = null;
@@ -784,7 +952,6 @@ export default function AccountProfileScreen() {
     }
   };
 
-  // ── Contacts ────────────────────────────────────────────────────
   const pickContact = async () => {
     if (Platform.OS === "web") {
       Alert.alert(
@@ -874,16 +1041,14 @@ export default function AccountProfileScreen() {
     setShowContactPicker(false);
   };
 
-  // ── Invitation ──────────────────────────────────────────────────
   const confirmDeleteInvitation = () => {
     if (!invitationToDelete) return;
     removeGrant(invitationToDelete);
     setInvitationToDelete(null);
   };
 
-  // ============================================================
-  // RENDER
-  // ============================================================
+  const hasMember = !!linkedProfile?.linkedMember?.exists;
+  const hasStaff = !!linkedProfile?.linkedStaff?.exists;
 
   return (
     <View style={styles.screen}>
@@ -894,24 +1059,6 @@ export default function AccountProfileScreen() {
           { paddingBottom: Math.max(insets.bottom, 24) },
         ]}
       >
-        {/* HEADER */}
-        <View style={styles.headerRow}>
-          <TouchableOpacity
-            onPress={() => router.back()}
-            style={styles.backButton}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="chevron-back" size={22} color="#0F172A" />
-          </TouchableOpacity>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.headerTitle}>Account Profile</Text>
-            <Text style={styles.headerSubtitle}>
-              Manage photo, name, phone and access
-            </Text>
-          </View>
-        </View>
-
-        {/* ACCOUNT CARD */}
         <View style={styles.profileCard}>
           <View style={styles.profileAccent} />
           <View style={styles.profileCardContent}>
@@ -982,7 +1129,6 @@ export default function AccountProfileScreen() {
                 </View>
               )}
 
-              {/* Phone row */}
               <View style={styles.phoneDisplayRow}>
                 <Ionicons name="call-outline" size={14} color="#64748B" />
                 <TouchableOpacity
@@ -993,17 +1139,8 @@ export default function AccountProfileScreen() {
                   }
                 >
                   <Text style={styles.userPhone} numberOfLines={1}>
-                    {user?.phone || "+91 9876543210"}
+                    {user?.phone}
                   </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.phoneInfoIcon}
-                  onPress={() => setShowPhoneTooltip(true)}
-                  activeOpacity={0.7}
-                  hitSlop={6}
-                >
-                  <Ionicons name="information" size={11} color="#2563EB" />
                 </TouchableOpacity>
 
                 {canEdit && (
@@ -1015,6 +1152,14 @@ export default function AccountProfileScreen() {
                     <Ionicons name="create-outline" size={14} color="#2563EB" />
                   </TouchableOpacity>
                 )}
+                <TouchableOpacity
+                  style={styles.phoneInfoIcon}
+                  onPress={() => setShowPhoneTooltip(true)}
+                  activeOpacity={0.7}
+                  hitSlop={6}
+                >
+                  <Ionicons name="information" size={11} color="#2563EB" />
+                </TouchableOpacity>
               </View>
 
               <View style={styles.accountTypeBadge}>
@@ -1025,7 +1170,6 @@ export default function AccountProfileScreen() {
           </View>
         </View>
 
-        {/* ACCESS & ROLES */}
         {canEdit && (
           <>
             <Text style={styles.sectionTitle}>ACCESS & ROLES</Text>
@@ -1082,7 +1226,6 @@ export default function AccountProfileScreen() {
           </>
         )}
 
-        {/* PEOPLE WITH ACCESS */}
         <View style={styles.accessOverview}>
           <View style={styles.accessHeader}>
             <View>
@@ -1284,7 +1427,6 @@ export default function AccountProfileScreen() {
         </View>
       </ScrollView>
 
-      {/* PHOTO OPTIONS */}
       {canEdit && (
         <Modal
           visible={showPhotoOptions}
@@ -1356,7 +1498,6 @@ export default function AccountProfileScreen() {
         </Modal>
       )}
 
-      {/* PHOTO ADJUST */}
       {canEdit && (
         <PhotoAdjustModal
           visible={showAdjustModal}
@@ -1366,7 +1507,6 @@ export default function AccountProfileScreen() {
         />
       )}
 
-      {/* PHONE EDIT MODAL */}
       {canEdit && showPhoneModal && (
         <Modal
           transparent
@@ -1411,120 +1551,305 @@ export default function AccountProfileScreen() {
                       </TouchableOpacity>
                     </View>
 
-                    {!phoneOtpSent ? (
-                      <>
-                        <Text style={styles.fieldLabel}>New phone number</Text>
-                        <View style={styles.phoneInputRow}>
-                          <View style={styles.phonePrefixBox}>
-                            <Text style={styles.phonePrefix}>+91</Text>
-                          </View>
-                          <TextInput
-                            style={styles.phoneInput}
-                            value={phone}
-                            onChangeText={(value) => {
-                              const cleaned = value.replace(/[^0-9]/g, "");
-                              setPhone(cleaned.slice(0, 10));
-                              setPhoneError("");
-                            }}
-                            keyboardType="number-pad"
-                            maxLength={10}
-                            placeholder="98765 43210"
-                            placeholderTextColor="#94A3B8"
-                          />
-                          <TouchableOpacity
-                            onPress={pickContact}
-                            style={styles.phoneContactButton}
-                            activeOpacity={0.75}
-                          >
-                            <Ionicons
-                              name="people-outline"
-                              size={20}
-                              color="#2563EB"
-                            />
-                          </TouchableOpacity>
-                        </View>
-                        <Text style={styles.inputHint}>
-                          We'll send a 6-digit verification code to this number.
-                        </Text>
-                      </>
-                    ) : (
-                      <>
-                        <View style={styles.otpMessageContainer}>
-                          <View style={styles.otpSuccessIcon}>
-                            <Ionicons
-                              name="checkmark"
-                              size={16}
-                              color="#16A34A"
-                            />
-                          </View>
-                          <View style={styles.otpMessageContent}>
-                            <Text style={styles.otpMessageTitle}>
-                              Verification code sent
-                            </Text>
-                            <Text style={styles.otpMessageText}>
-                              {otpMessage}
-                            </Text>
-                          </View>
-                        </View>
-
-                        <Text style={styles.fieldLabel}>
-                          Enter verification code
-                        </Text>
-                        <View style={styles.otpContainer}>
-                          {[0, 1, 2, 3, 4, 5].map((index) => (
+                    <ScrollView
+                      keyboardShouldPersistTaps="handled"
+                      showsVerticalScrollIndicator={false}
+                    >
+                      {!phoneOtpSent ? (
+                        <>
+                          <Text style={styles.fieldLabel}>
+                            New phone number
+                          </Text>
+                          <View style={styles.phoneInputRow}>
+                            <View style={styles.phonePrefixBox}>
+                              <Text style={styles.phonePrefix}>+91</Text>
+                            </View>
                             <TextInput
-                              key={index}
-                              ref={(ref) => {
-                                otpInputs.current[index] = ref;
+                              style={styles.phoneInput}
+                              value={phone}
+                              onChangeText={(value) => {
+                                const cleaned = value.replace(/[^0-9]/g, "");
+                                setPhone(cleaned.slice(0, 10));
+                                setPhoneError("");
                               }}
-                              style={[
-                                styles.otpInput,
-                                phoneOtp[index] && styles.otpInputFilled,
-                              ]}
-                              value={phoneOtp[index]}
-                              onChangeText={(text) =>
-                                handleOtpChange(text, index)
-                              }
-                              onKeyPress={(event) =>
-                                handleOtpKeyPress(event, index)
-                              }
                               keyboardType="number-pad"
-                              maxLength={1}
-                              selectionColor="#2563EB"
+                              maxLength={10}
+                              placeholder="98765 43210"
+                              placeholderTextColor="#94A3B8"
                             />
-                          ))}
-                        </View>
-
-                        <View style={styles.timerContainer}>
-                          {isTimerActive ? (
-                            <Text style={styles.timerText}>
-                              Resend available in{" "}
-                              <Text style={styles.timerStrong}>{timer}s</Text>
-                            </Text>
-                          ) : (
                             <TouchableOpacity
-                              onPress={handleResendOtp}
-                              activeOpacity={0.7}
+                              onPress={pickContact}
+                              style={styles.phoneContactButton}
+                              activeOpacity={0.75}
                             >
-                              <Text style={styles.resendOtpText}>
-                                Resend OTP
-                              </Text>
+                              <Ionicons
+                                name="people-outline"
+                                size={20}
+                                color="#2563EB"
+                              />
                             </TouchableOpacity>
-                          )}
-                        </View>
-                      </>
-                    )}
+                          </View>
+                          <Text style={styles.inputHint}>
+                            We'll send a 6-digit verification code to this
+                            number.
+                          </Text>
 
-                    {phoneError ? (
-                      <View style={styles.validationBox}>
-                        <Ionicons
-                          name="alert-circle-outline"
-                          size={17}
-                          color="#DC2626"
-                        />
-                        <Text style={styles.validationText}>{phoneError}</Text>
-                      </View>
-                    ) : null}
+                          {ENABLE_LINKED_PROFILE_PREVIEW &&
+                          linkedProfileLoading ? (
+                            <View style={styles.linkedLoadingBox}>
+                              <ActivityIndicator size="small" color="#2563EB" />
+                              <Text style={styles.linkedLoadingText}>
+                                Checking linked profiles…
+                              </Text>
+                            </View>
+                          ) : ENABLE_LINKED_PROFILE_PREVIEW &&
+                            (hasMember || hasStaff) ? (
+                            <View style={styles.linkedSection}>
+                              <Text style={styles.linkedSectionTitle}>
+                                Also update on these profiles
+                              </Text>
+                              <Text style={styles.linkedSectionHelp}>
+                                We found the old number on these profiles in
+                                your account. Choose which ones you'd like to
+                                update to the new number.
+                              </Text>
+
+                              {hasMember && (
+                                <View style={styles.linkedInlineRow}>
+                                  <View
+                                    style={[
+                                      styles.linkedInlineIcon,
+                                      { backgroundColor: "#DCFCE7" },
+                                    ]}
+                                  >
+                                    <Ionicons
+                                      name="person"
+                                      size={18}
+                                      color="#16A34A"
+                                    />
+                                  </View>
+                                  <View style={styles.linkedInlineContent}>
+                                    <View style={styles.linkedInlineTitleRow}>
+                                      <Text style={styles.linkedInlineTitle}>
+                                        Member Profile
+                                      </Text>
+                                      <View
+                                        style={[
+                                          styles.linkedInlineBadge,
+                                          { backgroundColor: "#DCFCE7" },
+                                        ]}
+                                      >
+                                        <Text
+                                          style={[
+                                            styles.linkedInlineBadgeText,
+                                            { color: "#16A34A" },
+                                          ]}
+                                        >
+                                          MEMBER
+                                        </Text>
+                                      </View>
+                                    </View>
+                                    <Text
+                                      style={styles.linkedInlineName}
+                                      numberOfLines={1}
+                                    >
+                                      {linkedProfile?.linkedMember?.name ||
+                                        "You"}
+                                      {linkedProfile?.linkedMember?.flatNumber
+                                        ? `  •  ${linkedProfile.linkedMember.wing ? "Wing " + linkedProfile.linkedMember.wing + " " : ""}Apt ${linkedProfile.linkedMember.flatNumber}`
+                                        : ""}
+                                    </Text>
+                                  </View>
+                                  <Switch
+                                    value={updateMemberPhone}
+                                    onValueChange={setUpdateMemberPhone}
+                                    trackColor={{
+                                      false: "#CBD5E1",
+                                      true: "#93C5FD",
+                                    }}
+                                    thumbColor={
+                                      updateMemberPhone ? "#2563EB" : "#FFFFFF"
+                                    }
+                                  />
+                                </View>
+                              )}
+
+                              {hasStaff && (
+                                <View style={styles.linkedInlineRow}>
+                                  <View
+                                    style={[
+                                      styles.linkedInlineIcon,
+                                      { backgroundColor: "#E0F2FE" },
+                                    ]}
+                                  >
+                                    <Ionicons
+                                      name="briefcase"
+                                      size={18}
+                                      color="#0284C7"
+                                    />
+                                  </View>
+                                  <View style={styles.linkedInlineContent}>
+                                    <View style={styles.linkedInlineTitleRow}>
+                                      <Text style={styles.linkedInlineTitle}>
+                                        Staff Profile
+                                      </Text>
+                                      <View
+                                        style={[
+                                          styles.linkedInlineBadge,
+                                          { backgroundColor: "#E0F2FE" },
+                                        ]}
+                                      >
+                                        <Text
+                                          style={[
+                                            styles.linkedInlineBadgeText,
+                                            { color: "#0284C7" },
+                                          ]}
+                                        >
+                                          STAFF
+                                        </Text>
+                                      </View>
+                                    </View>
+                                    <Text
+                                      style={styles.linkedInlineName}
+                                      numberOfLines={1}
+                                    >
+                                      {linkedProfile?.linkedStaff?.name ||
+                                        "You"}
+                                      {linkedProfile?.linkedStaff?.role
+                                        ? `  •  ${linkedProfile.linkedStaff.role}`
+                                        : ""}
+                                    </Text>
+                                  </View>
+                                  <Switch
+                                    value={updateStaffPhone}
+                                    onValueChange={setUpdateStaffPhone}
+                                    trackColor={{
+                                      false: "#CBD5E1",
+                                      true: "#93C5FD",
+                                    }}
+                                    thumbColor={
+                                      updateStaffPhone ? "#2563EB" : "#FFFFFF"
+                                    }
+                                  />
+                                </View>
+                              )}
+                            </View>
+                          ) : null}
+                        </>
+                      ) : (
+                        <>
+                          <View style={styles.otpMessageContainer}>
+                            <View style={styles.otpSuccessIcon}>
+                              <Ionicons
+                                name="checkmark"
+                                size={16}
+                                color="#16A34A"
+                              />
+                            </View>
+                            <View style={styles.otpMessageContent}>
+                              <Text style={styles.otpMessageTitle}>
+                                Verification code sent
+                              </Text>
+                              <Text style={styles.otpMessageText}>
+                                {otpMessage}
+                              </Text>
+                            </View>
+                          </View>
+
+                          <Text style={styles.fieldLabel}>
+                            Enter verification code
+                          </Text>
+                          <View style={styles.otpContainer}>
+                            {[0, 1, 2, 3, 4, 5].map((index) => (
+                              <TextInput
+                                key={index}
+                                ref={(ref) => {
+                                  otpInputs.current[index] = ref;
+                                }}
+                                style={[
+                                  styles.otpInput,
+                                  phoneOtp[index] && styles.otpInputFilled,
+                                ]}
+                                value={phoneOtp[index]}
+                                onChangeText={(text) =>
+                                  handleOtpChange(text, index)
+                                }
+                                onKeyPress={(event) =>
+                                  handleOtpKeyPress(event, index)
+                                }
+                                keyboardType="number-pad"
+                                maxLength={1}
+                                selectionColor="#2563EB"
+                              />
+                            ))}
+                          </View>
+
+                          <View style={styles.timerContainer}>
+                            {isTimerActive ? (
+                              <Text style={styles.timerText}>
+                                Resend available in{" "}
+                                <Text style={styles.timerStrong}>{timer}s</Text>
+                              </Text>
+                            ) : (
+                              <TouchableOpacity
+                                onPress={handleResendOtp}
+                                activeOpacity={0.7}
+                              >
+                                <Text style={styles.resendOtpText}>
+                                  Resend OTP
+                                </Text>
+                              </TouchableOpacity>
+                            )}
+                          </View>
+
+                          {ENABLE_LINKED_PROFILE_PREVIEW &&
+                            (hasMember || hasStaff) && (
+                              <View style={styles.linkedReminderBox}>
+                                <Ionicons
+                                  name="information-circle"
+                                  size={16}
+                                  color="#B45309"
+                                />
+                                <View style={{ flex: 1 }}>
+                                  <Text style={styles.linkedReminderText}>
+                                    After you verify, the new number will be
+                                    saved on:
+                                  </Text>
+                                  {hasMember && updateMemberPhone && (
+                                    <Text style={styles.linkedReminderItem}>
+                                      • Member profile (
+                                      {linkedProfile?.linkedMember?.name ||
+                                        "you"}
+                                      )
+                                    </Text>
+                                  )}
+                                  {hasStaff && updateStaffPhone && (
+                                    <Text style={styles.linkedReminderItem}>
+                                      • Staff profile (
+                                      {linkedProfile?.linkedStaff?.name ||
+                                        "you"}
+                                      )
+                                    </Text>
+                                  )}
+                                </View>
+                              </View>
+                            )}
+                        </>
+                      )}
+
+                      {phoneError ? (
+                        <View style={styles.validationBox}>
+                          <Ionicons
+                            name="alert-circle-outline"
+                            size={17}
+                            color="#DC2626"
+                          />
+                          <Text style={styles.validationText}>
+                            {phoneError}
+                          </Text>
+                        </View>
+                      ) : null}
+                    </ScrollView>
 
                     <View style={styles.modalActions}>
                       <TouchableOpacity
@@ -1537,33 +1862,39 @@ export default function AccountProfileScreen() {
                       <TouchableOpacity
                         style={[
                           styles.saveButton,
-                          (!phoneOtpSent
-                            ? phone.length !== 10
-                            : phoneOtp.join("").length !== 6) &&
-                            styles.saveButtonDisabled,
+                          processingChange && styles.saveButtonDisabled,
                         ]}
                         onPress={
-                          phoneOtpSent ? verifyPhoneOtp : handleSendPhoneOtp
+                          phoneOtpSent
+                            ? handleVerifyPressed
+                            : handleSendPhoneOtp
                         }
                         disabled={
-                          !phoneOtpSent
+                          processingChange ||
+                          (!phoneOtpSent
                             ? phone.length !== 10
-                            : phoneOtp.join("").length !== 6
+                            : phoneOtp.join("").length !== 6)
                         }
                         activeOpacity={0.8}
                       >
-                        <Ionicons
-                          name={
-                            phoneOtpSent
-                              ? "checkmark-circle-outline"
-                              : "paper-plane-outline"
-                          }
-                          size={18}
-                          color="#FFFFFF"
-                        />
-                        <Text style={styles.saveButtonText}>
-                          {phoneOtpSent ? "Verify OTP" : "Send OTP"}
-                        </Text>
+                        {processingChange ? (
+                          <ActivityIndicator color="#fff" size="small" />
+                        ) : (
+                          <>
+                            <Ionicons
+                              name={
+                                phoneOtpSent
+                                  ? "checkmark-circle-outline"
+                                  : "paper-plane-outline"
+                              }
+                              size={18}
+                              color="#FFFFFF"
+                            />
+                            <Text style={styles.saveButtonText}>
+                              {phoneOtpSent ? "Verify OTP" : "Send OTP"}
+                            </Text>
+                          </>
+                        )}
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -1574,7 +1905,6 @@ export default function AccountProfileScreen() {
         </Modal>
       )}
 
-      {/* PHONE TOOLTIP */}
       {showPhoneTooltip && (
         <Modal
           transparent
@@ -1656,7 +1986,6 @@ export default function AccountProfileScreen() {
         </Modal>
       )}
 
-      {/* DELETE INVITATION */}
       {invitationToDelete && (
         <Modal
           transparent
@@ -1708,7 +2037,6 @@ export default function AccountProfileScreen() {
         </Modal>
       )}
 
-      {/* CONTACT PICKER */}
       {showContactPicker && (
         <Modal
           visible={showContactPicker}
@@ -1871,26 +2199,7 @@ export default function AccountProfileScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: "#F8FAFC" },
-  scrollContent: { paddingHorizontal: 16, paddingTop: 12 },
-
-  headerRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 14,
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#E2E8F0",
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 12,
-  },
-  headerTitle: { color: "#0F172A", fontSize: 20, fontWeight: "800" },
-  headerSubtitle: { color: "#64748B", fontSize: 12, marginTop: 2 },
+  scrollContent: { paddingHorizontal: 16, paddingTop: 16 },
 
   profileCard: {
     backgroundColor: "#FFFFFF",
@@ -1950,11 +2259,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginLeft: 7,
   },
-  phoneDisplayRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 6,
-  },
+  phoneDisplayRow: { flexDirection: "row", alignItems: "center", marginTop: 6 },
   phonePressable: {
     flexDirection: "row",
     alignItems: "center",
@@ -2267,11 +2572,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#f8fafc",
     borderRadius: 12,
   },
-  photoOptionsCancelText: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: "#dc2626",
-  },
+  photoOptionsCancelText: { fontSize: 15, fontWeight: "700", color: "#dc2626" },
 
   modalOverlay: {
     flex: 1,
@@ -2288,11 +2589,7 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     padding: 20,
   },
-  modalTopRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 20,
-  },
+  modalTopRow: { flexDirection: "row", alignItems: "center", marginBottom: 20 },
   modalTitleIcon: {
     width: 42,
     height: 42,
@@ -2318,6 +2615,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
     marginBottom: 7,
+    marginTop: 10,
   },
   phoneInputRow: {
     height: 51,
@@ -2397,6 +2695,100 @@ const styles = StyleSheet.create({
   },
   saveButtonDisabled: { backgroundColor: "#CBD5E1" },
   saveButtonText: { color: "#FFFFFF", fontSize: 13, fontWeight: "700" },
+
+  linkedSection: {
+    marginTop: 18,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: "#F1F5F9",
+  },
+  linkedSectionTitle: {
+    color: "#0F172A",
+    fontSize: 12.5,
+    fontWeight: "800",
+    marginBottom: 4,
+  },
+  linkedSectionHelp: {
+    color: "#64748B",
+    fontSize: 11.5,
+    lineHeight: 16,
+    marginBottom: 12,
+  },
+  linkedLoadingBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "#F8FAFC",
+    borderRadius: 10,
+    padding: 12,
+    marginTop: 16,
+  },
+  linkedLoadingText: {
+    color: "#64748B",
+    fontSize: 12,
+  },
+  linkedInlineRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    borderRadius: 14,
+    padding: 10,
+    marginBottom: 8,
+    gap: 10,
+  },
+  linkedInlineIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  linkedInlineContent: { flex: 1, minWidth: 0 },
+  linkedInlineTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 2,
+  },
+  linkedInlineTitle: { color: "#0F172A", fontSize: 13, fontWeight: "700" },
+  linkedInlineBadge: {
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  linkedInlineBadgeText: {
+    fontSize: 8.5,
+    fontWeight: "800",
+    letterSpacing: 0.3,
+  },
+  linkedInlineName: { color: "#64748B", fontSize: 11.5, fontWeight: "600" },
+
+  linkedReminderBox: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    backgroundColor: "#FEF3C7",
+    borderWidth: 1,
+    borderColor: "#FDE68A",
+    borderRadius: 12,
+    padding: 11,
+    marginTop: 14,
+  },
+  linkedReminderText: {
+    color: "#92400E",
+    fontSize: 11.5,
+    lineHeight: 16,
+    marginBottom: 3,
+  },
+  linkedReminderItem: {
+    color: "#92400E",
+    fontSize: 11,
+    fontWeight: "700",
+    marginLeft: 4,
+  },
+
   otpMessageContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -2405,6 +2797,7 @@ const styles = StyleSheet.create({
     borderColor: "#BBF7D0",
     borderRadius: 13,
     padding: 11,
+    marginTop: 8,
   },
   otpSuccessIcon: {
     width: 31,
