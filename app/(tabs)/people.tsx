@@ -422,6 +422,16 @@ const resolveDueAmount = (
   return Math.max(0, effectiveBase + additional - deduction);
 };
 
+// NEW — a member/staff is considered visible only when it's active.
+// Soft-deleted rows are filtered out here so the UI can never show them,
+// even if the hook decides to include them.
+const isActiveRow = (row: any): boolean => {
+  const s = row?.status;
+  // If no status column is present, treat it as active (backward compatible)
+  if (s === undefined || s === null || s === "") return true;
+  return String(s).toLowerCase() === "active";
+};
+
 // ---------------------------------------------------------------------------
 // Screen
 // ---------------------------------------------------------------------------
@@ -741,11 +751,15 @@ export default function PeopleScreen() {
     );
   }
 
+  // ── Filter soft-deleted rows out of the raw hook lists ──
+  const activeMembersSource = membersHook.items.filter(isActiveRow);
+  const activeStaffSource = staffHook.items.filter(isActiveRow);
+
   const membersInActiveGroup =
     activeTab === "apartment"
-      ? membersHook.items
+      ? activeMembersSource
       : activeTab === "staff"
-        ? staffHook.items
+        ? activeStaffSource
         : expensesHook.items;
 
   const activeMembers = selectedMonth
@@ -873,7 +887,7 @@ export default function PeopleScreen() {
   useEffect(() => {
     if (!memberId || (tab !== "apartment" && tab !== "staff")) return;
     if (!canEdit) return;
-    const list = tab === "apartment" ? membersHook.items : staffHook.items;
+    const list = tab === "apartment" ? activeMembersSource : activeStaffSource;
     const member = list.find((m: any) => m.id === memberId);
     if (member) openPaymentModal(member);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1569,14 +1583,12 @@ export default function PeopleScreen() {
 
                             {isExpenseTab ? (
                               <>
-                                {/* Category badge */}
                                 <View style={styles.roleBadge}>
                                   <Text style={styles.roleBadgeText}>
                                     {getCategoryLabel(member.role)}
                                   </Text>
                                 </View>
 
-                                {/* Income / Expense badge */}
                                 <View
                                   style={[
                                     styles.typeBadge,

@@ -7,8 +7,10 @@ import {
   requestPermissionsAsync,
 } from "expo-contacts";
 import { useLocalSearchParams, useRouter } from "expo-router";
+import * as SecureStore from "expo-secure-store";
 import { useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   KeyboardAvoidingView,
   Modal,
@@ -23,25 +25,38 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { useMembers } from "../../hooks/useManagement";
-import { useAccessStore } from "../../store/accessStore";
+import { useMembers, useStaff } from "../../hooks/useManagement";
 import { useAccountStore } from "../../store/accountStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import type { AccountAccessRole, Member } from "../../types";
 import { ACCESS_ROLE_LABEL } from "../../types";
 
-type RecipientSource = "new" | "existing";
+const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
 
-// "ownership" is a memberType — behaves like admin.
-type MemberType = "owner" | "ownership";
+type RecipientSource = "new" | "existing";
+type MemberType = "owner" | "ownership" | "staff";
 
 interface ContactData {
   id: string;
   name: string;
-  phoneNumbers: {
-    number: string;
-    label?: string;
-  }[];
+  phoneNumbers: { number: string; label?: string }[];
+}
+
+type PreflightKind =
+  | "ok"
+  | "self"
+  | "already_admin"
+  | "already_member"
+  | "already_staff"
+  | "pending"
+  | "staff_number"
+  | "member_to_admin";
+
+interface PreflightResponse {
+  kind: PreflightKind;
+  message?: string;
+  memberId?: string;
+  memberName?: string;
 }
 
 export default function GrantAccessScreen() {
@@ -59,25 +74,17 @@ export default function GrantAccessScreen() {
   const accounts = useAccountStore((state) => state.accounts);
   const account = accounts.find((a) => a.id === accountId);
 
-  // ── Members come straight from useManagement (staff removed) ──
   const { items: apartmentMembers } = useMembers(accountId ?? null);
-
-  const eligibleMembers: Member[] = useMemo(
-    () => [...apartmentMembers],
-    [apartmentMembers],
-  );
-
-  const addGrant = useAccessStore((state) => state.addGrant);
+  const { items: staffList } = useStaff(accountId ?? null);
 
   const [source, setSource] = useState<RecipientSource>("new");
-
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
-
   const [selectedMemberIds, setSelectedMemberIds] = useState<string[]>([]);
-
+  const [selectedStaffIds, setSelectedStaffIds] = useState<string[]>([]);
   const [search, setSearch] = useState("");
   const [error, setError] = useState("");
+  const [submitting, setSubmitting] = useState(false);
 
   const [showContactPicker, setShowContactPicker] = useState(false);
   const [contactsList, setContactsList] = useState<ContactData[]>([]);
@@ -88,24 +95,32 @@ export default function GrantAccessScreen() {
   // ============================================================
 
   const isOwnershipFlow = memberType === "ownership";
+  const isStaffFlow = memberType === "staff" || role === "staff_visibility";
 
-  // Visibility flow is now owner-only (staff_visibility removed).
   const isVisibilityFlow =
     !isOwnershipFlow &&
+    !isStaffFlow &&
     (memberType === "owner" || role === "member_visibility");
 
-  const visibilityTitle = "Manage Apartment Owner Visibility";
+  const visibilityTitle = isStaffFlow
+    ? "Manage Staff Visibility"
+    : "Manage Apartment Owner Visibility";
 
   const title = isOwnershipFlow
     ? "Ownership"
-    : ACCESS_ROLE_LABEL[role || "member_visibility"];
+    : isStaffFlow
+      ? ACCESS_ROLE_LABEL["staff_visibility"]
+      : ACCESS_ROLE_LABEL[role || "member_visibility"];
 
   // ============================================================
-  // MEMBERS
+  // MEMBERS / STAFF
   // ============================================================
 
   const apartmentMembersList = apartmentMembers;
+  const staffMembersList = staffList;
 
+  // For the "existing" picker we only ever use members. Staff use a
+  // dedicated picker below (they never go through "existing").
   const activeMembers = useMemo(() => {
     if (isVisibilityFlow) return apartmentMembersList;
     return apartmentMembersList;
@@ -113,20 +128,14 @@ export default function GrantAccessScreen() {
 
   const currentUserMember = useMemo(() => {
     if (!currentUser?.phone) return null;
-
-    const normalizePhone = (value: string) =>
-      value.replace(/[^0-9]/g, "").slice(-10);
-
-    const currentPhone = normalizePhone(currentUser.phone);
-    if (!currentPhone) return null;
-
+    const normalize = (v: string) => v.replace(/[^0-9]/g, "").slice(-10);
+    const mine = normalize(currentUser.phone);
+    if (!mine) return null;
     return (
-      eligibleMembers.find((member) => {
-        const memberPhone = normalizePhone(member.phone || "");
-        return memberPhone === currentPhone;
-      }) ?? null
+      apartmentMembersList.find((m) => normalize(m.phone || "") === mine) ??
+      null
     );
-  }, [currentUser?.phone, eligibleMembers]);
+  }, [currentUser?.phone, apartmentMembersList]);
 
   const isAccountCreator =
     !!account && !!currentUser && account.ownerId === currentUser.id;
@@ -148,43 +157,45 @@ export default function GrantAccessScreen() {
 
   const filteredMembers = useMemo(() => {
     if (!searchLower) return apartmentMembersList;
-
     return apartmentMembersList.filter((member) => {
-      const apartmentNumber = ((member as any).apartmentNumber ?? "")
+      const apt = ((member as any).apartmentNumber ?? "")
         .toString()
         .toLowerCase();
       const wing = ((member as any).wing ?? "").toString().toLowerCase();
-
       return (
         member.name.toLowerCase().includes(searchLower) ||
         member.phone.toLowerCase().includes(searchLower) ||
-        apartmentNumber.includes(searchLower) ||
+        apt.includes(searchLower) ||
         wing.includes(searchLower)
       );
     });
   }, [apartmentMembersList, searchLower]);
 
+  const filteredStaff = useMemo(() => {
+    if (!searchLower) return staffMembersList;
+    return staffMembersList.filter((member) => {
+      return (
+        member.name.toLowerCase().includes(searchLower) ||
+        member.phone.toLowerCase().includes(searchLower) ||
+        String((member as any).role ?? "")
+          .toLowerCase()
+          .includes(searchLower)
+      );
+    });
+  }, [staffMembersList, searchLower]);
+
   const filteredActiveMembers = useMemo(() => {
     if (!searchLower) return activeMembers;
-
     return activeMembers.filter((member) => {
-      const nameMatch = member.name.toLowerCase().includes(searchLower);
-      const phoneMatch = member.phone.toLowerCase().includes(searchLower);
-      const roleMatch = ((member as any).role ?? "")
+      const apt = ((member as any).apartmentNumber ?? "")
         .toString()
-        .toLowerCase()
-        .includes(searchLower);
-      const apartmentMatch = ((member as any).apartmentNumber ?? "")
-        .toString()
-        .toLowerCase()
-        .includes(searchLower);
-      const wingMatch = ((member as any).wing ?? "")
-        .toString()
-        .toLowerCase()
-        .includes(searchLower);
-
+        .toLowerCase();
+      const wing = ((member as any).wing ?? "").toString().toLowerCase();
       return (
-        nameMatch || phoneMatch || roleMatch || apartmentMatch || wingMatch
+        member.name.toLowerCase().includes(searchLower) ||
+        member.phone.toLowerCase().includes(searchLower) ||
+        apt.includes(searchLower) ||
+        wing.includes(searchLower)
       );
     });
   }, [activeMembers, searchLower]);
@@ -209,9 +220,9 @@ export default function GrantAccessScreen() {
 
   const handleSelectAll = () => {
     setSelectedMemberIds((current) => {
-      const selectedSet = new Set(current);
-      selectableIds.forEach((id) => selectedSet.add(id));
-      return Array.from(selectedSet);
+      const set = new Set(current);
+      selectableIds.forEach((id) => set.add(id));
+      return Array.from(set);
     });
     setError("");
   };
@@ -219,6 +230,204 @@ export default function GrantAccessScreen() {
   const handleClearAll = () => {
     setSelectedMemberIds([]);
     setError("");
+  };
+
+  // Staff selection helpers
+  const staffSelectableIds = useMemo(
+    () => filteredStaff.map((s) => s.id),
+    [filteredStaff],
+  );
+
+  const allStaffSelected =
+    staffSelectableIds.length > 0 &&
+    staffSelectableIds.every((id) => selectedStaffIds.includes(id));
+
+  const toggleStaff = (staffId: string) => {
+    setSelectedStaffIds((current) =>
+      current.includes(staffId)
+        ? current.filter((id) => id !== staffId)
+        : [...current, staffId],
+    );
+    setError("");
+  };
+
+  const handleSelectAllStaff = () => {
+    setSelectedStaffIds((current) => {
+      const set = new Set(current);
+      staffSelectableIds.forEach((id) => set.add(id));
+      return Array.from(set);
+    });
+    setError("");
+  };
+
+  const handleClearAllStaff = () => {
+    setSelectedStaffIds([]);
+    setError("");
+  };
+
+  // ============================================================
+  // API HELPERS
+  // ============================================================
+
+  const getAuthToken = async (): Promise<string | null> => {
+    try {
+      return await SecureStore.getItemAsync("auth_token");
+    } catch {
+      return null;
+    }
+  };
+
+  const callPreflight = async (
+    targetPhone: string,
+    targetRole: AccountAccessRole,
+  ): Promise<PreflightResponse | null> => {
+    const token = await getAuthToken();
+    if (!token) return null;
+    try {
+      const res = await fetch(
+        `${API_URL}/api/accounts/${accountId}/invitations/preflight?phone=${encodeURIComponent(
+          targetPhone,
+        )}&role=${encodeURIComponent(targetRole)}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!res.ok) return null;
+      return (await res.json()) as PreflightResponse;
+    } catch {
+      return null;
+    }
+  };
+
+  const callCreateInvitation = async (payload: {
+    phone: string;
+    name?: string;
+    role: AccountAccessRole;
+    targetMemberId?: string;
+    targetStaffId?: string;
+  }): Promise<{ ok: boolean; message?: string }> => {
+    const token = await getAuthToken();
+    if (!token) return { ok: false, message: "Not signed in" };
+    try {
+      const res = await fetch(
+        `${API_URL}/api/accounts/${accountId}/invitations`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(payload),
+        },
+      );
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
+      if (!res.ok) {
+        return { ok: false, message: data?.message || "Failed to send invite" };
+      }
+      return { ok: true };
+    } catch {
+      return { ok: false, message: "Network error" };
+    }
+  };
+
+  // ============================================================
+  // ALERT DRIVER — reads preflight kind, shows the right alert
+  // ============================================================
+
+  const sendInviteWithAlerts = async (opts: {
+    phone: string;
+    name?: string;
+    role: AccountAccessRole;
+    targetMemberId?: string;
+    targetStaffId?: string;
+  }): Promise<boolean> => {
+    const pre = await callPreflight(opts.phone, opts.role);
+    if (!pre) {
+      Alert.alert("Error", "Could not reach the server. Please try again.");
+      return false;
+    }
+
+    const doSend = async (): Promise<boolean> => {
+      setSubmitting(true);
+      const result = await callCreateInvitation(opts);
+      setSubmitting(false);
+      if (!result.ok) {
+        Alert.alert("Error", result.message || "Failed to send invite");
+        return false;
+      }
+      return true;
+    };
+
+    switch (pre.kind) {
+      case "self":
+        Alert.alert(
+          "Owner's Number",
+          "This number belongs to the owner who already has access.",
+        );
+        return false;
+
+      case "already_admin":
+        Alert.alert("Already Admin", "This person already has admin access.");
+        return false;
+
+      case "already_member":
+        Alert.alert(
+          "Already a Member",
+          "This person is already a member with visibility access.",
+        );
+        return false;
+
+      case "already_staff":
+        Alert.alert(
+          "Already Staff",
+          "This person already has staff visibility access.",
+        );
+        return false;
+
+      case "pending":
+        Alert.alert(
+          "Invitation Pending",
+          "An invitation is already pending for this number.",
+        );
+        return false;
+
+      case "staff_number":
+        Alert.alert(
+          "Staff Number",
+          "This number belongs to staff and staff cannot access property.",
+        );
+        return false;
+
+      case "member_to_admin": {
+        const memberName = pre.memberName || opts.name || "This member";
+        return await new Promise<boolean>((resolve) => {
+          Alert.alert(
+            "Member Found",
+            `${memberName} is a member. They can also be an admin. Continue?`,
+            [
+              {
+                text: "Cancel",
+                style: "cancel",
+                onPress: () => resolve(false),
+              },
+              {
+                text: "Continue",
+                onPress: () => {
+                  doSend().then(resolve);
+                },
+              },
+            ],
+          );
+        });
+      }
+
+      case "ok":
+      default:
+        return await doSend();
+    }
   };
 
   // ============================================================
@@ -234,10 +443,8 @@ export default function GrantAccessScreen() {
       );
       return;
     }
-
     try {
       const { status } = await requestPermissionsAsync();
-
       if (status !== "granted") {
         Alert.alert(
           "Permission Required",
@@ -247,18 +454,15 @@ export default function GrantAccessScreen() {
         setError("Permission to access contacts is required.");
         return;
       }
-
       const contacts = await Contact.getAllDetails(
         [ContactField.FULL_NAME, ContactField.PHONES],
         { sortOrder: ContactsSortOrder.GivenName },
       );
-
       if (!contacts || contacts.length === 0) {
         setError("No contacts found on your device.");
         return;
       }
-
-      const mappedContacts: ContactData[] = contacts
+      const mapped: ContactData[] = contacts
         .filter((c: any) => c.phones && c.phones.length > 0)
         .map((c: any) => ({
           id: c.id ?? `${c.fullName ?? "unknown"}-${Math.random()}`,
@@ -268,32 +472,27 @@ export default function GrantAccessScreen() {
             label: p.label || undefined,
           })),
         }));
-
-      if (mappedContacts.length === 0) {
+      if (mapped.length === 0) {
         setError("No contacts with phone numbers found.");
         return;
       }
-
       setContactSearch("");
-      setContactsList(mappedContacts);
+      setContactsList(mapped);
       setShowContactPicker(true);
       setError("");
-    } catch (contactError) {
-      console.error("Error fetching contacts:", contactError);
+    } catch (e) {
+      console.error("Error fetching contacts:", e);
       setError("Failed to fetch contacts. Please try again.");
     }
   };
 
   const filteredContacts = contactsList.filter((contact) => {
-    const query = contactSearch.trim().toLowerCase();
-    if (!query) return true;
-
-    const nameMatch = contact.name.toLowerCase().includes(query);
-    const phoneMatch = contact.phoneNumbers.some((phone) =>
-      phone.number.toLowerCase().includes(query),
+    const q = contactSearch.trim().toLowerCase();
+    if (!q) return true;
+    return (
+      contact.name.toLowerCase().includes(q) ||
+      contact.phoneNumbers.some((p) => p.number.toLowerCase().includes(q))
     );
-
-    return nameMatch || phoneMatch;
   });
 
   const closeContactPicker = () => {
@@ -302,31 +501,21 @@ export default function GrantAccessScreen() {
   };
 
   const selectContact = (contact: ContactData) => {
-    if (
-      !contact ||
-      !contact.phoneNumbers ||
-      contact.phoneNumbers.length === 0
-    ) {
+    if (!contact?.phoneNumbers?.length) {
       setError("Selected contact doesn't have a phone number.");
       return;
     }
-
-    let phoneNumber = contact.phoneNumbers[0].number || "";
-    phoneNumber = phoneNumber
+    let n = contact.phoneNumbers[0].number || "";
+    n = n
       .replace(/[^0-9]/g, "")
       .replace(/^91/, "")
       .replace(/^0/, "");
-
-    if (phoneNumber.length > 10) {
-      phoneNumber = phoneNumber.slice(-10);
-    }
-
-    if (phoneNumber.length !== 10) {
+    if (n.length > 10) n = n.slice(-10);
+    if (n.length !== 10) {
       setError("Selected contact does not have a valid 10-digit phone number.");
       return;
     }
-
-    setPhone(phoneNumber);
+    setPhone(n);
     setError("");
     if (!name.trim() && contact.name) setName(contact.name);
     setContactSearch("");
@@ -337,107 +526,136 @@ export default function GrantAccessScreen() {
   // SAVE
   // ============================================================
 
-  const handleSave = () => {
-    const grantRole: AccountAccessRole =
-      role || (isVisibilityFlow ? "member_visibility" : "member_visibility");
-
-    const baseGrant: any = {
-      accountId,
-      accountName: account?.name || "Apartment",
-      invitedByPhone: inviterPhone,
-      invitedByName: inviterName,
-      role: grantRole,
-      createdAt: new Date().toISOString(),
-      memberType: isOwnershipFlow ? "ownership" : undefined,
-    };
-
+  const handleSave = async () => {
     if (!accountId) {
       setError("Account information is missing.");
       return;
     }
-
     if (!inviterPhone) {
       setError("Your phone number is missing. Please sign in again.");
       return;
     }
 
+    const grantRole: AccountAccessRole =
+      role || (isVisibilityFlow ? "member_visibility" : "member_visibility");
+
+    // ── STAFF FLOW — pick from staff list only, never invite by phone ──
+    if (isStaffFlow) {
+      if (selectedStaffIds.length === 0) {
+        setError("Please select at least one staff member.");
+        return;
+      }
+      let allOk = true;
+      for (const staffId of selectedStaffIds) {
+        const staffMember = staffMembersList.find((s) => s.id === staffId);
+        if (!staffMember) continue;
+        const tenDigit = (staffMember.phone || "")
+          .replace(/[^0-9]/g, "")
+          .slice(-10);
+        if (tenDigit.length !== 10) {
+          Alert.alert(
+            "Missing phone",
+            `${staffMember.name} doesn't have a valid phone number on file.`,
+          );
+          allOk = false;
+          break;
+        }
+        const ok = await sendInviteWithAlerts({
+          phone: tenDigit,
+          name: staffMember.name,
+          role: "staff_visibility",
+          targetStaffId: staffMember.id,
+        });
+        if (!ok) {
+          allOk = false;
+          break;
+        }
+      }
+      if (allOk) {
+        Alert.alert("Invitations Sent", "All selected staff were invited.");
+        router.back();
+      }
+      return;
+    }
+
+    // ── VISIBILITY FLOW (owners) — invite each selected member ──
     if (isVisibilityFlow) {
       if (selectedMemberIds.length === 0) {
         setError("Please select at least one apartment owner.");
         return;
       }
-
-      selectedMemberIds.forEach((memberId, index) => {
+      let allOk = true;
+      for (const memberId of selectedMemberIds) {
         const member = activeMembers.find((m) => m.id === memberId);
-        if (!member) return;
-
-        const memberPhone = (member.phone || "").startsWith("+")
-          ? member.phone
-          : `+91${(member.phone || "").replace(/[^0-9]/g, "").slice(-10)}`;
-
-        addGrant({
-          ...baseGrant,
-          id: `access_${Date.now()}_${index}`,
+        if (!member) continue;
+        const tenDigit = (member.phone || "").replace(/[^0-9]/g, "").slice(-10);
+        const ok = await sendInviteWithAlerts({
+          phone: tenDigit,
           name: member.name,
-          phone: memberPhone,
-          memberId: member.id,
+          role: "member_visibility",
+          targetMemberId: member.id,
         });
-      });
-
-      router.back();
+        if (!ok) {
+          allOk = false;
+          break;
+        }
+      }
+      if (allOk) {
+        Alert.alert("Invitations Sent", "All selected owners were invited.");
+        router.back();
+      }
       return;
     }
 
+    // ── New phone flow (admin only) ──
     if (source === "new") {
       const recipientName = name.trim();
       const cleanPhone = phone.replace(/[^0-9]/g, "").slice(-10);
-
       if (!recipientName) {
         setError("Please enter a name.");
         return;
       }
-
       if (cleanPhone.length !== 10) {
         setError("Please enter a valid 10-digit phone number.");
         return;
       }
-
-      addGrant({
-        ...baseGrant,
-        id: `access_${Date.now()}`,
+      const ok = await sendInviteWithAlerts({
+        phone: cleanPhone,
         name: recipientName,
-        phone: `+91${cleanPhone}`,
+        role: grantRole,
       });
-
-      router.back();
+      if (ok) {
+        Alert.alert("Invitation Sent", `Invite sent to +91${cleanPhone}.`);
+        router.back();
+      }
       return;
     }
 
+    // ── Existing person flow (admin only) ──
     if (selectedMemberIds.length === 0) {
       setError("Please select at least one member.");
       return;
     }
-
-    const allMembers = [...apartmentMembersList];
-
-    selectedMemberIds.forEach((memberId, index) => {
-      const member = allMembers.find((m) => m.id === memberId);
-      if (!member) return;
-
-      const memberPhone = (member.phone || "").startsWith("+")
-        ? member.phone
-        : `+91${(member.phone || "").replace(/[^0-9]/g, "").slice(-10)}`;
-
-      addGrant({
-        ...baseGrant,
-        id: `access_${Date.now()}_${index}`,
+    let allOk = true;
+    for (const memberId of selectedMemberIds) {
+      const member = apartmentMembersList.find((m) => m.id === memberId);
+      if (!member) continue;
+      const tenDigit = (member.phone || "").replace(/[^0-9]/g, "").slice(-10);
+      const ok = await sendInviteWithAlerts({
+        phone: tenDigit,
         name: member.name,
-        phone: memberPhone,
-        memberId: member.id,
+        role: grantRole,
+        targetMemberId: member.id,
       });
-    });
-
-    router.back();
+      if (!ok) {
+        allOk = false;
+        break;
+      }
+    }
+    if (allOk) {
+      Alert.alert("Invitations Sent", "All selected people were invited.");
+      router.back();
+    }
   };
 
   // ============================================================
@@ -445,17 +663,12 @@ export default function GrantAccessScreen() {
   // ============================================================
 
   const renderMemberRow = (member: Member) => {
-    const apartmentNumber = (member as any).apartmentNumber as
-      | string
-      | undefined;
+    const apt = (member as any).apartmentNumber as string | undefined;
     const wing = (member as any).wing as string | undefined;
-
-    // Member rows always show wing / apartment now (no staff rows).
     const parts: string[] = [];
     if (wing) parts.push(`Wing ${wing}`);
-    if (apartmentNumber) parts.push(`Apt ${apartmentNumber}`);
+    if (apt) parts.push(`Apt ${apt}`);
     const meta = parts.join("  •  ");
-
     const selected = selectedMemberIds.includes(member.id);
 
     return (
@@ -477,19 +690,16 @@ export default function GrantAccessScreen() {
             {member.name.charAt(0).toUpperCase()}
           </Text>
         </View>
-
         <View style={styles.memberContent}>
           <Text style={styles.memberName} numberOfLines={1}>
             {member.name}
           </Text>
-
           <View style={styles.memberPhoneRow}>
             <Ionicons name="call-outline" size={13} color="#64748B" />
             <Text style={styles.memberPhone} numberOfLines={1}>
               {member.phone}
             </Text>
           </View>
-
           {meta ? (
             <View style={styles.memberMetaRow}>
               <Ionicons name="home-outline" size={13} color="#2563EB" />
@@ -497,7 +707,65 @@ export default function GrantAccessScreen() {
             </View>
           ) : null}
         </View>
+        <View style={[styles.checkbox, selected && styles.checkboxSelected]}>
+          {selected ? (
+            <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+          ) : null}
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
+  // ============================================================
+  // STAFF ROW
+  // ============================================================
+
+  const renderStaffRow = (member: Member) => {
+    const role = String((member as any).role ?? "").trim();
+    const selected = selectedStaffIds.includes(member.id);
+
+    return (
+      <TouchableOpacity
+        key={member.id}
+        activeOpacity={0.8}
+        style={[styles.memberCard, selected && styles.memberCardSelected]}
+        onPress={() => toggleStaff(member.id)}
+      >
+        <View
+          style={[
+            styles.memberAvatar,
+            styles.memberAvatarStaff,
+            selected && styles.memberAvatarSelected,
+          ]}
+        >
+          <Text
+            style={[
+              styles.memberAvatarText,
+              selected && styles.memberAvatarTextSelected,
+            ]}
+          >
+            {member.name.charAt(0).toUpperCase()}
+          </Text>
+        </View>
+        <View style={styles.memberContent}>
+          <Text style={styles.memberName} numberOfLines={1}>
+            {member.name}
+          </Text>
+          <View style={styles.memberPhoneRow}>
+            <Ionicons name="call-outline" size={13} color="#64748B" />
+            <Text style={styles.memberPhone} numberOfLines={1}>
+              {member.phone}
+            </Text>
+          </View>
+          {role ? (
+            <View style={styles.memberMetaRow}>
+              <Ionicons name="briefcase-outline" size={13} color="#7C3AED" />
+              <Text style={styles.memberStaffMeta}>
+                {role.charAt(0).toUpperCase() + role.slice(1)}
+              </Text>
+            </View>
+          ) : null}
+        </View>
         <View style={[styles.checkbox, selected && styles.checkboxSelected]}>
           {selected ? (
             <Ionicons name="checkmark" size={16} color="#FFFFFF" />
@@ -513,7 +781,6 @@ export default function GrantAccessScreen() {
 
   const renderContactPickerModal = () => {
     if (!showContactPicker) return null;
-
     return (
       <Modal
         visible={showContactPicker}
@@ -664,18 +931,24 @@ export default function GrantAccessScreen() {
   // ============================================================
 
   const hasMembers = apartmentMembersList.length > 0;
+  const hasStaff = staffMembersList.length > 0;
 
   const getEmptyStateText = () => {
-    if (isVisibilityFlow) {
-      return "No apartment owners available to select.";
-    }
+    if (isStaffFlow) return "No staff available to select.";
+    if (isVisibilityFlow) return "No apartment owners available to select.";
     return "No members are available.";
   };
 
   const saveButtonDisabled =
-    (!isVisibilityFlow && source === "new" && phone.length !== 10) ||
+    submitting ||
+    (isStaffFlow && selectedStaffIds.length === 0) ||
+    (!isStaffFlow &&
+      !isVisibilityFlow &&
+      source === "new" &&
+      phone.length !== 10) ||
     (isVisibilityFlow && selectedMemberIds.length === 0) ||
-    (!isVisibilityFlow &&
+    (!isStaffFlow &&
+      !isVisibilityFlow &&
       source === "existing" &&
       selectedMemberIds.length === 0);
 
@@ -704,9 +977,11 @@ export default function GrantAccessScreen() {
           <View style={styles.introIcon}>
             <Ionicons
               name={
-                isVisibilityFlow
-                  ? "person-add-outline"
-                  : "shield-checkmark-outline"
+                isStaffFlow
+                  ? "briefcase-outline"
+                  : isVisibilityFlow
+                    ? "person-add-outline"
+                    : "shield-checkmark-outline"
               }
               size={24}
               color="#2563EB"
@@ -714,17 +989,24 @@ export default function GrantAccessScreen() {
           </View>
           <View style={styles.introContent}>
             <Text style={styles.introTitle}>
-              {isVisibilityFlow ? visibilityTitle : `Grant ${title} access`}
+              {isStaffFlow
+                ? visibilityTitle
+                : isVisibilityFlow
+                  ? visibilityTitle
+                  : `Grant ${title} access`}
             </Text>
             <Text style={styles.introDescription}>
-              {isVisibilityFlow
-                ? "Select one or more apartment owners to grant visibility access."
-                : "Choose who should receive access to this account."}
+              {isStaffFlow
+                ? "Select one or more staff members to grant visibility access."
+                : isVisibilityFlow
+                  ? "Select one or more apartment owners to grant visibility access."
+                  : "Choose who should receive access to this account."}
             </Text>
           </View>
         </View>
 
-        {!isVisibilityFlow ? (
+        {/* RECIPIENT tiles — only for admin flow, not staff, not visibility */}
+        {!isVisibilityFlow && !isStaffFlow ? (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>RECIPIENT</Text>
             <View style={styles.sourceRow}>
@@ -818,7 +1100,8 @@ export default function GrantAccessScreen() {
           </View>
         ) : null}
 
-        {!isVisibilityFlow && source === "new" ? (
+        {/* New phone form — only for admin flow, not staff, not visibility */}
+        {!isVisibilityFlow && !isStaffFlow && source === "new" ? (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>PERSON DETAILS</Text>
             <View style={styles.formCard}>
@@ -888,7 +1171,8 @@ export default function GrantAccessScreen() {
           </View>
         ) : null}
 
-        {!isVisibilityFlow && source === "existing" ? (
+        {/* Existing person picker — only for admin flow */}
+        {!isVisibilityFlow && !isStaffFlow && source === "existing" ? (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>SELECT PEOPLE</Text>
             {hasMembers ? (
@@ -994,6 +1278,7 @@ export default function GrantAccessScreen() {
           </View>
         ) : null}
 
+        {/* Owner visibility picker */}
         {isVisibilityFlow ? (
           <View style={styles.section}>
             {hasMembers ? (
@@ -1087,6 +1372,126 @@ export default function GrantAccessScreen() {
           </View>
         ) : null}
 
+        {/* Staff visibility picker — no phone entry, pick from list only */}
+        {isStaffFlow ? (
+          <View style={styles.section}>
+            {hasStaff ? (
+              <>
+                <View style={styles.selectControlsRow}>
+                  <View style={styles.searchBoxInline}>
+                    <Ionicons name="search-outline" size={19} color="#64748B" />
+                    <TextInput
+                      style={styles.searchInput}
+                      value={search}
+                      onChangeText={(value) => {
+                        setSearch(value);
+                        setError("");
+                      }}
+                      placeholder="Search staff name, phone or role"
+                      placeholderTextColor="#94A3B8"
+                      autoCapitalize="none"
+                    />
+                    {search.length > 0 ? (
+                      <TouchableOpacity
+                        onPress={() => setSearch("")}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons
+                          name="close-circle"
+                          size={19}
+                          color="#94A3B8"
+                        />
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+
+                  <TouchableOpacity
+                    style={styles.selectAllButton}
+                    onPress={
+                      allStaffSelected
+                        ? handleClearAllStaff
+                        : handleSelectAllStaff
+                    }
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons
+                      name={
+                        allStaffSelected
+                          ? "close-circle-outline"
+                          : "checkmark-done"
+                      }
+                      size={16}
+                      color={allStaffSelected ? "#DC2626" : "#2563EB"}
+                    />
+                    <Text
+                      style={[
+                        styles.selectAllText,
+                        allStaffSelected && styles.clearAllText,
+                      ]}
+                    >
+                      {allStaffSelected ? "Clear all" : "Select all"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                {filteredStaff.length === 0 ? (
+                  <View style={styles.emptyCard}>
+                    <View style={styles.emptyIcon}>
+                      <Ionicons
+                        name="briefcase-outline"
+                        size={28}
+                        color="#64748B"
+                      />
+                    </View>
+                    <Text style={styles.emptyTitle}>
+                      {staffMembersList.length === 0
+                        ? "No staff available"
+                        : "No matching staff"}
+                    </Text>
+                    <Text style={styles.emptyDescription}>
+                      {staffMembersList.length === 0
+                        ? "Add staff in the management tab first, then come back to grant them visibility."
+                        : "Try searching with another name, phone number, or role."}
+                    </Text>
+                  </View>
+                ) : (
+                  <>
+                    <View style={styles.groupHeader}>
+                      <View style={styles.groupTitleRow}>
+                        <Ionicons
+                          name="briefcase-outline"
+                          size={17}
+                          color="#7C3AED"
+                        />
+                        <Text style={styles.groupTitle}>Staff</Text>
+                      </View>
+                      <Text style={styles.groupCount}>
+                        {staffMembersList.length}
+                      </Text>
+                    </View>
+                    {filteredStaff.map(renderStaffRow)}
+                  </>
+                )}
+              </>
+            ) : (
+              <View style={styles.emptyCard}>
+                <View style={styles.emptyIcon}>
+                  <Ionicons
+                    name="briefcase-outline"
+                    size={28}
+                    color="#64748B"
+                  />
+                </View>
+                <Text style={styles.emptyTitle}>No staff available</Text>
+                <Text style={styles.emptyDescription}>
+                  Add staff in the management tab first, then come back to grant
+                  them visibility.
+                </Text>
+              </View>
+            )}
+          </View>
+        ) : null}
+
         {error ? (
           <View style={styles.errorBox}>
             <Ionicons name="alert-circle-outline" size={19} color="#DC2626" />
@@ -1102,17 +1507,26 @@ export default function GrantAccessScreen() {
             ]}
             onPress={handleSave}
             activeOpacity={0.85}
+            disabled={saveButtonDisabled}
           >
-            <Ionicons
-              name="shield-checkmark-outline"
-              size={20}
-              color="#FFFFFF"
-            />
-            <Text style={styles.saveText}>
-              {isVisibilityFlow
-                ? `Grant ${visibilityTitle.replace("Manage ", "")}`
-                : `Grant ${title} Access`}
-            </Text>
+            {submitting ? (
+              <ActivityIndicator color="#FFFFFF" size="small" />
+            ) : (
+              <>
+                <Ionicons
+                  name="shield-checkmark-outline"
+                  size={20}
+                  color="#FFFFFF"
+                />
+                <Text style={styles.saveText}>
+                  {isStaffFlow
+                    ? `Grant ${visibilityTitle.replace("Manage ", "")}`
+                    : isVisibilityFlow
+                      ? `Grant ${visibilityTitle.replace("Manage ", "")}`
+                      : `Grant ${title} Access`}
+                </Text>
+              </>
+            )}
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -1382,6 +1796,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginRight: 11,
   },
+  memberAvatarStaff: { backgroundColor: "#F5F3FF" },
   memberAvatarSelected: { backgroundColor: "#2563EB" },
   memberAvatarText: { color: "#2563EB", fontSize: 16, fontWeight: "700" },
   memberAvatarTextSelected: { color: "#FFFFFF" },
@@ -1401,6 +1816,7 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   memberMeta: { color: "#2563EB", fontSize: 11, fontWeight: "600" },
+  memberStaffMeta: { color: "#7C3AED", fontSize: 11, fontWeight: "600" },
   checkbox: {
     width: 24,
     height: 24,

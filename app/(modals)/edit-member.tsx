@@ -29,7 +29,7 @@ import {
   TextInput,
   TouchableOpacity,
   TouchableWithoutFeedback,
-  View
+  View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -180,15 +180,6 @@ const pickMimeType = (mimeOrUri?: string | null): string => {
   }
 };
 
-/**
- * Ask the user where to save the file, then write it there.
- *
- * - Android: StorageAccessFramework folder picker.
- * - iOS:     share sheet → "Save to Files".
- * - Web:     browser download.
- *
- * Accepts a data: URI, file:// URI, or http(s) URL.
- */
 async function saveBillWithFolderPicker(
   uri: string,
   suggestedName: string,
@@ -199,7 +190,6 @@ async function saveBillWithFolderPicker(
   const mimeType = pickMimeType(sourceHint || uri);
   const fileName = `${safeBase}.${ext}`;
 
-  // ── Web ──────────────────────────────────────────────────────────
   if (Platform.OS === "web") {
     try {
       let href = uri;
@@ -233,7 +223,6 @@ async function saveBillWithFolderPicker(
     }
   }
 
-  // ── Stage the file in cache ──────────────────────────────────────
   const cacheDir = FileSystem.cacheDirectory;
   if (!cacheDir) throw new Error("Cache directory not available.");
   const tempUri = `${cacheDir}${fileName}`;
@@ -255,7 +244,6 @@ async function saveBillWithFolderPicker(
     throw new Error(e?.message || "Failed to prepare file for saving.");
   }
 
-  // ── Android: StorageAccessFramework folder picker ────────────────
   if (Platform.OS === "android") {
     const SAF = (FileSystem as any).StorageAccessFramework;
     if (SAF?.requestDirectoryPermissionsAsync) {
@@ -280,7 +268,6 @@ async function saveBillWithFolderPicker(
     }
   }
 
-  // ── iOS / fallback: share sheet ──────────────────────────────────
   if (await Sharing.isAvailableAsync()) {
     await Sharing.shareAsync(tempUri, {
       mimeType,
@@ -292,10 +279,6 @@ async function saveBillWithFolderPicker(
   throw new Error("Saving is not available on this device.");
 }
 
-/**
- * Download a bill attachment. Preserves original format, opens the folder
- * picker on Android, share sheet on iOS.
- */
 async function downloadBillAttachment(
   uri?: string | null,
   name?: string | null,
@@ -899,6 +882,14 @@ export default function EditMemberScreen() {
 
   const hasFieldErrors = Object.values(fieldErrors).some(Boolean);
 
+  // ── Dynamic labels per groupType ──
+  const deleteNoun =
+    groupType === "expense"
+      ? "Expense"
+      : groupType === "staff"
+        ? "Staff"
+        : "Member";
+
   const getHeaderTitle = () => {
     if (groupType === "expense") return "Edit Transaction";
     if (groupType === "staff") return "Edit Staff";
@@ -1325,13 +1316,13 @@ export default function EditMemberScreen() {
 
       router.back();
     } catch (e: any) {
-      setError(e.message || "Failed to update member");
+      setError(e.message || `Failed to update ${deleteNoun.toLowerCase()}`);
     } finally {
       setLoading(false);
     }
   };
 
-  // ── DELETE ──
+  // ── DELETE (soft for members/staff, hard for expenses) ──
   const handleDelete = () => setShowDeleteConfirmation(true);
 
   const confirmDelete = async () => {
@@ -1339,12 +1330,21 @@ export default function EditMemberScreen() {
       setLoading(true);
       setError("");
       setFieldErrors({});
+
+      // For members and staff, this is a SOFT delete on the backend:
+      // the row is kept in the DB with status = 'inactive'.
+      // For expenses, this is a real DELETE.
+      // Either way, the hook treats it as "removed from the list".
       await remove(memberId);
+
       setShowDeleteConfirmation(false);
       router.back();
     } catch (e: any) {
       console.error("Delete error:", e);
-      setError(e.message || "Failed to delete member. Please try again.");
+      setError(
+        e.message ||
+          `Failed to delete ${deleteNoun.toLowerCase()}. Please try again.`,
+      );
       setLoading(false);
     }
   };
@@ -1357,9 +1357,9 @@ export default function EditMemberScreen() {
           <View style={styles.notFoundIcon}>
             <Ionicons name="person-outline" size={34} color="#2563eb" />
           </View>
-          <Text style={styles.notFoundTitle}>Member not found</Text>
+          <Text style={styles.notFoundTitle}>{deleteNoun} not found</Text>
           <Text style={styles.notFoundSubtitle}>
-            This member may have already been removed.
+            This {deleteNoun.toLowerCase()} may have already been removed.
           </Text>
           <TouchableOpacity
             style={styles.backButton}
@@ -2250,9 +2250,7 @@ export default function EditMemberScreen() {
           activeOpacity={0.7}
         >
           <Ionicons name="trash-outline" size={18} color="#dc2626" />
-          <Text style={styles.deleteTextButtonText}>
-            Delete {groupType === "expense" ? "Expense" : "Member"}
-          </Text>
+          <Text style={styles.deleteTextButtonText}>Delete {deleteNoun}</Text>
         </TouchableOpacity>
 
         <View style={{ height: Math.max(40, insets.bottom + 20) }} />
@@ -2681,12 +2679,11 @@ export default function EditMemberScreen() {
             <View style={styles.deleteWarningIcon}>
               <Ionicons name="trash-outline" size={25} color="#dc2626" />
             </View>
-            <Text style={styles.confirmationTitle}>
-              Delete {groupType === "expense" ? "Expense" : "Member"}?
-            </Text>
+            <Text style={styles.confirmationTitle}>Delete {deleteNoun}?</Text>
             <Text style={styles.confirmationMessage}>
-              Are you sure you want to delete {name}? This action cannot be
-              undone.
+              {groupType === "expense"
+                ? `Are you sure you want to delete ${name}? This action cannot be undone.`
+                : `Are you sure you want to remove ${name}? They will be removed from the list but their history is preserved.`}
             </Text>
             <View style={styles.confirmationActions}>
               <TouchableOpacity

@@ -228,6 +228,46 @@ const callNumber = async (raw?: string | null) => {
 };
 
 // ------------------------------------------------------------
+// Soft-delete helpers
+// ------------------------------------------------------------
+
+/**
+ * Returns the month key (YYYY-MM) in which a member/staff row was
+ * soft-deleted, or null if the row is still active.
+ *
+ * The backend sets `status = 'inactive'` and bumps `updated_at` when a
+ * member/staff is deleted. We use `updated_at` as the deletion month.
+ */
+const getInactiveMonth = (row: any): string | null => {
+  const status = String(row?.status ?? "").toLowerCase();
+  if (status !== "inactive") return null;
+  const raw =
+    row?.deleted_at ??
+    row?.deletedAt ??
+    row?.updated_at ??
+    row?.updatedAt ??
+    null;
+  const month = toMonthKey(raw);
+  return month || null;
+};
+
+/**
+ * Whether the row is inactive for the given month (i.e. was deleted
+ * before or during that month).
+ *
+ * Examples:
+ *   deletedMonth = "2025-03"
+ *   monthKey     = "2025-02"  → false (still active in Feb)
+ *   monthKey     = "2025-03"  → true  (deleted in March)
+ *   monthKey     = "2025-04"  → true  (deleted in March, still inactive)
+ */
+const isRowInactiveForMonth = (row: any, monthKey: string): boolean => {
+  const deletedMonth = getInactiveMonth(row);
+  if (!deletedMonth) return false;
+  return monthKey >= deletedMonth;
+};
+
+// ------------------------------------------------------------
 // File save helpers
 // ------------------------------------------------------------
 
@@ -651,6 +691,8 @@ function TransactionItem({
 
   const anyPayment = payment as any;
 
+  const isInactive = anyPayment.__isInactive === true;
+
   const rawCategory: string =
     typeof anyPayment.rawCategory === "string" && anyPayment.rawCategory
       ? anyPayment.rawCategory
@@ -746,16 +788,37 @@ function TransactionItem({
   }
 
   return (
-    <View style={styles.transactionItem}>
+    <View
+      style={[
+        styles.transactionItem,
+        isInactive && styles.transactionItemInactive,
+      ]}
+    >
       <View style={[styles.transactionIcon, { backgroundColor: `${color}15` }]}>
         <Ionicons name={icon} size={21} color={color} />
       </View>
 
       <View style={styles.transactionInfo}>
         <View style={styles.titleRow}>
-          <Text style={styles.transactionTitle} numberOfLines={1}>
+          <Text
+            style={[
+              styles.transactionTitle,
+              isInactive && styles.transactionTitleInactive,
+            ]}
+            numberOfLines={1}
+          >
             {truncate(title, 26)}
           </Text>
+
+          {isInactive ? (
+            <View style={[styles.typeBadge, styles.typeBadgeInactive]}>
+              <Text
+                style={[styles.typeBadgeText, styles.typeBadgeTextInactive]}
+              >
+                Inactive
+              </Text>
+            </View>
+          ) : null}
 
           {isMaintenance ? (
             <View style={[styles.typeBadge, styles.typeBadgeMaintenance]}>
@@ -841,6 +904,15 @@ function TransactionItem({
           </View>
         ) : null}
 
+        {isInactive ? (
+          <View style={styles.metaRow}>
+            <Ionicons name="alert-circle-outline" size={11} color="#94A3B8" />
+            <Text style={styles.transactionMeta} numberOfLines={1}>
+              Not counted in totals
+            </Text>
+          </View>
+        ) : null}
+
         {isTransactionRow ? (
           <TouchableOpacity
             style={styles.viewButton}
@@ -868,6 +940,7 @@ function TransactionItem({
         <Text
           style={[
             styles.transactionAmount,
+            isInactive && styles.transactionAmountInactive,
             payment.status === "due"
               ? { color: statusColor }
               : isIncome
@@ -977,6 +1050,7 @@ function mapExpenseToTransaction(expense: any): PeopleTransaction {
     bill_attachments: attachments,
     isTransaction: true,
     __isExpenseRow: true,
+    __isInactive: false,
   } as any;
 }
 
@@ -1042,7 +1116,6 @@ export default function FinanceScreen() {
   const [openingBalanceInput, setOpeningBalanceInput] = useState("");
 
   // ---- Carried forward (server-computed) ----
-  // Includes opening balance + all previous months' net.
   const [carriedForwardBalance, setCarriedForwardBalance] = useState(0);
   const [carriedForwardLoading, setCarriedForwardLoading] = useState(false);
 
@@ -1105,18 +1178,9 @@ export default function FinanceScreen() {
   }, [selectedAccount?.id]);
 
   // ============================================================
-  // CARRIED FORWARD — FETCH (server-computed)
+  // CARRIED FORWARD — FETCH
   // ============================================================
-  //
-  // Refetch whenever:
-  //   - account changes
-  //   - selected month changes (different prior-months window)
-  //   - opening balance changes (owner edited it)
-  //   - expenses reference changes (any expense added/updated)
-  //   - members reference changes (member/JSON updates)
-  //   - summary.net / totals change (this month's paid totals changed,
-  //     meaning a prior month's paid data may have changed too)
-  //
+
   useEffect(() => {
     if (!selectedAccount?.id) {
       setCarriedForwardBalance(0);
@@ -1168,9 +1232,15 @@ export default function FinanceScreen() {
     const peopleRows: PeopleTransaction[] = [];
     const seenIds = new Set<string>();
 
+    // Every member/staff appears in every month. Whether they count
+    // toward the totals is decided by `__isInactive`. The row itself
+    // stays visible with an "Inactive" badge from the deletion month
+    // onward.
     for (const member of members as any[]) {
       const category: PaymentCategory =
         member?.monthlySalary !== undefined ? "salary" : "maintenance";
+
+      const inactive = isRowInactiveForMonth(member, monthKey);
 
       const paidHit = findPaidPaymentInMonth(member, monthKey);
       if (paidHit) {
@@ -1193,6 +1263,7 @@ export default function FinanceScreen() {
           transactionType: isSalary ? "expense" : "income",
           transaction_type: isSalary ? "expense" : "income",
           isTransaction: false,
+          __isInactive: inactive,
         };
 
         const entry = member.monthlyPayments?.[paidHit.billingMonth];
@@ -1236,6 +1307,7 @@ export default function FinanceScreen() {
           transactionType: isSalary ? "expense" : "income",
           transaction_type: isSalary ? "expense" : "income",
           isTransaction: false,
+          __isInactive: inactive,
         };
 
         if (entry) {
@@ -1332,7 +1404,9 @@ export default function FinanceScreen() {
   const loadFinanceData = () => {
     const { transactions: accountPayments } = getSelectedMonthTransactions();
 
-    const paidTransactions = accountPayments.filter((p) => p.status === "paid");
+    // Only paid + non-inactive rows count toward the totals.
+    const counted = accountPayments.filter((p) => !(p as any).__isInactive);
+    const paidTransactions = counted.filter((p) => p.status === "paid");
 
     const paidIncome = paidTransactions
       .filter((p) => getTransactionType(p) === "income")
@@ -1364,17 +1438,25 @@ export default function FinanceScreen() {
         break;
       case "income":
         filtered = accountPayments.filter(
-          (p) => p.status === "paid" && getTransactionType(p) === "income",
+          (p) =>
+            !(p as any).__isInactive &&
+            p.status === "paid" &&
+            getTransactionType(p) === "income",
         );
         break;
       case "expense":
         filtered = accountPayments.filter(
-          (p) => p.status === "paid" && getTransactionType(p) === "expense",
+          (p) =>
+            !(p as any).__isInactive &&
+            p.status === "paid" &&
+            getTransactionType(p) === "expense",
         );
         break;
       case "pending":
         filtered = accountPayments.filter(
-          (p) => p.status === "due" || p.status === "overdue",
+          (p) =>
+            !(p as any).__isInactive &&
+            (p.status === "due" || p.status === "overdue"),
         );
         break;
       default:
@@ -1436,7 +1518,11 @@ export default function FinanceScreen() {
 
   const getReportData = () => {
     const { monthKey, transactions } = getSelectedMonthTransactions();
-    const reportSummary = getPeopleSummary(transactions);
+    // Reports use the same rule: inactive rows stay visible but don't
+    // count in the summary. Pass only non-inactive rows to the summary
+    // and to the PDF/Excel totals.
+    const counted = transactions.filter((t) => !(t as any).__isInactive);
+    const reportSummary = getPeopleSummary(counted);
     return { monthKey, reportSummary, transactions };
   };
 
@@ -1483,6 +1569,7 @@ export default function FinanceScreen() {
         "Amount",
         "Status",
         "Date",
+        "Membership",
       ],
       ...maintenance.map((transaction) => [
         (transaction as any).wing || "",
@@ -1495,10 +1582,19 @@ export default function FinanceScreen() {
         transaction.status === "paid"
           ? (transaction as any).paidDate || transaction.dueDate
           : transaction.dueDate,
+        (transaction as any).__isInactive ? "Inactive" : "Active",
       ]),
       [],
       ["Staff"],
-      ["Staff Name", "Phone", "Role", "Paid Amount", "Status", "Date"],
+      [
+        "Staff Name",
+        "Phone",
+        "Role",
+        "Paid Amount",
+        "Status",
+        "Date",
+        "Membership",
+      ],
       ...staff.map((transaction) => [
         (transaction as any).memberName || transaction.description || "",
         (transaction as any).phone || "",
@@ -1512,6 +1608,7 @@ export default function FinanceScreen() {
         transaction.status === "paid"
           ? (transaction as any).paidDate || transaction.dueDate
           : transaction.dueDate,
+        (transaction as any).__isInactive ? "Inactive" : "Active",
       ]),
       [],
       ["Transactions"],
@@ -1535,6 +1632,7 @@ export default function FinanceScreen() {
       { wch: 30 },
       { wch: 14 },
       { wch: 14 },
+      { wch: 12 },
       { wch: 12 },
     ];
 
@@ -1659,8 +1757,6 @@ export default function FinanceScreen() {
 
   const hasBeenEdited = Boolean(openingBalanceMeta.updatedAt);
 
-  // Net Balance = Carried Forward (already includes opening + previous months)
-  //             + This Month's net
   const netBalance = carriedForwardBalance + summary.net;
 
   return (
@@ -1711,7 +1807,6 @@ export default function FinanceScreen() {
                 ₹{openingBalance.toLocaleString("en-IN")}
               </Text>
 
-              {/* Tappable phone pill + edited date below it */}
               {hasBeenEdited ? (
                 <View style={styles.heroMetaBlock}>
                   {openingBalanceMeta.updatedByPhone ? (
@@ -1755,7 +1850,6 @@ export default function FinanceScreen() {
 
           <View style={styles.heroDivider} />
 
-          {/* Carried Forward | This Month | Net Balance */}
           <View style={styles.heroBottomRow}>
             <View style={styles.heroMetric}>
               <Text style={styles.heroMetricLabel}>Carried Forward</Text>
@@ -2537,6 +2631,12 @@ const styles = StyleSheet.create({
     borderColor: "#E8EDF5",
   },
 
+  transactionItemInactive: {
+    backgroundColor: "#FAFBFC",
+    borderColor: "#EDF0F5",
+    opacity: 0.85,
+  },
+
   transactionIcon: {
     width: 43,
     height: 43,
@@ -2561,6 +2661,10 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 
+  transactionTitleInactive: {
+    color: "#64748B",
+  },
+
   typeBadge: {
     marginLeft: 6,
     paddingHorizontal: 6,
@@ -2573,6 +2677,7 @@ const styles = StyleSheet.create({
   typeBadgeMaintenance: { backgroundColor: "#EFF6FF" },
   typeBadgeIncome: { backgroundColor: "#F0FDF4" },
   typeBadgeExpense: { backgroundColor: "#FEF2F2" },
+  typeBadgeInactive: { backgroundColor: "#F1F5F9" },
 
   typeBadgeText: {
     fontSize: 9,
@@ -2584,6 +2689,7 @@ const styles = StyleSheet.create({
   typeBadgeTextMaintenance: { color: "#2563EB" },
   typeBadgeTextIncome: { color: "#16A34A" },
   typeBadgeTextExpense: { color: "#DC2626" },
+  typeBadgeTextInactive: { color: "#64748B" },
 
   metaRow: { flexDirection: "row", alignItems: "center", marginTop: 4 },
 
@@ -2652,6 +2758,10 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "800",
     letterSpacing: -0.2,
+  },
+
+  transactionAmountInactive: {
+    textDecorationLine: "line-through",
   },
 
   incomeText: { color: "#16A34A" },

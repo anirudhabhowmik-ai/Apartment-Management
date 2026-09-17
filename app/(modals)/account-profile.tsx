@@ -10,7 +10,7 @@ import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
     ActivityIndicator,
     Alert,
@@ -35,14 +35,16 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useAccounts } from "../../hooks/useAccounts";
 import { useUserRole } from "../../hooks/useUserRole";
-import { useAccessStore } from "../../store/accessStore";
 import { useAuthStore } from "../../store/useAuthStore";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
 
-// When the backend /change-preview route is reachable, flip to true.
-// Kept false here so tapping "Edit phone" doesn't spam a 404 warning.
-const ENABLE_LINKED_PROFILE_PREVIEW = false;
+// Backend /change-preview route is available; enable linked profile toggles.
+const ENABLE_LINKED_PROFILE_PREVIEW = true;
+
+// ============================================================================
+// TYPES
+// ============================================================================
 
 interface ContactData {
   id: string;
@@ -71,9 +73,34 @@ interface PhoneChangePreview {
   linkedStaff: LinkedProfileInfo;
 }
 
-// ---------------------------------------------------------------------------
-// Photo Adjust Modal
-// ---------------------------------------------------------------------------
+type InvitationRole = "admin" | "member_visibility" | "staff_visibility";
+type InvitationStatus =
+  | "pending"
+  | "accepted"
+  | "rejected"
+  | "revoked"
+  | "cancelled";
+
+interface ApiInvitation {
+  id: string;
+  account_id: string;
+  invited_phone: string;
+  invited_name: string | null;
+  role: InvitationRole;
+  status: InvitationStatus;
+  target_member_id: string | null;
+  target_staff_id: string | null;
+  created_at: string;
+  responded_at: string | null;
+  dismissed_at: string | null;
+  invited_by_phone: string;
+  account_name: string;
+  account_photo_url: string | null;
+}
+
+// ============================================================================
+// PHOTO ADJUST MODAL
+// ============================================================================
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const VIEWPORT = Math.min(SCREEN_WIDTH - 64, 320);
@@ -489,7 +516,7 @@ const adjustStyles = StyleSheet.create({
 });
 
 // ============================================================================
-// SCREEN
+// MENU ROW
 // ============================================================================
 
 interface MenuRowProps {
@@ -531,17 +558,18 @@ function MenuRow({
   );
 }
 
+// ============================================================================
+// SCREEN
+// ============================================================================
+
 export default function AccountProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
-  const { user, setUser, logout } = useAuthStore();
+  const { user, logout } = useAuthStore();
   const { selectedAccount, editAccount } = useAccounts();
   const { isAdmin } = useUserRole();
   const canEdit = isAdmin;
-
-  const grants = useAccessStore((s) => s.grants);
-  const removeGrant = useAccessStore((s) => s.removeGrant);
 
   const [propertyName, setPropertyName] = useState("");
   const [editingName, setEditingName] = useState(false);
@@ -550,6 +578,7 @@ export default function AccountProfileScreen() {
   const [rawImage, setRawImage] = useState<RawImage | null>(null);
   const [showAdjustModal, setShowAdjustModal] = useState(false);
 
+  // Phone modal
   const [showPhoneModal, setShowPhoneModal] = useState(false);
   const [showPhoneTooltip, setShowPhoneTooltip] = useState(false);
   const [phone, setPhone] = useState("");
@@ -571,34 +600,59 @@ export default function AccountProfileScreen() {
 
   const [processingChange, setProcessingChange] = useState(false);
 
+  // Invitations state
+  const [invitations, setInvitations] = useState<ApiInvitation[]>([]);
+  const [invitationsLoading, setInvitationsLoading] = useState(false);
   const [invitationToDelete, setInvitationToDelete] = useState<string | null>(
     null,
   );
+  const [deletingInvitation, setDeletingInvitation] = useState(false);
 
   const [showContactPicker, setShowContactPicker] = useState(false);
   const [contactsList, setContactsList] = useState<ContactData[]>([]);
   const [contactSearch, setContactSearch] = useState("");
 
-  const accountGrants = grants.filter(
-    (g) => g.accountId === selectedAccount?.id,
+  // ============================================================
+  // DERIVED
+  // ============================================================
+
+  const pendingInvitations = useMemo(
+    () => invitations.filter((i) => i.status === "pending"),
+    [invitations],
   );
-  const pendingInvitations = accountGrants.filter((g) => !g.acceptedAt);
-  const acceptedAdmins = accountGrants.filter(
-    (g) => g.acceptedAt && g.role === "admin",
+  const rejectedInvitations = useMemo(
+    () => invitations.filter((i) => i.status === "rejected"),
+    [invitations],
   );
-  const visibleMembers = accountGrants.filter(
-    (g) => g.acceptedAt && g.role === "member_visibility",
+  const acceptedInvitations = useMemo(
+    () => invitations.filter((i) => i.status === "accepted" && !i.dismissed_at),
+    [invitations],
   );
-  const visibleStaff = accountGrants.filter(
-    (g) => g.acceptedAt && g.role === "staff_visibility",
+
+  const acceptedAdmins = useMemo(
+    () => acceptedInvitations.filter((i) => i.role === "admin"),
+    [acceptedInvitations],
+  );
+  const acceptedMembers = useMemo(
+    () => acceptedInvitations.filter((i) => i.role === "member_visibility"),
+    [acceptedInvitations],
+  );
+  const acceptedStaff = useMemo(
+    () => acceptedInvitations.filter((i) => i.role === "staff_visibility"),
+    [acceptedInvitations],
   );
 
   const totalPeopleWithAccess =
     acceptedAdmins.length +
-    visibleMembers.length +
-    visibleStaff.length +
+    acceptedMembers.length +
+    acceptedStaff.length +
     pendingInvitations.length +
+    rejectedInvitations.length +
     (selectedAccount?.ownerId === user?.id ? 1 : 0);
+
+  // ============================================================
+  // TIMER
+  // ============================================================
 
   useEffect(() => {
     if (isTimerActive && timer > 0) {
@@ -627,14 +681,52 @@ export default function AccountProfileScreen() {
       .toUpperCase()
       .slice(0, 2);
 
-  const getAuthToken = async (): Promise<string | null> => {
+  const getAuthToken = useCallback(async (): Promise<string | null> => {
     try {
       return await SecureStore.getItemAsync("auth_token");
     } catch (err) {
       console.warn("[account-profile] SecureStore read failed:", err);
       return null;
     }
+  }, []);
+
+  const normalizePhone = (raw?: string | null) => {
+    if (!raw) return null;
+    const digits = String(raw).replace(/\D/g, "");
+    return digits.length > 10 ? digits.slice(-10) : digits;
   };
+
+  // ============================================================
+  // LOAD INVITATIONS
+  // ============================================================
+
+  const loadInvitations = useCallback(async () => {
+    if (!selectedAccount?.id) return;
+    setInvitationsLoading(true);
+    try {
+      const token = await getAuthToken();
+      if (!token) return;
+      const res = await fetch(
+        `${API_URL}/api/accounts/${selectedAccount.id}/invitations`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      setInvitations(data?.invitations ?? []);
+    } catch (err) {
+      console.warn("[account-profile] loadInvitations error:", err);
+    } finally {
+      setInvitationsLoading(false);
+    }
+  }, [selectedAccount?.id, getAuthToken]);
+
+  useEffect(() => {
+    loadInvitations();
+  }, [loadInvitations]);
+
+  // ============================================================
+  // PHOTO
+  // ============================================================
 
   const takePhoto = async () => {
     if (!canEdit) return;
@@ -700,6 +792,10 @@ export default function AccountProfileScreen() {
     setRawImage(null);
   };
 
+  // ============================================================
+  // NAME
+  // ============================================================
+
   const startEditingName = () => {
     if (!canEdit) return;
     setPropertyName(selectedAccount?.name || "");
@@ -713,6 +809,10 @@ export default function AccountProfileScreen() {
     await editAccount(selectedAccount.id, { name: trimmed });
     setEditingName(false);
   };
+
+  // ============================================================
+  // PHONE (ownership transfer)
+  // ============================================================
 
   const openPhoneEditor = async () => {
     if (!canEdit) return;
@@ -766,11 +866,6 @@ export default function AccountProfileScreen() {
     }
   };
 
-  /**
-   * Request OTP from the backend.
-   * POST /api/accounts/:accountId/profile/phone/request-otp
-   * Body: { phone }
-   */
   const handleSendPhoneOtp = async () => {
     if (phone.length !== 10) {
       setPhoneError("Enter a valid 10-digit phone number");
@@ -832,11 +927,6 @@ export default function AccountProfileScreen() {
     await handleSendPhoneOtp();
   };
 
-  /**
-   * Verify the 6-digit OTP and complete ownership transfer.
-   * POST /api/accounts/:accountId/profile/phone/verify-otp
-   * Body: { phone, otp, updateMemberPhone, updateStaffPhone }
-   */
   const handleVerifyPressed = async () => {
     const otpString = phoneOtp.join("");
     if (otpString.length !== 6) {
@@ -952,6 +1042,10 @@ export default function AccountProfileScreen() {
     }
   };
 
+  // ============================================================
+  // CONTACTS
+  // ============================================================
+
   const pickContact = async () => {
     if (Platform.OS === "web") {
       Alert.alert(
@@ -1041,14 +1135,138 @@ export default function AccountProfileScreen() {
     setShowContactPicker(false);
   };
 
-  const confirmDeleteInvitation = () => {
+  // ============================================================
+  // INVITATION ACTIONS
+  // ============================================================
+
+  const confirmDeleteInvitation = async () => {
     if (!invitationToDelete) return;
-    removeGrant(invitationToDelete);
-    setInvitationToDelete(null);
+    const authToken = await getAuthToken();
+    if (!authToken) return;
+
+    setDeletingInvitation(true);
+    try {
+      const res = await fetch(
+        `${API_URL}/api/accounts/${selectedAccount?.id}/invitations/${invitationToDelete}`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${authToken}` },
+        },
+      );
+      if (!res.ok) {
+        let data: any = null;
+        try {
+          data = await res.json();
+        } catch {
+          data = null;
+        }
+        Alert.alert("Error", data?.message || "Failed to delete invitation");
+        return;
+      }
+      setInvitations((prev) => prev.filter((i) => i.id !== invitationToDelete));
+      setInvitationToDelete(null);
+    } catch (err) {
+      console.error("deleteInvitation error:", err);
+      Alert.alert("Error", "Network error");
+    } finally {
+      setDeletingInvitation(false);
+    }
   };
+
+  const handleDismissInvitation = async (invitationId: string) => {
+    const authToken = await getAuthToken();
+    if (!authToken) return;
+    try {
+      const res = await fetch(
+        `${API_URL}/api/accounts/${selectedAccount?.id}/invitations/${invitationId}/dismiss`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${authToken}` },
+        },
+      );
+      if (!res.ok) return;
+      setInvitations((prev) => prev.filter((i) => i.id !== invitationId));
+    } catch (err) {
+      console.warn("dismissInvitation error:", err);
+    }
+  };
+
+  const handleRevokeAccess = (userId: string, name: string) => {
+    Alert.alert("Revoke Access", `Remove ${name}'s access to this account?`, [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Revoke",
+        style: "destructive",
+        onPress: async () => {
+          const authToken = await getAuthToken();
+          if (!authToken) return;
+          try {
+            const res = await fetch(
+              `${API_URL}/api/accounts/${selectedAccount?.id}/access/${userId}`,
+              {
+                method: "DELETE",
+                headers: { Authorization: `Bearer ${authToken}` },
+              },
+            );
+            if (!res.ok) {
+              let data: any = null;
+              try {
+                data = await res.json();
+              } catch {
+                data = null;
+              }
+              Alert.alert("Error", data?.message || "Failed to revoke access");
+              return;
+            }
+            await loadInvitations();
+          } catch (err) {
+            console.error("revokeAccess error:", err);
+            Alert.alert("Error", "Network error");
+          }
+        },
+      },
+    ]);
+  };
+
+  const handleResendInvite = (invitation: ApiInvitation) => {
+    router.push({
+      pathname: "/(modals)/grant-access",
+      params: {
+        accountId: invitation.account_id,
+        role: invitation.role,
+      },
+    });
+  };
+
+  // ============================================================
+  // RENDER
+  // ============================================================
 
   const hasMember = !!linkedProfile?.linkedMember?.exists;
   const hasStaff = !!linkedProfile?.linkedStaff?.exists;
+
+  const roleBadge = (role: InvitationRole) => {
+    switch (role) {
+      case "admin":
+        return {
+          label: "Admin",
+          style: styles.adminBadge,
+          text: styles.adminBadgeText,
+        };
+      case "member_visibility":
+        return {
+          label: "Member",
+          style: styles.memberBadge,
+          text: styles.memberBadgeText,
+        };
+      case "staff_visibility":
+        return {
+          label: "Staff",
+          style: styles.staffBadge,
+          text: styles.staffBadgeText,
+        };
+    }
+  };
 
   return (
     <View style={styles.screen}>
@@ -1059,6 +1277,7 @@ export default function AccountProfileScreen() {
           { paddingBottom: Math.max(insets.bottom, 24) },
         ]}
       >
+        {/* ACCOUNT CARD */}
         <View style={styles.profileCard}>
           <View style={styles.profileAccent} />
           <View style={styles.profileCardContent}>
@@ -1170,6 +1389,7 @@ export default function AccountProfileScreen() {
           </View>
         </View>
 
+        {/* ACCESS & ROLES */}
         {canEdit && (
           <>
             <Text style={styles.sectionTitle}>ACCESS & ROLES</Text>
@@ -1226,6 +1446,7 @@ export default function AccountProfileScreen() {
           </>
         )}
 
+        {/* PEOPLE WITH ACCESS */}
         <View style={styles.accessOverview}>
           <View style={styles.accessHeader}>
             <View>
@@ -1235,12 +1456,17 @@ export default function AccountProfileScreen() {
               </Text>
             </View>
             <View style={styles.accessTotalBadge}>
-              <Text style={styles.accessTotalText}>
-                {totalPeopleWithAccess}
-              </Text>
+              {invitationsLoading ? (
+                <ActivityIndicator size="small" color="#2563EB" />
+              ) : (
+                <Text style={styles.accessTotalText}>
+                  {totalPeopleWithAccess}
+                </Text>
+              )}
             </View>
           </View>
 
+          {/* OWNER */}
           {selectedAccount?.ownerId === user?.id && (
             <View style={styles.accessGroup}>
               <Text style={styles.accessHeading}>Account Owner</Text>
@@ -1248,8 +1474,10 @@ export default function AccountProfileScreen() {
                 style={[
                   styles.accessRow,
                   acceptedAdmins.length === 0 &&
-                    visibleMembers.length === 0 &&
+                    acceptedMembers.length === 0 &&
+                    acceptedStaff.length === 0 &&
                     pendingInvitations.length === 0 &&
+                    rejectedInvitations.length === 0 &&
                     styles.lastAccessRow,
                 ]}
               >
@@ -1274,47 +1502,65 @@ export default function AccountProfileScreen() {
             </View>
           )}
 
+          {/* ADMINS (ACCEPTED) */}
           {acceptedAdmins.length > 0 && (
             <View style={styles.accessGroup}>
               <Text style={styles.accessHeading}>Admins</Text>
-              {acceptedAdmins.map((grant, index) => (
+              {acceptedAdmins.map((inv, index) => (
                 <View
-                  key={grant.id}
+                  key={inv.id}
                   style={[
                     styles.accessRow,
                     index === acceptedAdmins.length - 1 &&
-                      visibleMembers.length === 0 &&
+                      acceptedMembers.length === 0 &&
+                      acceptedStaff.length === 0 &&
                       pendingInvitations.length === 0 &&
+                      rejectedInvitations.length === 0 &&
                       styles.lastAccessRow,
                   ]}
                 >
                   <View style={[styles.accessAvatar, styles.adminAvatar]}>
                     <Text style={styles.accessAvatarText}>
-                      {grant.name.charAt(0).toUpperCase()}
+                      {(inv.invited_name || inv.invited_phone)
+                        .charAt(0)
+                        .toUpperCase()}
                     </Text>
                   </View>
                   <View style={styles.accessInfo}>
-                    <Text style={styles.accessName}>{grant.name}</Text>
-                    <Text style={styles.accessPhone}>{grant.phone}</Text>
+                    <Text style={styles.accessName}>
+                      {inv.invited_name || "Admin"}
+                    </Text>
+                    <Text style={styles.accessPhone}>
+                      +91{inv.invited_phone}
+                    </Text>
                   </View>
-                  <View style={[styles.accessBadge, styles.adminBadge]}>
-                    <Text style={styles.adminBadgeText}>Admin</Text>
-                  </View>
+                  <TouchableOpacity
+                    style={styles.revokeButton}
+                    onPress={() =>
+                      handleRevokeAccess(inv.id, inv.invited_name || "Admin")
+                    }
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="close" size={16} color="#DC2626" />
+                  </TouchableOpacity>
                 </View>
               ))}
             </View>
           )}
 
-          {visibleMembers.length > 0 && (
+          {/* MEMBERS (ACCEPTED) */}
+          {acceptedMembers.length > 0 && (
             <View style={styles.accessGroup}>
               <Text style={styles.accessHeading}>Members</Text>
-              {visibleMembers.map((grant, index) => (
+              {acceptedMembers.map((inv, index) => (
                 <View
-                  key={grant.id}
+                  key={inv.id}
                   style={[
                     styles.accessRow,
-                    index === visibleMembers.length - 1 &&
+                    index === acceptedMembers.length - 1 &&
+                      acceptedStaff.length === 0 &&
                       pendingInvitations.length === 0 &&
+                      rejectedInvitations.length === 0 &&
                       styles.lastAccessRow,
                   ]}
                 >
@@ -1322,31 +1568,43 @@ export default function AccountProfileScreen() {
                     <Text
                       style={[styles.accessAvatarText, styles.memberAvatarText]}
                     >
-                      {grant.name.charAt(0).toUpperCase()}
+                      {(inv.invited_name || inv.invited_phone)
+                        .charAt(0)
+                        .toUpperCase()}
                     </Text>
                   </View>
                   <View style={styles.accessInfo}>
-                    <Text style={styles.accessName}>{grant.name}</Text>
-                    <Text style={styles.accessPhone}>{grant.phone}</Text>
+                    <Text style={styles.accessName}>
+                      {inv.invited_name || "Member"}
+                    </Text>
+                    <Text style={styles.accessPhone}>
+                      +91{inv.invited_phone}
+                    </Text>
                   </View>
-                  <View style={[styles.accessBadge, styles.memberBadge]}>
-                    <Text style={styles.memberBadgeText}>Member</Text>
-                  </View>
+                  <TouchableOpacity
+                    style={styles.closeIconButton}
+                    onPress={() => handleDismissInvitation(inv.id)}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="close" size={16} color="#64748B" />
+                  </TouchableOpacity>
                 </View>
               ))}
             </View>
           )}
 
-          {visibleStaff.length > 0 && (
+          {/* STAFF (ACCEPTED) */}
+          {acceptedStaff.length > 0 && (
             <View style={styles.accessGroup}>
               <Text style={styles.accessHeading}>Staff</Text>
-              {visibleStaff.map((grant, index) => (
+              {acceptedStaff.map((inv, index) => (
                 <View
-                  key={grant.id}
+                  key={inv.id}
                   style={[
                     styles.accessRow,
-                    index === visibleStaff.length - 1 &&
+                    index === acceptedStaff.length - 1 &&
                       pendingInvitations.length === 0 &&
+                      rejectedInvitations.length === 0 &&
                       styles.lastAccessRow,
                   ]}
                 >
@@ -1354,21 +1612,32 @@ export default function AccountProfileScreen() {
                     <Text
                       style={[styles.accessAvatarText, styles.staffAvatarText]}
                     >
-                      {grant.name.charAt(0).toUpperCase()}
+                      {(inv.invited_name || inv.invited_phone)
+                        .charAt(0)
+                        .toUpperCase()}
                     </Text>
                   </View>
                   <View style={styles.accessInfo}>
-                    <Text style={styles.accessName}>{grant.name}</Text>
-                    <Text style={styles.accessPhone}>{grant.phone}</Text>
+                    <Text style={styles.accessName}>
+                      {inv.invited_name || "Staff"}
+                    </Text>
+                    <Text style={styles.accessPhone}>
+                      +91{inv.invited_phone}
+                    </Text>
                   </View>
-                  <View style={[styles.accessBadge, styles.staffBadge]}>
-                    <Text style={styles.staffBadgeText}>Staff</Text>
-                  </View>
+                  <TouchableOpacity
+                    style={styles.closeIconButton}
+                    onPress={() => handleDismissInvitation(inv.id)}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="close" size={16} color="#64748B" />
+                  </TouchableOpacity>
                 </View>
               ))}
             </View>
           )}
 
+          {/* PENDING */}
           {pendingInvitations.length > 0 && (
             <View style={styles.accessGroup}>
               <View style={styles.pendingHeader}>
@@ -1379,41 +1648,115 @@ export default function AccountProfileScreen() {
                   </Text>
                 </View>
               </View>
-              {pendingInvitations.map((grant, index) => (
-                <View
-                  key={grant.id}
-                  style={[
-                    styles.accessRow,
-                    index === pendingInvitations.length - 1 &&
-                      styles.lastAccessRow,
-                  ]}
-                >
-                  <View style={[styles.accessAvatar, styles.pendingAvatar]}>
-                    <Ionicons name="time-outline" size={19} color="#D97706" />
-                  </View>
-                  <View style={styles.accessInfo}>
-                    <Text style={styles.accessName}>{grant.name}</Text>
-                    <Text style={styles.accessPhone}>{grant.phone}</Text>
-                  </View>
-                  <View style={styles.pendingStatus}>
-                    <Text style={styles.pendingStatusText}>Pending</Text>
-                  </View>
-                  <TouchableOpacity
-                    style={styles.deleteInvitationButton}
-                    onPress={() => setInvitationToDelete(grant.id)}
-                    activeOpacity={0.7}
+              {pendingInvitations.map((inv, index) => {
+                const badge = roleBadge(inv.role);
+                return (
+                  <View
+                    key={inv.id}
+                    style={[
+                      styles.accessRow,
+                      index === pendingInvitations.length - 1 &&
+                        rejectedInvitations.length === 0 &&
+                        styles.lastAccessRow,
+                    ]}
                   >
-                    <Ionicons name="trash-outline" size={18} color="#DC2626" />
-                  </TouchableOpacity>
-                </View>
-              ))}
+                    <View style={[styles.accessAvatar, styles.pendingAvatar]}>
+                      <Ionicons name="time-outline" size={19} color="#D97706" />
+                    </View>
+                    <View style={styles.accessInfo}>
+                      <Text style={styles.accessName}>
+                        {inv.invited_name || "Invitee"}
+                      </Text>
+                      <Text style={styles.accessPhone}>
+                        +91{inv.invited_phone}
+                      </Text>
+                    </View>
+                    <View style={[styles.accessBadge, badge.style]}>
+                      <Text style={badge.text}>{badge.label}</Text>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.deleteInvitationButton}
+                      onPress={() => setInvitationToDelete(inv.id)}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons
+                        name="trash-outline"
+                        size={18}
+                        color="#DC2626"
+                      />
+                    </TouchableOpacity>
+                  </View>
+                );
+              })}
             </View>
           )}
 
-          {selectedAccount?.ownerId !== user?.id &&
+          {/* REJECTED */}
+          {rejectedInvitations.length > 0 && (
+            <View style={styles.accessGroup}>
+              <Text style={styles.accessHeading}>Rejected</Text>
+              {rejectedInvitations.map((inv, index) => {
+                const badge = roleBadge(inv.role);
+                return (
+                  <View
+                    key={inv.id}
+                    style={[
+                      styles.accessRow,
+                      index === rejectedInvitations.length - 1 &&
+                        styles.lastAccessRow,
+                    ]}
+                  >
+                    <View style={[styles.accessAvatar, styles.rejectedAvatar]}>
+                      <Ionicons
+                        name="close-circle-outline"
+                        size={19}
+                        color="#DC2626"
+                      />
+                    </View>
+                    <View style={styles.accessInfo}>
+                      <Text style={styles.accessName}>
+                        {inv.invited_name || "Invitee"}
+                      </Text>
+                      <Text style={styles.accessPhone}>
+                        +91{inv.invited_phone}
+                      </Text>
+                    </View>
+                    <View style={[styles.accessBadge, badge.style]}>
+                      <Text style={badge.text}>{badge.label}</Text>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.resendButton}
+                      onPress={() => handleResendInvite(inv)}
+                      activeOpacity={0.75}
+                    >
+                      <Ionicons name="refresh" size={14} color="#2563EB" />
+                      <Text style={styles.resendButtonText}>Resend</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.deleteInvitationButton}
+                      onPress={() => setInvitationToDelete(inv.id)}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons
+                        name="trash-outline"
+                        size={18}
+                        color="#DC2626"
+                      />
+                    </TouchableOpacity>
+                  </View>
+                );
+              })}
+            </View>
+          )}
+
+          {/* EMPTY */}
+          {!invitationsLoading &&
             acceptedAdmins.length === 0 &&
-            visibleMembers.length === 0 &&
-            pendingInvitations.length === 0 && (
+            acceptedMembers.length === 0 &&
+            acceptedStaff.length === 0 &&
+            pendingInvitations.length === 0 &&
+            rejectedInvitations.length === 0 &&
+            selectedAccount?.ownerId !== user?.id && (
               <View style={styles.noAccessContainer}>
                 <View style={styles.noAccessIcon}>
                   <Ionicons name="people-outline" size={26} color="#64748B" />
@@ -1427,6 +1770,7 @@ export default function AccountProfileScreen() {
         </View>
       </ScrollView>
 
+      {/* PHOTO OPTIONS */}
       {canEdit && (
         <Modal
           visible={showPhotoOptions}
@@ -1498,6 +1842,7 @@ export default function AccountProfileScreen() {
         </Modal>
       )}
 
+      {/* PHOTO ADJUST */}
       {canEdit && (
         <PhotoAdjustModal
           visible={showAdjustModal}
@@ -1507,6 +1852,7 @@ export default function AccountProfileScreen() {
         />
       )}
 
+      {/* PHONE EDIT MODAL */}
       {canEdit && showPhoneModal && (
         <Modal
           transparent
@@ -1905,6 +2251,7 @@ export default function AccountProfileScreen() {
         </Modal>
       )}
 
+      {/* PHONE TOOLTIP */}
       {showPhoneTooltip && (
         <Modal
           transparent
@@ -1986,6 +2333,7 @@ export default function AccountProfileScreen() {
         </Modal>
       )}
 
+      {/* DELETE INVITATION */}
       {invitationToDelete && (
         <Modal
           transparent
@@ -2014,6 +2362,7 @@ export default function AccountProfileScreen() {
                       style={styles.cancelModalButton}
                       onPress={() => setInvitationToDelete(null)}
                       activeOpacity={0.8}
+                      disabled={deletingInvitation}
                     >
                       <Text style={styles.cancelButtonText}>Cancel</Text>
                     </TouchableOpacity>
@@ -2021,13 +2370,20 @@ export default function AccountProfileScreen() {
                       style={styles.deleteConfirmButton}
                       onPress={confirmDeleteInvitation}
                       activeOpacity={0.8}
+                      disabled={deletingInvitation}
                     >
-                      <Ionicons
-                        name="trash-outline"
-                        size={17}
-                        color="#FFFFFF"
-                      />
-                      <Text style={styles.deleteConfirmText}>Delete</Text>
+                      {deletingInvitation ? (
+                        <ActivityIndicator color="#FFFFFF" size="small" />
+                      ) : (
+                        <>
+                          <Ionicons
+                            name="trash-outline"
+                            size={17}
+                            color="#FFFFFF"
+                          />
+                          <Text style={styles.deleteConfirmText}>Delete</Text>
+                        </>
+                      )}
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -2037,6 +2393,7 @@ export default function AccountProfileScreen() {
         </Modal>
       )}
 
+      {/* CONTACT PICKER */}
       {showContactPicker && (
         <Modal
           visible={showContactPicker}
@@ -2425,6 +2782,7 @@ const styles = StyleSheet.create({
   memberAvatar: { backgroundColor: "#DCFCE7" },
   staffAvatar: { backgroundColor: "#E0F2FE" },
   pendingAvatar: { backgroundColor: "#FEF3C7" },
+  rejectedAvatar: { backgroundColor: "#FEF2F2" },
   accessAvatarText: { color: "#2563EB", fontSize: 15, fontWeight: "700" },
   memberAvatarText: { color: "#16A34A" },
   staffAvatarText: { color: "#0284C7" },
@@ -2482,6 +2840,39 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginLeft: 6,
+  },
+  revokeButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: "#FEF2F2",
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 8,
+  },
+  closeIconButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: "#F1F5F9",
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 8,
+  },
+  resendButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    height: 32,
+    borderRadius: 10,
+    backgroundColor: "#EFF6FF",
+    marginLeft: 8,
+  },
+  resendButtonText: {
+    color: "#2563EB",
+    fontSize: 11,
+    fontWeight: "700",
   },
   noAccessContainer: {
     alignItems: "center",
