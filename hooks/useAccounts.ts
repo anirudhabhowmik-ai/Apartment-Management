@@ -61,6 +61,7 @@ async function doFetchAccounts(userId: string): Promise<FetchAccountsResult> {
 
   if (!res.ok) {
     const bodyText = await res.text();
+    console.error("[doFetchAccounts] HTTP", res.status, bodyText);
     const err: any = new Error(`Failed to load accounts (${res.status})`);
     err.status = res.status;
     err.body = bodyText;
@@ -198,10 +199,13 @@ async function createAccountApi(
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    console.error("[createAccountApi] HTTP", res.status, body);
     const err: any = new Error(
-      body?.message ?? `Request failed (${res.status})`,
+      body?.message ?? body?.code ?? `Request failed (${res.status})`,
     );
     err.status = res.status;
+    err.code = body?.code;
+    err.body = body;
     throw err;
   }
 
@@ -234,10 +238,13 @@ async function updateAccountApi(
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
+    console.error("[updateAccountApi] HTTP", res.status, body);
     const err: any = new Error(
-      body?.message ?? `Request failed (${res.status})`,
+      body?.message ?? body?.code ?? `Request failed (${res.status})`,
     );
     err.status = res.status;
+    err.code = body?.code;
+    err.body = body;
     throw err;
   }
 

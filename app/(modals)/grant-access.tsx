@@ -51,7 +51,6 @@ type PreflightKind =
   | "already_member"
   | "already_staff"
   | "pending"
-  | "staff_number"
   | "member_to_admin";
 
 interface PreflightResponse {
@@ -87,13 +86,11 @@ const normalizePhone = (raw?: string | null): string => {
   return digits.length > 10 ? digits.slice(-10) : digits;
 };
 
-// ── Filter soft-deleted (inactive) rows out of pickers ────────
 const isActiveRow = (row: any): boolean => {
   const s = String(row?.status ?? "").toLowerCase();
   return s === "" || s === "active";
 };
 
-// ── Custom in-app feedback modal ──────────────────────────────
 type FeedbackTone = "success" | "warning" | "error" | "info";
 
 interface FeedbackState {
@@ -226,7 +223,7 @@ export default function GrantAccessScreen() {
       : ACCESS_ROLE_LABEL[role || "member_visibility"];
 
   // ============================================================
-  // MEMBERS / STAFF  (inactive rows filtered out here)
+  // MEMBERS / STAFF
   // ============================================================
 
   const apartmentMembersList = useMemo(
@@ -239,7 +236,6 @@ export default function GrantAccessScreen() {
     [rawStaffList],
   );
 
-  // ── Load existing member_visibility invitations for this account ──
   useEffect(() => {
     let cancelled = false;
     if (!accountId) return;
@@ -275,7 +271,6 @@ export default function GrantAccessScreen() {
     };
   }, [accountId]);
 
-  // Members eligible to be picked in the visibility flow
   const visibilityCandidateMembers = useMemo(() => {
     if (!isVisibilityFlow) return apartmentMembersList;
     return apartmentMembersList.filter((m) => {
@@ -449,7 +444,6 @@ export default function GrantAccessScreen() {
       const url = `${API_URL}/api/accounts/${accountId}/invitations/preflight?phone=${encodeURIComponent(
         targetPhone,
       )}&role=${encodeURIComponent(targetRole)}`;
-      console.log("[grant-access] preflight →", url);
 
       const res = await fetch(url, {
         headers: { Authorization: `Bearer ${token}` },
@@ -461,8 +455,6 @@ export default function GrantAccessScreen() {
       } catch {
         data = null;
       }
-
-      console.log("[grant-access] preflight ←", res.status, data);
 
       if (!res.ok) {
         const backendMessage =
@@ -494,7 +486,6 @@ export default function GrantAccessScreen() {
     if (!token) return { ok: false, message: "Not signed in" };
     try {
       const url = `${API_URL}/api/accounts/${accountId}/invitations`;
-      console.log("[grant-access] create →", url, payload);
 
       const res = await fetch(url, {
         method: "POST",
@@ -511,8 +502,6 @@ export default function GrantAccessScreen() {
       } catch {
         data = null;
       }
-
-      console.log("[grant-access] create ←", res.status, data);
 
       if (!res.ok) {
         const backendMessage =
@@ -533,7 +522,7 @@ export default function GrantAccessScreen() {
   };
 
   // ============================================================
-  // ALERT DRIVER — reads preflight kind, shows custom modal
+  // ALERT DRIVER
   // ============================================================
 
   const sendInviteWithAlerts = async (opts: {
@@ -623,24 +612,14 @@ export default function GrantAccessScreen() {
         });
         return false;
 
-      case "staff_number":
-        showFeedback({
-          tone: "warning",
-          title: "Staff number",
-          message:
-            "This number belongs to a staff member, and staff cannot access property records.",
-          primaryLabel: "OK",
-        });
-        return false;
-
       case "member_to_admin": {
-        const memberName = pre.memberName || opts.name || "This member";
+        const displayName = pre.memberName || opts.name || "This person";
         return await new Promise<boolean>((resolve) => {
           showFeedback({
             tone: "info",
-            title: "Member found",
-            message: `${memberName} is already a member. They can also be granted admin access. Continue?`,
-            primaryLabel: "Continue",
+            title: "Existing access found",
+            message: `${displayName} already has member or staff access on this account. Granting admin access will add admin alongside their existing roles. Continue?`,
+            primaryLabel: "Grant Admin",
             primaryTone: "primary",
             onPrimaryPress: () => {
               doSend().then(resolve);

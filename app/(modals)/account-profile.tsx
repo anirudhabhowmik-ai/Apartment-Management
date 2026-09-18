@@ -1,35 +1,37 @@
 // app/(modals)/account-profile.tsx
 import { Ionicons } from "@expo/vector-icons";
 import {
-    Contact,
-    ContactField,
-    ContactsSortOrder,
-    requestPermissionsAsync,
+  Contact,
+  ContactField,
+  ContactsSortOrder,
+  requestPermissionsAsync,
 } from "expo-contacts";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
+import { useIsFocused } from "expo-router/react-navigation";
 import * as SecureStore from "expo-secure-store";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Dimensions,
-    GestureResponderEvent,
-    Image,
-    KeyboardAvoidingView,
-    Modal,
-    PanResponder,
-    Platform,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Switch,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    TouchableWithoutFeedback,
-    View,
+  ActivityIndicator,
+  Alert,
+  Dimensions,
+  GestureResponderEvent,
+  Image,
+  KeyboardAvoidingView,
+  Modal,
+  PanResponder,
+  Platform,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -37,9 +39,10 @@ import { useAccounts } from "../../hooks/useAccounts";
 import { useUserRole } from "../../hooks/useUserRole";
 import { useAuthStore } from "../../store/useAuthStore";
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
+const API_URL = (
+  process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000"
+).replace(/\/api\/?$/, "");
 
-// Backend /change-preview route is available; enable linked profile toggles.
 const ENABLE_LINKED_PROFILE_PREVIEW = true;
 
 // ============================================================================
@@ -93,6 +96,7 @@ interface ApiInvitation {
   created_at: string;
   responded_at: string | null;
   dismissed_at: string | null;
+  accepted_by?: string | null;
   invited_by_phone: string;
   account_name: string;
   account_photo_url: string | null;
@@ -603,10 +607,12 @@ export default function AccountProfileScreen() {
   // Invitations state
   const [invitations, setInvitations] = useState<ApiInvitation[]>([]);
   const [invitationsLoading, setInvitationsLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [invitationToDelete, setInvitationToDelete] = useState<string | null>(
     null,
   );
   const [deletingInvitation, setDeletingInvitation] = useState(false);
+  const [revokeSubmitting, setRevokeSubmitting] = useState(false);
 
   const [showContactPicker, setShowContactPicker] = useState(false);
   const [contactsList, setContactsList] = useState<ContactData[]>([]);
@@ -700,28 +706,79 @@ export default function AccountProfileScreen() {
   // LOAD INVITATIONS
   // ============================================================
 
-  const loadInvitations = useCallback(async () => {
-    if (!selectedAccount?.id) return;
-    setInvitationsLoading(true);
-    try {
-      const token = await getAuthToken();
-      if (!token) return;
-      const res = await fetch(
-        `${API_URL}/api/accounts/${selectedAccount.id}/invitations`,
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-      if (!res.ok) return;
-      const data = await res.json();
-      setInvitations(data?.invitations ?? []);
-    } catch (err) {
-      console.warn("[account-profile] loadInvitations error:", err);
-    } finally {
-      setInvitationsLoading(false);
-    }
-  }, [selectedAccount?.id, getAuthToken]);
+  const loadInvitations = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      if (!selectedAccount?.id) return;
+      if (!opts?.silent) setInvitationsLoading(true);
+      try {
+        const token = await getAuthToken();
+        if (!token) return;
+        const url = `${API_URL}/api/accounts/${selectedAccount.id}/invitations`;
+        const res = await fetch(url, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        const rows: any[] = Array.isArray(data)
+          ? data
+          : Array.isArray(data?.invitations)
+            ? data.invitations
+            : Array.isArray(data?.rows)
+              ? data.rows
+              : [];
+
+        const KNOWN_STATUS = [
+          "pending",
+          "accepted",
+          "rejected",
+          "revoked",
+          "cancelled",
+        ];
+        const KNOWN_ROLE = ["admin", "member_visibility", "staff_visibility"];
+
+        // Defensive normalization: any missing/unknown status falls back to
+        // "pending" so the row is not silently dropped from every section.
+        const normalized: ApiInvitation[] = rows.map((r) => {
+          const rawStatus = String(r.status ?? "")
+            .trim()
+            .toLowerCase();
+          const safeStatus = (
+            KNOWN_STATUS.includes(rawStatus) ? rawStatus : "pending"
+          ) as InvitationStatus;
+
+          const rawRole = String(r.role ?? "")
+            .trim()
+            .toLowerCase();
+          const safeRole = (
+            KNOWN_ROLE.includes(rawRole) ? rawRole : "member_visibility"
+          ) as InvitationRole;
+
+          return { ...r, status: safeStatus, role: safeRole };
+        });
+
+        setInvitations(normalized);
+      } catch (err) {
+        console.warn("[account-profile] loadInvitations error:", err);
+      } finally {
+        if (!opts?.silent) setInvitationsLoading(false);
+      }
+    },
+    [selectedAccount?.id, getAuthToken],
+  );
 
   useEffect(() => {
     loadInvitations();
+  }, [loadInvitations]);
+
+  const isFocused = useIsFocused();
+  useEffect(() => {
+    if (isFocused) loadInvitations({ silent: true });
+  }, [isFocused, loadInvitations]);
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await loadInvitations({ silent: true });
+    setRefreshing(false);
   }, [loadInvitations]);
 
   // ============================================================
@@ -1154,13 +1211,7 @@ export default function AccountProfileScreen() {
         },
       );
       if (!res.ok) {
-        let data: any = null;
-        try {
-          data = await res.json();
-        } catch {
-          data = null;
-        }
-        Alert.alert("Error", data?.message || "Failed to delete invitation");
+        Alert.alert("Error", "Failed to delete invitation");
         return;
       }
       setInvitations((prev) => prev.filter((i) => i.id !== invitationToDelete));
@@ -1191,41 +1242,54 @@ export default function AccountProfileScreen() {
     }
   };
 
-  const handleRevokeAccess = (userId: string, name: string) => {
-    Alert.alert("Revoke Access", `Remove ${name}'s access to this account?`, [
-      { text: "Cancel", style: "cancel" },
-      {
-        text: "Revoke",
-        style: "destructive",
-        onPress: async () => {
-          const authToken = await getAuthToken();
-          if (!authToken) return;
-          try {
-            const res = await fetch(
-              `${API_URL}/api/accounts/${selectedAccount?.id}/access/${userId}`,
-              {
-                method: "DELETE",
-                headers: { Authorization: `Bearer ${authToken}` },
-              },
-            );
-            if (!res.ok) {
-              let data: any = null;
-              try {
-                data = await res.json();
-              } catch {
-                data = null;
-              }
-              Alert.alert("Error", data?.message || "Failed to revoke access");
+  // ============================================================
+  // REVOKE ADMIN
+  // ============================================================
+
+  const handleRevokeAdmin = (inv: ApiInvitation) => {
+    const displayName = inv.invited_name || "this person";
+    Alert.alert(
+      "Revoke Admin Access",
+      `Remove admin access for ${displayName}? They will keep any member or staff access they already have on this account.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Revoke",
+          style: "destructive",
+          onPress: async () => {
+            const authToken = await getAuthToken();
+            if (!authToken) return;
+
+            const targetUserId = inv.accepted_by ?? null;
+            if (!targetUserId) {
+              Alert.alert("Error", "Missing user reference on invitation.");
               return;
             }
-            await loadInvitations();
-          } catch (err) {
-            console.error("revokeAccess error:", err);
-            Alert.alert("Error", "Network error");
-          }
+
+            setRevokeSubmitting(true);
+            try {
+              const res = await fetch(
+                `${API_URL}/api/accounts/${selectedAccount?.id}/access/${targetUserId}?role=admin`,
+                {
+                  method: "DELETE",
+                  headers: { Authorization: `Bearer ${authToken}` },
+                },
+              );
+              if (!res.ok) {
+                Alert.alert("Error", "Failed to revoke admin access.");
+                return;
+              }
+              await loadInvitations({ silent: true });
+            } catch (err) {
+              console.error("revoke error:", err);
+              Alert.alert("Error", "Network error.");
+            } finally {
+              setRevokeSubmitting(false);
+            }
+          },
         },
-      },
-    ]);
+      ],
+    );
   };
 
   const handleResendInvite = (invitation: ApiInvitation) => {
@@ -1239,11 +1303,11 @@ export default function AccountProfileScreen() {
   };
 
   // ============================================================
-  // RENDER
+  // RENDER HELPERS
   // ============================================================
 
-  const hasMember = !!linkedProfile?.linkedMember?.exists;
-  const hasStaff = !!linkedProfile?.linkedStaff?.exists;
+  const hasMemberLinked = !!linkedProfile?.linkedMember?.exists;
+  const hasStaffLinked = !!linkedProfile?.linkedStaff?.exists;
 
   const roleBadge = (role: InvitationRole) => {
     switch (role) {
@@ -1272,6 +1336,14 @@ export default function AccountProfileScreen() {
     <View style={styles.screen}>
       <ScrollView
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={onRefresh}
+            tintColor="#2563EB"
+            colors={["#2563EB"]}
+          />
+        }
         contentContainerStyle={[
           styles.scrollContent,
           { paddingBottom: Math.max(insets.bottom, 24) },
@@ -1502,7 +1574,7 @@ export default function AccountProfileScreen() {
             </View>
           )}
 
-          {/* ADMINS (ACCEPTED) */}
+          {/* ADMINS (ACCEPTED) — Revoke button */}
           {acceptedAdmins.length > 0 && (
             <View style={styles.accessGroup}>
               <Text style={styles.accessHeading}>Admins</Text>
@@ -1536,10 +1608,9 @@ export default function AccountProfileScreen() {
                   </View>
                   <TouchableOpacity
                     style={styles.revokeButton}
-                    onPress={() =>
-                      handleRevokeAccess(inv.id, inv.invited_name || "Admin")
-                    }
+                    onPress={() => handleRevokeAdmin(inv)}
                     activeOpacity={0.7}
+                    disabled={revokeSubmitting}
                   >
                     <Ionicons name="close" size={16} color="#DC2626" />
                   </TouchableOpacity>
@@ -1548,7 +1619,7 @@ export default function AccountProfileScreen() {
             </View>
           )}
 
-          {/* MEMBERS (ACCEPTED) */}
+          {/* MEMBERS (ACCEPTED) — close icon to dismiss */}
           {acceptedMembers.length > 0 && (
             <View style={styles.accessGroup}>
               <Text style={styles.accessHeading}>Members</Text>
@@ -1593,7 +1664,7 @@ export default function AccountProfileScreen() {
             </View>
           )}
 
-          {/* STAFF (ACCEPTED) */}
+          {/* STAFF (ACCEPTED) — close icon to dismiss */}
           {acceptedStaff.length > 0 && (
             <View style={styles.accessGroup}>
               <Text style={styles.accessHeading}>Staff</Text>
@@ -1949,7 +2020,7 @@ export default function AccountProfileScreen() {
                               </Text>
                             </View>
                           ) : ENABLE_LINKED_PROFILE_PREVIEW &&
-                            (hasMember || hasStaff) ? (
+                            (hasMemberLinked || hasStaffLinked) ? (
                             <View style={styles.linkedSection}>
                               <Text style={styles.linkedSectionTitle}>
                                 Also update on these profiles
@@ -1960,7 +2031,7 @@ export default function AccountProfileScreen() {
                                 update to the new number.
                               </Text>
 
-                              {hasMember && (
+                              {hasMemberLinked && (
                                 <View style={styles.linkedInlineRow}>
                                   <View
                                     style={[
@@ -2020,7 +2091,7 @@ export default function AccountProfileScreen() {
                                 </View>
                               )}
 
-                              {hasStaff && (
+                              {hasStaffLinked && (
                                 <View style={styles.linkedInlineRow}>
                                   <View
                                     style={[
@@ -2149,7 +2220,7 @@ export default function AccountProfileScreen() {
                           </View>
 
                           {ENABLE_LINKED_PROFILE_PREVIEW &&
-                            (hasMember || hasStaff) && (
+                            (hasMemberLinked || hasStaffLinked) && (
                               <View style={styles.linkedReminderBox}>
                                 <Ionicons
                                   name="information-circle"
@@ -2161,7 +2232,7 @@ export default function AccountProfileScreen() {
                                     After you verify, the new number will be
                                     saved on:
                                   </Text>
-                                  {hasMember && updateMemberPhone && (
+                                  {hasMemberLinked && updateMemberPhone && (
                                     <Text style={styles.linkedReminderItem}>
                                       • Member profile (
                                       {linkedProfile?.linkedMember?.name ||
@@ -2169,7 +2240,7 @@ export default function AccountProfileScreen() {
                                       )
                                     </Text>
                                   )}
-                                  {hasStaff && updateStaffPhone && (
+                                  {hasStaffLinked && updateStaffPhone && (
                                     <Text style={styles.linkedReminderItem}>
                                       • Staff profile (
                                       {linkedProfile?.linkedStaff?.name ||

@@ -3,7 +3,8 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { useEffect, useMemo, useRef, useState } from "react";
+import * as SecureStore from "expo-secure-store";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Dimensions,
@@ -24,10 +25,14 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useUserRole } from "../../hooks/useUserRole";
-import { useAccessStore } from "../../store/accessStore";
 import { useAccountStore } from "../../store/accountStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { AccountType } from "../../types";
+
+const API_URL = (process.env.EXPO_PUBLIC_API_URL ?? "").replace(
+  /\/api\/?$/,
+  "",
+);
 
 type SetupOptionId =
   | "apartment"
@@ -60,6 +65,18 @@ interface StaffRole {
   icon: keyof typeof Ionicons.glyphMap;
   accessLevel: "full" | "limited" | "readonly";
   permissions: string[];
+}
+
+interface ApiMyInvitation {
+  id: string;
+  account_id: string;
+  role: "admin" | "member_visibility" | "staff_visibility";
+  status: string;
+  invited_name: string | null;
+  created_at: string;
+  account_name: string;
+  account_photo_url: string | null;
+  invited_by_phone: string;
 }
 
 const STAFF_ROLES: StaffRole[] = [
@@ -134,65 +151,6 @@ const SETUP_OPTIONS: SetupOption[] = [
     category: "create",
     accessLevel: "admin",
   },
-  {
-    id: "join_admin",
-    title: "Join as Admin",
-    badge: "Admin Access",
-    badgeColor: "#1a73e8",
-    badgeBg: "#e8f0fe",
-    description:
-      "Full access to manage members, staff, finances and property settings",
-    icon: "shield-checkmark-outline",
-    iconColor: "#1a73e8",
-    iconBg: "#e8f0fe",
-    category: "join",
-    accessLevel: "admin",
-  },
-  {
-    id: "join_owner",
-    title: "Join as Apartment Owner",
-    badge: "Member Access",
-    badgeColor: "#7c3aed",
-    badgeBg: "#f3e8ff",
-    description:
-      "View monthly maintenance dues, payment receipts & society notices",
-    icon: "key",
-    iconColor: "#7c3aed",
-    iconBg: "#f3e8ff",
-    category: "join",
-    accessLevel: "member",
-  },
-];
-
-const STAFF_JOIN_OPTIONS: SetupOption[] = [
-  {
-    id: "join_staff_sweeper",
-    title: "Join as Sweeper",
-    badge: "Staff Access",
-    badgeColor: "#059669",
-    badgeBg: "#ecfdf5",
-    description:
-      "Track your daily cleaning tasks, attendance, and monthly salary payouts",
-    icon: "brush",
-    iconColor: "#059669",
-    iconBg: "#ecfdf5",
-    category: "join",
-    accessLevel: "staff",
-  },
-  {
-    id: "join_staff_security",
-    title: "Join as Security Guard",
-    badge: "Staff Access",
-    badgeColor: "#d97706",
-    badgeBg: "#fef3c7",
-    description:
-      "Manage gate entry, visitor logs, security patrols, and daily attendance",
-    icon: "shield-checkmark",
-    iconColor: "#d97706",
-    iconBg: "#fef3c7",
-    category: "join",
-    accessLevel: "staff",
-  },
 ];
 
 const ACCESS_LEVEL_INFO = {
@@ -240,51 +198,8 @@ const ACCESS_LEVEL_INFO = {
   },
 };
 
-const DUMMY_INVITATIONS: any[] = [
-  {
-    id: "dummy_invite_1",
-    accountId: "dummy_account_1",
-    accountName: "Green Valley Apartments",
-    invitedByPhone: "+91 9876543210",
-    invitedByName: "Ramesh Kumar",
-    role: "admin",
-    name: "John Doe",
-    phone: "+91 9876543210",
-    createdAt: new Date().toISOString(),
-    acceptedAt: null,
-    accessLevel: "admin",
-  },
-  {
-    id: "dummy_invite_2",
-    accountId: "dummy_account_2",
-    accountName: "Sunset Heights",
-    invitedByPhone: "+91 9876543211",
-    invitedByName: "Priya Sharma",
-    role: "member_visibility",
-    name: "Rajesh",
-    phone: "+91 9876543211",
-    createdAt: new Date().toISOString(),
-    acceptedAt: null,
-    accessLevel: "member",
-  },
-  {
-    id: "dummy_invite_3",
-    accountId: "dummy_account_3",
-    accountName: "Lake View Society",
-    invitedByPhone: "+91 9876543212",
-    invitedByName: "Amit Singh",
-    role: "member_visibility",
-    name: "Vikram",
-    phone: "+91 9876543212",
-    createdAt: new Date().toISOString(),
-    acceptedAt: null,
-    accessLevel: "staff",
-    staffTitle: "sweeper",
-  },
-];
-
 // ---------------------------------------------------------------------------
-// Photo Adjust Modal — UNCHANGED
+// Photo Adjust Modal — unchanged
 // ---------------------------------------------------------------------------
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -777,6 +692,22 @@ const adjustStyles = StyleSheet.create({
 });
 
 // ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function getToken(): Promise<string | null> {
+  return SecureStore.getItemAsync("auth_token").catch(() => null);
+}
+
+function roleToAccessLevel(
+  role: ApiMyInvitation["role"],
+): "admin" | "member" | "staff" {
+  if (role === "admin") return "admin";
+  if (role === "staff_visibility") return "staff";
+  return "member";
+}
+
+// ---------------------------------------------------------------------------
 // Main Screen
 // ---------------------------------------------------------------------------
 
@@ -791,7 +722,6 @@ export default function AddAccountScreen() {
   const { createAccount, accounts, refresh: refreshAccounts } = useAccounts();
 
   const selectAccount = useAccountStore((s) => s.selectAccount);
-  const removeGrant = useAccessStore((s) => s.removeGrant);
 
   const { userRole } = useUserRole();
 
@@ -804,47 +734,61 @@ export default function AddAccountScreen() {
   const [error, setError] = useState("");
   const [rejectingGrantId, setRejectingGrantId] = useState<string | null>(null);
   const [showPhotoOptions, setShowPhotoOptions] = useState(false);
-  const [showDummyInvites, setShowDummyInvites] = useState(true);
 
   const [rawImage, setRawImage] = useState<RawImage | null>(null);
   const [showAdjustModal, setShowAdjustModal] = useState(false);
 
-  const [selectedInvitation, setSelectedInvitation] = useState<any>(null);
+  const [selectedInvitation, setSelectedInvitation] =
+    useState<ApiMyInvitation | null>(null);
   const [showAccessInfo, setShowAccessInfo] = useState(false);
 
+  // ── Server-side invitations ──────────────────────────────────────────
+  const [invitations, setInvitations] = useState<ApiMyInvitation[]>([]);
+  const [invitationsLoading, setInvitationsLoading] = useState(false);
+
+  const loadInvitations = useCallback(async () => {
+    setInvitationsLoading(true);
+    try {
+      const token = await getToken();
+      if (!token) {
+        setInvitations([]);
+        return;
+      }
+      const res = await fetch(`${API_URL}/api/me/invitations`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        setInvitations([]);
+        return;
+      }
+      const data = await res.json();
+      const rows: ApiMyInvitation[] = Array.isArray(data?.invitations)
+        ? data.invitations
+        : [];
+      setInvitations(rows);
+    } catch (e) {
+      console.warn("[add-account] loadInvitations error:", e);
+      setInvitations([]);
+    } finally {
+      setInvitationsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
-    if (accounts.length === 0) {
-      setShowDummyInvites(true);
-    }
-  }, [accounts.length]);
+    loadInvitations();
+  }, [loadInvitations]);
 
-  const pendingInvitations = useMemo(
-    () => (showDummyInvites ? DUMMY_INVITATIONS : []),
-    [showDummyInvites],
-  );
+  const pendingInvitations = invitations;
 
-  const getInvitationApartmentName = (invitation: any) => {
-    if (invitation.id?.startsWith("dummy_invite_")) {
-      return invitation.accountName || "Apartment Society";
-    }
-    const account = accounts.find((a) => a.id === invitation.accountId);
-    return account?.name || invitation.accountName || "Apartment Society";
-  };
+  const getInvitationApartmentName = (invitation: ApiMyInvitation) =>
+    invitation.account_name || "Apartment Society";
 
-  const getAccessLevelInfo = (invitation: any) => {
-    const accessLevel = invitation.accessLevel || "member";
+  const getAccessLevelInfo = (invitation: ApiMyInvitation) => {
+    const accessLevel = roleToAccessLevel(invitation.role);
     return (
       ACCESS_LEVEL_INFO[accessLevel as keyof typeof ACCESS_LEVEL_INFO] ||
       ACCESS_LEVEL_INFO.member
     );
-  };
-
-  const isStaffGrant = (invitation: any): boolean => {
-    if (invitation.role === "staff_visibility") return true;
-    if (invitation.accessLevel === "staff") return true;
-    if (invitation.role === "member_visibility" && invitation.staffTitle)
-      return true;
-    return false;
   };
 
   const handleSelectOption = async (option: SetupOption) => {
@@ -853,88 +797,6 @@ export default function AddAccountScreen() {
     if (option.id === "apartment" || option.id === "home") {
       setSelectedType(option.id);
       setStep(2);
-    } else if (option.id === "join_admin") {
-      await handleDirectJoin("admin");
-    } else if (option.id === "join_owner") {
-      await handleDirectJoin("member");
-    } else if (option.id === "join_staff_sweeper") {
-      await handleDirectJoin("staff", "sweeper");
-    } else if (option.id === "join_staff_security") {
-      await handleDirectJoin("staff", "security");
-    }
-  };
-
-  // ⬇️ FIXED: safe navigation — no more unguarded router.back()
-  const handleDirectJoin = async (
-    roleType: "admin" | "member" | "staff",
-    staffRoleId?: string,
-  ) => {
-    setLoading(true);
-    setError("");
-
-    try {
-      const isFirstAccount = accounts.length === 0;
-
-      const matchingGrant = pendingInvitations.find((g: any) => {
-        if (roleType === "admin") return g.role === "admin";
-        if (roleType === "member")
-          return g.role === "member_visibility" && !isStaffGrant(g);
-        if (roleType === "staff")
-          return (
-            g.role === "staff_visibility" ||
-            (g.role === "member_visibility" && isStaffGrant(g))
-          );
-        return false;
-      });
-
-      if (matchingGrant) {
-        if (matchingGrant.id?.startsWith("dummy_invite_")) {
-          const aptName = getInvitationApartmentName(matchingGrant);
-          let defaultName = aptName;
-          if (roleType === "admin") defaultName = `${aptName} - Admin`;
-          else if (roleType === "member") defaultName = `${aptName} - Member`;
-          else if (roleType === "staff") defaultName = `${aptName} - Staff`;
-
-          const newAccount = await createAccount("apartment", defaultName);
-          if (newAccount) {
-            selectAccount(newAccount.id);
-            refreshAccounts();
-            setShowDummyInvites(false);
-          }
-        } else {
-          // Real invite — backend not built yet. Just select local if exists.
-          selectAccount(matchingGrant.accountId);
-          refreshAccounts();
-        }
-      } else {
-        let defaultName = "My Apartment";
-        if (roleType === "admin") defaultName = "My Apartment - Admin";
-        else if (roleType === "member") defaultName = "My Apartment - Member";
-        else if (roleType === "staff" && staffRoleId) {
-          const role = STAFF_ROLES.find((r) => r.id === staffRoleId);
-          if (role) defaultName = `${role.label} - Workspace`;
-        }
-
-        const newAccount = await createAccount("apartment", defaultName);
-        if (newAccount) {
-          selectAccount(newAccount.id);
-          refreshAccounts();
-        }
-      }
-
-      // ✅ FIX: always land on /(tabs); never blindly call router.back()
-      if (isFirstAccount) {
-        router.replace("/(tabs)");
-      } else if (router.canGoBack()) {
-        router.back();
-      } else {
-        router.replace("/(tabs)");
-      }
-    } catch (e: any) {
-      console.error("Direct join error:", e);
-      setError(e?.message ?? "Failed to create account. Please try again.");
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -1007,7 +869,6 @@ export default function AddAccountScreen() {
     showPhotoSelectionOptions();
   };
 
-  // ⬇️ FIXED: safe navigation — no more unguarded router.back()
   const handleCreate = async () => {
     setError("");
 
@@ -1042,8 +903,6 @@ export default function AddAccountScreen() {
       selectAccount(newAccount.id);
       refreshAccounts();
 
-      // ✅ FIX: if this was the first account (or we have nowhere to go back to),
-      // replace to /(tabs). Only call back() when there's actually a stack.
       if (isFirstAccount) {
         router.replace("/(tabs)");
       } else if (router.canGoBack()) {
@@ -1083,74 +942,104 @@ export default function AddAccountScreen() {
     }
   };
 
-  // ⬇️ FIXED: safe navigation — no more unguarded router.back()
-  const handleAcceptInvite = (
-    grantId: string,
-    accountId: string,
-    role: any,
-    invitation?: any,
-  ) => {
-    // Helper so we don't repeat the same guard in 3 places below
-    const goToTabsOrBack = () => {
-      if (accounts.length === 0) {
-        router.replace("/(tabs)");
-      } else if (router.canGoBack()) {
-        router.back();
-      } else {
-        router.replace("/(tabs)");
-      }
-    };
-
-    if (grantId?.startsWith("dummy_invite_")) {
-      const dummyInvite = DUMMY_INVITATIONS.find((inv) => inv.id === grantId);
-      if (dummyInvite) {
-        const aptName = dummyInvite.accountName || "Apartment Society";
-        const isOwner =
-          role === "member_visibility" && !isStaffGrant(dummyInvite);
-        const isAdmin = role === "admin";
-        const isStaffInvite = isStaffGrant(dummyInvite);
-        let defaultName = aptName;
-
-        if (isAdmin) defaultName = `${aptName} - Admin`;
-        else if (isOwner) defaultName = `${aptName} - Member`;
-        else if (isStaffInvite) defaultName = `${aptName} - Staff`;
-
-        createAccount("apartment", defaultName).then((newAccount) => {
-          if (newAccount) {
-            selectAccount(newAccount.id);
-            refreshAccounts();
-            setShowDummyInvites(false);
-            goToTabsOrBack();
-          }
-        });
-        return;
-      }
+  const goToTabsOrBack = () => {
+    if (accounts.length === 0) {
+      router.replace("/(tabs)");
+    } else if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace("/(tabs)");
     }
-
-    // Real invite — backend not built yet.
-    selectAccount(accountId);
-    refreshAccounts();
-    goToTabsOrBack();
   };
 
-  const showInvitationDetails = (invitation: any) => {
+  const handleAcceptInvite = async (invitation: ApiMyInvitation) => {
+    const token = await getToken();
+    if (!token) {
+      setError("You're not signed in.");
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await fetch(
+        `${API_URL}/api/invitations/${invitation.id}/accept`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+
+      if (!res.ok) {
+        let data: any = null;
+        try {
+          data = await res.json();
+        } catch {
+          data = null;
+        }
+        setError(data?.code ?? `Failed to accept invitation (${res.status})`);
+        return;
+      }
+
+      // Refresh accounts list so the newly joined account appears.
+      await refreshAccounts();
+
+      // Select the newly joined account.
+      selectAccount(invitation.account_id);
+
+      // Remove from local list and reload fresh.
+      await loadInvitations();
+
+      goToTabsOrBack();
+    } catch (e: any) {
+      console.error("Accept invite error:", e);
+      setError(e?.message ?? "Failed to accept invitation.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRejectInvite = async (invitationId: string) => {
+    const token = await getToken();
+    if (!token) {
+      setError("You're not signed in.");
+      return;
+    }
+
+    try {
+      const res = await fetch(
+        `${API_URL}/api/invitations/${invitationId}/reject`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+      if (!res.ok) return;
+      setInvitations((prev) => prev.filter((i) => i.id !== invitationId));
+    } catch (e) {
+      console.warn("Reject invite error:", e);
+    } finally {
+      setRejectingGrantId(null);
+    }
+  };
+
+  const showInvitationDetails = (invitation: ApiMyInvitation) => {
     setSelectedInvitation(invitation);
     setShowAccessInfo(true);
   };
 
   const getUniqueApartments = () => {
-    const apartmentMap = new Map();
-    pendingInvitations.forEach((invitation: any) => {
-      const aptName = getInvitationApartmentName(invitation);
-      if (!apartmentMap.has(aptName)) {
-        apartmentMap.set(aptName, {
-          name: aptName,
-          invitations: [],
-        });
+    const map = new Map<
+      string,
+      { name: string; invitations: ApiMyInvitation[] }
+    >();
+    pendingInvitations.forEach((inv) => {
+      const aptName = getInvitationApartmentName(inv);
+      if (!map.has(aptName)) {
+        map.set(aptName, { name: aptName, invitations: [] });
       }
-      apartmentMap.get(aptName).invitations.push(invitation);
+      map.get(aptName)!.invitations.push(inv);
     });
-    return Array.from(apartmentMap.values());
+    return Array.from(map.values());
   };
 
   const uniqueApartments = getUniqueApartments();
@@ -1216,13 +1105,9 @@ export default function AddAccountScreen() {
                   { backgroundColor: accessInfo.color },
                 ]}
                 onPress={() => {
+                  const inv = selectedInvitation;
                   setShowAccessInfo(false);
-                  handleAcceptInvite(
-                    selectedInvitation.id,
-                    selectedInvitation.accountId,
-                    selectedInvitation.role,
-                    selectedInvitation,
-                  );
+                  handleAcceptInvite(inv);
                 }}
                 activeOpacity={0.85}
               >
@@ -1406,7 +1291,16 @@ export default function AddAccountScreen() {
 
             {activeTab === "invitations" && (
               <View style={styles.section}>
-                {pendingInvitations.length === 0 ? (
+                {invitationsLoading ? (
+                  <View style={styles.emptyStateContainer}>
+                    <ActivityIndicator size="small" color="#1a73e8" />
+                    <Text
+                      style={[styles.emptyStateSubtitle, { marginTop: 12 }]}
+                    >
+                      Loading invitations...
+                    </Text>
+                  </View>
+                ) : pendingInvitations.length === 0 ? (
                   <View style={styles.emptyStateContainer}>
                     <View style={styles.emptyStateIcon}>
                       <Ionicons
@@ -1423,7 +1317,7 @@ export default function AddAccountScreen() {
                   </View>
                 ) : (
                   <View style={styles.invitationsContainer}>
-                    {uniqueApartments.map((apartment: any) => (
+                    {uniqueApartments.map((apartment) => (
                       <View key={apartment.name} style={styles.apartmentGroup}>
                         <View style={styles.apartmentHeader}>
                           <View style={styles.apartmentIconContainer}>
@@ -1443,12 +1337,13 @@ export default function AddAccountScreen() {
                           </View>
                         </View>
 
-                        {apartment.invitations.map((invitation: any) => {
+                        {apartment.invitations.map((invitation) => {
                           const isAdmin = invitation.role === "admin";
-                          const isStaffInvite = isStaffGrant(invitation);
+                          const isStaff =
+                            invitation.role === "staff_visibility";
 
                           const inviterPhone =
-                            invitation.invitedByPhone || "Secretary";
+                            invitation.invited_by_phone || "Secretary";
 
                           let optionCard: SetupOption = {
                             id: "join_owner",
@@ -1480,14 +1375,8 @@ export default function AddAccountScreen() {
                               category: "join",
                               accessLevel: "admin",
                             };
-                          } else if (isStaffInvite) {
-                            const staffTitle = invitation.staffTitle ?? "staff";
-                            const staffOption = STAFF_JOIN_OPTIONS.find((opt) =>
-                              staffTitle
-                                ?.toLowerCase()
-                                .includes(opt.id.replace("join_staff_", "")),
-                            );
-                            optionCard = staffOption ?? {
+                          } else if (isStaff) {
+                            optionCard = {
                               id: "join_staff_sweeper",
                               title: "Join as Staff",
                               badge: "Staff Access",
@@ -1891,12 +1780,7 @@ export default function AddAccountScreen() {
                 style={styles.modalConfirmButton}
                 onPress={() => {
                   if (rejectingGrantId) {
-                    if (rejectingGrantId.startsWith("dummy_invite_")) {
-                      setShowDummyInvites(false);
-                    } else {
-                      removeGrant(rejectingGrantId);
-                    }
-                    setRejectingGrantId(null);
+                    handleRejectInvite(rejectingGrantId);
                   }
                 }}
                 activeOpacity={0.8}
@@ -2706,7 +2590,6 @@ const styles = StyleSheet.create({
     color: "#ffffff",
   },
 
-  // Access Info Modal Styles
   accessInfoIcon: {
     width: 72,
     height: 72,
@@ -2779,7 +2662,6 @@ const styles = StyleSheet.create({
     color: "#ffffff",
   },
 
-  // Logout button styles
   logoutSection: {
     alignItems: "center",
     marginTop: 8,
