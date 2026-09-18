@@ -8,10 +8,9 @@ import {
 } from "expo-contacts";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -31,7 +30,10 @@ import { useAuthStore } from "../../store/useAuthStore";
 import type { AccountAccessRole, Member } from "../../types";
 import { ACCESS_ROLE_LABEL } from "../../types";
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
+const API_URL = (process.env.EXPO_PUBLIC_API_URL ?? "").replace(
+  /\/api\/?$/,
+  "",
+);
 
 type RecipientSource = "new" | "existing";
 type MemberType = "owner" | "ownership" | "staff";
@@ -59,6 +61,91 @@ interface PreflightResponse {
   memberName?: string;
 }
 
+type PreflightResult =
+  | { ok: true; data: PreflightResponse }
+  | { ok: false; message: string };
+
+type InvitationRole = "admin" | "member_visibility" | "staff_visibility";
+type InvitationStatus =
+  | "pending"
+  | "accepted"
+  | "rejected"
+  | "revoked"
+  | "cancelled";
+
+interface ApiInvitation {
+  id: string;
+  account_id: string;
+  invited_phone: string;
+  role: InvitationRole;
+  status: InvitationStatus;
+}
+
+const normalizePhone = (raw?: string | null): string => {
+  if (!raw) return "";
+  const digits = String(raw).replace(/\D/g, "");
+  return digits.length > 10 ? digits.slice(-10) : digits;
+};
+
+// ── Filter soft-deleted (inactive) rows out of pickers ────────
+const isActiveRow = (row: any): boolean => {
+  const s = String(row?.status ?? "").toLowerCase();
+  return s === "" || s === "active";
+};
+
+// ── Custom in-app feedback modal ──────────────────────────────
+type FeedbackTone = "success" | "warning" | "error" | "info";
+
+interface FeedbackState {
+  visible: boolean;
+  tone: FeedbackTone;
+  title: string;
+  message: string;
+  primaryLabel: string;
+  primaryTone?: "primary" | "danger";
+  onPrimaryPress?: () => void;
+  secondaryLabel?: string;
+  onSecondaryPress?: () => void;
+}
+
+const EMPTY_FEEDBACK: FeedbackState = {
+  visible: false,
+  tone: "info",
+  title: "",
+  message: "",
+  primaryLabel: "OK",
+};
+
+const FEEDBACK_TONE_META: Record<
+  FeedbackTone,
+  {
+    icon: keyof typeof Ionicons.glyphMap;
+    iconColor: string;
+    iconBg: string;
+  }
+> = {
+  success: {
+    icon: "checkmark-circle",
+    iconColor: "#16A34A",
+    iconBg: "#DCFCE7",
+  },
+  warning: {
+    icon: "alert-circle",
+    iconColor: "#D97706",
+    iconBg: "#FEF3C7",
+  },
+  error: {
+    icon: "close-circle",
+    iconColor: "#DC2626",
+    iconBg: "#FEE2E2",
+  },
+  info: {
+    icon: "information-circle",
+    iconColor: "#2563EB",
+    iconBg: "#DBEAFE",
+  },
+};
+
 export default function GrantAccessScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -74,8 +161,8 @@ export default function GrantAccessScreen() {
   const accounts = useAccountStore((state) => state.accounts);
   const account = accounts.find((a) => a.id === accountId);
 
-  const { items: apartmentMembers } = useMembers(accountId ?? null);
-  const { items: staffList } = useStaff(accountId ?? null);
+  const { items: rawApartmentMembers } = useMembers(accountId ?? null);
+  const { items: rawStaffList } = useStaff(accountId ?? null);
 
   const [source, setSource] = useState<RecipientSource>("new");
   const [name, setName] = useState("");
@@ -89,6 +176,32 @@ export default function GrantAccessScreen() {
   const [showContactPicker, setShowContactPicker] = useState(false);
   const [contactsList, setContactsList] = useState<ContactData[]>([]);
   const [contactSearch, setContactSearch] = useState("");
+
+  const [invitedVisibilityPhones, setInvitedVisibilityPhones] = useState<
+    Set<string>
+  >(new Set());
+
+  const [feedback, setFeedback] = useState<FeedbackState>(EMPTY_FEEDBACK);
+
+  const showFeedback = (next: Omit<FeedbackState, "visible">) => {
+    setFeedback({ ...next, visible: true });
+  };
+
+  const closeFeedback = () => {
+    setFeedback((cur) => ({ ...cur, visible: false }));
+  };
+
+  const runFeedbackPrimary = () => {
+    const cb = feedback.onPrimaryPress;
+    closeFeedback();
+    if (cb) cb();
+  };
+
+  const runFeedbackSecondary = () => {
+    const cb = feedback.onSecondaryPress;
+    closeFeedback();
+    if (cb) cb();
+  };
 
   // ============================================================
   // FLOW
@@ -113,27 +226,75 @@ export default function GrantAccessScreen() {
       : ACCESS_ROLE_LABEL[role || "member_visibility"];
 
   // ============================================================
-  // MEMBERS / STAFF
+  // MEMBERS / STAFF  (inactive rows filtered out here)
   // ============================================================
 
-  const apartmentMembersList = apartmentMembers;
-  const staffMembersList = staffList;
+  const apartmentMembersList = useMemo(
+    () => rawApartmentMembers.filter(isActiveRow),
+    [rawApartmentMembers],
+  );
 
-  // For the "existing" picker we only ever use members. Staff use a
-  // dedicated picker below (they never go through "existing").
+  const staffMembersList = useMemo(
+    () => rawStaffList.filter(isActiveRow),
+    [rawStaffList],
+  );
+
+  // ── Load existing member_visibility invitations for this account ──
+  useEffect(() => {
+    let cancelled = false;
+    if (!accountId) return;
+
+    (async () => {
+      try {
+        const token = await SecureStore.getItemAsync("auth_token");
+        if (!token) return;
+        const res = await fetch(
+          `${API_URL}/api/accounts/${accountId}/invitations`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        if (!res.ok) return;
+        const data = await res.json();
+        const rows: ApiInvitation[] = data?.invitations ?? [];
+
+        const phones = new Set<string>();
+        for (const inv of rows) {
+          if (inv.role !== "member_visibility") continue;
+          if (inv.status !== "pending" && inv.status !== "accepted") continue;
+          const ten = normalizePhone(inv.invited_phone);
+          if (ten) phones.add(ten);
+        }
+
+        if (!cancelled) setInvitedVisibilityPhones(phones);
+      } catch (e) {
+        console.warn("[grant-access] invitation load failed:", e);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId]);
+
+  // Members eligible to be picked in the visibility flow
+  const visibilityCandidateMembers = useMemo(() => {
+    if (!isVisibilityFlow) return apartmentMembersList;
+    return apartmentMembersList.filter((m) => {
+      const ten = normalizePhone(m.phone);
+      return ten.length > 0 && !invitedVisibilityPhones.has(ten);
+    });
+  }, [apartmentMembersList, invitedVisibilityPhones, isVisibilityFlow]);
+
   const activeMembers = useMemo(() => {
-    if (isVisibilityFlow) return apartmentMembersList;
+    if (isVisibilityFlow) return visibilityCandidateMembers;
     return apartmentMembersList;
-  }, [isVisibilityFlow, apartmentMembersList]);
+  }, [isVisibilityFlow, visibilityCandidateMembers, apartmentMembersList]);
 
   const currentUserMember = useMemo(() => {
     if (!currentUser?.phone) return null;
-    const normalize = (v: string) => v.replace(/[^0-9]/g, "").slice(-10);
-    const mine = normalize(currentUser.phone);
+    const mine = normalizePhone(currentUser.phone);
     if (!mine) return null;
     return (
-      apartmentMembersList.find((m) => normalize(m.phone || "") === mine) ??
-      null
+      apartmentMembersList.find((m) => normalizePhone(m.phone) === mine) ?? null
     );
   }, [currentUser?.phone, apartmentMembersList]);
 
@@ -156,8 +317,8 @@ export default function GrantAccessScreen() {
   const searchLower = search.trim().toLowerCase();
 
   const filteredMembers = useMemo(() => {
-    if (!searchLower) return apartmentMembersList;
-    return apartmentMembersList.filter((member) => {
+    if (!searchLower) return visibilityCandidateMembers;
+    return visibilityCandidateMembers.filter((member) => {
       const apt = ((member as any).apartmentNumber ?? "")
         .toString()
         .toLowerCase();
@@ -169,7 +330,7 @@ export default function GrantAccessScreen() {
         wing.includes(searchLower)
       );
     });
-  }, [apartmentMembersList, searchLower]);
+  }, [visibilityCandidateMembers, searchLower]);
 
   const filteredStaff = useMemo(() => {
     if (!searchLower) return staffMembersList;
@@ -232,7 +393,6 @@ export default function GrantAccessScreen() {
     setError("");
   };
 
-  // Staff selection helpers
   const staffSelectableIds = useMemo(
     () => filteredStaff.map((s) => s.id),
     [filteredStaff],
@@ -280,20 +440,46 @@ export default function GrantAccessScreen() {
   const callPreflight = async (
     targetPhone: string,
     targetRole: AccountAccessRole,
-  ): Promise<PreflightResponse | null> => {
+  ): Promise<PreflightResult> => {
     const token = await getAuthToken();
-    if (!token) return null;
+    if (!token) {
+      return { ok: false, message: "Not signed in (missing auth_token)." };
+    }
     try {
-      const res = await fetch(
-        `${API_URL}/api/accounts/${accountId}/invitations/preflight?phone=${encodeURIComponent(
-          targetPhone,
-        )}&role=${encodeURIComponent(targetRole)}`,
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-      if (!res.ok) return null;
-      return (await res.json()) as PreflightResponse;
-    } catch {
-      return null;
+      const url = `${API_URL}/api/accounts/${accountId}/invitations/preflight?phone=${encodeURIComponent(
+        targetPhone,
+      )}&role=${encodeURIComponent(targetRole)}`;
+      console.log("[grant-access] preflight →", url);
+
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
+
+      console.log("[grant-access] preflight ←", res.status, data);
+
+      if (!res.ok) {
+        const backendMessage =
+          data?.message ?? data?.error ?? "(no message from server)";
+        return {
+          ok: false,
+          message: `Preflight failed · ${res.status} · ${backendMessage}`,
+        };
+      }
+
+      return { ok: true, data: data as PreflightResponse };
+    } catch (err: any) {
+      console.warn("[grant-access] preflight network error:", err);
+      return {
+        ok: false,
+        message: `Network error: ${err?.message ?? "unknown"}`,
+      };
     }
   };
 
@@ -307,34 +493,47 @@ export default function GrantAccessScreen() {
     const token = await getAuthToken();
     if (!token) return { ok: false, message: "Not signed in" };
     try {
-      const res = await fetch(
-        `${API_URL}/api/accounts/${accountId}/invitations`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify(payload),
+      const url = `${API_URL}/api/accounts/${accountId}/invitations`;
+      console.log("[grant-access] create →", url, payload);
+
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
         },
-      );
+        body: JSON.stringify(payload),
+      });
+
       let data: any = null;
       try {
         data = await res.json();
       } catch {
         data = null;
       }
+
+      console.log("[grant-access] create ←", res.status, data);
+
       if (!res.ok) {
-        return { ok: false, message: data?.message || "Failed to send invite" };
+        const backendMessage =
+          data?.message ?? data?.error ?? "(no message from server)";
+        return {
+          ok: false,
+          message: `Create failed · ${res.status} · ${backendMessage}`,
+        };
       }
       return { ok: true };
-    } catch {
-      return { ok: false, message: "Network error" };
+    } catch (err: any) {
+      console.warn("[grant-access] create network error:", err);
+      return {
+        ok: false,
+        message: `Network error: ${err?.message ?? "unknown"}`,
+      };
     }
   };
 
   // ============================================================
-  // ALERT DRIVER — reads preflight kind, shows the right alert
+  // ALERT DRIVER — reads preflight kind, shows custom modal
   // ============================================================
 
   const sendInviteWithAlerts = async (opts: {
@@ -344,18 +543,31 @@ export default function GrantAccessScreen() {
     targetMemberId?: string;
     targetStaffId?: string;
   }): Promise<boolean> => {
-    const pre = await callPreflight(opts.phone, opts.role);
-    if (!pre) {
-      Alert.alert("Error", "Could not reach the server. Please try again.");
+    const preResult = await callPreflight(opts.phone, opts.role);
+
+    if (!preResult.ok) {
+      showFeedback({
+        tone: "error",
+        title: "Couldn't check number",
+        message: preResult.message,
+        primaryLabel: "OK",
+      });
       return false;
     }
+
+    const pre = preResult.data;
 
     const doSend = async (): Promise<boolean> => {
       setSubmitting(true);
       const result = await callCreateInvitation(opts);
       setSubmitting(false);
       if (!result.ok) {
-        Alert.alert("Error", result.message || "Failed to send invite");
+        showFeedback({
+          tone: "error",
+          title: "Send failed",
+          message: result.message || "Failed to send invite",
+          primaryLabel: "OK",
+        });
         return false;
       }
       return true;
@@ -363,64 +575,79 @@ export default function GrantAccessScreen() {
 
     switch (pre.kind) {
       case "self":
-        Alert.alert(
-          "Owner's Number",
-          "This number belongs to the owner who already has access.",
-        );
+        showFeedback({
+          tone: "warning",
+          title: "Owner's number",
+          message:
+            "This number belongs to the owner who already has access to this account.",
+          primaryLabel: "OK",
+        });
         return false;
 
       case "already_admin":
-        Alert.alert("Already Admin", "This person already has admin access.");
+        showFeedback({
+          tone: "warning",
+          title: "Already an admin",
+          message: "This person already has admin access to this account.",
+          primaryLabel: "OK",
+        });
         return false;
 
       case "already_member":
-        Alert.alert(
-          "Already a Member",
-          "This person is already a member with visibility access.",
-        );
+        showFeedback({
+          tone: "warning",
+          title: "Already a member",
+          message:
+            "This person already has member visibility access to this account.",
+          primaryLabel: "OK",
+        });
         return false;
 
       case "already_staff":
-        Alert.alert(
-          "Already Staff",
-          "This person already has staff visibility access.",
-        );
+        showFeedback({
+          tone: "warning",
+          title: "Already staff",
+          message:
+            "This person already has staff visibility access to this account.",
+          primaryLabel: "OK",
+        });
         return false;
 
       case "pending":
-        Alert.alert(
-          "Invitation Pending",
-          "An invitation is already pending for this number.",
-        );
+        showFeedback({
+          tone: "warning",
+          title: "Invitation pending",
+          message:
+            "An invitation is already pending for this number. Delete it from the profile screen first if you want to send a new one.",
+          primaryLabel: "OK",
+        });
         return false;
 
       case "staff_number":
-        Alert.alert(
-          "Staff Number",
-          "This number belongs to staff and staff cannot access property.",
-        );
+        showFeedback({
+          tone: "warning",
+          title: "Staff number",
+          message:
+            "This number belongs to a staff member, and staff cannot access property records.",
+          primaryLabel: "OK",
+        });
         return false;
 
       case "member_to_admin": {
         const memberName = pre.memberName || opts.name || "This member";
         return await new Promise<boolean>((resolve) => {
-          Alert.alert(
-            "Member Found",
-            `${memberName} is a member. They can also be an admin. Continue?`,
-            [
-              {
-                text: "Cancel",
-                style: "cancel",
-                onPress: () => resolve(false),
-              },
-              {
-                text: "Continue",
-                onPress: () => {
-                  doSend().then(resolve);
-                },
-              },
-            ],
-          );
+          showFeedback({
+            tone: "info",
+            title: "Member found",
+            message: `${memberName} is already a member. They can also be granted admin access. Continue?`,
+            primaryLabel: "Continue",
+            primaryTone: "primary",
+            onPrimaryPress: () => {
+              doSend().then(resolve);
+            },
+            secondaryLabel: "Cancel",
+            onSecondaryPress: () => resolve(false),
+          });
         });
       }
 
@@ -436,21 +663,25 @@ export default function GrantAccessScreen() {
 
   const pickContact = async () => {
     if (Platform.OS === "web") {
-      Alert.alert(
-        "Contacts unavailable",
-        "Contact picker is available only on mobile devices. Please enter the phone number manually.",
-        [{ text: "OK" }],
-      );
+      showFeedback({
+        tone: "info",
+        title: "Contacts unavailable",
+        message:
+          "Contact picker is only available on mobile devices. Please enter the phone number manually.",
+        primaryLabel: "OK",
+      });
       return;
     }
     try {
       const { status } = await requestPermissionsAsync();
       if (status !== "granted") {
-        Alert.alert(
-          "Permission Required",
-          "We need access to your contacts to help you quickly add phone numbers.",
-          [{ text: "Cancel", style: "cancel" }, { text: "OK" }],
-        );
+        showFeedback({
+          tone: "warning",
+          title: "Permission required",
+          message:
+            "We need access to your contacts to help you quickly add phone numbers.",
+          primaryLabel: "OK",
+        });
         setError("Permission to access contacts is required.");
         return;
       }
@@ -539,7 +770,7 @@ export default function GrantAccessScreen() {
     const grantRole: AccountAccessRole =
       role || (isVisibilityFlow ? "member_visibility" : "member_visibility");
 
-    // ── STAFF FLOW — pick from staff list only, never invite by phone ──
+    // ── STAFF FLOW ──
     if (isStaffFlow) {
       if (selectedStaffIds.length === 0) {
         setError("Please select at least one staff member.");
@@ -553,10 +784,12 @@ export default function GrantAccessScreen() {
           .replace(/[^0-9]/g, "")
           .slice(-10);
         if (tenDigit.length !== 10) {
-          Alert.alert(
-            "Missing phone",
-            `${staffMember.name} doesn't have a valid phone number on file.`,
-          );
+          showFeedback({
+            tone: "warning",
+            title: "Missing phone",
+            message: `${staffMember.name} doesn't have a valid phone number on file.`,
+            primaryLabel: "OK",
+          });
           allOk = false;
           break;
         }
@@ -572,13 +805,22 @@ export default function GrantAccessScreen() {
         }
       }
       if (allOk) {
-        Alert.alert("Invitations Sent", "All selected staff were invited.");
-        router.back();
+        showFeedback({
+          tone: "success",
+          title: "Invitations sent",
+          message:
+            selectedStaffIds.length === 1
+              ? "Staff member has been invited to view this account."
+              : `${selectedStaffIds.length} staff members have been invited.`,
+          primaryLabel: "Done",
+          primaryTone: "primary",
+          onPrimaryPress: () => router.back(),
+        });
       }
       return;
     }
 
-    // ── VISIBILITY FLOW (owners) — invite each selected member ──
+    // ── VISIBILITY FLOW ──
     if (isVisibilityFlow) {
       if (selectedMemberIds.length === 0) {
         setError("Please select at least one apartment owner.");
@@ -586,7 +828,9 @@ export default function GrantAccessScreen() {
       }
       let allOk = true;
       for (const memberId of selectedMemberIds) {
-        const member = activeMembers.find((m) => m.id === memberId);
+        const member = visibilityCandidateMembers.find(
+          (m) => m.id === memberId,
+        );
         if (!member) continue;
         const tenDigit = (member.phone || "").replace(/[^0-9]/g, "").slice(-10);
         const ok = await sendInviteWithAlerts({
@@ -601,13 +845,22 @@ export default function GrantAccessScreen() {
         }
       }
       if (allOk) {
-        Alert.alert("Invitations Sent", "All selected owners were invited.");
-        router.back();
+        showFeedback({
+          tone: "success",
+          title: "Invitations sent",
+          message:
+            selectedMemberIds.length === 1
+              ? "The apartment owner has been invited to view this account."
+              : `${selectedMemberIds.length} apartment owners have been invited.`,
+          primaryLabel: "Done",
+          primaryTone: "primary",
+          onPrimaryPress: () => router.back(),
+        });
       }
       return;
     }
 
-    // ── New phone flow (admin only) ──
+    // ── NEW PHONE FLOW ──
     if (source === "new") {
       const recipientName = name.trim();
       const cleanPhone = phone.replace(/[^0-9]/g, "").slice(-10);
@@ -625,13 +878,19 @@ export default function GrantAccessScreen() {
         role: grantRole,
       });
       if (ok) {
-        Alert.alert("Invitation Sent", `Invite sent to +91${cleanPhone}.`);
-        router.back();
+        showFeedback({
+          tone: "success",
+          title: "Invitation sent",
+          message: `Invite sent to +91${cleanPhone}.`,
+          primaryLabel: "Done",
+          primaryTone: "primary",
+          onPrimaryPress: () => router.back(),
+        });
       }
       return;
     }
 
-    // ── Existing person flow (admin only) ──
+    // ── EXISTING PERSON FLOW ──
     if (selectedMemberIds.length === 0) {
       setError("Please select at least one member.");
       return;
@@ -653,8 +912,17 @@ export default function GrantAccessScreen() {
       }
     }
     if (allOk) {
-      Alert.alert("Invitations Sent", "All selected people were invited.");
-      router.back();
+      showFeedback({
+        tone: "success",
+        title: "Invitations sent",
+        message:
+          selectedMemberIds.length === 1
+            ? "Person has been invited."
+            : `${selectedMemberIds.length} people have been invited.`,
+        primaryLabel: "Done",
+        primaryTone: "primary",
+        onPrimaryPress: () => router.back(),
+      });
     }
   };
 
@@ -721,7 +989,7 @@ export default function GrantAccessScreen() {
   // ============================================================
 
   const renderStaffRow = (member: Member) => {
-    const role = String((member as any).role ?? "").trim();
+    const roleLabel = String((member as any).role ?? "").trim();
     const selected = selectedStaffIds.includes(member.id);
 
     return (
@@ -757,11 +1025,11 @@ export default function GrantAccessScreen() {
               {member.phone}
             </Text>
           </View>
-          {role ? (
+          {roleLabel ? (
             <View style={styles.memberMetaRow}>
               <Ionicons name="briefcase-outline" size={13} color="#7C3AED" />
               <Text style={styles.memberStaffMeta}>
-                {role.charAt(0).toUpperCase() + role.slice(1)}
+                {roleLabel.charAt(0).toUpperCase() + roleLabel.slice(1)}
               </Text>
             </View>
           ) : null}
@@ -927,15 +1195,86 @@ export default function GrantAccessScreen() {
   };
 
   // ============================================================
+  // FEEDBACK MODAL
+  // ============================================================
+
+  const renderFeedbackModal = () => {
+    if (!feedback.visible) return null;
+
+    const meta = FEEDBACK_TONE_META[feedback.tone];
+    const primaryIsDanger = feedback.primaryTone === "danger";
+
+    return (
+      <Modal
+        transparent
+        animationType="fade"
+        visible={feedback.visible}
+        onRequestClose={closeFeedback}
+      >
+        <TouchableWithoutFeedback onPress={closeFeedback}>
+          <View style={styles.feedbackOverlay}>
+            <TouchableWithoutFeedback
+              onPress={(event) => event.stopPropagation()}
+            >
+              <View style={styles.feedbackCard}>
+                <View
+                  style={[
+                    styles.feedbackIconWrap,
+                    { backgroundColor: meta.iconBg },
+                  ]}
+                >
+                  <Ionicons name={meta.icon} size={32} color={meta.iconColor} />
+                </View>
+
+                <Text style={styles.feedbackTitle}>{feedback.title}</Text>
+                <Text style={styles.feedbackMessage}>{feedback.message}</Text>
+
+                <View style={styles.feedbackActions}>
+                  {feedback.secondaryLabel ? (
+                    <TouchableOpacity
+                      style={styles.feedbackSecondaryButton}
+                      onPress={runFeedbackSecondary}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.feedbackSecondaryText}>
+                        {feedback.secondaryLabel}
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
+
+                  <TouchableOpacity
+                    style={[
+                      styles.feedbackPrimaryButton,
+                      feedback.secondaryLabel ? { flex: 1.2 } : { flex: 1 },
+                      primaryIsDanger && { backgroundColor: "#DC2626" },
+                    ]}
+                    onPress={runFeedbackPrimary}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.feedbackPrimaryText}>
+                      {feedback.primaryLabel}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+    );
+  };
+
+  // ============================================================
   // EMPTY STATE
   // ============================================================
 
-  const hasMembers = apartmentMembersList.length > 0;
+  const hasMembers = visibilityCandidateMembers.length > 0;
   const hasStaff = staffMembersList.length > 0;
 
   const getEmptyStateText = () => {
     if (isStaffFlow) return "No staff available to select.";
-    if (isVisibilityFlow) return "No apartment owners available to select.";
+    if (isVisibilityFlow)
+      return "All apartment owners already have a pending or active invitation.";
     return "No members are available.";
   };
 
@@ -1005,7 +1344,6 @@ export default function GrantAccessScreen() {
           </View>
         </View>
 
-        {/* RECIPIENT tiles — only for admin flow, not staff, not visibility */}
         {!isVisibilityFlow && !isStaffFlow ? (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>RECIPIENT</Text>
@@ -1100,7 +1438,6 @@ export default function GrantAccessScreen() {
           </View>
         ) : null}
 
-        {/* New phone form — only for admin flow, not staff, not visibility */}
         {!isVisibilityFlow && !isStaffFlow && source === "new" ? (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>PERSON DETAILS</Text>
@@ -1171,11 +1508,10 @@ export default function GrantAccessScreen() {
           </View>
         ) : null}
 
-        {/* Existing person picker — only for admin flow */}
         {!isVisibilityFlow && !isStaffFlow && source === "existing" ? (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>SELECT PEOPLE</Text>
-            {hasMembers ? (
+            {apartmentMembersList.length > 0 ? (
               <>
                 <View style={styles.selectControlsRow}>
                   <View style={styles.searchBoxInline}>
@@ -1228,40 +1564,18 @@ export default function GrantAccessScreen() {
                   </TouchableOpacity>
                 </View>
 
-                {apartmentMembersList.length === 0 ? (
-                  <View style={styles.emptyCard}>
-                    <View style={styles.emptyIcon}>
-                      <Ionicons
-                        name="people-outline"
-                        size={28}
-                        color="#64748B"
-                      />
-                    </View>
-                    <Text style={styles.emptyTitle}>No people available</Text>
-                    <Text style={styles.emptyDescription}>
-                      {getEmptyStateText()}
-                    </Text>
+                <View style={styles.groupHeader}>
+                  <View style={styles.groupTitleRow}>
+                    <Ionicons name="home-outline" size={17} color="#2563EB" />
+                    <Text style={styles.groupTitle}>Members</Text>
                   </View>
-                ) : (
-                  <>
-                    <View style={styles.groupHeader}>
-                      <View style={styles.groupTitleRow}>
-                        <Ionicons
-                          name="home-outline"
-                          size={17}
-                          color="#2563EB"
-                        />
-                        <Text style={styles.groupTitle}>Members</Text>
-                      </View>
-                      <Text style={styles.groupCount}>
-                        {apartmentMembersList.length}
-                      </Text>
-                    </View>
+                  <Text style={styles.groupCount}>
+                    {apartmentMembersList.length}
+                  </Text>
+                </View>
 
-                    {(searchLower ? filteredMembers : apartmentMembersList).map(
-                      renderMemberRow,
-                    )}
-                  </>
+                {(searchLower ? filteredMembers : apartmentMembersList).map(
+                  renderMemberRow,
                 )}
               </>
             ) : (
@@ -1278,7 +1592,6 @@ export default function GrantAccessScreen() {
           </View>
         ) : null}
 
-        {/* Owner visibility picker */}
         {isVisibilityFlow ? (
           <View style={styles.section}>
             {hasMembers ? (
@@ -1344,13 +1657,13 @@ export default function GrantAccessScreen() {
                       />
                     </View>
                     <Text style={styles.emptyTitle}>
-                      {apartmentMembersList.length === 0
+                      {visibilityCandidateMembers.length === 0
                         ? "No apartment owners available"
                         : "No matching apartment owners"}
                     </Text>
                     <Text style={styles.emptyDescription}>
-                      {apartmentMembersList.length === 0
-                        ? "There are currently no apartment owners available to select."
+                      {visibilityCandidateMembers.length === 0
+                        ? "Every apartment owner already has a pending or active visibility invitation."
                         : "Try searching with another name, phone number, apartment or wing."}
                     </Text>
                   </View>
@@ -1372,7 +1685,6 @@ export default function GrantAccessScreen() {
           </View>
         ) : null}
 
-        {/* Staff visibility picker — no phone entry, pick from list only */}
         {isStaffFlow ? (
           <View style={styles.section}>
             {hasStaff ? (
@@ -1542,6 +1854,7 @@ export default function GrantAccessScreen() {
       </ScrollView>
 
       {renderContactPickerModal()}
+      {renderFeedbackModal()}
     </KeyboardAvoidingView>
   );
 }
@@ -2024,4 +2337,82 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   modalCancelButtonText: { color: "#334155", fontSize: 14, fontWeight: "700" },
+
+  feedbackOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.55)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 24,
+  },
+  feedbackCard: {
+    width: "100%",
+    maxWidth: 380,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 24,
+    paddingHorizontal: 24,
+    paddingTop: 28,
+    paddingBottom: 22,
+    alignItems: "center",
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.18,
+    shadowRadius: 24,
+    elevation: 10,
+  },
+  feedbackIconWrap: {
+    width: 66,
+    height: 66,
+    borderRadius: 33,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
+  },
+  feedbackTitle: {
+    color: "#0F172A",
+    fontSize: 17,
+    fontWeight: "800",
+    textAlign: "center",
+    letterSpacing: -0.2,
+  },
+  feedbackMessage: {
+    color: "#475569",
+    fontSize: 13,
+    lineHeight: 20,
+    textAlign: "center",
+    marginTop: 8,
+  },
+  feedbackActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    width: "100%",
+    marginTop: 22,
+  },
+  feedbackSecondaryButton: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 13,
+    backgroundColor: "#F1F5F9",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  feedbackSecondaryText: {
+    color: "#475569",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  feedbackPrimaryButton: {
+    minHeight: 48,
+    borderRadius: 13,
+    backgroundColor: "#2563EB",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  feedbackPrimaryText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "800",
+    letterSpacing: 0.2,
+  },
 });
