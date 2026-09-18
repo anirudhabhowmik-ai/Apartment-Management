@@ -174,9 +174,18 @@ export default function GrantAccessScreen() {
   const [contactsList, setContactsList] = useState<ContactData[]>([]);
   const [contactSearch, setContactSearch] = useState("");
 
-  const [invitedVisibilityPhones, setInvitedVisibilityPhones] = useState<
-    Set<string>
-  >(new Set());
+  // Per-role phone sets of numbers that already have an invitation
+  // (pending or accepted) on this account. Used to hide them from the
+  // picker lists.
+  const [blockedAdminPhones, setBlockedAdminPhones] = useState<Set<string>>(
+    new Set(),
+  );
+  const [blockedMemberPhones, setBlockedMemberPhones] = useState<Set<string>>(
+    new Set(),
+  );
+  const [blockedStaffPhones, setBlockedStaffPhones] = useState<Set<string>>(
+    new Set(),
+  );
 
   const [feedback, setFeedback] = useState<FeedbackState>(EMPTY_FEEDBACK);
 
@@ -236,6 +245,8 @@ export default function GrantAccessScreen() {
     [rawStaffList],
   );
 
+  // ── Load existing invitations for this account and build per-role
+  //    blocked-phone sets from pending + accepted rows. ──
   useEffect(() => {
     let cancelled = false;
     if (!accountId) return;
@@ -252,15 +263,24 @@ export default function GrantAccessScreen() {
         const data = await res.json();
         const rows: ApiInvitation[] = data?.invitations ?? [];
 
-        const phones = new Set<string>();
+        const adminSet = new Set<string>();
+        const memberSet = new Set<string>();
+        const staffSet = new Set<string>();
+
         for (const inv of rows) {
-          if (inv.role !== "member_visibility") continue;
           if (inv.status !== "pending" && inv.status !== "accepted") continue;
           const ten = normalizePhone(inv.invited_phone);
-          if (ten) phones.add(ten);
+          if (!ten) continue;
+          if (inv.role === "admin") adminSet.add(ten);
+          else if (inv.role === "member_visibility") memberSet.add(ten);
+          else if (inv.role === "staff_visibility") staffSet.add(ten);
         }
 
-        if (!cancelled) setInvitedVisibilityPhones(phones);
+        if (!cancelled) {
+          setBlockedAdminPhones(adminSet);
+          setBlockedMemberPhones(memberSet);
+          setBlockedStaffPhones(staffSet);
+        }
       } catch (e) {
         console.warn("[grant-access] invitation load failed:", e);
       }
@@ -271,18 +291,58 @@ export default function GrantAccessScreen() {
     };
   }, [accountId]);
 
+  // ── Filter member list by the role we're inviting for. ──
+  // Member visibility picker: hide anyone with a pending/accepted
+  // member OR admin invite (admin already has all visibility).
   const visibilityCandidateMembers = useMemo(() => {
     if (!isVisibilityFlow) return apartmentMembersList;
     return apartmentMembersList.filter((m) => {
       const ten = normalizePhone(m.phone);
-      return ten.length > 0 && !invitedVisibilityPhones.has(ten);
+      if (!ten) return false;
+      if (blockedMemberPhones.has(ten)) return false;
+      if (blockedAdminPhones.has(ten)) return false;
+      return true;
     });
-  }, [apartmentMembersList, invitedVisibilityPhones, isVisibilityFlow]);
+  }, [
+    apartmentMembersList,
+    blockedMemberPhones,
+    blockedAdminPhones,
+    isVisibilityFlow,
+  ]);
+
+  // For admin flow (source=existing) we also want to hide people who are
+  // already admins or already have a pending admin invite.
+  const adminCandidateMembers = useMemo(() => {
+    return apartmentMembersList.filter((m) => {
+      const ten = normalizePhone(m.phone);
+      return ten.length > 0 && !blockedAdminPhones.has(ten);
+    });
+  }, [apartmentMembersList, blockedAdminPhones]);
 
   const activeMembers = useMemo(() => {
     if (isVisibilityFlow) return visibilityCandidateMembers;
+    if (!isVisibilityFlow && !isStaffFlow) return adminCandidateMembers;
     return apartmentMembersList;
-  }, [isVisibilityFlow, visibilityCandidateMembers, apartmentMembersList]);
+  }, [
+    isVisibilityFlow,
+    isStaffFlow,
+    visibilityCandidateMembers,
+    adminCandidateMembers,
+    apartmentMembersList,
+  ]);
+
+  // Staff flow: hide staff whose number is already staff_visibility
+  // OR admin (admin already has all visibility).
+  const staffCandidates = useMemo(() => {
+    if (!isStaffFlow) return staffMembersList;
+    return staffMembersList.filter((s) => {
+      const ten = normalizePhone(s.phone);
+      if (!ten) return false;
+      if (blockedStaffPhones.has(ten)) return false;
+      if (blockedAdminPhones.has(ten)) return false;
+      return true;
+    });
+  }, [staffMembersList, blockedStaffPhones, blockedAdminPhones, isStaffFlow]);
 
   const currentUserMember = useMemo(() => {
     if (!currentUser?.phone) return null;
@@ -328,8 +388,8 @@ export default function GrantAccessScreen() {
   }, [visibilityCandidateMembers, searchLower]);
 
   const filteredStaff = useMemo(() => {
-    if (!searchLower) return staffMembersList;
-    return staffMembersList.filter((member) => {
+    if (!searchLower) return staffCandidates;
+    return staffCandidates.filter((member) => {
       return (
         member.name.toLowerCase().includes(searchLower) ||
         member.phone.toLowerCase().includes(searchLower) ||
@@ -338,7 +398,7 @@ export default function GrantAccessScreen() {
           .includes(searchLower)
       );
     });
-  }, [staffMembersList, searchLower]);
+  }, [staffCandidates, searchLower]);
 
   const filteredActiveMembers = useMemo(() => {
     if (!searchLower) return activeMembers;
@@ -1248,7 +1308,7 @@ export default function GrantAccessScreen() {
   // ============================================================
 
   const hasMembers = visibilityCandidateMembers.length > 0;
-  const hasStaff = staffMembersList.length > 0;
+  const hasStaff = staffCandidates.length > 0;
 
   const getEmptyStateText = () => {
     if (isStaffFlow) return "No staff available to select.";
@@ -1490,7 +1550,7 @@ export default function GrantAccessScreen() {
         {!isVisibilityFlow && !isStaffFlow && source === "existing" ? (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>SELECT PEOPLE</Text>
-            {apartmentMembersList.length > 0 ? (
+            {activeMembers.length > 0 ? (
               <>
                 <View style={styles.selectControlsRow}>
                   <View style={styles.searchBoxInline}>
@@ -1548,14 +1608,10 @@ export default function GrantAccessScreen() {
                     <Ionicons name="home-outline" size={17} color="#2563EB" />
                     <Text style={styles.groupTitle}>Members</Text>
                   </View>
-                  <Text style={styles.groupCount}>
-                    {apartmentMembersList.length}
-                  </Text>
+                  <Text style={styles.groupCount}>{activeMembers.length}</Text>
                 </View>
 
-                {(searchLower ? filteredMembers : apartmentMembersList).map(
-                  renderMemberRow,
-                )}
+                {filteredActiveMembers.map(renderMemberRow)}
               </>
             ) : (
               <View style={styles.emptyCard}>
@@ -1735,13 +1791,13 @@ export default function GrantAccessScreen() {
                       />
                     </View>
                     <Text style={styles.emptyTitle}>
-                      {staffMembersList.length === 0
+                      {staffCandidates.length === 0
                         ? "No staff available"
                         : "No matching staff"}
                     </Text>
                     <Text style={styles.emptyDescription}>
-                      {staffMembersList.length === 0
-                        ? "Add staff in the management tab first, then come back to grant them visibility."
+                      {staffCandidates.length === 0
+                        ? "Every staff member already has a pending or active visibility invitation."
                         : "Try searching with another name, phone number, or role."}
                     </Text>
                   </View>
@@ -1757,7 +1813,7 @@ export default function GrantAccessScreen() {
                         <Text style={styles.groupTitle}>Staff</Text>
                       </View>
                       <Text style={styles.groupCount}>
-                        {staffMembersList.length}
+                        {staffCandidates.length}
                       </Text>
                     </View>
                     {filteredStaff.map(renderStaffRow)}

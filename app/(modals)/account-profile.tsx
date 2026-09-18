@@ -613,6 +613,10 @@ export default function AccountProfileScreen() {
   );
   const [deletingInvitation, setDeletingInvitation] = useState(false);
   const [revokeSubmitting, setRevokeSubmitting] = useState(false);
+  const [revokeTarget, setRevokeTarget] = useState<ApiInvitation | null>(null);
+  const [resendingInvitationId, setResendingInvitationId] = useState<
+    string | null
+  >(null);
 
   const [showContactPicker, setShowContactPicker] = useState(false);
   const [contactsList, setContactsList] = useState<ContactData[]>([]);
@@ -736,8 +740,6 @@ export default function AccountProfileScreen() {
         ];
         const KNOWN_ROLE = ["admin", "member_visibility", "staff_visibility"];
 
-        // Defensive normalization: any missing/unknown status falls back to
-        // "pending" so the row is not silently dropped from every section.
         const normalized: ApiInvitation[] = rows.map((r) => {
           const rawStatus = String(r.status ?? "")
             .trim()
@@ -1246,60 +1248,127 @@ export default function AccountProfileScreen() {
   // REVOKE ADMIN
   // ============================================================
 
-  const handleRevokeAdmin = (inv: ApiInvitation) => {
-    const displayName = inv.invited_name || "this person";
-    Alert.alert(
-      "Revoke Admin Access",
-      `Remove admin access for ${displayName}? They will keep any member or staff access they already have on this account.`,
-      [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Revoke",
-          style: "destructive",
-          onPress: async () => {
-            const authToken = await getAuthToken();
-            if (!authToken) return;
-
-            const targetUserId = inv.accepted_by ?? null;
-            if (!targetUserId) {
-              Alert.alert("Error", "Missing user reference on invitation.");
-              return;
-            }
-
-            setRevokeSubmitting(true);
-            try {
-              const res = await fetch(
-                `${API_URL}/api/accounts/${selectedAccount?.id}/access/${targetUserId}?role=admin`,
-                {
-                  method: "DELETE",
-                  headers: { Authorization: `Bearer ${authToken}` },
-                },
-              );
-              if (!res.ok) {
-                Alert.alert("Error", "Failed to revoke admin access.");
-                return;
-              }
-              await loadInvitations({ silent: true });
-            } catch (err) {
-              console.error("revoke error:", err);
-              Alert.alert("Error", "Network error.");
-            } finally {
-              setRevokeSubmitting(false);
-            }
-          },
-        },
-      ],
-    );
+  const openRevokeModal = (inv: ApiInvitation) => {
+    setRevokeTarget(inv);
   };
 
-  const handleResendInvite = (invitation: ApiInvitation) => {
-    router.push({
-      pathname: "/(modals)/grant-access",
-      params: {
-        accountId: invitation.account_id,
-        role: invitation.role,
-      },
-    });
+  const closeRevokeModal = () => {
+    if (revokeSubmitting) return;
+    setRevokeTarget(null);
+  };
+
+  const confirmRevokeAdmin = async () => {
+    if (!revokeTarget) return;
+    const authToken = await getAuthToken();
+    if (!authToken) return;
+
+    const targetUserId = revokeTarget.accepted_by ?? null;
+    if (!targetUserId) {
+      Alert.alert("Error", "Missing user reference on invitation.");
+      return;
+    }
+
+    setRevokeSubmitting(true);
+    try {
+      const res = await fetch(
+        `${API_URL}/api/accounts/${selectedAccount?.id}/access/${targetUserId}?role=admin`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${authToken}` },
+        },
+      );
+      if (!res.ok) {
+        Alert.alert("Error", "Failed to revoke admin access.");
+        return;
+      }
+      setRevokeTarget(null);
+      await loadInvitations({ silent: true });
+    } catch (err) {
+      console.error("revoke error:", err);
+      Alert.alert("Error", "Network error.");
+    } finally {
+      setRevokeSubmitting(false);
+    }
+  };
+
+  // ============================================================
+  // RESEND INVITATION — delete old rejected + create a new one
+  // ============================================================
+
+  const handleResendInvite = async (invitation: ApiInvitation) => {
+    const authToken = await getAuthToken();
+    if (!authToken) {
+      Alert.alert("Error", "You're not signed in. Please log in again.");
+      return;
+    }
+
+    setResendingInvitationId(invitation.id);
+    try {
+      // 1. Remove the old rejected invitation
+      const delRes = await fetch(
+        `${API_URL}/api/accounts/${invitation.account_id}/invitations/${invitation.id}`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${authToken}` },
+        },
+      );
+
+      if (!delRes.ok) {
+        let d: any = null;
+        try {
+          d = await delRes.json();
+        } catch {}
+        Alert.alert(
+          "Resend Failed",
+          d?.message ||
+            d?.error ||
+            "Could not clear the old invitation. Please try again.",
+        );
+        return;
+      }
+
+      // 2. Create a fresh invitation with the same details
+      const createRes = await fetch(
+        `${API_URL}/api/accounts/${invitation.account_id}/invitations`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${authToken}`,
+          },
+          body: JSON.stringify({
+            phone: invitation.invited_phone,
+            name: invitation.invited_name ?? undefined,
+            role: invitation.role,
+            targetMemberId: invitation.target_member_id ?? undefined,
+            targetStaffId: invitation.target_staff_id ?? undefined,
+          }),
+        },
+      );
+
+      let createData: any = null;
+      try {
+        createData = await createRes.json();
+      } catch {}
+
+      if (!createRes.ok) {
+        Alert.alert(
+          "Resend Failed",
+          createData?.message ||
+            createData?.error ||
+            "Could not send a new invitation. Please try again.",
+        );
+        return;
+      }
+
+      // 3. Refresh the list to show the new pending invitation
+      await loadInvitations({ silent: true });
+    } catch (err) {
+      console.error("resendInvitation error:", err);
+      Alert.alert("Error", "Network error. Please check your connection.");
+    } finally {
+      setResendingInvitationId(null);
+    }
   };
 
   // ============================================================
@@ -1607,22 +1676,25 @@ export default function AccountProfileScreen() {
                     </Text>
                   </View>
                   <TouchableOpacity
-                    style={styles.revokeButton}
-                    onPress={() => handleRevokeAdmin(inv)}
+                    style={styles.revokeTextButton}
+                    onPress={() => openRevokeModal(inv)}
                     activeOpacity={0.7}
                     disabled={revokeSubmitting}
                   >
-                    <Ionicons name="close" size={16} color="#DC2626" />
+                    <Text style={styles.revokeTextButtonLabel}>Revoke</Text>
                   </TouchableOpacity>
                 </View>
               ))}
             </View>
           )}
 
-          {/* MEMBERS (ACCEPTED) — close icon to dismiss */}
+          {/* MEMBERS (ACCEPTED) — close icon to hide from this list */}
           {acceptedMembers.length > 0 && (
             <View style={styles.accessGroup}>
               <Text style={styles.accessHeading}>Members</Text>
+              <Text style={styles.accessHeadingHint}>
+                Manage in the Management tab. × hides from this list only.
+              </Text>
               {acceptedMembers.map((inv, index) => (
                 <View
                   key={inv.id}
@@ -1664,10 +1736,13 @@ export default function AccountProfileScreen() {
             </View>
           )}
 
-          {/* STAFF (ACCEPTED) — close icon to dismiss */}
+          {/* STAFF (ACCEPTED) — close icon to hide from this list */}
           {acceptedStaff.length > 0 && (
             <View style={styles.accessGroup}>
               <Text style={styles.accessHeading}>Staff</Text>
+              <Text style={styles.accessHeadingHint}>
+                Manage in the Management tab. × hides from this list only.
+              </Text>
               {acceptedStaff.map((inv, index) => (
                 <View
                   key={inv.id}
@@ -1768,6 +1843,7 @@ export default function AccountProfileScreen() {
               <Text style={styles.accessHeading}>Rejected</Text>
               {rejectedInvitations.map((inv, index) => {
                 const badge = roleBadge(inv.role);
+                const isResending = resendingInvitationId === inv.id;
                 return (
                   <View
                     key={inv.id}
@@ -1799,14 +1875,22 @@ export default function AccountProfileScreen() {
                       style={styles.resendButton}
                       onPress={() => handleResendInvite(inv)}
                       activeOpacity={0.75}
+                      disabled={isResending}
                     >
-                      <Ionicons name="refresh" size={14} color="#2563EB" />
-                      <Text style={styles.resendButtonText}>Resend</Text>
+                      {isResending ? (
+                        <ActivityIndicator size="small" color="#2563EB" />
+                      ) : (
+                        <>
+                          <Ionicons name="refresh" size={14} color="#2563EB" />
+                          <Text style={styles.resendButtonText}>Resend</Text>
+                        </>
+                      )}
                     </TouchableOpacity>
                     <TouchableOpacity
                       style={styles.deleteInvitationButton}
                       onPress={() => setInvitationToDelete(inv.id)}
                       activeOpacity={0.7}
+                      disabled={isResending}
                     >
                       <Ionicons
                         name="trash-outline"
@@ -2464,6 +2548,66 @@ export default function AccountProfileScreen() {
         </Modal>
       )}
 
+      {/* REVOKE ADMIN — custom modal */}
+      {revokeTarget && (
+        <Modal
+          transparent
+          animationType="fade"
+          visible={Boolean(revokeTarget)}
+          onRequestClose={closeRevokeModal}
+        >
+          <TouchableWithoutFeedback onPress={closeRevokeModal}>
+            <View style={styles.modalOverlay}>
+              <TouchableWithoutFeedback
+                onPress={(event) => event.stopPropagation()}
+              >
+                <View style={styles.revokeModal}>
+                  <View style={styles.revokeIcon}>
+                    <Ionicons name="shield-outline" size={25} color="#7C3AED" />
+                  </View>
+                  <Text style={styles.revokeModalTitle}>
+                    Revoke Admin Access?
+                  </Text>
+                  <Text style={styles.revokeModalDescription}>
+                    {revokeTarget.invited_name || "This person"} will lose admin
+                    access. Their member and staff access is not affected.
+                  </Text>
+                  <View style={styles.revokeModalActions}>
+                    <TouchableOpacity
+                      style={styles.cancelModalButton}
+                      onPress={closeRevokeModal}
+                      activeOpacity={0.8}
+                      disabled={revokeSubmitting}
+                    >
+                      <Text style={styles.cancelButtonText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.revokeConfirmButton}
+                      onPress={confirmRevokeAdmin}
+                      activeOpacity={0.8}
+                      disabled={revokeSubmitting}
+                    >
+                      {revokeSubmitting ? (
+                        <ActivityIndicator color="#FFFFFF" size="small" />
+                      ) : (
+                        <>
+                          <Ionicons
+                            name="shield-outline"
+                            size={17}
+                            color="#FFFFFF"
+                          />
+                          <Text style={styles.revokeConfirmText}>Revoke</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </TouchableWithoutFeedback>
+            </View>
+          </TouchableWithoutFeedback>
+        </Modal>
+      )}
+
       {/* CONTACT PICKER */}
       {showContactPicker && (
         <Modal
@@ -2831,6 +2975,14 @@ const styles = StyleSheet.create({
     paddingTop: 13,
     paddingBottom: 5,
   },
+  accessHeadingHint: {
+    color: "#94A3B8",
+    fontSize: 10,
+    lineHeight: 14,
+    paddingHorizontal: 15,
+    paddingBottom: 8,
+    fontStyle: "italic",
+  },
   accessRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -2921,6 +3073,19 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginLeft: 8,
   },
+  revokeTextButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1,
+    borderColor: "#FECACA",
+  },
+  revokeTextButtonLabel: {
+    color: "#DC2626",
+    fontSize: 12,
+    fontWeight: "700",
+  },
   closeIconButton: {
     width: 32,
     height: 32,
@@ -2933,8 +3098,10 @@ const styles = StyleSheet.create({
   resendButton: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 4,
     paddingHorizontal: 10,
+    minWidth: 72,
     height: 32,
     borderRadius: 10,
     backgroundColor: "#EFF6FF",
@@ -3346,6 +3513,56 @@ const styles = StyleSheet.create({
     gap: 7,
   },
   deleteConfirmText: { color: "#FFFFFF", fontSize: 13, fontWeight: "700" },
+
+  revokeModal: {
+    width: "100%",
+    maxWidth: 400,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    padding: 22,
+    alignItems: "center",
+  },
+  revokeIcon: {
+    width: 55,
+    height: 55,
+    borderRadius: 18,
+    backgroundColor: "#F5F3FF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 13,
+  },
+  revokeModalTitle: {
+    color: "#0F172A",
+    fontSize: 17,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  revokeModalDescription: {
+    color: "#64748B",
+    fontSize: 12.5,
+    lineHeight: 18,
+    textAlign: "center",
+    marginTop: 7,
+    maxWidth: 320,
+  },
+  revokeModalActions: {
+    flexDirection: "row",
+    width: "100%",
+    justifyContent: "center",
+    marginTop: 20,
+    gap: 9,
+  },
+  revokeConfirmButton: {
+    minHeight: 45,
+    paddingHorizontal: 17,
+    borderRadius: 12,
+    backgroundColor: "#7C3AED",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+  },
+  revokeConfirmText: { color: "#FFFFFF", fontSize: 13, fontWeight: "700" },
 
   contactModalOverlay: {
     flex: 1,
