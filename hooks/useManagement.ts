@@ -80,9 +80,7 @@ function endpointFor(type: ManagementType): string {
 }
 
 // ---------------------------------------------------------------------------
-// Photo encoder — turns a device-local file:// URI into a base64 data URI
-// so the value stored in the DB is self-contained and survives cache
-// clears / works across devices.
+// Photo encoder
 // ---------------------------------------------------------------------------
 async function encodePhotoForServer(localUri: string): Promise<string> {
   if (!localUri) return localUri;
@@ -163,10 +161,6 @@ function localDateStringToServerISO(local: unknown): string | null {
 
 // ---------------------------------------------------------------------------
 // server row → frontend Member
-//
-// NOTE: We now propagate `due_amount`, `due_month`, and
-// `attendance_for_month` from the server so the UI can display a
-// DB-computed due amount per member / staff without recomputing.
 // ---------------------------------------------------------------------------
 function mapRowToMember(
   row: any,
@@ -194,7 +188,6 @@ function mapRowToMember(
     monthlyPayments: row.monthly_payments ?? undefined,
     detailsHistory: undefined,
 
-    // ← New: server-computed due fields
     dueAmount: row.due_amount != null ? Number(row.due_amount) : undefined,
     dueMonth: row.due_month ?? undefined,
     attendanceForMonth: row.attendance_for_month ?? undefined,
@@ -209,6 +202,7 @@ function mapRowToMember(
       areaSqft: row.area_sqft ?? undefined,
       parkingAvailable: !!row.parking_available,
       maintenanceAmount: Number(row.maintenance_amount ?? 0),
+      status: row.status ?? "active",
     } as FlatOwner;
   }
 
@@ -217,6 +211,7 @@ function mapRowToMember(
       ...base,
       role: row.role,
       monthlySalary: Number(row.monthly_salary ?? 0),
+      status: row.status ?? "active",
     } as Staff;
   }
 
@@ -432,8 +427,6 @@ function createManagementHook(kind: ManagementType) {
       setIsLoading(true);
       setError(null);
       try {
-        // Append ?month=YYYY-MM when the caller provided one. The backend
-        // uses it to compute and return due_amount per row.
         const qs =
           month && /^\d{4}-\d{2}$/.test(month) ? `?month=${month}` : "";
         const rows = await apiRequest<any[]>(
@@ -499,15 +492,45 @@ function createManagementHook(kind: ManagementType) {
       [accountId, segment, month],
     );
 
+    // ── Soft-delete aware removal ──────────────────────────
+    // For members/staff the backend soft-deletes (status =
+    // 'inactive'). We mark the row inactive in the local store
+    // instead of evicting it, so the finance tab can still
+    // badge it for the deletion month and any month after.
+    // The People tab filters inactive rows client-side, so
+    // it disappears from there as expected.
+    //
+    // For expenses the backend hard-deletes, so we evict.
+    // ───────────────────────────────────────────────────────
     const remove = useCallback(
       async (id: string) => {
         if (!accountId) throw new Error("No account selected");
         await apiRequest(`/management/${accountId}/${segment}/${id}`, {
           method: "DELETE",
         });
-        useManagementStore.getState().removeItem(kind, accountId, id);
+
+        if (kind === "expense") {
+          useManagementStore.getState().removeItem(kind, accountId, id);
+          return;
+        }
+
+        const state = useManagementStore.getState();
+        const existing = state.byKindAndAccount[kind][accountId] ?? [];
+        const current = existing.find((m) => m.id === id);
+
+        if (current) {
+          const inactive = {
+            ...(current as any),
+            status: "inactive",
+            updatedAt: new Date().toISOString(),
+          } as unknown as Member;
+
+          state.replaceItem(kind, accountId, id, inactive);
+        } else {
+          state.removeItem(kind, accountId, id);
+        }
       },
-      [accountId, segment],
+      [accountId, segment, kind],
     );
 
     const getById = useCallback(

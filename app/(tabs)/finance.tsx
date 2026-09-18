@@ -1404,7 +1404,7 @@ export default function FinanceScreen() {
   const loadFinanceData = () => {
     const { transactions: accountPayments } = getSelectedMonthTransactions();
 
-    // Only paid + non-inactive rows count toward the totals.
+    // Totals: only paid + non-inactive rows count.
     const counted = accountPayments.filter((p) => !(p as any).__isInactive);
     const paidTransactions = counted.filter((p) => p.status === "paid");
 
@@ -1430,6 +1430,10 @@ export default function FinanceScreen() {
           },
     );
 
+    // ── List filters ──
+    // Inactive rows stay visible in every filter so the user can see
+    // why the totals changed. The "Inactive" badge, dimmed style, and
+    // strikethrough amount make it clear they aren't counted.
     let filtered: PeopleTransaction[] = [];
 
     switch (filter) {
@@ -1438,25 +1442,17 @@ export default function FinanceScreen() {
         break;
       case "income":
         filtered = accountPayments.filter(
-          (p) =>
-            !(p as any).__isInactive &&
-            p.status === "paid" &&
-            getTransactionType(p) === "income",
+          (p) => p.status === "paid" && getTransactionType(p) === "income",
         );
         break;
       case "expense":
         filtered = accountPayments.filter(
-          (p) =>
-            !(p as any).__isInactive &&
-            p.status === "paid" &&
-            getTransactionType(p) === "expense",
+          (p) => p.status === "paid" && getTransactionType(p) === "expense",
         );
         break;
       case "pending":
         filtered = accountPayments.filter(
-          (p) =>
-            !(p as any).__isInactive &&
-            (p.status === "due" || p.status === "overdue"),
+          (p) => p.status === "due" || p.status === "overdue",
         );
         break;
       default:
@@ -1518,9 +1514,9 @@ export default function FinanceScreen() {
 
   const getReportData = () => {
     const { monthKey, transactions } = getSelectedMonthTransactions();
-    // Reports use the same rule: inactive rows stay visible but don't
-    // count in the summary. Pass only non-inactive rows to the summary
-    // and to the PDF/Excel totals.
+    // Summary numbers exclude inactive rows (same rule as the on-screen
+    // totals). The raw transactions array keeps them so a reader of the
+    // PDF/Excel can see the inactive entries with their "Inactive" tag.
     const counted = transactions.filter((t) => !(t as any).__isInactive);
     const reportSummary = getPeopleSummary(counted);
     return { monthKey, reportSummary, transactions };
