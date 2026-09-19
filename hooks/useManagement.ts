@@ -16,10 +16,6 @@ const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
 
 // ---------------------------------------------------------------------------
 // Access-loss signal
-//
-// When any account-scoped request returns 403 with code "no_account_access"
-// (or the legacy generic "forbidden"), we emit. useAccounts subscribes and
-// refetches /api/accounts, which reconciles the selected account.
 // ---------------------------------------------------------------------------
 type AccessLossListener = () => void;
 const accessLossListeners = new Set<AccessLossListener>();
@@ -84,6 +80,8 @@ async function apiRequest<T>(
   if (!res.ok) {
     const code = data?.code;
 
+    // "no_account_access" = user has no role at all on this account.
+    // Legacy "forbidden" is treated the same way for backwards compat.
     if (
       res.status === 403 &&
       (code === "no_account_access" || code === "forbidden")
@@ -96,6 +94,9 @@ async function apiRequest<T>(
     );
     err.status = res.status;
     err.code = code;
+    // Attach the full response body so callers can read extra fields
+    // like `existing_name` and `phone` on a 409 name_conflict.
+    err.body = data;
     throw err;
   }
 
@@ -279,6 +280,8 @@ async function toServerBody(
   if (input.phone !== undefined)
     body.phone = input.phone ? String(input.phone).replace(/^\+?91/, "") : null;
   if (input.role !== undefined) body.role = input.role;
+  if (input.confirm_rename !== undefined)
+    body.confirm_rename = !!input.confirm_rename;
 
   if (input.photoUri !== undefined) {
     body.photo_url = input.photoUri
@@ -484,8 +487,6 @@ function createManagementHook(kind: ManagementType) {
       async (opts?: { force?: boolean }) => {
         if (!accountId) return;
 
-        // Capture the narrowed value so TS keeps it inside async
-        // callbacks and the store reads.
         const aid: string = accountId;
 
         if (opts?.force !== true) {

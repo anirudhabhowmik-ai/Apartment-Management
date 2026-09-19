@@ -27,7 +27,7 @@ import {
   TextInput,
   TouchableOpacity,
   TouchableWithoutFeedback,
-  View
+  View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -1103,51 +1103,101 @@ export default function AddMemberScreen() {
 
     setLoading(true);
 
+    const payload = {
+      groupType,
+      name: name.trim(),
+      phone: groupType === "expense" ? "" : `+91${phone}`,
+      role,
+      photoUri: photoUri ?? undefined,
+
+      wing: groupType === "apartment" && wing.trim() ? wing.trim() : undefined,
+      flatNumber: groupType === "apartment" ? flatNumber.trim() : undefined,
+      areaSqft:
+        groupType === "apartment" && areaSqft ? Number(areaSqft) : undefined,
+      parkingAvailable:
+        groupType === "apartment" ? parkingAvailable : undefined,
+      maintenanceAmount:
+        groupType === "apartment" ? Number(maintenanceAmount) : undefined,
+
+      monthlySalary: groupType === "staff" ? Number(monthlySalary) : undefined,
+
+      amount: groupType === "expense" ? Number(expenseAmount) : undefined,
+      status: groupType === "expense" ? expenseStatus : undefined,
+      transactionType: groupType === "expense" ? transactionKind : undefined,
+      reminderEnabled:
+        groupType === "expense" && expenseStatus === "due"
+          ? reminderEnabled
+          : undefined,
+      dueDate: groupType === "expense" ? dueDate : undefined,
+      description:
+        groupType === "expense"
+          ? expenseDescription.trim() || undefined
+          : undefined,
+      billAttachments: groupType === "expense" ? billAttachments : undefined,
+    };
+
     try {
-      await addNewMember({
-        groupType,
-        name: name.trim(),
-        phone: groupType === "expense" ? "" : `+91${phone}`,
-        role,
-        photoUri: photoUri ?? undefined,
-
-        wing:
-          groupType === "apartment" && wing.trim() ? wing.trim() : undefined,
-        flatNumber: groupType === "apartment" ? flatNumber.trim() : undefined,
-        areaSqft:
-          groupType === "apartment" && areaSqft ? Number(areaSqft) : undefined,
-        parkingAvailable:
-          groupType === "apartment" ? parkingAvailable : undefined,
-        maintenanceAmount:
-          groupType === "apartment" ? Number(maintenanceAmount) : undefined,
-
-        monthlySalary:
-          groupType === "staff" ? Number(monthlySalary) : undefined,
-
-        amount: groupType === "expense" ? Number(expenseAmount) : undefined,
-        status: groupType === "expense" ? expenseStatus : undefined,
-        transactionType: groupType === "expense" ? transactionKind : undefined,
-        reminderEnabled:
-          groupType === "expense" && expenseStatus === "due"
-            ? reminderEnabled
-            : undefined,
-        dueDate: groupType === "expense" ? dueDate : undefined,
-        description:
-          groupType === "expense"
-            ? expenseDescription.trim() || undefined
-            : undefined,
-        billAttachments: groupType === "expense" ? billAttachments : undefined,
-      });
-
+      await addNewMember(payload);
       router.back();
     } catch (e: any) {
       console.error("[add-member] save failed:", e);
+
+      // ── Name-conflict handling ──
+      // Backend returns 409 { code: "name_conflict", existing_name, phone }
+      // when the phone already belongs to a different name on this account.
+      if (e?.code === "name_conflict") {
+        const existingName =
+          e?.body?.existing_name ?? e?.existing_name ?? "someone else";
+        const conflictPhone = e?.body?.phone ?? e?.phone ?? phone ?? "";
+
+        setLoading(false);
+
+        Alert.alert(
+          "This number is already in use",
+          `+91${conflictPhone} already belongs to "${existingName}" on this account as a member, admin, or staff.\n\nOne number, one name. If you continue, the name will be updated everywhere this number appears on this account — member, staff, and any pending invitations.\n\nIf you do not want to change the existing name, tap Cancel.`,
+          [
+            {
+              text: "Cancel",
+              style: "cancel",
+            },
+            {
+              text: "Continue & rename",
+              style: "destructive",
+              onPress: async () => {
+                setLoading(true);
+                try {
+                  await addNewMember({
+                    ...payload,
+                    confirm_rename: true,
+                  });
+                  router.back();
+                } catch (err: any) {
+                  console.error(
+                    "[add-member] save with confirm_rename failed:",
+                    err,
+                  );
+                  setError(
+                    err?.message ||
+                      `Failed to add ${getGroupTypeLabel(groupType).toLowerCase()}. Please try again.`,
+                  );
+                } finally {
+                  setLoading(false);
+                }
+              },
+            },
+          ],
+        );
+        return;
+      }
+
       setError(
         e?.message ||
           `Failed to add ${getGroupTypeLabel(groupType).toLowerCase()}. Please try again.`,
       );
-    } finally {
       setLoading(false);
+    } finally {
+      // Only clear loading here if we didn't return early from the
+      // name-conflict branch (that branch manages setLoading itself).
     }
   };
 
