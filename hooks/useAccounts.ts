@@ -114,12 +114,11 @@ async function fetchAccountsDeduped(
         useAccountStore.setState({ selectedAccountId: serverPick });
       }
 
-      // reconcileAccounts() will:
-      //  - store the fresh list
-      //  - keep the current selection if it still exists
-      //  - fall back to the first remaining account if the selection vanished
-      //  - set selectedAccountId to null if there are no accounts left
-      //  - return true when the previously-selected account was dropped
+      // reconcileAccounts():
+      //  - stores the fresh list
+      //  - keeps the current selection if it still exists
+      //  - falls back to first remaining account if the selection vanished
+      //  - clears selection to null if there are no accounts left
       useAccountStore.getState().reconcileAccounts(result.accounts);
 
       loadedUserIds.add(userId);
@@ -134,9 +133,7 @@ async function fetchAccountsDeduped(
 }
 
 /**
- * Encode a device-local file:// URI as a base64 data: URI so it can be
- * stored in the database and rendered anywhere (any device, any cache
- * state).
+ * Encode a device-local file:// URI as a base64 data: URI.
  */
 async function uploadAccountPhoto(localUri: string): Promise<string> {
   console.log(

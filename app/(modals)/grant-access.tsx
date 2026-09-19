@@ -174,9 +174,6 @@ export default function GrantAccessScreen() {
   const [contactsList, setContactsList] = useState<ContactData[]>([]);
   const [contactSearch, setContactSearch] = useState("");
 
-  // Per-role phone sets of numbers that already have an invitation
-  // (pending or accepted) on this account. Used to hide them from the
-  // picker lists.
   const [blockedAdminPhones, setBlockedAdminPhones] = useState<Set<string>>(
     new Set(),
   );
@@ -245,8 +242,7 @@ export default function GrantAccessScreen() {
     [rawStaffList],
   );
 
-  // ── Load existing invitations for this account and build per-role
-  //    blocked-phone sets from pending + accepted rows. ──
+  // ── Load invitations + excluded phones (owner + active admins) ──
   useEffect(() => {
     let cancelled = false;
     if (!accountId) return;
@@ -262,6 +258,9 @@ export default function GrantAccessScreen() {
         if (!res.ok) return;
         const data = await res.json();
         const rows: ApiInvitation[] = data?.invitations ?? [];
+        const excluded: string[] = Array.isArray(data?.excluded_phones)
+          ? data.excluded_phones
+          : [];
 
         const adminSet = new Set<string>();
         const memberSet = new Set<string>();
@@ -274,6 +273,12 @@ export default function GrantAccessScreen() {
           if (inv.role === "admin") adminSet.add(ten);
           else if (inv.role === "member_visibility") memberSet.add(ten);
           else if (inv.role === "staff_visibility") staffSet.add(ten);
+        }
+
+        // Owner + active admins are excluded from every picker.
+        for (const p of excluded) {
+          const ten = normalizePhone(p);
+          if (ten) adminSet.add(ten);
         }
 
         if (!cancelled) {
@@ -291,9 +296,8 @@ export default function GrantAccessScreen() {
     };
   }, [accountId]);
 
-  // ── Filter member list by the role we're inviting for. ──
-  // Member visibility picker: hide anyone with a pending/accepted
-  // member OR admin invite (admin already has all visibility).
+  // ── Member visibility picker: hide owner, admins, and anyone
+  //    who already has a pending/accepted member invite. ──
   const visibilityCandidateMembers = useMemo(() => {
     if (!isVisibilityFlow) return apartmentMembersList;
     return apartmentMembersList.filter((m) => {
@@ -310,8 +314,8 @@ export default function GrantAccessScreen() {
     isVisibilityFlow,
   ]);
 
-  // For admin flow (source=existing) we also want to hide people who are
-  // already admins or already have a pending admin invite.
+  // ── Admin picker: hide owner, existing admins, and anyone with a
+  //    pending admin invite. ──
   const adminCandidateMembers = useMemo(() => {
     return apartmentMembersList.filter((m) => {
       const ten = normalizePhone(m.phone);
@@ -331,8 +335,8 @@ export default function GrantAccessScreen() {
     apartmentMembersList,
   ]);
 
-  // Staff flow: hide staff whose number is already staff_visibility
-  // OR admin (admin already has all visibility).
+  // ── Staff picker: hide owner, admins, and staff who already have a
+  //    pending/accepted staff invite. ──
   const staffCandidates = useMemo(() => {
     if (!isStaffFlow) return staffMembersList;
     return staffMembersList.filter((s) => {
@@ -626,9 +630,8 @@ export default function GrantAccessScreen() {
       case "self":
         showFeedback({
           tone: "warning",
-          title: "Owner's number",
-          message:
-            "This number belongs to the owner who already has access to this account.",
+          title: "This number belongs to the owner",
+          message: `+91${opts.phone} is the owner's number. The owner already has full access to this account, so no invitation is needed.`,
           primaryLabel: "OK",
         });
         return false;
@@ -636,8 +639,8 @@ export default function GrantAccessScreen() {
       case "already_admin":
         showFeedback({
           tone: "warning",
-          title: "Already an admin",
-          message: "This person already has admin access to this account.",
+          title: "This number already has admin access",
+          message: `+91${opts.phone} already has admin access to this account. No invitation is needed.`,
           primaryLabel: "OK",
         });
         return false;
@@ -645,9 +648,8 @@ export default function GrantAccessScreen() {
       case "already_member":
         showFeedback({
           tone: "warning",
-          title: "Already a member",
-          message:
-            "This person already has member visibility access to this account.",
+          title: "This number is already a member",
+          message: `+91${opts.phone} already has member visibility access to this account. No invitation is needed.`,
           primaryLabel: "OK",
         });
         return false;
@@ -655,9 +657,8 @@ export default function GrantAccessScreen() {
       case "already_staff":
         showFeedback({
           tone: "warning",
-          title: "Already staff",
-          message:
-            "This person already has staff visibility access to this account.",
+          title: "This number is already staff",
+          message: `+91${opts.phone} already has staff visibility access to this account. No invitation is needed.`,
           primaryLabel: "OK",
         });
         return false;
@@ -665,9 +666,8 @@ export default function GrantAccessScreen() {
       case "pending":
         showFeedback({
           tone: "warning",
-          title: "Invitation pending",
-          message:
-            "An invitation is already pending for this number. Delete it from the profile screen first if you want to send a new one.",
+          title: "Invitation already pending",
+          message: `An invitation for +91${opts.phone} is already pending. Delete it from the profile screen first if you want to send a new one.`,
           primaryLabel: "OK",
         });
         return false;
@@ -678,7 +678,7 @@ export default function GrantAccessScreen() {
           showFeedback({
             tone: "info",
             title: "Existing access found",
-            message: `${displayName} already has member or staff access on this account. Granting admin access will add admin alongside their existing roles. Continue?`,
+            message: `${displayName} (+91${opts.phone}) already has member or staff access on this account. Granting admin access will add admin alongside their existing roles. Continue?`,
             primaryLabel: "Grant Admin",
             primaryTone: "primary",
             onPrimaryPress: () => {
@@ -1110,7 +1110,7 @@ export default function GrantAccessScreen() {
                   <View>
                     <Text style={styles.modalTitle}>Select Contact</Text>
                     <Text style={styles.modalSubtitle}>
-                      Choose a contact from your phone
+                      Choose a contact from your phone{" "}
                     </Text>
                   </View>
                   <TouchableOpacity
@@ -1608,10 +1608,29 @@ export default function GrantAccessScreen() {
                     <Ionicons name="home-outline" size={17} color="#2563EB" />
                     <Text style={styles.groupTitle}>Members</Text>
                   </View>
-                  <Text style={styles.groupCount}>{activeMembers.length}</Text>
+                  <Text style={styles.groupCount}>
+                    {filteredActiveMembers.length}
+                  </Text>
                 </View>
 
-                {filteredActiveMembers.map(renderMemberRow)}
+                {filteredActiveMembers.length === 0 ? (
+                  <View style={styles.emptyCard}>
+                    <View style={styles.emptyIcon}>
+                      <Ionicons
+                        name="people-outline"
+                        size={28}
+                        color="#64748B"
+                      />
+                    </View>
+                    <Text style={styles.emptyTitle}>No matching members</Text>
+                    <Text style={styles.emptyDescription}>
+                      Try searching with another name, phone number, or
+                      apartment.
+                    </Text>
+                  </View>
+                ) : (
+                  filteredActiveMembers.map(renderMemberRow)
+                )}
               </>
             ) : (
               <View style={styles.emptyCard}>
@@ -1813,7 +1832,7 @@ export default function GrantAccessScreen() {
                         <Text style={styles.groupTitle}>Staff</Text>
                       </View>
                       <Text style={styles.groupCount}>
-                        {staffCandidates.length}
+                        {filteredStaff.length}
                       </Text>
                     </View>
                     {filteredStaff.map(renderStaffRow)}

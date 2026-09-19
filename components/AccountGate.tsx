@@ -1,3 +1,4 @@
+// app/_layout.helpers/AccountGate.tsx (or wherever you keep it)
 import { useRouter, useSegments } from "expo-router";
 import { useEffect } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
@@ -28,6 +29,7 @@ export default function AccountGate({
     const inAddAccount = path.includes("add-account");
     const inSelectAccount = path.includes("select-account");
 
+    // No accounts → force Add Account, unless already there.
     if (accounts.length === 0) {
       if (!inAddAccount && !inAuthGroup) {
         router.replace("/(modals)/add-account");
@@ -35,6 +37,7 @@ export default function AccountGate({
       return;
     }
 
+    // Has accounts but nothing selected → force Select Account.
     if (!selectedAccountId) {
       if (!inSelectAccount && !inAuthGroup) {
         router.replace("/(modals)/select-account");
@@ -42,6 +45,7 @@ export default function AccountGate({
       return;
     }
 
+    // Has accounts + valid selection. If stuck on add/select, push to tabs.
     if (inAddAccount || inSelectAccount) {
       router.replace("/(tabs)");
     }

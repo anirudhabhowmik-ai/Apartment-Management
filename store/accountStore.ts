@@ -108,21 +108,24 @@ export const useAccountStore = create<AccountState>()(
 
       /**
        * Reconcile the locally-cached account list against a fresh list
-       * from the server. Drops any locally-cached account that is no
-       * longer returned by the backend (e.g. because the user's admin
-       * access was revoked).
+       * from the server.
        *
-       * Returns `true` if the previously-selected account was dropped,
-       * so callers can redirect the user.
+       * Short-circuits when nothing has actually changed: same account
+       * ids, same selection. This is what prevents the store from
+       * emitting a new `accounts` array identity on every forced fetch,
+       * which was driving an infinite re-render loop.
+       *
+       * Returns `true` if the previously-selected account was dropped.
        */
       reconcileAccounts: (freshAccounts) => {
         const { accounts: oldAccounts, selectedAccountId } = get();
 
         const freshIds = new Set(freshAccounts.map((a) => a.id));
+        const oldIds = new Set(oldAccounts.map((a) => a.id));
 
-        const lostIds = oldAccounts
-          .map((a) => a.id)
-          .filter((id) => !freshIds.has(id));
+        const idsEqual =
+          freshIds.size === oldIds.size &&
+          [...freshIds].every((id) => oldIds.has(id));
 
         const lostSelection =
           !!selectedAccountId && !freshIds.has(selectedAccountId);
@@ -130,6 +133,14 @@ export const useAccountStore = create<AccountState>()(
         const nextSelectedId = lostSelection
           ? (freshAccounts[0]?.id ?? null)
           : selectedAccountId;
+
+        // Nothing changed → don't touch state, don't create a new
+        // array identity, don't re-render subscribers.
+        if (idsEqual && nextSelectedId === selectedAccountId) {
+          return false;
+        }
+
+        const lostIds = [...oldIds].filter((id) => !freshIds.has(id));
 
         set({
           accounts: freshAccounts,
@@ -183,7 +194,6 @@ export const useAccountStore = create<AccountState>()(
       selectAccount: (id, opts) => {
         set({ selectedAccountId: id });
 
-        // Skip the network echo when restoring from the server at cold start.
         if (opts?.persist !== false) {
           persistLastAccountToServer(id);
         }
@@ -210,6 +220,8 @@ export const useAccountStore = create<AccountState>()(
       }),
       onRehydrateStorage: () => (state) => {
         state?.setHasHydrated(true);
+        // isLoading starts true; nothing else will flip it back for
+        // screens that only read from the store (e.g. AccountGate).
         state?.setIsLoading(false);
       },
     },
