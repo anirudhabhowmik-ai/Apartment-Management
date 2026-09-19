@@ -80,8 +80,6 @@ async function apiRequest<T>(
   if (!res.ok) {
     const code = data?.code;
 
-    // "no_account_access" = user has no role at all on this account.
-    // Legacy "forbidden" is treated the same way for backwards compat.
     if (
       res.status === 403 &&
       (code === "no_account_access" || code === "forbidden")
@@ -94,8 +92,6 @@ async function apiRequest<T>(
     );
     err.status = res.status;
     err.code = code;
-    // Attach the full response body so callers can read extra fields
-    // like `existing_name` and `phone` on a 409 name_conflict.
     err.body = data;
     throw err;
   }
@@ -370,6 +366,13 @@ interface ManagementState {
     id: string,
     item: Member,
   ) => void;
+  /** NEW: shallow-merge fields onto an existing item by id. */
+  patchItem: (
+    kind: ManagementType,
+    accountId: string,
+    id: string,
+    patch: Partial<Member> & Record<string, any>,
+  ) => void;
   removeItem: (kind: ManagementType, accountId: string, id: string) => void;
   clearAccount: (accountId: string) => void;
 }
@@ -434,6 +437,31 @@ export const useManagementStore = create<ManagementState>((set) => ({
           [kind]: {
             ...s.byKindAndAccount[kind],
             [accountId]: existing.map((m) => (m.id === id ? item : m)),
+          },
+        },
+      };
+    }),
+
+  patchItem: (kind, accountId, id, patch) =>
+    set((s) => {
+      const existing = s.byKindAndAccount[kind][accountId] ?? [];
+      let changed = false;
+      const next = existing.map((m) => {
+        if (m.id !== id) return m;
+        changed = true;
+        return {
+          ...(m as any),
+          ...(patch as any),
+          updatedAt: new Date().toISOString(),
+        } as Member;
+      });
+      if (!changed) return s;
+      return {
+        byKindAndAccount: {
+          ...s.byKindAndAccount,
+          [kind]: {
+            ...s.byKindAndAccount[kind],
+            [accountId]: next,
           },
         },
       };

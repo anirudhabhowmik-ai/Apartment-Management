@@ -1,3 +1,4 @@
+// app/(modals)/mark-payment.tsx
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
@@ -13,7 +14,11 @@ import {
 } from "react-native";
 
 import DatePickerModal from "../../components/DatePickerModal";
-import { useMembers, useStaff } from "../../hooks/useManagement";
+import {
+  useManagementStore,
+  useMembers,
+  useStaff,
+} from "../../hooks/useManagement";
 import { usePayments } from "../../hooks/usePayments";
 import { useAttendanceStore } from "../../store/attendanceStore";
 import type { AttendanceStatus } from "../../types";
@@ -39,7 +44,6 @@ async function apiGet<T>(path: string): Promise<T> {
 
   const token = await getAuthToken();
   const url = `${API_BASE_URL}${MANAGEMENT_PREFIX}${path}`;
-  console.log("apiGet:", url);
 
   const res = await fetch(url, {
     method: "GET",
@@ -72,7 +76,6 @@ async function apiGet<T>(path: string): Promise<T> {
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** URL params can be `string | string[]`; normalize to a plain string. */
 function pickParam(raw: string | string[] | undefined): string {
   if (Array.isArray(raw)) return raw[0] ?? "";
   return typeof raw === "string" ? raw : "";
@@ -95,13 +98,6 @@ const toAmountInput = (raw: unknown): string => {
   return String(truncated);
 };
 
-/**
- * Sanitize what the user types. Keeps only digits and strips leading zeros.
- *   "0"    → ""
- *   "02"   → "2"
- *   "500"  → "500"
- *   "₹500" → "500"
- */
 const sanitizeAmountText = (value: string): string => {
   const digitsOnly = String(value ?? "").replace(/[^0-9]/g, "");
   if (!digitsOnly) return "";
@@ -183,32 +179,25 @@ export default function MarkPaymentScreen() {
   const getAttendanceRecord = useAttendanceStore((state) => state.getRecord);
   const cacheAttendance = useAttendanceStore((state) => state.saveRecord);
   const clearRecord = useAttendanceStore((state) => state.clearRecord);
+  const attendanceVersion = useAttendanceStore((state) => state.version);
 
   const { editPayment, markAsPaid, upsertMemberPayment, upsertStaffPayment } =
     usePayments(accountId || undefined);
 
   const [paidDate, setPaidDate] = useState(defaultPaidDate(paymentMonth));
-
   const [showDatePicker, setShowDatePicker] = useState(false);
 
   const [showAdditionalAmount, setShowAdditionalAmount] = useState(false);
-
   const [additionalAmount, setAdditionalAmount] = useState("");
-
   const [additionalNote, setAdditionalNote] = useState("");
 
   const [showDeduction, setShowDeduction] = useState(false);
-
   const [deductionAmount, setDeductionAmount] = useState("");
-
   const [deductionNote, setDeductionNote] = useState("");
 
   const [paymentStatus, setPaymentStatus] = useState<"paid" | "due">("due");
-
   const [selectedStatus, setSelectedStatus] = useState<"paid" | "due">("due");
-
   const [showStatusOptions, setShowStatusOptions] = useState(false);
-
   const [saving, setSaving] = useState(false);
 
   const [serverAttendance, setServerAttendance] = useState<
@@ -219,9 +208,6 @@ export default function MarkPaymentScreen() {
     | undefined
   >(undefined);
 
-  // -------------------------------------------------------------------------
-  // Fetch attendance from the server whenever this is a staff payment.
-  // -------------------------------------------------------------------------
   useEffect(() => {
     if (!isStaffMember || !accountId || !memberId) return;
 
@@ -237,19 +223,18 @@ export default function MarkPaymentScreen() {
         if (cancelled) return;
 
         if (!data) {
-          clearRecord(memberId, paymentMonth);
+          // Don't clobber a fresh entry written by mark-attendance.
+          const cached = getAttendanceRecord(memberId, paymentMonth);
           setServerAttendance({
-            statuses: {},
-            calculatedSalary: null,
+            statuses: cached?.statuses ?? {},
+            calculatedSalary: cached?.calculatedSalary ?? null,
           });
           return;
         }
 
         const statuses: Record<string, AttendanceStatus> = data?.statuses ?? {};
-
         const rawCalc =
           data?.calculated_salary ?? data?.calculatedSalary ?? null;
-
         const calculatedSalary =
           rawCalc != null && Number.isFinite(Number(rawCalc))
             ? Number(rawCalc)
@@ -262,19 +247,16 @@ export default function MarkPaymentScreen() {
             memberId,
             month: paymentMonth,
             statuses,
+            calculatedSalary,
           });
-        } else {
-          clearRecord(memberId, paymentMonth);
         }
       } catch (error) {
         if (cancelled) return;
         console.warn("Failed to load server attendance, using cache:", error);
         const cached = getAttendanceRecord(memberId, paymentMonth);
-        const fallback: Record<string, AttendanceStatus> =
-          cached?.statuses ?? {};
         setServerAttendance({
-          statuses: fallback,
-          calculatedSalary: null,
+          statuses: cached?.statuses ?? {},
+          calculatedSalary: cached?.calculatedSalary ?? null,
         });
       }
     })();
@@ -283,7 +265,7 @@ export default function MarkPaymentScreen() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accountId, isStaffMember, memberId, paymentMonth]);
+  }, [accountId, isStaffMember, memberId, paymentMonth, attendanceVersion]);
 
   const baseSalary =
     type === "maintenance"
@@ -298,19 +280,33 @@ export default function MarkPaymentScreen() {
     if (!isStaffMember) return null;
     if (!member || !("monthlySalary" in member)) return null;
 
+    const cached = getAttendanceRecord(member.id, paymentMonth);
+
+    // Priority 1: manual override from the store (reactive).
+    if (cached?.calculatedSalary != null) return cached.calculatedSalary;
+
+    // Priority 2: store statuses → auto calc.
+    if (cached?.statuses && Object.keys(cached.statuses).length > 0) {
+      return getCalculatedStaffSalary(
+        member.monthlySalary,
+        paymentMonth,
+        cached.statuses,
+      );
+    }
+
+    // Priority 3: fresh fetch in this modal.
     if (serverAttendance?.calculatedSalary != null) {
       return serverAttendance.calculatedSalary;
     }
 
-    const statuses =
-      serverAttendance?.statuses ??
-      getAttendanceRecord(member.id, paymentMonth)?.statuses;
-
-    if (statuses && Object.keys(statuses).length > 0) {
+    if (
+      serverAttendance?.statuses &&
+      Object.keys(serverAttendance.statuses).length > 0
+    ) {
       return getCalculatedStaffSalary(
         member.monthlySalary,
         paymentMonth,
-        statuses,
+        serverAttendance.statuses,
       );
     }
 
@@ -325,9 +321,7 @@ export default function MarkPaymentScreen() {
   const additionalValue = showAdditionalAmount
     ? Number(additionalAmount) || 0
     : 0;
-
   const deductionValue = showDeduction ? Number(deductionAmount) || 0 : 0;
-
   const netPaidAmount = effectiveBase + additionalValue - deductionValue;
 
   useEffect(() => {
@@ -386,8 +380,6 @@ export default function MarkPaymentScreen() {
     try {
       setSaving(true);
 
-      // Send `null` when the field is empty/zero so the backend stores NULL
-      // instead of 0. Send a positive integer when the user typed something.
       const parsedAdditional = Number(additionalAmount);
       const additionalPayload: number | null | undefined =
         showAdditionalAmount &&
@@ -425,6 +417,41 @@ export default function MarkPaymentScreen() {
         deductionNote: deductionNotePayload,
         month: paymentMonth,
       };
+
+      // ---- Optimistic patch: update the management store FIRST ----
+      if (accountId) {
+        const kind: "apartment" | "staff" = isStaffMember
+          ? "staff"
+          : "apartment";
+        const store = useManagementStore.getState();
+        const bucket = store.byKindAndAccount[kind][accountId] ?? [];
+        const existing = bucket.find((m: any) => m.id === memberId);
+        const existingMonthly =
+          existing?.monthlyPayments &&
+          typeof existing.monthlyPayments === "object"
+            ? existing.monthlyPayments
+            : {};
+
+        store.patchItem(kind, accountId, memberId, {
+          paymentStatus: payload.status,
+          paidDate: payload.paidDate ?? undefined,
+          additionalAmount: payload.additionalAmount ?? undefined,
+          additionalNote: payload.additionalNote ?? undefined,
+          deductionAmount: payload.deductionAmount ?? undefined,
+          deductionNote: payload.deductionNote ?? undefined,
+          monthlyPayments: {
+            ...existingMonthly,
+            [paymentMonth]: {
+              status: payload.status,
+              paidDate: payload.paidDate ?? undefined,
+              additionalAmount: payload.additionalAmount ?? undefined,
+              additionalNote: payload.additionalNote ?? undefined,
+              deductionAmount: payload.deductionAmount ?? undefined,
+              deductionNote: payload.deductionNote ?? undefined,
+            },
+          },
+        });
+      }
 
       if (isStaffMember) {
         await upsertStaffPayment(memberId, paymentMonth, payload);
@@ -512,7 +539,6 @@ export default function MarkPaymentScreen() {
 
           <View style={styles.paymentForRow}>
             <Text style={styles.paymentForLabel}>Payment for</Text>
-
             <Text style={styles.paymentForMonth}>
               {formatMonth(paymentMonth)}
             </Text>
@@ -580,7 +606,6 @@ export default function MarkPaymentScreen() {
                   color="#fff"
                 />
               </View>
-
               <Text
                 style={[
                   styles.statusSelectorText,
@@ -590,7 +615,6 @@ export default function MarkPaymentScreen() {
                 {currentStatusInfo.label}
               </Text>
             </View>
-
             <View style={styles.statusSelectorRight}>
               <Text style={styles.statusChangeHint}>
                 {selectedStatus !== paymentStatus ? "• Pending change" : ""}
@@ -726,7 +750,6 @@ export default function MarkPaymentScreen() {
               size={18}
               color={showAdditionalAmount ? "#dc2626" : "#2563EB"}
             />
-
             <Text
               style={[
                 styles.additionalButtonText,
@@ -752,7 +775,6 @@ export default function MarkPaymentScreen() {
                   setAdditionalAmount(sanitizeAmountText(value))
                 }
               />
-
               <TextInput
                 style={styles.input}
                 placeholder="Note, e.g. bonus or event work"
@@ -773,7 +795,6 @@ export default function MarkPaymentScreen() {
               size={18}
               color={showDeduction ? "#dc2626" : "#2563EB"}
             />
-
             <Text
               style={[
                 styles.additionalButtonText,
@@ -797,7 +818,6 @@ export default function MarkPaymentScreen() {
                   setDeductionAmount(sanitizeAmountText(value))
                 }
               />
-
               <TextInput
                 style={styles.input}
                 placeholder="Note, e.g. advance or absence"
@@ -815,28 +835,24 @@ export default function MarkPaymentScreen() {
                   ? "Amount to Pay"
                   : "Total Amount Received"}
               </Text>
-
               <Text style={styles.netAmountHint}>
                 {selectedStatus === "due"
                   ? "Member needs to pay this amount"
                   : "Total amount received"}
               </Text>
             </View>
-
             <Text style={styles.netAmount}>₹{netPaidAmount}</Text>
           </View>
 
           {selectedStatus === "paid" && (
             <>
               <Text style={styles.label}>Paid Date</Text>
-
               <TouchableOpacity
                 style={styles.dateSelector}
                 onPress={() => setShowDatePicker(true)}
                 activeOpacity={0.7}
               >
                 <Text style={styles.dateText}>{paidDate}</Text>
-
                 <Ionicons name="calendar-outline" size={19} color="#2563EB" />
               </TouchableOpacity>
             </>
@@ -875,7 +891,6 @@ export default function MarkPaymentScreen() {
               size={19}
               color="#fff"
             />
-
             <Text style={styles.saveButtonText}>
               {saving
                 ? "Saving..."
@@ -955,11 +970,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: 10,
   },
-  statusSelectorRight: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
+  statusSelectorRight: { flexDirection: "row", alignItems: "center", gap: 6 },
   statusIconContainer: {
     width: 28,
     height: 28,

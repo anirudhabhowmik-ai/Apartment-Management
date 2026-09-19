@@ -247,13 +247,10 @@ export function usePayments(accountId?: string) {
   useEffect(() => {
     if (!accountId) return;
 
-    // Only fetch once per account, even if this hook is mounted from
-    // multiple components.
     if (lastFetchedAccountRef.current === accountId) return;
     lastFetchedAccountRef.current = accountId;
 
     const load = async (): Promise<void> => {
-      // If the store already has payments for this account, skip the fetch.
       const existing = getPaymentsByAccount(accountId);
       if (existing && existing.length > 0) {
         return;

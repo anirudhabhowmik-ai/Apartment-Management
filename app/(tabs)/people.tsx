@@ -1,3 +1,4 @@
+// app/(tabs)/people.tsx
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
@@ -24,7 +25,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import DatePickerModal from "../../components/DatePickerModal";
 import MonthYearPickerModal from "../../components/MonthYearPickerModal";
 import { useAccounts } from "../../hooks/useAccounts";
-import { useExpenses, useMembers, useStaff } from "../../hooks/useManagement";
+import {
+  useExpenses,
+  useManagementStore,
+  useMembers,
+  useStaff,
+} from "../../hooks/useManagement";
 import { usePayments } from "../../hooks/usePayments";
 import { useUserRole } from "../../hooks/useUserRole";
 import { generateBillPDF, savePDFToDevice } from "../../services/pdfGenerator";
@@ -165,24 +171,15 @@ function parseDateParts(raw: string): {
   day: string;
 } | null {
   if (!raw) return null;
-
   const datePart = String(raw).trim().split(/[T ]/)[0];
   const parts = datePart.split("-");
-
   if (parts.length < 3) return null;
-
   const year = parts[0];
   const month = parts[1];
   const day = parts[2];
-
   if (!year || !month || !day) return null;
   if (year.length !== 4) return null;
-
-  return {
-    year,
-    month: month.padStart(2, "0"),
-    day: day.padStart(2, "0"),
-  };
+  return { year, month: month.padStart(2, "0"), day: day.padStart(2, "0") };
 }
 
 const formatFullDate = (dateStr: string): string => {
@@ -207,16 +204,13 @@ const formatPhoneForDisplay = (raw?: string | null): string => {
 
 const callNumber = async (raw?: string | null) => {
   if (!raw) return;
-
   const digits = String(raw).replace(/\D/g, "");
   const ten = digits.length > 10 ? digits.slice(-10) : digits;
   if (ten.length !== 10) {
     Alert.alert("Invalid number", "This phone number looks incomplete.");
     return;
   }
-
   const url = `tel:+91${ten}`;
-
   try {
     await Linking.openURL(url);
   } catch (error) {
@@ -392,19 +386,25 @@ const resolveDueAmount = (
     getAttendanceRecord: (
       id: string,
       month: string,
-    ) => { statuses?: Record<string, AttendanceStatus> } | undefined;
+    ) =>
+      | {
+          statuses?: Record<string, AttendanceStatus>;
+          calculatedSalary?: number | null;
+        }
+      | undefined;
   },
 ): number => {
-  const raw = member?.due_amount ?? member?.dueAmount;
-  if (raw != null && Number.isFinite(Number(raw))) {
-    return Number(raw);
-  }
-
   const payment = getPaymentForMonth(member, month);
-  if (payment?.netAmount != null) {
+
+  // 1. Trust an explicit netAmount if the backend provided one for the month.
+  if (
+    payment?.netAmount != null &&
+    Number.isFinite(Number(payment.netAmount))
+  ) {
     return Number(payment.netAmount);
   }
 
+  // 2. Compute from base + adjustments.
   const base = opts.isApartmentTab
     ? Number(member?.maintenanceAmount) || 0
     : Number(member?.monthlySalary) || 0;
@@ -412,22 +412,33 @@ const resolveDueAmount = (
   let effectiveBase = base;
   if (opts.isStaffTab && month) {
     const att = opts.getAttendanceRecord(member.id, month);
-    if (att?.statuses && Object.keys(att.statuses).length > 0) {
+    if (att?.calculatedSalary != null) {
+      effectiveBase = att.calculatedSalary;
+    } else if (att?.statuses && Object.keys(att.statuses).length > 0) {
       effectiveBase = getCalculatedStaffSalary(base, month, att.statuses);
     }
   }
 
   const additional = Number(payment?.additionalAmount) || 0;
   const deduction = Number(payment?.deductionAmount) || 0;
-  return Math.max(0, effectiveBase + additional - deduction);
+  const computed = Math.max(0, effectiveBase + additional - deduction);
+
+  // 3. Only fall back to server due_amount if we couldn't compute anything.
+  if (
+    computed === 0 &&
+    month &&
+    payment?.status !== "paid" &&
+    member?.due_amount != null &&
+    Number.isFinite(Number(member.due_amount))
+  ) {
+    return Number(member.due_amount);
+  }
+
+  return computed;
 };
 
-// NEW — a member/staff is considered visible only when it's active.
-// Soft-deleted rows are filtered out here so the UI can never show them,
-// even if the hook decides to include them.
 const isActiveRow = (row: any): boolean => {
   const s = row?.status;
-  // If no status column is present, treat it as active (backward compatible)
   if (s === undefined || s === null || s === "") return true;
   return String(s).toLowerCase() === "active";
 };
@@ -462,6 +473,7 @@ export default function PeopleScreen() {
   const getAttendanceRecord = useAttendanceStore((state) => state.getRecord);
   const cacheAttendance = useAttendanceStore((state) => state.saveRecord);
   const clearRecord = useAttendanceStore((state) => state.clearRecord);
+  const attendanceVersion = useAttendanceStore((state) => state.version);
 
   const { getBillConfig, templates: billTemplates } = useBillStore();
   const { isAdmin, isMember } = useUserRole();
@@ -480,9 +492,7 @@ export default function PeopleScreen() {
   const tabTypes: ManagementType[] = ["apartment", "staff", "expense"];
 
   const [activeTab, setActiveTab] = useState<ManagementType>("apartment");
-
   const [showMonthPicker, setShowMonthPicker] = useState(false);
-
   const [paymentMember, setPaymentMember] = useState<any>(null);
 
   const [modalAttendance, setModalAttendance] = useState<{
@@ -491,27 +501,16 @@ export default function PeopleScreen() {
   } | null>(null);
 
   const [selectedStatus, setSelectedStatus] = useState<"paid" | "due">("due");
-
   const [paidDate, setPaidDate] = useState(defaultPaidDate(null));
-
   const [showPaidDatePicker, setShowPaidDatePicker] = useState(false);
-
   const [showAdditionalAmount, setShowAdditionalAmount] = useState(false);
-
   const [additionalAmount, setAdditionalAmount] = useState("");
-
   const [additionalNote, setAdditionalNote] = useState("");
-
   const [showDeduction, setShowDeduction] = useState(false);
-
   const [deductionAmount, setDeductionAmount] = useState("");
-
   const [deductionNote, setDeductionNote] = useState("");
-
   const [refreshKey, setRefreshKey] = useState(0);
-
   const [saving, setSaving] = useState(false);
-
   const [generatingBill, setGeneratingBill] = useState<string | null>(null);
 
   const [searchQuery, setSearchQuery] = useState<
@@ -589,7 +588,10 @@ export default function PeopleScreen() {
       let cancelled = false;
       (async () => {
         try {
-          await Promise.all([membersHook.refresh(), staffHook.refresh()]);
+          await Promise.all([
+            membersHook.refresh({ force: true }),
+            staffHook.refresh({ force: true }),
+          ]);
         } catch (e) {
           if (!cancelled) console.warn("Focus refresh failed:", e);
         }
@@ -631,16 +633,18 @@ export default function PeopleScreen() {
         if (cancelled) return;
 
         if (!data) {
-          clearRecord(targetMemberId, month);
-          setModalAttendance({ statuses: {}, calculatedSalary: null });
+          // Don't clobber a fresh entry written by mark-attendance.
+          const cached = getAttendanceRecord(targetMemberId, month);
+          setModalAttendance({
+            statuses: cached?.statuses ?? {},
+            calculatedSalary: cached?.calculatedSalary ?? null,
+          });
           return;
         }
 
         const statuses: Record<string, AttendanceStatus> = data?.statuses ?? {};
-
         const rawCalc =
           data?.calculated_salary ?? data?.calculatedSalary ?? null;
-
         const calculatedSalary =
           rawCalc != null && Number.isFinite(Number(rawCalc))
             ? Number(rawCalc)
@@ -653,6 +657,7 @@ export default function PeopleScreen() {
             memberId: targetMemberId,
             month,
             statuses,
+            calculatedSalary,
           });
         }
       } catch (err) {
@@ -661,7 +666,7 @@ export default function PeopleScreen() {
         const cached = getAttendanceRecord(targetMemberId, month);
         setModalAttendance({
           statuses: cached?.statuses ?? {},
-          calculatedSalary: null,
+          calculatedSalary: cached?.calculatedSalary ?? null,
         });
       }
     })();
@@ -670,7 +675,7 @@ export default function PeopleScreen() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paymentMember, selectedMonth, selectedAccountId]);
+  }, [paymentMember, selectedMonth, selectedAccountId, attendanceVersion]);
 
   useEffect(() => {
     if (tab === "apartment" || tab === "staff" || tab === "expense") {
@@ -702,7 +707,8 @@ export default function PeopleScreen() {
     if (staffHook.items.length === 0) return;
     staffHook.items.forEach((s: any) => {
       if (s.attendance_for_month == null) {
-        clearRecord(s.id, selectedMonth);
+        const cached = getAttendanceRecord(s.id, selectedMonth);
+        if (!cached) clearRecord(s.id, selectedMonth);
       }
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -751,7 +757,6 @@ export default function PeopleScreen() {
     );
   }
 
-  // ── Filter soft-deleted rows out of the raw hook lists ──
   const activeMembersSource = membersHook.items.filter(isActiveRow);
   const activeStaffSource = staffHook.items.filter(isActiveRow);
 
@@ -807,6 +812,7 @@ export default function PeopleScreen() {
     activeTab,
     isExpenseTab,
     selectedMonth,
+    attendanceVersion,
   ]);
 
   const month = selectedMonth || new Date().toISOString().slice(0, 7);
@@ -825,30 +831,34 @@ export default function PeopleScreen() {
     if (!isStaffTab || !paymentMember) return null;
     if (!("monthlySalary" in paymentMember)) return null;
 
-    if (modalAttendance?.calculatedSalary != null) {
-      return modalAttendance.calculatedSalary;
+    const base = paymentMember.monthlySalary || 0;
+
+    // Priority 1: manual override from the store (reactive).
+    if (attendanceRecordForModal?.calculatedSalary != null) {
+      return attendanceRecordForModal.calculatedSalary;
     }
 
-    if (
-      modalAttendance?.statuses &&
-      Object.keys(modalAttendance.statuses).length > 0
-    ) {
-      return getCalculatedStaffSalary(
-        paymentMember.monthlySalary || 0,
-        month,
-        modalAttendance.statuses,
-      );
-    }
-
+    // Priority 2: store statuses → auto-calc.
     if (
       attendanceRecordForModal?.statuses &&
       Object.keys(attendanceRecordForModal.statuses).length > 0
     ) {
       return getCalculatedStaffSalary(
-        paymentMember.monthlySalary || 0,
+        base,
         month,
         attendanceRecordForModal.statuses as Record<string, AttendanceStatus>,
       );
+    }
+
+    // Priority 3: fresh fetch in this modal.
+    if (modalAttendance?.calculatedSalary != null) {
+      return modalAttendance.calculatedSalary;
+    }
+    if (
+      modalAttendance?.statuses &&
+      Object.keys(modalAttendance.statuses).length > 0
+    ) {
+      return getCalculatedStaffSalary(base, month, modalAttendance.statuses);
     }
 
     return null;
@@ -915,6 +925,39 @@ export default function PeopleScreen() {
       deductionAmount: deductionAmt,
       deductionNote: showDeduction ? deductionNote.trim() || null : null,
     };
+
+    // ---- Optimistic patch: update the management store FIRST ----
+    const kind: "apartment" | "staff" = isApartmentTab ? "apartment" : "staff";
+    if (selectedAccountId) {
+      const store = useManagementStore.getState();
+      const bucket = store.byKindAndAccount[kind][selectedAccountId] ?? [];
+      const existing = bucket.find((m: any) => m.id === paymentMember.id);
+      const existingMonthly =
+        existing?.monthlyPayments &&
+        typeof existing.monthlyPayments === "object"
+          ? existing.monthlyPayments
+          : {};
+
+      store.patchItem(kind, selectedAccountId, paymentMember.id, {
+        paymentStatus: payload.status,
+        paidDate: payload.paidDate ?? undefined,
+        additionalAmount: payload.additionalAmount ?? undefined,
+        additionalNote: payload.additionalNote ?? undefined,
+        deductionAmount: payload.deductionAmount ?? undefined,
+        deductionNote: payload.deductionNote ?? undefined,
+        monthlyPayments: {
+          ...existingMonthly,
+          [saveMonth]: {
+            status: payload.status,
+            paidDate: payload.paidDate ?? undefined,
+            additionalAmount: payload.additionalAmount ?? undefined,
+            additionalNote: payload.additionalNote ?? undefined,
+            deductionAmount: payload.deductionAmount ?? undefined,
+            deductionNote: payload.deductionNote ?? undefined,
+          },
+        },
+      });
+    }
 
     try {
       if (isApartmentTab) {
@@ -1530,7 +1573,7 @@ export default function PeopleScreen() {
 
                   return (
                     <Pressable
-                      key={`${member.id}-${refreshKey}`}
+                      key={`${member.id}-${refreshKey}-${attendanceVersion}`}
                       style={({ pressed }) => [
                         styles.memberCard,
                         pressed && styles.memberCardPressed,
