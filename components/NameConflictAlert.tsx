@@ -2,12 +2,12 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useCallback, useRef, useState } from "react";
 import {
-    ActivityIndicator,
-    Modal,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Modal,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 
 export interface NameConflictPayload {
@@ -23,6 +23,18 @@ interface ShowOptions extends NameConflictPayload {
 // ---------------------------------------------------------------------------
 // Imperative handle stored at module scope so a single component instance
 // can be driven from anywhere via `confirmNameConflict(...)`.
+//
+// Lifecycle:
+//   1. Caller: await confirmNameConflict({...})      -> modal opens
+//   2. User taps Rename                              -> promise resolves true,
+//                                                       modal stays open,
+//                                                       caller sets busy
+//   3. Caller: setNameConflictBusy(true)             -> spinner on Rename
+//   4. Caller finishes save                          -> closeNameConflict()
+//                                                       modal closes
+//
+//   Or, on Cancel / backdrop tap:
+//      promise resolves false, modal closes immediately.
 // ---------------------------------------------------------------------------
 type Resolver = (confirmed: boolean) => void;
 
@@ -33,8 +45,9 @@ let notifyChange: (() => void) | null = null;
 
 /**
  * Show the alert. Resolves:
- *   true  → user pressed "Continue & rename"
- *   false → user pressed Cancel or dismissed the modal
+ *   true  → user pressed "Rename" (modal stays open; caller must
+ *           call `closeNameConflict()` when done)
+ *   false → user pressed Cancel or dismissed the modal (modal closes)
  */
 export function confirmNameConflict(opts: ShowOptions): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
@@ -45,14 +58,38 @@ export function confirmNameConflict(opts: ShowOptions): Promise<boolean> {
   });
 }
 
-/** Internal: called by the component when the user acts or the modal closes. */
+/** Internal: called when the user acts on the modal. */
 function settle(confirmed: boolean) {
   const r = presentResolver;
+
+  if (confirmed) {
+    // Keep the modal open. Clear the resolver so it can't be called
+    // twice, but leave presentPayload so the modal remains visible
+    // until closeNameConflict() is called.
+    presentResolver = null;
+    presentBusy = true;
+    notifyChange?.();
+    r?.(true);
+    return;
+  }
+
+  // Cancel / dismiss → resolve false and close right away.
   presentResolver = null;
   presentPayload = null;
   presentBusy = false;
   notifyChange?.();
-  r?.(confirmed);
+  r?.(false);
+}
+
+/**
+ * Dismiss the modal after a confirmed action completes.
+ * Safe to call at any time; no-op if nothing is presented.
+ */
+export function closeNameConflict() {
+  presentResolver = null;
+  presentPayload = null;
+  presentBusy = false;
+  notifyChange?.();
 }
 
 /** Internal: lets the host set a "busy" flag while the confirmed request is in flight. */
@@ -62,13 +99,12 @@ export function setNameConflictBusy(busy: boolean) {
 }
 
 // ---------------------------------------------------------------------------
-// Component — mount once near the root of your app (see step 2 below).
+// Component — mount once near the root of your app.
 // ---------------------------------------------------------------------------
 export default function NameConflictAlert() {
   const [, forceRender] = useState(0);
   const modalKeyRef = useRef(0);
 
-  // Re-render whenever the module-scope state changes.
   notifyChange = useCallback(() => {
     forceRender((n) => n + 1);
   }, []);
@@ -76,8 +112,6 @@ export default function NameConflictAlert() {
   const visible = presentPayload !== null;
   const payload = presentPayload;
 
-  // Bump the key each time a new conflict is presented so the modal
-  // mounts fresh (avoids stale animation state).
   if (visible) modalKeyRef.current += 1;
 
   if (!payload) return null;
@@ -91,19 +125,19 @@ export default function NameConflictAlert() {
       visible={visible}
       transparent
       animationType="fade"
-      onRequestClose={() => settle(false)}
+      onRequestClose={() => {
+        if (presentBusy) return;
+        settle(false);
+      }}
     >
       <View style={styles.backdrop}>
         <View style={styles.card}>
-          {/* Icon */}
           <View style={styles.iconWrap}>
             <Ionicons name="warning" size={30} color="#D97706" />
           </View>
 
-          {/* Title */}
           <Text style={styles.title}>This number is already in use</Text>
 
-          {/* Primary line: number + existing name */}
           <View style={styles.numberRow}>
             <View style={styles.numberPill}>
               <Ionicons name="call-outline" size={13} color="#B45309" />
@@ -119,7 +153,6 @@ export default function NameConflictAlert() {
             <Text style={styles.nameSuffixText}>on this account</Text>
           </View>
 
-          {/* Rule */}
           <View style={styles.ruleBox}>
             <Ionicons
               name="information-circle-outline"
@@ -133,7 +166,6 @@ export default function NameConflictAlert() {
             </Text>
           </View>
 
-          {/* Actions */}
           <View style={styles.actions}>
             <TouchableOpacity
               style={[styles.btn, styles.cancelBtn]}
@@ -153,7 +185,14 @@ export default function NameConflictAlert() {
               {presentBusy ? (
                 <ActivityIndicator color="#FFFFFF" size="small" />
               ) : (
-                <Text style={styles.confirmText}>Rename</Text>
+                <>
+                  <Ionicons
+                    name="swap-horizontal-outline"
+                    size={17}
+                    color="#FFFFFF"
+                  />
+                  <Text style={styles.confirmText}>Rename</Text>
+                </>
               )}
             </TouchableOpacity>
           </View>
@@ -161,10 +200,6 @@ export default function NameConflictAlert() {
           <Text style={styles.footnote}>
             Keep name leaves it unchanged. Rename updates this number
             everywhere.
-          </Text>
-
-          <Text style={styles.footnote}>
-            Tap Cancel to keep the existing name and go back.
           </Text>
         </View>
       </View>
@@ -283,13 +318,15 @@ const styles = StyleSheet.create({
     marginTop: 20,
   },
   btn: {
+    flex: 1,
     minHeight: 52,
     borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
+    flexDirection: "row",
+    gap: 7,
   },
   cancelBtn: {
-    flex: 1,
     backgroundColor: "#F1F5F9",
   },
   cancelText: {
@@ -298,7 +335,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   confirmBtn: {
-    flex: 1,
     backgroundColor: "#D97706",
   },
   confirmText: {
