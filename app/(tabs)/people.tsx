@@ -36,6 +36,7 @@ import { useUserRole } from "../../hooks/useUserRole";
 import { generateBillPDF, savePDFToDevice } from "../../services/pdfGenerator";
 import { useAttendanceStore } from "../../store/attendanceStore";
 import { BillMemberType, useBillStore } from "../../store/billStore";
+import { useAuthStore } from "../../store/useAuthStore";
 import type { AttendanceStatus, ManagementType } from "../../types";
 
 // ---------------------------------------------------------------------------
@@ -457,6 +458,8 @@ export default function PeopleScreen() {
   }>();
 
   const { selectedAccountId, selectedAccount } = useAccounts();
+  const { user } = useAuthStore();
+  const myPhone = normalizePhoneForSearch(user?.phone);
 
   const [selectedMonth, setSelectedMonth] = useState<string | null>(
     new Date().toISOString().slice(0, 7),
@@ -1571,6 +1574,12 @@ export default function PeopleScreen() {
                   const txnType = getTransactionTypeLabel(member);
                   const isIncome = txnType === "income";
 
+                  // "You" badge: only meaningful on member/staff tabs.
+                  const isSelf =
+                    !isExpenseTab &&
+                    !!myPhone &&
+                    normalizePhoneForSearch(member.phone) === myPhone;
+
                   return (
                     <Pressable
                       key={`${member.id}-${refreshKey}-${attendanceVersion}`}
@@ -1623,6 +1632,12 @@ export default function PeopleScreen() {
                             <Text style={styles.memberName} numberOfLines={1}>
                               {member.name}
                             </Text>
+
+                            {isSelf ? (
+                              <View style={styles.youBadge}>
+                                <Text style={styles.youBadgeText}>You</Text>
+                              </View>
+                            ) : null}
 
                             {isExpenseTab ? (
                               <>
@@ -2708,6 +2723,22 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     fontWeight: "700",
     color: COLORS.text,
+  },
+  youBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    backgroundColor: "#DCFCE7",
+    borderWidth: 1,
+    borderColor: "#BBF7D0",
+    flexShrink: 0,
+  },
+  youBadgeText: {
+    fontSize: 9,
+    lineHeight: 12,
+    fontWeight: "800",
+    color: "#15803D",
+    letterSpacing: 0.3,
   },
   roleBadge: {
     paddingHorizontal: 6,

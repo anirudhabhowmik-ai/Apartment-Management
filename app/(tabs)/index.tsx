@@ -5,6 +5,7 @@ import * as SecureStore from "expo-secure-store";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Image,
   Modal,
   Pressable,
   RefreshControl,
@@ -19,7 +20,7 @@ import { useAccounts } from "../../hooks/useAccounts";
 import { useExpenses, useMembers, useStaff } from "../../hooks/useManagement";
 import { useUserRole } from "../../hooks/useUserRole";
 import { useAuthStore } from "../../store/useAuthStore";
-import type { Member } from "../../types";
+import type { FlatOwner, Member, Staff } from "../../types";
 import { PaymentCategory } from "../../types/payment";
 
 /* ========================================================================== */
@@ -260,6 +261,22 @@ function getTransactionType(txn: any): TransactionType {
   if (raw === "expense") return "expense";
   if (txn?.category === "maintenance") return "income";
   return "expense";
+}
+
+/* -------------------------------------------------------------------------- */
+/* TYPE GUARDS                                                                 */
+/* -------------------------------------------------------------------------- */
+//
+// The `Member` union is FlatOwner | Staff | ExpenseEntry. The Home screen
+// only ever shows FlatOwner and Staff records, so we narrow with these
+// guards before reading owner-only / staff-only fields.
+
+function isFlatOwner(m: Member): m is FlatOwner {
+  return "maintenanceAmount" in m && "flatNumber" in m;
+}
+
+function isStaffMember(m: Member): m is Staff {
+  return "monthlySalary" in m;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -544,145 +561,86 @@ function FinancialCard({
 }
 
 /* ========================================================================== */
-/* MEMBER PERSONAL CARD                                                       */
+/* PROFILE CARD                                                               */
 /* ========================================================================== */
 
-function MemberPersonalCard({
-  member,
-  onEdit,
+function ProfileCard({
+  user,
+  fallbackName,
+  fallbackPhotoUri,
 }: {
-  member: any;
-  onEdit: () => void;
+  user: any;
+  fallbackName?: string;
+  fallbackPhotoUri?: string | null;
 }) {
-  const memberName = member?.name || "Resident";
-
-  const unit =
-    member?.unit ||
-    [
-      member?.wing,
-      member?.flatNumber || member?.apartmentNumber || member?.unitNumber,
-    ]
-      .filter(Boolean)
-      .join(" · ") ||
-    "N/A";
-
-  const maintenanceAmount = member?.maintenanceAmount || 0;
+  const displayName = fallbackName || "My Profile";
+  const rawPhone = normalizePhone(user?.phone);
+  const photo = fallbackPhotoUri || null;
+  const initial = displayName.charAt(0)?.toUpperCase() || "?";
 
   return (
-    <View style={styles.personalCard}>
-      <View style={styles.personalHeader}>
-        <View style={styles.personalAvatar}>
-          <Text style={styles.personalInitial}>
-            {memberName.charAt(0)?.toUpperCase() || "?"}
-          </Text>
+    <View style={styles.profileCard}>
+      <View style={styles.profileHeader}>
+        <View style={styles.profileAvatar}>
+          {photo ? (
+            <Image source={{ uri: photo }} style={styles.profileAvatarImage} />
+          ) : (
+            <Text style={styles.profileInitial}>{initial}</Text>
+          )}
         </View>
-        <View style={styles.personalInfo}>
-          <Text style={styles.personalName}>{memberName}</Text>
-          <View style={styles.personalRoleRow}>
-            <Ionicons name="home-outline" size={14} color="#64748B" />
-            <Text style={styles.personalRole}>Apartment Owner</Text>
+        <View style={styles.profileInfo}>
+          <Text style={styles.profileName} numberOfLines={1}>
+            {displayName}
+          </Text>
+          <View style={styles.profilePhoneRow}>
+            <Ionicons name="call-outline" size={13} color="#64748B" />
+            <Text style={styles.profilePhone}>
+              {rawPhone ? `+91 ${rawPhone}` : "No phone on file"}
+            </Text>
           </View>
         </View>
       </View>
-      <View style={styles.personalDetails}>
-        <View style={styles.personalDetailItem}>
-          <Ionicons name="location-outline" size={16} color="#64748B" />
-          <Text style={styles.personalDetailLabel}>Unit</Text>
-          <Text style={styles.personalDetailValue}>{unit}</Text>
-        </View>
-        <View style={styles.personalDetailItem}>
-          <Ionicons name="cash-outline" size={16} color="#64748B" />
-          <Text style={styles.personalDetailLabel}>Maintenance</Text>
-          <Text style={styles.personalDetailValue}>
-            {formatCurrency(maintenanceAmount)}
-          </Text>
-        </View>
-      </View>
-      <Pressable
-        style={({ pressed }) => [
-          styles.personalEditButton,
-          pressed && styles.pressed,
-        ]}
-        onPress={onEdit}
-      >
-        <Ionicons name="create-outline" size={16} color="#2563EB" />
-        <Text style={styles.personalEditText}>View My Details</Text>
-      </Pressable>
     </View>
   );
 }
 
 /* ========================================================================== */
-/* STAFF PERSONAL CARD                                                        */
+/* MY ROLE ROW                                                                */
 /* ========================================================================== */
 
-function StaffPersonalCard({
-  staff,
-  onEdit,
+function MyRoleRow({
+  icon,
+  iconColor,
+  iconBg,
+  title,
+  subtitle,
+  onPress,
 }: {
-  staff: any;
-  onEdit: () => void;
+  icon: keyof typeof Ionicons.glyphMap;
+  iconColor: string;
+  iconBg: string;
+  title: string;
+  subtitle: string;
+  onPress: () => void;
 }) {
-  const roleColor = getRoleColor(staff?.role);
-  const roleLabel = getRoleLabel(staff?.role);
-
-  const joinedDateDisplay = (() => {
-    if (staff?.joinedDate) return String(staff.joinedDate);
-    if (staff?.createdAt) {
-      const d = new Date(staff.createdAt);
-      if (!isNaN(d.getTime())) {
-        const y = d.getFullYear();
-        const m = String(d.getMonth() + 1).padStart(2, "0");
-        const dd = String(d.getDate()).padStart(2, "0");
-        return `${y}-${m}-${dd}`;
-      }
-    }
-    return "N/A";
-  })();
-
   return (
-    <View style={styles.personalCard}>
-      <View style={styles.personalHeader}>
-        <View
-          style={[styles.personalAvatar, { backgroundColor: `${roleColor}12` }]}
-        >
-          <Text style={[styles.personalInitial, { color: roleColor }]}>
-            {staff?.name?.charAt(0)?.toUpperCase() || "?"}
-          </Text>
-        </View>
-        <View style={styles.personalInfo}>
-          <Text style={styles.personalName}>{staff?.name || "Staff"}</Text>
-          <View style={styles.personalRoleRow}>
-            <View style={[styles.roleDot, { backgroundColor: roleColor }]} />
-            <Text style={styles.personalRole}>{roleLabel}</Text>
-          </View>
-        </View>
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [styles.roleRow, pressed && styles.pressed]}
+    >
+      <View style={[styles.roleRowIcon, { backgroundColor: iconBg }]}>
+        <Ionicons name={icon} size={18} color={iconColor} />
       </View>
-      <View style={styles.personalDetails}>
-        <View style={styles.personalDetailItem}>
-          <Ionicons name="calendar-outline" size={16} color="#64748B" />
-          <Text style={styles.personalDetailLabel}>Joined</Text>
-          <Text style={styles.personalDetailValue}>{joinedDateDisplay}</Text>
-        </View>
-        <View style={styles.personalDetailItem}>
-          <Ionicons name="cash-outline" size={16} color="#64748B" />
-          <Text style={styles.personalDetailLabel}>Salary</Text>
-          <Text style={styles.personalDetailValue}>
-            {staff?.monthlySalary ? formatCurrency(staff.monthlySalary) : "N/A"}
-          </Text>
-        </View>
+      <View style={styles.roleRowInfo}>
+        <Text style={styles.roleRowTitle} numberOfLines={1}>
+          {title}
+        </Text>
+        <Text style={styles.roleRowSubtitle} numberOfLines={1}>
+          {subtitle}
+        </Text>
       </View>
-      <Pressable
-        style={({ pressed }) => [
-          styles.personalEditButton,
-          pressed && styles.pressed,
-        ]}
-        onPress={onEdit}
-      >
-        <Ionicons name="create-outline" size={16} color="#2563EB" />
-        <Text style={styles.personalEditText}>View My Details</Text>
-      </Pressable>
-    </View>
+      <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
+    </Pressable>
   );
 }
 
@@ -1210,9 +1168,7 @@ export default function HomeScreen() {
 
   // Lightweight refresh of member/staff caches on focus, so the Home
   // screen stays consistent with any edits made on other screens or by
-  // other admins. Non-forced would only fetch when the cache is empty;
-  // we use force here to guarantee consistency (drop `force: true` if
-  // you want to reduce network calls).
+  // other admins. Drop `force: true` if you want to reduce network calls.
   useFocusEffect(
     useCallback(() => {
       if (!accountId) return;
@@ -1320,27 +1276,46 @@ export default function HomeScreen() {
   //
   // A single phone can belong to multiple member records (owns more than
   // one flat) or multiple staff records (works multiple roles). We return
-  // ALL matches so each one renders its own card.
+  // ALL matches so each one renders its own role row.
+  //
+  // `apartmentMembers` and `staffMembers` are typed as `Member[]` (the
+  // union). We narrow to `FlatOwner[]` / `Staff[]` with type guards so
+  // owner-only / staff-only fields are safely accessible downstream.
 
-  const matchedMemberProfiles = useMemo(() => {
+  const matchedMemberProfiles = useMemo<FlatOwner[]>(() => {
     if (!user || !selectedAccount) return [];
     const target = normalizePhone(user.phone);
     if (!target) return [];
 
-    return apartmentMembers.filter(
-      (member) => normalizePhone(member.phone || "") === target,
-    );
+    return apartmentMembers
+      .filter(isFlatOwner)
+      .filter((member) => normalizePhone(member.phone || "") === target);
   }, [user, selectedAccount, apartmentMembers]);
 
-  const matchedStaffProfiles = useMemo(() => {
+  const matchedStaffProfiles = useMemo<Staff[]>(() => {
     if (!user || !selectedAccount) return [];
     const target = normalizePhone(user.phone);
     if (!target) return [];
 
-    return staffMembers.filter(
-      (staff) => normalizePhone(staff.phone || "") === target,
-    );
+    return staffMembers
+      .filter(isStaffMember)
+      .filter((staff) => normalizePhone(staff.phone || "") === target);
   }, [user, selectedAccount, staffMembers]);
+
+  const hasAnyProfile =
+    matchedMemberProfiles.length > 0 || matchedStaffProfiles.length > 0;
+
+  // Profile card derives its name/photo from the first matched row.
+  // If no rows match, the card falls back to a neutral label and the
+  // phone from the auth user.
+  const profileFallbackName =
+    matchedMemberProfiles[0]?.name ??
+    matchedStaffProfiles[0]?.name ??
+    undefined;
+  const profileFallbackPhotoUri =
+    matchedMemberProfiles[0]?.photoUri ??
+    matchedStaffProfiles[0]?.photoUri ??
+    null;
 
   const dashboardData = useMemo(() => {
     const emptyData = {
@@ -1560,14 +1535,76 @@ export default function HomeScreen() {
         ? "Staff Portal"
         : "Portal";
 
+  /* ------------------------------------------------------------------ */
+  /* Profile block — rendered identically on admin and non-admin views  */
+  /* ------------------------------------------------------------------ */
+
+  const renderProfileBlock = () => {
+    return (
+      <>
+        <ProfileCard
+          user={user}
+          fallbackName={profileFallbackName}
+          fallbackPhotoUri={profileFallbackPhotoUri}
+        />
+
+        {hasAnyProfile ? (
+          <View style={styles.rolesSection}>
+            <Text style={styles.rolesSectionTitle}>
+              My Roles on this Property
+            </Text>
+
+            {matchedMemberProfiles.map((member) => {
+              const unit =
+                member.unit ||
+                [member.wing, member.flatNumber].filter(Boolean).join(" · ") ||
+                "Flat";
+              const roleLabel = member.role
+                ? member.role.charAt(0).toUpperCase() + member.role.slice(1)
+                : "Member";
+              return (
+                <MyRoleRow
+                  key={`member-${member.id}`}
+                  icon="home-outline"
+                  iconColor="#2563EB"
+                  iconBg="#EFF6FF"
+                  title={`${roleLabel} · ${unit}`}
+                  subtitle={`Maintenance ${formatCurrency(
+                    member.maintenanceAmount || 0,
+                  )} / month`}
+                  onPress={() => handleMemberPress(member)}
+                />
+              );
+            })}
+
+            {matchedStaffProfiles.map((staff) => {
+              const color = getRoleColor(staff.role);
+              const label = getRoleLabel(staff.role);
+              return (
+                <MyRoleRow
+                  key={`staff-${staff.id}`}
+                  icon="briefcase-outline"
+                  iconColor={color}
+                  iconBg={`${color}12`}
+                  title={label}
+                  subtitle={`Salary ${formatCurrency(
+                    staff.monthlySalary || 0,
+                  )} / month`}
+                  onPress={() => handleStaffPress(staff)}
+                />
+              );
+            })}
+          </View>
+        ) : null}
+      </>
+    );
+  };
+
   /* ======================================================================== */
   /* NON-ADMIN VIEW                                                           */
   /* ======================================================================== */
 
   if (!isAdmin && (isMember || isStaff)) {
-    const hasAnyProfile =
-      matchedMemberProfiles.length > 0 || matchedStaffProfiles.length > 0;
-
     return (
       <View style={styles.container}>
         <ScrollView
@@ -1601,33 +1638,7 @@ export default function HomeScreen() {
             </View>
           </View>
 
-          {matchedMemberProfiles.map((member) => (
-            <MemberPersonalCard
-              key={`member-${member.id}`}
-              member={member}
-              onEdit={() => handleMemberPress(member)}
-            />
-          ))}
-
-          {matchedStaffProfiles.map((staff) => (
-            <StaffPersonalCard
-              key={`staff-${staff.id}`}
-              staff={staff}
-              onEdit={() => handleStaffPress(staff)}
-            />
-          ))}
-
-          {!hasAnyProfile ? (
-            <View style={styles.emptyStateContainer}>
-              <View style={styles.emptyIconCircle}>
-                <Ionicons name="person-outline" size={42} color="#94A3B8" />
-              </View>
-              <Text style={styles.emptyTitle}>No profile found</Text>
-              <Text style={styles.emptySubtitle}>
-                Please contact your administrator to set up your profile.
-              </Text>
-            </View>
-          ) : null}
+          {renderProfileBlock()}
 
           {isStaff ? (
             <View style={styles.section}>
@@ -1786,21 +1797,7 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {matchedMemberProfiles.map((member) => (
-          <MemberPersonalCard
-            key={`member-${member.id}`}
-            member={member}
-            onEdit={() => handleMemberPress(member)}
-          />
-        ))}
-
-        {matchedStaffProfiles.map((staff) => (
-          <StaffPersonalCard
-            key={`staff-${staff.id}`}
-            staff={staff}
-            onEdit={() => handleStaffPress(staff)}
-          />
-        ))}
+        {renderProfileBlock()}
 
         {showAttendance ? (
           <View style={styles.section}>
@@ -2063,6 +2060,79 @@ const styles = StyleSheet.create({
   },
   monthText: { fontSize: 12, color: "#94A3B8" },
 
+  /* PROFILE CARD */
+  profileCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    padding: 18,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.05,
+    shadowRadius: 14,
+    elevation: 2,
+  },
+  profileHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  profileAvatar: {
+    width: 62,
+    height: 62,
+    borderRadius: 20,
+    backgroundColor: "#EFF6FF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 14,
+    overflow: "hidden",
+  },
+  profileAvatarImage: { width: "100%", height: "100%" },
+  profileInitial: { fontSize: 24, fontWeight: "800", color: "#2563EB" },
+  profileInfo: { flex: 1, minWidth: 0 },
+  profileName: { fontSize: 19, fontWeight: "800", color: "#0F172A" },
+  profilePhoneRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 5,
+    gap: 5,
+  },
+  profilePhone: { fontSize: 13, color: "#64748B", fontWeight: "500" },
+
+  /* ROLES LIST */
+  rolesSection: { marginBottom: 22 },
+  rolesSectionTitle: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#475569",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+    marginBottom: 9,
+    marginLeft: 2,
+  },
+  roleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    padding: 13,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  roleRowIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+  roleRowInfo: { flex: 1, minWidth: 0 },
+  roleRowTitle: { fontSize: 14, fontWeight: "700", color: "#0F172A" },
+  roleRowSubtitle: { fontSize: 12, color: "#64748B", marginTop: 3 },
+
   /* PENDING ADMIN OFFER BANNER */
   offersSection: { marginBottom: 14, gap: 10 },
   offerBanner: {
@@ -2290,77 +2360,6 @@ const styles = StyleSheet.create({
   financialLabel: { fontSize: 11, color: "#64748B", fontWeight: "600" },
   financialAmount: { fontSize: 17, fontWeight: "800", marginTop: 5 },
   financialPeriod: { fontSize: 10, color: "#94A3B8", marginTop: 4 },
-
-  /* PERSONAL CARD */
-  personalCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 22,
-    padding: 20,
-    marginBottom: 20,
-    borderWidth: 1,
-    borderColor: "#E2E8F0",
-    shadowColor: "#0F172A",
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.06,
-    shadowRadius: 18,
-    elevation: 3,
-  },
-  personalHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 16,
-  },
-  personalAvatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 20,
-    backgroundColor: "#EFF6FF",
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 14,
-  },
-  personalInitial: { fontSize: 24, fontWeight: "800", color: "#2563EB" },
-  personalInfo: { flex: 1 },
-  personalName: { fontSize: 18, fontWeight: "800", color: "#0F172A" },
-  personalRoleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 4,
-    gap: 4,
-  },
-  personalRole: { fontSize: 13, color: "#64748B", fontWeight: "500" },
-
-  roleDot: { width: 6, height: 6, borderRadius: 3, marginRight: 6 },
-
-  personalDetails: {
-    flexDirection: "row",
-    gap: 16,
-    marginBottom: 16,
-    paddingVertical: 12,
-    borderTopWidth: 1,
-    borderTopColor: "#F1F5F9",
-    borderBottomWidth: 1,
-    borderBottomColor: "#F1F5F9",
-  },
-  personalDetailItem: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    flexWrap: "wrap",
-    gap: 4,
-  },
-  personalDetailLabel: { fontSize: 11, color: "#94A3B8", marginLeft: 4 },
-  personalDetailValue: { fontSize: 12, fontWeight: "600", color: "#334155" },
-  personalEditButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 10,
-    borderRadius: 12,
-    backgroundColor: "#EFF6FF",
-    gap: 6,
-  },
-  personalEditText: { fontSize: 13, fontWeight: "600", color: "#2563EB" },
 
   /* ATTENDANCE */
   attendanceCard: {
