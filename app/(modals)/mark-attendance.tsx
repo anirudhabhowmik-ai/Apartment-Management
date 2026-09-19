@@ -21,10 +21,6 @@ import { useAccountStore } from "../../store/accountStore";
 import { useAttendanceStore } from "../../store/attendanceStore";
 import type { AttendanceStatus } from "../../types";
 
-// ---------------------------------------------------------------------------
-// Inline fetch helpers
-// ---------------------------------------------------------------------------
-
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
 const AUTH_TOKEN_KEY = "auth_token";
 const MANAGEMENT_PREFIX = "/management";
@@ -118,10 +114,6 @@ async function apiPut<T>(path: string, body: unknown): Promise<T> {
   return data as T;
 }
 
-// ---------------------------------------------------------------------------
-// Constants and helpers
-// ---------------------------------------------------------------------------
-
 const STATUS_OPTIONS: AttendanceStatus[] = [
   "present",
   "absent",
@@ -194,10 +186,6 @@ function getInitialSelectedDay(month: string): number {
   return 1;
 }
 
-// ---------------------------------------------------------------------------
-// Screen
-// ---------------------------------------------------------------------------
-
 export default function MarkAttendanceScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -244,10 +232,6 @@ export default function MarkAttendanceScreen() {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
 
-  // -------------------------------------------------------------------------
-  // Salary editing
-  // -------------------------------------------------------------------------
-
   const [calculatedSalaryText, setCalculatedSalaryText] = useState("");
 
   const [manualOverride, setManualOverride] = useState(false);
@@ -292,8 +276,6 @@ export default function MarkAttendanceScreen() {
 
   const didInitialiseRef = useRef(false);
 
-  // Keep calculated salary synchronized with attendance
-  // unless the user manually overrides it.
   useEffect(() => {
     if (!didInitialiseRef.current) return;
 
@@ -301,10 +283,6 @@ export default function MarkAttendanceScreen() {
 
     setCalculatedSalaryText(String(autoCalculatedSalary));
   }, [autoCalculatedSalary, manualOverride]);
-
-  // -------------------------------------------------------------------------
-  // Load attendance
-  // -------------------------------------------------------------------------
 
   useEffect(() => {
     if (!memberId || !accountId) {
@@ -424,10 +402,6 @@ export default function MarkAttendanceScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountId, memberId, attendanceMonth]);
 
-  // -------------------------------------------------------------------------
-  // Attendance actions
-  // -------------------------------------------------------------------------
-
   const invalidateOverride = () => {
     setManualOverride(false);
   };
@@ -442,10 +416,6 @@ export default function MarkAttendanceScreen() {
 
     setEditing(false);
   };
-
-  // -------------------------------------------------------------------------
-  // Salary actions
-  // -------------------------------------------------------------------------
 
   const handleSalaryTextChange = (value: string) => {
     const digits = value.replace(/[^0-9]/g, "");
@@ -485,10 +455,6 @@ export default function MarkAttendanceScreen() {
     setEditing(false);
   };
 
-  // -------------------------------------------------------------------------
-  // Save attendance
-  // -------------------------------------------------------------------------
-
   const handleSave = useCallback(async () => {
     if (!memberId || !member || !accountId) {
       Alert.alert("Missing staff", "This staff member could not be found.");
@@ -499,7 +465,6 @@ export default function MarkAttendanceScreen() {
     try {
       setSaving(true);
 
-      // Materialize the FULL month's statuses so the server sees every day.
       const fullStatuses: Record<string, AttendanceStatus> = {};
 
       for (let day = 1; day <= totalDays; day++) {
@@ -513,7 +478,6 @@ export default function MarkAttendanceScreen() {
         statuses: fullStatuses,
       };
 
-      // Send manually edited salary.
       if (manualOverride || numericCalculatedSalary !== autoCalculatedSalary) {
         body.calculated_salary = numericCalculatedSalary;
       }
@@ -523,6 +487,9 @@ export default function MarkAttendanceScreen() {
         body,
       );
 
+      // Update the shared attendance store BEFORE navigating back, so
+      // the People screen's rows recompute `dueAmount` on their next
+      // render without a second pass.
       saveRecordToStore({
         memberId,
         month: attendanceMonth,
@@ -556,10 +523,6 @@ export default function MarkAttendanceScreen() {
     totalDays,
   ]);
 
-  // -------------------------------------------------------------------------
-  // Missing staff
-  // -------------------------------------------------------------------------
-
   if (!member) {
     return (
       <View style={styles.missingWrap}>
@@ -587,10 +550,6 @@ export default function MarkAttendanceScreen() {
     );
   }
 
-  // -------------------------------------------------------------------------
-  // Loading
-  // -------------------------------------------------------------------------
-
   if (loading) {
     return (
       <View style={styles.missingWrap}>
@@ -606,10 +565,6 @@ export default function MarkAttendanceScreen() {
       </View>
     );
   }
-
-  // -------------------------------------------------------------------------
-  // Main UI
-  // -------------------------------------------------------------------------
 
   return (
     <KeyboardAvoidingView
@@ -828,10 +783,6 @@ export default function MarkAttendanceScreen() {
     </KeyboardAvoidingView>
   );
 }
-
-// ---------------------------------------------------------------------------
-// Styles
-// ---------------------------------------------------------------------------
 
 const styles = StyleSheet.create({
   flexOne: {

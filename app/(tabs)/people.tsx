@@ -924,8 +924,8 @@ export default function PeopleScreen() {
       }
 
       try {
-        if (isApartmentTab) await membersHook.refresh();
-        else if (isStaffTab) await staffHook.refresh();
+        if (isApartmentTab) await membersHook.refresh({ force: true });
+        else if (isStaffTab) await staffHook.refresh({ force: true });
       } catch (refreshErr) {
         console.warn("Post-save refresh failed:", refreshErr);
       }

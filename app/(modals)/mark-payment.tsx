@@ -455,8 +455,8 @@ export default function MarkPaymentScreen() {
       }
 
       try {
-        if (isStaffMember) await staffHook.refresh();
-        else await membersHook.refresh();
+        if (isStaffMember) await staffHook.refresh({ force: true });
+        else await membersHook.refresh({ force: true });
       } catch (refreshError) {
         console.warn("Post-save refresh failed:", refreshError);
       }
