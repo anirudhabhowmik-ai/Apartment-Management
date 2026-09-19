@@ -1,7 +1,8 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
+import { useIsFocused } from "expo-router/react-navigation";
 import * as SecureStore from "expo-secure-store";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -52,6 +53,17 @@ type OpeningBalanceResponse = {
   updated_by_phone?: string | null;
   updated_at: string | null;
   can_edit?: boolean;
+};
+
+/** A pending admin offer for an account the user already belongs to. */
+type PendingAdminOffer = {
+  id: string;
+  account_id: string;
+  account_name: string;
+  account_photo_url: string | null;
+  invited_name: string | null;
+  invited_by_phone: string | null;
+  created_at: string;
 };
 
 /* ========================================================================== */
@@ -258,7 +270,7 @@ function getTransactionType(txn: any): TransactionType {
 type PaidEntry = {
   category: PaymentCategory;
   amount: number;
-  paidDate: string; // used for monthly bucketing
+  paidDate: string;
 };
 
 function collectMemberPaidEntries(members: any[]): PaidEntry[] {
@@ -311,7 +323,6 @@ function collectMemberPaidEntries(members: any[]): PaidEntry[] {
 /* FINANCE calculations                                                        */
 /* -------------------------------------------------------------------------- */
 
-/** Monthly paid income/expense for a specific month. */
 function computeMonthlyFinance(
   members: any[],
   expenses: any[],
@@ -343,7 +354,6 @@ function computeMonthlyFinance(
   return { income, expense, net: income - expense };
 }
 
-/** All-time paid income/expense across every month. */
 function computeAllTimeFinance(
   members: any[],
   expenses: any[],
@@ -655,6 +665,75 @@ function StaffPersonalCard({
         <Ionicons name="create-outline" size={16} color="#2563EB" />
         <Text style={styles.personalEditText}>View My Details</Text>
       </Pressable>
+    </View>
+  );
+}
+
+/* ========================================================================== */
+/* PENDING ADMIN OFFER BANNER                                                 */
+/* ========================================================================== */
+
+function PendingAdminOfferBanner({
+  offer,
+  busy,
+  onAccept,
+  onReject,
+}: {
+  offer: PendingAdminOffer;
+  busy: boolean;
+  onAccept: () => void;
+  onReject: () => void;
+}) {
+  return (
+    <View style={styles.offerBanner}>
+      <View style={styles.offerBannerHeader}>
+        <View style={styles.offerBannerIcon}>
+          <Ionicons name="shield-checkmark" size={20} color="#7C3AED" />
+        </View>
+        <View style={styles.offerBannerHeaderText}>
+          <Text style={styles.offerBannerTitle} numberOfLines={1}>
+            Admin offer · {offer.account_name || "this account"}
+          </Text>
+          <Text style={styles.offerBannerSubtitle} numberOfLines={2}>
+            You already have access here. The owner wants to add Admin on top of
+            your current roles.
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.offerBannerActions}>
+        <TouchableOpacity
+          style={[styles.offerBannerBtn, styles.offerBannerReject]}
+          onPress={onReject}
+          activeOpacity={0.8}
+          disabled={busy}
+        >
+          {busy ? (
+            <ActivityIndicator size="small" color="#DC2626" />
+          ) : (
+            <>
+              <Ionicons name="close-outline" size={16} color="#DC2626" />
+              <Text style={styles.offerBannerRejectText}>Reject</Text>
+            </>
+          )}
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.offerBannerBtn, styles.offerBannerAccept]}
+          onPress={onAccept}
+          activeOpacity={0.85}
+          disabled={busy}
+        >
+          {busy ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <>
+              <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+              <Text style={styles.offerBannerAcceptText}>Accept</Text>
+            </>
+          )}
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -988,11 +1067,13 @@ function AttendanceSection({
 
 export default function HomeScreen() {
   const router = useRouter();
+  const isFocused = useIsFocused();
 
   const {
     accounts,
     selectedAccount,
     isLoading: accountsLoading,
+    refresh: refreshAccounts,
   } = useAccounts();
 
   const accountId = selectedAccount?.id ?? null;
@@ -1017,9 +1098,151 @@ export default function HomeScreen() {
   const [attYear, setAttYear] = useState(now.getFullYear());
   const [attMonth, setAttMonth] = useState(now.getMonth());
 
+  // ── Pending admin offers for accounts the user already belongs to ──
+  const [pendingAdminOffers, setPendingAdminOffers] = useState<
+    PendingAdminOffer[]
+  >([]);
+  const [offersLoading, setOffersLoading] = useState(false);
+  const [busyOfferId, setBusyOfferId] = useState<string | null>(null);
+
+  // Stable key: only changes when the set of account ids changes.
+  // Prevents the offers loader from being re-created on every render,
+  // which was causing an infinite fetch loop.
+  const accountIdsKey = useMemo(
+    () =>
+      accounts
+        .map((a) => a.id)
+        .sort()
+        .join(","),
+    [accounts],
+  );
+
   const handleChangeAttendanceMonth = (y: number, m: number) => {
     setAttYear(y);
     setAttMonth(m);
+  };
+
+  /* ------------------------------------------------------------------------ */
+  /* FETCH PENDING ADMIN OFFERS                                               */
+  /* ------------------------------------------------------------------------ */
+
+  const loadPendingAdminOffers = useCallback(async () => {
+    if (!user?.phone) {
+      setPendingAdminOffers([]);
+      return;
+    }
+
+    const token = await getAuthToken();
+    if (!token) {
+      setPendingAdminOffers([]);
+      return;
+    }
+
+    setOffersLoading(true);
+    try {
+      const url = `${API_BASE_URL}/me/invitations`;
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        setPendingAdminOffers([]);
+        return;
+      }
+
+      const data: any = await res.json();
+      const rows: any[] = Array.isArray(data?.invitations)
+        ? data.invitations
+        : [];
+
+      const myAccountIds = new Set(
+        accountIdsKey ? accountIdsKey.split(",") : [],
+      );
+
+      const offers: PendingAdminOffer[] = rows
+        .filter((r) => {
+          if (!r) return false;
+          if (r.role !== "admin") return false;
+          if (r.status !== "pending") return false;
+          if (!myAccountIds.has(r.account_id)) return false;
+          return true;
+        })
+        .map((r) => ({
+          id: r.id,
+          account_id: r.account_id,
+          account_name: r.account_name ?? "",
+          account_photo_url: r.account_photo_url ?? null,
+          invited_name: r.invited_name ?? null,
+          invited_by_phone: r.invited_by_phone ?? null,
+          created_at: r.created_at ?? "",
+        }));
+
+      setPendingAdminOffers(offers);
+    } catch (e) {
+      console.warn("[home] loadPendingAdminOffers failed:", e);
+      setPendingAdminOffers([]);
+    } finally {
+      setOffersLoading(false);
+    }
+  }, [user?.phone, accountIdsKey]);
+
+  // Single effect: refetch when the screen gains focus OR when the
+  // account-id set changes. No more duplicate calls.
+  useEffect(() => {
+    if (isFocused) {
+      loadPendingAdminOffers();
+    }
+  }, [isFocused, loadPendingAdminOffers]);
+
+  const handleAcceptOffer = async (offer: PendingAdminOffer) => {
+    const token = await getAuthToken();
+    if (!token) return;
+    setBusyOfferId(offer.id);
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/invitations/${offer.id}/accept`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+      if (!res.ok) {
+        // If already handled elsewhere, just refresh the list.
+        await loadPendingAdminOffers();
+        return;
+      }
+      // Optimistically remove this banner.
+      setPendingAdminOffers((prev) => prev.filter((o) => o.id !== offer.id));
+      // Refresh accounts so the new admin role is reflected.
+      await refreshAccounts();
+    } catch (e) {
+      console.warn("[home] accept offer failed:", e);
+    } finally {
+      setBusyOfferId(null);
+    }
+  };
+
+  const handleRejectOffer = async (offer: PendingAdminOffer) => {
+    const token = await getAuthToken();
+    if (!token) return;
+    setBusyOfferId(offer.id);
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/invitations/${offer.id}/reject`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+      if (!res.ok) {
+        await loadPendingAdminOffers();
+        return;
+      }
+      setPendingAdminOffers((prev) => prev.filter((o) => o.id !== offer.id));
+    } catch (e) {
+      console.warn("[home] reject offer failed:", e);
+    } finally {
+      setBusyOfferId(null);
+    }
   };
 
   /* ------------------------------------------------------------------------ */
@@ -1135,14 +1358,10 @@ export default function HomeScreen() {
   /* FINANCE NUMBERS                                                          */
   /* ------------------------------------------------------------------------ */
 
-  // TOP blue card = MONTHLY net, includes opening balance.
-  // Net = opening_balance + (this_month_income − this_month_expense)
   const monthlyNet =
     openingBalance + (stats.monthlyIncome - stats.monthlyExpense);
   const isMonthlyPositive = monthlyNet >= 0;
 
-  // BOTTOM Financial Overview = ALL-TIME / overall totals,
-  // with Net Balance also including opening balance.
   const overallIncome = allTime.income;
   const overallExpense = allTime.expense;
   const overallNet = openingBalance + allTime.net;
@@ -1155,6 +1374,7 @@ export default function HomeScreen() {
   const onRefresh = async () => {
     setRefreshing(true);
     try {
+      await loadPendingAdminOffers();
       if (selectedAccount?.id) {
         try {
           const data = await openingBalanceRequest<OpeningBalanceResponse>(
@@ -1295,6 +1515,27 @@ export default function HomeScreen() {
   const accountTypeLabel =
     selectedAccount.type === "apartment" ? "Apartment Community" : "Home";
 
+  /* ------------------------------------------------------------------------ */
+  /* REUSABLE BANNER BLOCK                                                    */
+  /* ------------------------------------------------------------------------ */
+
+  const renderPendingOffers = () => {
+    if (pendingAdminOffers.length === 0) return null;
+    return (
+      <View style={styles.offersSection}>
+        {pendingAdminOffers.map((offer) => (
+          <PendingAdminOfferBanner
+            key={offer.id}
+            offer={offer}
+            busy={busyOfferId === offer.id}
+            onAccept={() => handleAcceptOffer(offer)}
+            onReject={() => handleRejectOffer(offer)}
+          />
+        ))}
+      </View>
+    );
+  };
+
   /* ======================================================================== */
   /* STAFF VIEW                                                               */
   /* ======================================================================== */
@@ -1319,6 +1560,8 @@ export default function HomeScreen() {
             />
           }
         >
+          {renderPendingOffers()}
+
           <View style={styles.header}>
             <View style={styles.headerTop}>
               <View style={styles.headerTextContainer}>
@@ -1410,6 +1653,8 @@ export default function HomeScreen() {
             />
           }
         >
+          {renderPendingOffers()}
+
           <View style={styles.header}>
             <View style={styles.headerTop}>
               <View style={styles.headerTextContainer}>
@@ -1548,6 +1793,8 @@ export default function HomeScreen() {
           />
         }
       >
+        {renderPendingOffers()}
+
         <View style={styles.header}>
           <View style={styles.headerTop}>
             <View style={styles.headerTextContainer}>
@@ -1565,7 +1812,6 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* Top card — MONTHLY net balance (includes opening balance) */}
         <View style={styles.balanceCard}>
           <View style={styles.balanceTop}>
             <View>
@@ -1625,7 +1871,6 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* Financial Overview — ALL-TIME totals (with Net incl. opening) */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <View>
@@ -1797,6 +2042,78 @@ const styles = StyleSheet.create({
     marginHorizontal: 7,
   },
   monthText: { fontSize: 12, color: "#94A3B8" },
+
+  /* PENDING ADMIN OFFER BANNER */
+  offersSection: { marginBottom: 14, gap: 10 },
+  offerBanner: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "#DDD6FE",
+    shadowColor: "#7C3AED",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    elevation: 2,
+  },
+  offerBannerHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 11,
+    marginBottom: 12,
+  },
+  offerBannerIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: "#F5F3FF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  offerBannerHeaderText: { flex: 1 },
+  offerBannerTitle: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#0F172A",
+  },
+  offerBannerSubtitle: {
+    fontSize: 12,
+    color: "#64748B",
+    lineHeight: 17,
+    marginTop: 4,
+  },
+  offerBannerActions: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  offerBannerBtn: {
+    flex: 1,
+    minHeight: 42,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 6,
+  },
+  offerBannerReject: {
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1,
+    borderColor: "#FECACA",
+  },
+  offerBannerRejectText: {
+    color: "#DC2626",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  offerBannerAccept: {
+    backgroundColor: "#7C3AED",
+  },
+  offerBannerAcceptText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "800",
+  },
 
   /* BALANCE */
   balanceCard: {
@@ -1993,7 +2310,6 @@ const styles = StyleSheet.create({
   },
   personalRole: { fontSize: 13, color: "#64748B", fontWeight: "500" },
 
-  // Used by StaffPersonalCard's role indicator dot
   roleDot: { width: 6, height: 6, borderRadius: 3, marginRight: 6 },
 
   personalDetails: {

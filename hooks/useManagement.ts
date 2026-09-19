@@ -1,7 +1,7 @@
 // hooks/useManagement.ts
 import * as FileSystem from "expo-file-system/legacy";
 import * as SecureStore from "expo-secure-store";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { create } from "zustand";
 import {
   ExpenseEntry,
@@ -12,6 +12,33 @@ import {
 } from "../types";
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
+
+// ---------------------------------------------------------------------------
+// Access-loss signal
+//
+// When any account-scoped request returns 403 with code "no_account_access"
+// (or the legacy generic "forbidden"), we emit. useAccounts subscribes and
+// refetches /api/accounts, which reconciles the selected account.
+// ---------------------------------------------------------------------------
+type AccessLossListener = () => void;
+const accessLossListeners = new Set<AccessLossListener>();
+
+export function onAccessLoss(listener: AccessLossListener): () => void {
+  accessLossListeners.add(listener);
+  return () => {
+    accessLossListeners.delete(listener);
+  };
+}
+
+function emitAccessLoss() {
+  for (const l of accessLossListeners) {
+    try {
+      l();
+    } catch (e) {
+      console.warn("[useManagement] access-loss listener threw:", e);
+    }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Stable empty array
@@ -54,11 +81,22 @@ async function apiRequest<T>(
   }
 
   if (!res.ok) {
+    const code = data?.code;
+
+    // "no_account_access" = user has no role at all on this account.
+    // Legacy "forbidden" is treated the same way for backwards compat.
+    if (
+      res.status === 403 &&
+      (code === "no_account_access" || code === "forbidden")
+    ) {
+      emitAccessLoss();
+    }
+
     const err: any = new Error(
       data?.message ?? `Request failed (${res.status})`,
     );
     err.status = res.status;
-    err.code = data?.code;
+    err.code = code;
     throw err;
   }
 
@@ -342,15 +380,36 @@ export const useManagementStore = create<ManagementState>((set) => ({
   },
 
   setItems: (kind, accountId, items) =>
-    set((s) => ({
-      byKindAndAccount: {
-        ...s.byKindAndAccount,
-        [kind]: {
-          ...s.byKindAndAccount[kind],
-          [accountId]: items,
+    set((s) => {
+      const existing = s.byKindAndAccount[kind][accountId];
+
+      // Skip the write if the incoming list is structurally identical.
+      // Same length, same ids, same updatedAt → no re-render.
+      if (
+        existing &&
+        existing.length === items.length &&
+        existing.every((oldItem, i) => {
+          const newItem = items[i];
+          if (!newItem) return false;
+          return (
+            oldItem.id === newItem.id &&
+            (oldItem as any).updatedAt === (newItem as any).updatedAt
+          );
+        })
+      ) {
+        return s; // no state change → no re-render
+      }
+
+      return {
+        byKindAndAccount: {
+          ...s.byKindAndAccount,
+          [kind]: {
+            ...s.byKindAndAccount[kind],
+            [accountId]: items,
+          },
         },
-      },
-    })),
+      };
+    }),
 
   appendItem: (kind, accountId, item) =>
     set((s) => {
@@ -422,32 +481,54 @@ function createManagementHook(kind: ManagementType) {
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    const refresh = useCallback(async () => {
-      if (!accountId) return;
-      setIsLoading(true);
-      setError(null);
-      try {
-        const qs =
-          month && /^\d{4}-\d{2}$/.test(month) ? `?month=${month}` : "";
-        const rows = await apiRequest<any[]>(
-          `/management/${accountId}/${segment}${qs}`,
-        );
-        useManagementStore.getState().setItems(
-          kind,
-          accountId,
-          rows.map((r) => mapRowToMember(r, accountId, kind)),
-        );
-      } catch (e: any) {
-        console.error(`[useManagement:${kind}] refresh failed:`, e);
-        setError(e?.message ?? "Failed to load");
-      } finally {
-        setIsLoading(false);
-      }
-    }, [accountId, segment, month]);
+    // Tracks the last (accountId, month) pair this hook instance fetched.
+    // Prevents re-fetches from re-renders that don't change either.
+    const lastFetchedKeyRef = useRef<string>("");
+
+    const refresh = useCallback(
+      async (opts?: { force?: boolean }) => {
+        if (!accountId) return;
+
+        // Skip the fetch if data is already cached and caller didn't force.
+        if (opts?.force !== true) {
+          const existing =
+            useManagementStore.getState().byKindAndAccount[kind][accountId];
+          if (existing && existing.length > 0) {
+            return;
+          }
+        }
+
+        setIsLoading(true);
+        setError(null);
+        try {
+          const qs =
+            month && /^\d{4}-\d{2}$/.test(month) ? `?month=${month}` : "";
+          const rows = await apiRequest<any[]>(
+            `/management/${accountId}/${segment}${qs}`,
+          );
+          useManagementStore.getState().setItems(
+            kind,
+            accountId,
+            rows.map((r) => mapRowToMember(r, accountId, kind)),
+          );
+        } catch (e: any) {
+          console.error(`[useManagement:${kind}] refresh failed:`, e);
+          setError(e?.message ?? "Failed to load");
+        } finally {
+          setIsLoading(false);
+        }
+      },
+      [accountId, segment, month, kind],
+    );
 
     useEffect(() => {
+      // Only run when accountId/month actually change.
+      const key = `${accountId ?? ""}:${month ?? ""}`;
+      if (lastFetchedKeyRef.current === key) return;
+      lastFetchedKeyRef.current = key;
+
       refresh();
-    }, [refresh]);
+    }, [accountId, month, refresh]);
 
     const add = useCallback(
       async (input: any) => {
@@ -463,7 +544,7 @@ function createManagementHook(kind: ManagementType) {
         useManagementStore.getState().appendItem(kind, accountId, created);
         return created;
       },
-      [accountId, segment, month],
+      [accountId, segment, month, kind],
     );
 
     const update = useCallback(
@@ -489,19 +570,9 @@ function createManagementHook(kind: ManagementType) {
         useManagementStore.getState().replaceItem(kind, accountId, id, updated);
         return updated;
       },
-      [accountId, segment, month],
+      [accountId, segment, month, kind],
     );
 
-    // ── Soft-delete aware removal ──────────────────────────
-    // For members/staff the backend soft-deletes (status =
-    // 'inactive'). We mark the row inactive in the local store
-    // instead of evicting it, so the finance tab can still
-    // badge it for the deletion month and any month after.
-    // The People tab filters inactive rows client-side, so
-    // it disappears from there as expected.
-    //
-    // For expenses the backend hard-deletes, so we evict.
-    // ───────────────────────────────────────────────────────
     const remove = useCallback(
       async (id: string) => {
         if (!accountId) throw new Error("No account selected");

@@ -1,11 +1,12 @@
-import { useCallback, useEffect } from "react";
+// hooks/useMaintenance.ts
+import { useCallback, useEffect, useRef } from "react";
 import { useMaintenanceStore } from "../store/maintenanceStore";
 import {
-    AddMaintenanceInput,
-    MaintenanceStats,
-    MaintenanceStatus,
-    MaintenanceTask,
-    UpdateMaintenanceInput,
+  AddMaintenanceInput,
+  MaintenanceStats,
+  MaintenanceStatus,
+  MaintenanceTask,
+  UpdateMaintenanceInput,
 } from "../types/maintenance";
 
 // API functions - TODO: Replace with actual API calls
@@ -155,14 +156,27 @@ export function useMaintenance(accountId?: string, flatId?: string) {
     getOverdueTasks,
   } = useMaintenanceStore();
 
-  // Load maintenance tasks
+  // Guard: only fetch once per accountId, even when the hook is
+  // mounted from multiple components.
+  const lastFetchedAccountRef = useRef<string>("");
+
   useEffect(() => {
     if (!accountId) {
       setTasks([]);
       return;
     }
 
+    // If this hook instance already fetched for this accountId, skip.
+    if (lastFetchedAccountRef.current === accountId) return;
+    lastFetchedAccountRef.current = accountId;
+
     const load = async () => {
+      // Skip the fetch if the store already has tasks for this account.
+      const existing = getTasksByAccount(accountId);
+      if (existing && existing.length > 0) {
+        return;
+      }
+
       setIsLoading(true);
       setError(null);
       try {
@@ -177,7 +191,8 @@ export function useMaintenance(accountId?: string, flatId?: string) {
     };
 
     load();
-  }, [accountId, setTasks, setIsLoading, setError]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountId]);
 
   // Add new maintenance task
   const addNewTask = useCallback(

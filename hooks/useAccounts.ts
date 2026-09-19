@@ -2,9 +2,11 @@
 import * as FileSystem from "expo-file-system/legacy";
 import * as SecureStore from "expo-secure-store";
 import { useCallback, useEffect, useState } from "react";
+import { AppState } from "react-native";
 import { useAccountStore } from "../store/accountStore";
 import { useAuthStore } from "../store/useAuthStore";
 import { Account, AccountType } from "../types";
+import { onAccessLoss } from "./useManagement";
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_URL;
 
@@ -112,11 +114,13 @@ async function fetchAccountsDeduped(
         useAccountStore.setState({ selectedAccountId: serverPick });
       }
 
-      useAccountStore.getState().setAccounts(result.accounts);
-
-      if (current && !result.accounts.some((a) => a.id === current)) {
-        useAccountStore.getState().selectAccount(null, { persist: false });
-      }
+      // reconcileAccounts() will:
+      //  - store the fresh list
+      //  - keep the current selection if it still exists
+      //  - fall back to the first remaining account if the selection vanished
+      //  - set selectedAccountId to null if there are no accounts left
+      //  - return true when the previously-selected account was dropped
+      useAccountStore.getState().reconcileAccounts(result.accounts);
 
       loadedUserIds.add(userId);
       return result;
@@ -319,6 +323,34 @@ export function useAccounts() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, hasHydrated]);
+
+  // Reconcile when any account-scoped request reports "no access".
+  useEffect(() => {
+    const uid = user?.id;
+    if (!uid) return;
+
+    const unsubscribe = onAccessLoss(() => {
+      fetchAccountsDeduped(uid, true).catch((e) => {
+        console.warn("[useAccounts] access-loss refetch failed:", e);
+      });
+    });
+
+    return unsubscribe;
+  }, [user?.id]);
+
+  // Reconcile when the app returns to the foreground.
+  useEffect(() => {
+    const uid = user?.id;
+    if (!uid) return;
+
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        fetchAccountsDeduped(uid, true).catch(() => {});
+      }
+    });
+
+    return () => sub.remove();
+  }, [user?.id]);
 
   const createAccount = useCallback(
     async (type: AccountType, name: string, photoUri?: string) => {

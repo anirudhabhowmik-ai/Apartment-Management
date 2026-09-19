@@ -102,6 +102,24 @@ interface ApiInvitation {
   account_photo_url: string | null;
 }
 
+interface RevokePreview {
+  userId: string;
+  phone: string | null;
+  isAdmin: boolean;
+  memberProfile: {
+    id: string;
+    name: string;
+    wing: string | null;
+    flatNumber: string | null;
+    role: string | null;
+  } | null;
+  staffProfile: {
+    id: string;
+    name: string;
+    role: string | null;
+  } | null;
+}
+
 // ============================================================================
 // PHOTO ADJUST MODAL
 // ============================================================================
@@ -614,6 +632,13 @@ export default function AccountProfileScreen() {
   const [deletingInvitation, setDeletingInvitation] = useState(false);
   const [revokeSubmitting, setRevokeSubmitting] = useState(false);
   const [revokeTarget, setRevokeTarget] = useState<ApiInvitation | null>(null);
+  const [revokePreview, setRevokePreview] = useState<RevokePreview | null>(
+    null,
+  );
+  const [revokePreviewLoading, setRevokePreviewLoading] = useState(false);
+  const [keepMemberVisibility, setKeepMemberVisibility] = useState(true);
+  const [keepStaffVisibility, setKeepStaffVisibility] = useState(true);
+
   const [resendingInvitationId, setResendingInvitationId] = useState<
     string | null
   >(null);
@@ -1245,16 +1270,58 @@ export default function AccountProfileScreen() {
   };
 
   // ============================================================
-  // REVOKE ADMIN
+  // REVOKE ADMIN (with preview + keep toggles)
   // ============================================================
 
-  const openRevokeModal = (inv: ApiInvitation) => {
+  const openRevokeModal = async (inv: ApiInvitation) => {
+    const targetUserId = inv.accepted_by ?? null;
+    if (!targetUserId) {
+      Alert.alert("Error", "Missing user reference on invitation.");
+      return;
+    }
+
     setRevokeTarget(inv);
+    setRevokePreview(null);
+    setRevokePreviewLoading(true);
+    // Default both toggles to true (owner usually wants to keep).
+    setKeepMemberVisibility(true);
+    setKeepStaffVisibility(true);
+
+    try {
+      const authToken = await getAuthToken();
+      if (!authToken) {
+        setRevokePreviewLoading(false);
+        return;
+      }
+
+      const res = await fetch(
+        `${API_URL}/api/accounts/${selectedAccount?.id}/access/${targetUserId}/preview-revoke`,
+        { headers: { Authorization: `Bearer ${authToken}` } },
+      );
+
+      if (!res.ok) {
+        // Fall back to plain modal if preview fails.
+        setRevokePreview(null);
+        return;
+      }
+
+      const data: RevokePreview = await res.json();
+      setRevokePreview(data);
+    } catch (err) {
+      console.warn("previewRevoke error:", err);
+      setRevokePreview(null);
+    } finally {
+      setRevokePreviewLoading(false);
+    }
   };
 
   const closeRevokeModal = () => {
     if (revokeSubmitting) return;
     setRevokeTarget(null);
+    setRevokePreview(null);
+    setRevokePreviewLoading(false);
+    setKeepMemberVisibility(true);
+    setKeepStaffVisibility(true);
   };
 
   const confirmRevokeAdmin = async () => {
@@ -1274,14 +1341,25 @@ export default function AccountProfileScreen() {
         `${API_URL}/api/accounts/${selectedAccount?.id}/access/${targetUserId}?role=admin`,
         {
           method: "DELETE",
-          headers: { Authorization: `Bearer ${authToken}` },
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${authToken}`,
+          },
+          body: JSON.stringify({
+            keepMemberVisibility:
+              revokePreview?.memberProfile != null
+                ? keepMemberVisibility
+                : false,
+            keepStaffVisibility:
+              revokePreview?.staffProfile != null ? keepStaffVisibility : false,
+          }),
         },
       );
       if (!res.ok) {
         Alert.alert("Error", "Failed to revoke admin access.");
         return;
       }
-      setRevokeTarget(null);
+      closeRevokeModal();
       await loadInvitations({ silent: true });
     } catch (err) {
       console.error("revoke error:", err);
@@ -1304,7 +1382,6 @@ export default function AccountProfileScreen() {
 
     setResendingInvitationId(invitation.id);
     try {
-      // 1. Remove the old rejected invitation
       const delRes = await fetch(
         `${API_URL}/api/accounts/${invitation.account_id}/invitations/${invitation.id}`,
         {
@@ -1327,7 +1404,6 @@ export default function AccountProfileScreen() {
         return;
       }
 
-      // 2. Create a fresh invitation with the same details
       const createRes = await fetch(
         `${API_URL}/api/accounts/${invitation.account_id}/invitations`,
         {
@@ -1361,7 +1437,6 @@ export default function AccountProfileScreen() {
         return;
       }
 
-      // 3. Refresh the list to show the new pending invitation
       await loadInvitations({ silent: true });
     } catch (err) {
       console.error("resendInvitation error:", err);
@@ -1399,6 +1474,26 @@ export default function AccountProfileScreen() {
           text: styles.staffBadgeText,
         };
     }
+  };
+
+  const hasRevokeToggles =
+    !!revokePreview?.memberProfile || !!revokePreview?.staffProfile;
+
+  const formatMemberContext = () => {
+    if (!revokePreview?.memberProfile) return "";
+    const { wing, flatNumber, role } = revokePreview.memberProfile;
+    const parts: string[] = [];
+    if (wing) parts.push(`Wing ${wing}`);
+    if (flatNumber) parts.push(`Flat ${flatNumber}`);
+    if (role) parts.push(role.charAt(0).toUpperCase() + role.slice(1));
+    return parts.join(" • ");
+  };
+
+  const formatStaffContext = () => {
+    if (!revokePreview?.staffProfile) return "";
+    const { role } = revokePreview.staffProfile;
+    if (!role) return "";
+    return role.charAt(0).toUpperCase() + role.slice(1);
   };
 
   return (
@@ -1688,7 +1783,7 @@ export default function AccountProfileScreen() {
             </View>
           )}
 
-          {/* MEMBERS (ACCEPTED) — close icon to hide from this list */}
+          {/* MEMBERS (ACCEPTED) */}
           {acceptedMembers.length > 0 && (
             <View style={styles.accessGroup}>
               <Text style={styles.accessHeading}>Members</Text>
@@ -1736,7 +1831,7 @@ export default function AccountProfileScreen() {
             </View>
           )}
 
-          {/* STAFF (ACCEPTED) — close icon to hide from this list */}
+          {/* STAFF (ACCEPTED) */}
           {acceptedStaff.length > 0 && (
             <View style={styles.accessGroup}>
               <Text style={styles.accessHeading}>Staff</Text>
@@ -2548,7 +2643,7 @@ export default function AccountProfileScreen() {
         </Modal>
       )}
 
-      {/* REVOKE ADMIN — custom modal */}
+      {/* REVOKE ADMIN — with keep-member / keep-staff toggles */}
       {revokeTarget && (
         <Modal
           transparent
@@ -2568,10 +2663,125 @@ export default function AccountProfileScreen() {
                   <Text style={styles.revokeModalTitle}>
                     Revoke Admin Access?
                   </Text>
-                  <Text style={styles.revokeModalDescription}>
-                    {revokeTarget.invited_name || "This person"} will lose admin
-                    access. Their member and staff access is not affected.
-                  </Text>
+
+                  {revokePreviewLoading ? (
+                    <View style={{ paddingVertical: 12 }}>
+                      <ActivityIndicator color="#7C3AED" />
+                    </View>
+                  ) : (
+                    <>
+                      <Text style={styles.revokeModalDescription}>
+                        {revokeTarget.invited_name || "This person"} will lose
+                        admin access.
+                        {hasRevokeToggles
+                          ? " They still have a profile on this property — choose which access to keep below."
+                          : ""}
+                      </Text>
+
+                      {revokePreview?.memberProfile && (
+                        <TouchableOpacity
+                          style={styles.revokeToggleRow}
+                          onPress={() => setKeepMemberVisibility((v) => !v)}
+                          activeOpacity={0.8}
+                        >
+                          <View
+                            style={[
+                              styles.revokeToggleIconWrap,
+                              { backgroundColor: "#DCFCE7" },
+                            ]}
+                          >
+                            <Ionicons name="person" size={18} color="#16A34A" />
+                          </View>
+                          <View style={styles.revokeToggleContent}>
+                            <Text style={styles.revokeToggleTitle}>
+                              Keep Member visibility
+                            </Text>
+                            <Text
+                              style={styles.revokeToggleSubtitle}
+                              numberOfLines={1}
+                            >
+                              {revokePreview.memberProfile.name}
+                              {formatMemberContext()
+                                ? `  •  ${formatMemberContext()}`
+                                : ""}
+                            </Text>
+                          </View>
+                          <View
+                            style={[
+                              styles.revokeCheckbox,
+                              keepMemberVisibility &&
+                                styles.revokeCheckboxChecked,
+                            ]}
+                          >
+                            {keepMemberVisibility ? (
+                              <Ionicons
+                                name="checkmark"
+                                size={16}
+                                color="#FFFFFF"
+                              />
+                            ) : null}
+                          </View>
+                        </TouchableOpacity>
+                      )}
+
+                      {revokePreview?.staffProfile && (
+                        <TouchableOpacity
+                          style={styles.revokeToggleRow}
+                          onPress={() => setKeepStaffVisibility((v) => !v)}
+                          activeOpacity={0.8}
+                        >
+                          <View
+                            style={[
+                              styles.revokeToggleIconWrap,
+                              { backgroundColor: "#E0F2FE" },
+                            ]}
+                          >
+                            <Ionicons
+                              name="briefcase"
+                              size={18}
+                              color="#0284C7"
+                            />
+                          </View>
+                          <View style={styles.revokeToggleContent}>
+                            <Text style={styles.revokeToggleTitle}>
+                              Keep Staff visibility
+                            </Text>
+                            <Text
+                              style={styles.revokeToggleSubtitle}
+                              numberOfLines={1}
+                            >
+                              {revokePreview.staffProfile.name}
+                              {formatStaffContext()
+                                ? `  •  ${formatStaffContext()}`
+                                : ""}
+                            </Text>
+                          </View>
+                          <View
+                            style={[
+                              styles.revokeCheckbox,
+                              keepStaffVisibility &&
+                                styles.revokeCheckboxChecked,
+                            ]}
+                          >
+                            {keepStaffVisibility ? (
+                              <Ionicons
+                                name="checkmark"
+                                size={16}
+                                color="#FFFFFF"
+                              />
+                            ) : null}
+                          </View>
+                        </TouchableOpacity>
+                      )}
+
+                      {hasRevokeToggles && (
+                        <Text style={styles.revokeHint}>
+                          Unchecked roles will be revoked along with admin.
+                        </Text>
+                      )}
+                    </>
+                  )}
+
                   <View style={styles.revokeModalActions}>
                     <TouchableOpacity
                       style={styles.cancelModalButton}
@@ -2596,7 +2806,9 @@ export default function AccountProfileScreen() {
                             size={17}
                             color="#FFFFFF"
                           />
-                          <Text style={styles.revokeConfirmText}>Revoke</Text>
+                          <Text style={styles.revokeConfirmText}>
+                            Revoke Admin
+                          </Text>
                         </>
                       )}
                     </TouchableOpacity>
@@ -3516,7 +3728,7 @@ const styles = StyleSheet.create({
 
   revokeModal: {
     width: "100%",
-    maxWidth: 400,
+    maxWidth: 420,
     backgroundColor: "#FFFFFF",
     borderRadius: 22,
     padding: 22,
@@ -3543,7 +3755,59 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     textAlign: "center",
     marginTop: 7,
-    maxWidth: 320,
+    maxWidth: 340,
+  },
+  revokeToggleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    width: "100%",
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    borderRadius: 14,
+    padding: 10,
+    marginTop: 12,
+    gap: 10,
+  },
+  revokeToggleIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  revokeToggleContent: { flex: 1, minWidth: 0 },
+  revokeToggleTitle: {
+    color: "#0F172A",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  revokeToggleSubtitle: {
+    color: "#64748B",
+    fontSize: 11.5,
+    marginTop: 3,
+  },
+  revokeCheckbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 7,
+    borderWidth: 1.5,
+    borderColor: "#CBD5E1",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFFFFF",
+  },
+  revokeCheckboxChecked: {
+    backgroundColor: "#2563EB",
+    borderColor: "#2563EB",
+  },
+  revokeHint: {
+    color: "#94A3B8",
+    fontSize: 11,
+    lineHeight: 15,
+    textAlign: "center",
+    marginTop: 10,
+    maxWidth: 300,
   },
   revokeModalActions: {
     flexDirection: "row",

@@ -2,7 +2,7 @@ import { useRouter, useSegments } from "expo-router";
 import { useEffect } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
 
-import { useAccounts } from "../hooks/useAccounts";
+import { useAccountStore } from "../store/accountStore";
 import { useAuthStore } from "../store/useAuthStore";
 
 export default function AccountGate({
@@ -15,22 +15,19 @@ export default function AccountGate({
 
   const user = useAuthStore((s) => s.user);
 
-  const { accounts, selectedAccountId, isLoading, hasLoaded } = useAccounts();
+  const accounts = useAccountStore((s) => s.accounts);
+  const selectedAccountId = useAccountStore((s) => s.selectedAccountId);
+  const hasHydrated = useAccountStore((s) => s.hasHydrated);
 
   useEffect(() => {
-    if (!user) {
-      // Not logged in — send to login. Don't gate here; let the app's
-      // normal auth flow take over.
-      return;
-    }
+    if (!user) return;
+    if (!hasHydrated) return;
 
-    if (!hasLoaded || isLoading) return;
-
+    const path = segments.join("/");
     const inAuthGroup = segments[0] === "(auth)";
-    const inAddAccount = segments.join("/").includes("add-account");
-    const inSelectAccount = segments.join("/").includes("select-account");
+    const inAddAccount = path.includes("add-account");
+    const inSelectAccount = path.includes("select-account");
 
-    // User is authenticated but has zero accounts → force Add Account.
     if (accounts.length === 0) {
       if (!inAddAccount && !inAuthGroup) {
         router.replace("/(modals)/add-account");
@@ -38,7 +35,6 @@ export default function AccountGate({
       return;
     }
 
-    // User has accounts but none selected → force Select Account.
     if (!selectedAccountId) {
       if (!inSelectAccount && !inAuthGroup) {
         router.replace("/(modals)/select-account");
@@ -46,16 +42,13 @@ export default function AccountGate({
       return;
     }
 
-    // User has accounts + a valid selection. If they're stuck on
-    // add-account or select-account, push them back to the tabs.
     if (inAddAccount || inSelectAccount) {
       router.replace("/(tabs)");
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user, accounts.length, selectedAccountId, hasLoaded, isLoading]);
+  }, [user, accounts.length, selectedAccountId, hasHydrated, segments]);
 
-  // Show a spinner while we don't yet know which screen to show.
-  if (user && (!hasLoaded || isLoading)) {
+  if (user && !hasHydrated) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color="#2563eb" />

@@ -16,6 +16,7 @@ interface AccountState {
   hasHydrated: boolean;
 
   setAccounts: (accounts: Account[]) => void;
+  reconcileAccounts: (freshAccounts: Account[]) => boolean;
   addAccount: (account: Account) => void;
   updateAccount: (id: string, updates: Partial<Account>) => void;
   removeAccount: (id: string) => void;
@@ -78,16 +79,13 @@ export const useAccountStore = create<AccountState>()(
           incomingIds: accounts.map((a) => a.id),
         });
 
-        // Hydration not done yet — just store the list. The server-side
-        // `lastAccountId` (from useAccounts) will seed `selectedAccountId`
-        // before this runs in the normal flow, but if it hasn't, we must
-        // not clobber anything.
+        // Hydration not done yet — just store the list.
         if (!hasHydrated) {
           set({ accounts });
           return;
         }
 
-        // Keep the current selection if it still exists in the new list.
+        // Keep the current selection if it still exists.
         if (
           selectedAccountId &&
           accounts.some((a) => a.id === selectedAccountId)
@@ -96,19 +94,57 @@ export const useAccountStore = create<AccountState>()(
           return;
         }
 
-        // No local selection at all — fall back to the first account.
-        // (This is only reached when both the local cache AND the server
-        //  had no valid last_account_id.)
+        // No local selection — fall back to the first account.
         if (!selectedAccountId && accounts.length > 0) {
           const firstId = accounts[0].id;
           set({ accounts, selectedAccountId: firstId });
-          // Persist the fallback so the next cold start uses the same one.
           persistLastAccountToServer(firstId);
           return;
         }
 
         // Selection refers to an account that no longer exists → reset.
         set({ accounts, selectedAccountId: null });
+      },
+
+      /**
+       * Reconcile the locally-cached account list against a fresh list
+       * from the server. Drops any locally-cached account that is no
+       * longer returned by the backend (e.g. because the user's admin
+       * access was revoked).
+       *
+       * Returns `true` if the previously-selected account was dropped,
+       * so callers can redirect the user.
+       */
+      reconcileAccounts: (freshAccounts) => {
+        const { accounts: oldAccounts, selectedAccountId } = get();
+
+        const freshIds = new Set(freshAccounts.map((a) => a.id));
+
+        const lostIds = oldAccounts
+          .map((a) => a.id)
+          .filter((id) => !freshIds.has(id));
+
+        const lostSelection =
+          !!selectedAccountId && !freshIds.has(selectedAccountId);
+
+        const nextSelectedId = lostSelection
+          ? (freshAccounts[0]?.id ?? null)
+          : selectedAccountId;
+
+        set({
+          accounts: freshAccounts,
+          selectedAccountId: nextSelectedId,
+        });
+
+        if (lostSelection) {
+          persistLastAccountToServer(nextSelectedId);
+        }
+
+        if (lostIds.length > 0) {
+          console.log("[accountStore] reconcile: lost accounts", lostIds);
+        }
+
+        return lostSelection;
       },
 
       addAccount: (account) => {
@@ -147,8 +183,7 @@ export const useAccountStore = create<AccountState>()(
       selectAccount: (id, opts) => {
         set({ selectedAccountId: id });
 
-        // Skip the network echo when the caller is restoring from the
-        // server at cold start.
+        // Skip the network echo when restoring from the server at cold start.
         if (opts?.persist !== false) {
           persistLastAccountToServer(id);
         }
@@ -175,6 +210,7 @@ export const useAccountStore = create<AccountState>()(
       }),
       onRehydrateStorage: () => (state) => {
         state?.setHasHydrated(true);
+        state?.setIsLoading(false);
       },
     },
   ),

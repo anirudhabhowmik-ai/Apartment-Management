@@ -1,6 +1,6 @@
 // hooks/usePayments.ts
 import * as SecureStore from "expo-secure-store";
-import { useCallback, useEffect } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { usePaymentStore } from "../store/paymentStore";
 import {
   AddPaymentInput,
@@ -242,9 +242,23 @@ export function usePayments(accountId?: string) {
     getPaymentSummary,
   } = usePaymentStore();
 
+  const lastFetchedAccountRef = useRef<string>("");
+
   useEffect(() => {
     if (!accountId) return;
+
+    // Only fetch once per account, even if this hook is mounted from
+    // multiple components.
+    if (lastFetchedAccountRef.current === accountId) return;
+    lastFetchedAccountRef.current = accountId;
+
     const load = async (): Promise<void> => {
+      // If the store already has payments for this account, skip the fetch.
+      const existing = getPaymentsByAccount(accountId);
+      if (existing && existing.length > 0) {
+        return;
+      }
+
       setIsLoading(true);
       setError(null);
       try {
@@ -258,7 +272,8 @@ export function usePayments(accountId?: string) {
       }
     };
     load();
-  }, [accountId, setPayments, setIsLoading, setError]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountId]);
 
   const upsertMemberPayment = useCallback(
     async (
