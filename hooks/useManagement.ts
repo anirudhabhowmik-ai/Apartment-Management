@@ -228,11 +228,22 @@ function mapRowToMember(
   };
 
   if (kind === "apartment") {
+    const wing = row.wing ?? undefined;
+    const flatNumber = row.flat_number ?? undefined;
+
+    // Pre-computed display value used by the Home personal card.
+    // Falls back gracefully if only one of the two is present.
+    let unit: string | undefined;
+    if (wing && flatNumber) unit = `${wing} · ${flatNumber}`;
+    else if (flatNumber) unit = String(flatNumber);
+    else if (wing) unit = String(wing);
+
     return {
       ...base,
       role: row.role,
-      wing: row.wing ?? undefined,
-      flatNumber: row.flat_number,
+      wing,
+      flatNumber,
+      unit,
       areaSqft: row.area_sqft ?? undefined,
       parkingAvailable: !!row.parking_available,
       maintenanceAmount: Number(row.maintenance_amount ?? 0),
@@ -241,10 +252,18 @@ function mapRowToMember(
   }
 
   if (kind === "staff") {
+    // Server may expose either `joined_date` (dedicated column) or only
+    // `created_at`. Normalize both so the UI has a single field to read.
+    const joinedDate =
+      serverDateToLocalDateString(row.joined_date) ||
+      serverDateToLocalDateString(row.created_at) ||
+      undefined;
+
     return {
       ...base,
       role: row.role,
       monthlySalary: Number(row.monthly_salary ?? 0),
+      joinedDate,
       status: row.status ?? "active",
     } as Staff;
   }
@@ -278,6 +297,8 @@ async function toServerBody(
   if (input.role !== undefined) body.role = input.role;
   if (input.confirm_rename !== undefined)
     body.confirm_rename = !!input.confirm_rename;
+  if (input.scoped_rename !== undefined)
+    body.scoped_rename = !!input.scoped_rename;
 
   if (input.photoUri !== undefined) {
     body.photo_url = input.photoUri
@@ -366,7 +387,6 @@ interface ManagementState {
     id: string,
     item: Member,
   ) => void;
-  /** NEW: shallow-merge fields onto an existing item by id. */
   patchItem: (
     kind: ManagementType,
     accountId: string,
@@ -375,6 +395,11 @@ interface ManagementState {
   ) => void;
   removeItem: (kind: ManagementType, accountId: string, id: string) => void;
   clearAccount: (accountId: string) => void;
+  syncByIdentity: (
+    accountId: string,
+    phone: string,
+    patch: Partial<Member> & Record<string, any>,
+  ) => void;
 }
 
 export const useManagementStore = create<ManagementState>((set) => ({
@@ -476,6 +501,37 @@ export const useManagementStore = create<ManagementState>((set) => ({
           [kind]: {
             ...s.byKindAndAccount[kind],
             [accountId]: existing.filter((m) => m.id !== id),
+          },
+        },
+      };
+    }),
+
+  syncByIdentity: (accountId, phone, patch) =>
+    set((s) => {
+      const norm = (p?: string | null) =>
+        (p || "").replace(/\D/g, "").slice(-10);
+      const target = norm(phone);
+      if (!target || !accountId) return s;
+
+      const now = new Date().toISOString();
+
+      const apply = (list: Member[] | undefined) =>
+        (list ?? []).map((m) =>
+          norm((m as any).phone) === target
+            ? ({ ...(m as any), ...patch, updatedAt: now } as Member)
+            : m,
+        );
+
+      return {
+        byKindAndAccount: {
+          ...s.byKindAndAccount,
+          apartment: {
+            ...s.byKindAndAccount.apartment,
+            [accountId]: apply(s.byKindAndAccount.apartment[accountId]),
+          },
+          staff: {
+            ...s.byKindAndAccount.staff,
+            [accountId]: apply(s.byKindAndAccount.staff[accountId]),
           },
         },
       };

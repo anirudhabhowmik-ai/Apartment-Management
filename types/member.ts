@@ -65,6 +65,13 @@ export interface FlatOwner extends BaseMember {
 
   flatNumber: string;
 
+  /**
+   * Pre-computed display value for the "Unit" field on the Home card.
+   * Example: "A · 204" or just "204" when wing is missing.
+   * Populated by mapRowToMember in hooks/useManagement.ts.
+   */
+  unit?: string;
+
   areaSqft?: number;
 
   parkingAvailable: boolean;
@@ -78,6 +85,14 @@ export interface Staff extends BaseMember {
   role: "sweeper" | "security" | "maintenance";
 
   monthlySalary: number;
+
+  /**
+   * Date the staff member joined, in YYYY-MM-DD form.
+   * Sourced from the server's `joined_date` column when present, otherwise
+   * falls back to `created_at`. Populated by mapRowToMember in
+   * hooks/useManagement.ts.
+   */
+  joinedDate?: string;
 }
 
 // UPDATED: ExpenseEntry now supports both expense and income

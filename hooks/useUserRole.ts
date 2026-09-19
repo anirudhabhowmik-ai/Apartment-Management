@@ -105,6 +105,25 @@ function normalizePhone(raw?: string): string {
   return digits.length > 10 ? digits.slice(-10) : digits;
 }
 
+/**
+ * Normalize whatever the server puts on `account.role` into one of our
+ * canonical coarse roles, or null if it's not a role we recognize.
+ */
+function classifyAccountRole(
+  raw: unknown,
+): "admin" | "staff" | "member" | null {
+  if (raw === null || raw === undefined) return null;
+  const s = String(raw).trim().toLowerCase();
+  if (!s) return null;
+
+  if (s === "owner" || s === "admin" || s === "account_admin") return "admin";
+  if (s === "staff" || s === "staff_visibility" || s === "employee")
+    return "staff";
+  if (s === "member" || s === "member_visibility" || s === "resident")
+    return "member";
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Hook
 // ---------------------------------------------------------------------------
@@ -123,7 +142,6 @@ export function useUserRole() {
 
   // -------------------------------------------------------------------------
   // Is this user the ORIGINAL account creator?
-  // accounts.created_by is set at creation and never changes.
   // -------------------------------------------------------------------------
   const isAccountCreator = useMemo(() => {
     if (!selectedAccount || !user) return false;
@@ -132,7 +150,6 @@ export function useUserRole() {
 
   // -------------------------------------------------------------------------
   // Does this user hold an accepted "owner" grant?
-  // Set via "Add Ownership" → role: "owner" in account_members.
   // -------------------------------------------------------------------------
   const hasOwnerGrant = useMemo(() => {
     if (!selectedAccount || !user) return false;
@@ -147,6 +164,18 @@ export function useUserRole() {
   }, [selectedAccount, user, grants, getAccountRole]);
 
   const isOwner = isAccountCreator || hasOwnerGrant;
+
+  // -------------------------------------------------------------------------
+  // Server-reported role on the account row.
+  //
+  // `useAccounts` maps the server field `role` straight onto the account
+  // object. This is the authoritative source when the access store is
+  // stale or hasn't been populated yet — e.g. right after accepting an
+  // admin invite.
+  // -------------------------------------------------------------------------
+  const serverAccountRole = useMemo(() => {
+    return classifyAccountRole((selectedAccount as any)?.role);
+  }, [selectedAccount]);
 
   // -------------------------------------------------------------------------
   // User's member/staff profile
@@ -189,10 +218,19 @@ export function useUserRole() {
   const userRole = useMemo((): UserRole => {
     if (!selectedAccount || !user) return "member";
 
-    // Owner beats everything.
-    if (isOwner) return "admin"; // still surfaces as "admin" so existing checks keep working
+    // 1) Owner beats everything.
+    if (isOwner) return "admin";
 
-    // ---- Access store ----
+    // 2) Server-reported role on the account row.
+    //    This is what the invite acceptor sees — the server just told us
+    //    the role, so trust it before consulting the access store.
+    if (serverAccountRole === "admin") return "admin";
+    if (serverAccountRole === "staff") return "staff";
+    if (serverAccountRole === "member") {
+      return isStaffProfile ? "staff" : "member";
+    }
+
+    // 3) Access store.
     const accountRole = getAccountRole(selectedAccount.id);
 
     if (accountRole === "admin") return "admin";
@@ -201,7 +239,7 @@ export function useUserRole() {
       return isStaffProfile ? "staff" : "member";
     }
 
-    // ---- Accepted grant ----
+    // 4) Accepted grant.
     const grant = grants.find(
       (g) => g.accountId === selectedAccount.id && g.acceptedAt,
     );
@@ -214,7 +252,7 @@ export function useUserRole() {
       }
     }
 
-    // ---- Profile ----
+    // 5) Profile fallback.
     if (userMemberProfile) {
       return isStaffProfile ? "staff" : "member";
     }
@@ -224,6 +262,7 @@ export function useUserRole() {
     selectedAccount,
     user,
     isOwner,
+    serverAccountRole,
     grants,
     getAccountRole,
     userMemberProfile,

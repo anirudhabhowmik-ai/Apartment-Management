@@ -41,6 +41,7 @@ import {
 import {
   PhoneVisibilityRow,
   useExpenses,
+  useManagementStore,
   useMembers,
   useStaff,
 } from "../../hooks/useManagement";
@@ -1244,6 +1245,35 @@ export default function EditMemberScreen() {
   const allSelectableOn =
     selectableRows.length > 0 && selectableRows.every((r) => r.enabled);
 
+  // -------------------------------------------------------------------------
+  // Cross-entity sync helper
+  //
+  // When the same person also exists as the other entity type (member ↔
+  // staff) under the same phone, mirror the shared identity fields so the
+  // Home screen's twin card updates instantly instead of waiting for a
+  // refetch.
+  //
+  // We match on `member.phone` (the ORIGINAL phone captured from the store
+  // before save) rather than the freshly-saved value, because if the phone
+  // itself was edited, the sibling row still holds the old phone at this
+  // moment.
+  // -------------------------------------------------------------------------
+  const syncTwinEntity = (savedName: string, savedPhotoUri?: string | null) => {
+    if (!accountId) return;
+    if (groupType !== "apartment" && groupType !== "staff") return;
+    if (!member?.phone) return;
+
+    const shared: Record<string, any> = {};
+    if (savedName !== undefined) shared.name = savedName;
+    if (savedPhotoUri !== undefined) shared.photoUri = savedPhotoUri;
+
+    if (Object.keys(shared).length === 0) return;
+
+    useManagementStore
+      .getState()
+      .syncByIdentity(accountId, member.phone, shared);
+  };
+
   const handleUpdate = async () => {
     setError("");
 
@@ -1352,6 +1382,11 @@ export default function EditMemberScreen() {
 
     try {
       await update(memberId, updateData);
+
+      // Mirror shared identity fields to the sibling entity (member ↔
+      // staff) so the Home screen's twin card updates instantly.
+      syncTwinEntity(updateData.name, updateData.photoUri ?? undefined);
+
       router.back();
     } catch (e: any) {
       if (e?.code === "name_conflict") {
@@ -1370,7 +1405,18 @@ export default function EditMemberScreen() {
         }
 
         try {
-          await update(memberId, { ...updateData, confirm_rename: true });
+          // scoped_rename: true tells the server to rename ONLY this
+          // record's row (member OR staff), not every row sharing this
+          // phone. Without this, the server propagates the new name to
+          // the other entity type (member ↔ staff) and any pending invites.
+          await update(memberId, {
+            ...updateData,
+            confirm_rename: true,
+            scoped_rename: true,
+          });
+
+          // Mirror the rename across the twin card on the Home screen.
+          syncTwinEntity(updateData.name, updateData.photoUri ?? undefined);
 
           try {
             await activeHook.refresh({ force: true });

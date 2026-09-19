@@ -1,5 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import { useIsFocused } from "expo-router/react-navigation";
 import * as SecureStore from "expo-secure-store";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -55,7 +55,6 @@ type OpeningBalanceResponse = {
   can_edit?: boolean;
 };
 
-/** A pending admin offer for an account the user already belongs to. */
 type PendingAdminOffer = {
   id: string;
   account_id: string;
@@ -556,11 +555,17 @@ function MemberPersonalCard({
   onEdit: () => void;
 }) {
   const memberName = member?.name || "Resident";
+
   const unit =
-    member?.flatNumber ||
-    member?.apartmentNumber ||
-    member?.unitNumber ||
+    member?.unit ||
+    [
+      member?.wing,
+      member?.flatNumber || member?.apartmentNumber || member?.unitNumber,
+    ]
+      .filter(Boolean)
+      .join(" · ") ||
     "N/A";
+
   const maintenanceAmount = member?.maintenanceAmount || 0;
 
   return (
@@ -621,6 +626,20 @@ function StaffPersonalCard({
   const roleColor = getRoleColor(staff?.role);
   const roleLabel = getRoleLabel(staff?.role);
 
+  const joinedDateDisplay = (() => {
+    if (staff?.joinedDate) return String(staff.joinedDate);
+    if (staff?.createdAt) {
+      const d = new Date(staff.createdAt);
+      if (!isNaN(d.getTime())) {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, "0");
+        const dd = String(d.getDate()).padStart(2, "0");
+        return `${y}-${m}-${dd}`;
+      }
+    }
+    return "N/A";
+  })();
+
   return (
     <View style={styles.personalCard}>
       <View style={styles.personalHeader}>
@@ -643,9 +662,7 @@ function StaffPersonalCard({
         <View style={styles.personalDetailItem}>
           <Ionicons name="calendar-outline" size={16} color="#64748B" />
           <Text style={styles.personalDetailLabel}>Joined</Text>
-          <Text style={styles.personalDetailValue}>
-            {staff?.joinedDate || "N/A"}
-          </Text>
+          <Text style={styles.personalDetailValue}>{joinedDateDisplay}</Text>
         </View>
         <View style={styles.personalDetailItem}>
           <Ionicons name="cash-outline" size={16} color="#64748B" />
@@ -1077,9 +1094,13 @@ export default function HomeScreen() {
   } = useAccounts();
 
   const accountId = selectedAccount?.id ?? null;
-  const { items: apartmentMembers } = useMembers(accountId);
-  const { items: staffMembers } = useStaff(accountId);
+
+  const membersHook = useMembers(accountId);
+  const staffHook = useStaff(accountId);
   const { items: expenses } = useExpenses(accountId);
+
+  const apartmentMembers = membersHook.items;
+  const staffMembers = staffHook.items;
 
   const allMembers: Member[] = useMemo(
     () => [...apartmentMembers, ...staffMembers],
@@ -1089,25 +1110,25 @@ export default function HomeScreen() {
   const { user } = useAuthStore();
   const { isAdmin, isMember, isStaff } = useUserRole();
 
+  const showQuickActions = isAdmin;
+  const showBalanceCard = isAdmin;
+  const showFinance = isAdmin || isMember;
+  const showAttendance = isStaff;
+
   const [refreshing, setRefreshing] = useState(false);
 
-  // Opening balance from server (used in both monthly + all-time nets)
   const [openingBalance, setOpeningBalance] = useState(0);
 
   const now = new Date();
   const [attYear, setAttYear] = useState(now.getFullYear());
   const [attMonth, setAttMonth] = useState(now.getMonth());
 
-  // ── Pending admin offers for accounts the user already belongs to ──
   const [pendingAdminOffers, setPendingAdminOffers] = useState<
     PendingAdminOffer[]
   >([]);
   const [offersLoading, setOffersLoading] = useState(false);
   const [busyOfferId, setBusyOfferId] = useState<string | null>(null);
 
-  // Stable key: only changes when the set of account ids changes.
-  // Prevents the offers loader from being re-created on every render,
-  // which was causing an infinite fetch loop.
   const accountIdsKey = useMemo(
     () =>
       accounts
@@ -1121,10 +1142,6 @@ export default function HomeScreen() {
     setAttYear(y);
     setAttMonth(m);
   };
-
-  /* ------------------------------------------------------------------------ */
-  /* FETCH PENDING ADMIN OFFERS                                               */
-  /* ------------------------------------------------------------------------ */
 
   const loadPendingAdminOffers = useCallback(async () => {
     if (!user?.phone) {
@@ -1185,13 +1202,39 @@ export default function HomeScreen() {
     }
   }, [user?.phone, accountIdsKey]);
 
-  // Single effect: refetch when the screen gains focus OR when the
-  // account-id set changes. No more duplicate calls.
   useEffect(() => {
     if (isFocused) {
       loadPendingAdminOffers();
     }
   }, [isFocused, loadPendingAdminOffers]);
+
+  // Lightweight refresh of member/staff caches on focus, so the Home
+  // screen stays consistent with any edits made on other screens or by
+  // other admins. Non-forced would only fetch when the cache is empty;
+  // we use force here to guarantee consistency (drop `force: true` if
+  // you want to reduce network calls).
+  useFocusEffect(
+    useCallback(() => {
+      if (!accountId) return;
+      let cancelled = false;
+      (async () => {
+        try {
+          await Promise.all([
+            membersHook.refresh({ force: true }),
+            staffHook.refresh({ force: true }),
+          ]);
+        } catch (e) {
+          if (!cancelled) {
+            console.warn("[home] focus refresh failed:", e);
+          }
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [accountId]),
+  );
 
   const handleAcceptOffer = async (offer: PendingAdminOffer) => {
     const token = await getAuthToken();
@@ -1206,13 +1249,10 @@ export default function HomeScreen() {
         },
       );
       if (!res.ok) {
-        // If already handled elsewhere, just refresh the list.
         await loadPendingAdminOffers();
         return;
       }
-      // Optimistically remove this banner.
       setPendingAdminOffers((prev) => prev.filter((o) => o.id !== offer.id));
-      // Refresh accounts so the new admin role is reflected.
       await refreshAccounts();
     } catch (e) {
       console.warn("[home] accept offer failed:", e);
@@ -1245,10 +1285,6 @@ export default function HomeScreen() {
     }
   };
 
-  /* ------------------------------------------------------------------------ */
-  /* FETCH OPENING BALANCE                                                    */
-  /* ------------------------------------------------------------------------ */
-
   useEffect(() => {
     if (!selectedAccount?.id) {
       setOpeningBalance(0);
@@ -1278,27 +1314,33 @@ export default function HomeScreen() {
     };
   }, [selectedAccount?.id]);
 
-  /* ------------------------------------------------------------------------ */
-  /* MATCH USER TO MEMBER / STAFF PROFILE                                     */
-  /* ------------------------------------------------------------------------ */
+  /* ------------------------------------------------------------------ */
+  /* MATCH USER TO ALL MEMBER / STAFF PROFILES                          */
+  /* ------------------------------------------------------------------ */
+  //
+  // A single phone can belong to multiple member records (owns more than
+  // one flat) or multiple staff records (works multiple roles). We return
+  // ALL matches so each one renders its own card.
 
-  const matchedProfile = useMemo(() => {
-    if (!user || !selectedAccount) return null;
-
+  const matchedMemberProfiles = useMemo(() => {
+    if (!user || !selectedAccount) return [];
     const target = normalizePhone(user.phone);
-    if (!target) return null;
+    if (!target) return [];
 
-    return (
-      allMembers.find((member) => {
-        const memberPhone = normalizePhone(member.phone || "");
-        return memberPhone === target;
-      }) ?? null
+    return apartmentMembers.filter(
+      (member) => normalizePhone(member.phone || "") === target,
     );
-  }, [user, selectedAccount, allMembers]);
+  }, [user, selectedAccount, apartmentMembers]);
 
-  /* ------------------------------------------------------------------------ */
-  /* DASHBOARD DATA                                                           */
-  /* ------------------------------------------------------------------------ */
+  const matchedStaffProfiles = useMemo(() => {
+    if (!user || !selectedAccount) return [];
+    const target = normalizePhone(user.phone);
+    if (!target) return [];
+
+    return staffMembers.filter(
+      (staff) => normalizePhone(staff.phone || "") === target,
+    );
+  }, [user, selectedAccount, staffMembers]);
 
   const dashboardData = useMemo(() => {
     const emptyData = {
@@ -1315,7 +1357,7 @@ export default function HomeScreen() {
       },
     };
 
-    if (!isAdmin || !selectedAccount) return emptyData;
+    if (!showFinance || !selectedAccount) return emptyData;
 
     try {
       const currentMonth = `${new Date().getFullYear()}-${String(
@@ -1347,16 +1389,12 @@ export default function HomeScreen() {
     allMembers,
     apartmentMembers,
     staffMembers,
-    isAdmin,
+    showFinance,
     expenses,
   ]);
 
   const stats = dashboardData.stats;
   const allTime = dashboardData.allTime;
-
-  /* ------------------------------------------------------------------------ */
-  /* FINANCE NUMBERS                                                          */
-  /* ------------------------------------------------------------------------ */
 
   const monthlyNet =
     openingBalance + (stats.monthlyIncome - stats.monthlyExpense);
@@ -1366,10 +1404,6 @@ export default function HomeScreen() {
   const overallExpense = allTime.expense;
   const overallNet = openingBalance + allTime.net;
   const isOverallPositive = overallNet >= 0;
-
-  /* ------------------------------------------------------------------------ */
-  /* REFRESH                                                                  */
-  /* ------------------------------------------------------------------------ */
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -1391,10 +1425,6 @@ export default function HomeScreen() {
     }
   };
 
-  /* ------------------------------------------------------------------------ */
-  /* ACTIONS                                                                  */
-  /* ------------------------------------------------------------------------ */
-
   const handleQuickAction = (action: QuickAction) => {
     router.push({
       pathname: "/(tabs)/people",
@@ -1403,30 +1433,28 @@ export default function HomeScreen() {
   };
 
   const handleStaffPress = (staff: any) => {
+    if (!selectedAccount?.id || !staff?.id) return;
     router.push({
       pathname: "/(modals)/edit-member",
       params: {
         memberId: staff.id,
-        groupId: staff.groupId,
+        accountId: selectedAccount.id,
         groupType: "staff",
       },
     });
   };
 
   const handleMemberPress = (member: any) => {
+    if (!selectedAccount?.id || !member?.id) return;
     router.push({
       pathname: "/(modals)/edit-member",
       params: {
         memberId: member.id,
-        groupId: member.groupId,
+        accountId: selectedAccount.id,
         groupType: "apartment",
       },
     });
   };
-
-  /* ------------------------------------------------------------------------ */
-  /* LOADING                                                                  */
-  /* ------------------------------------------------------------------------ */
 
   if (accountsLoading) {
     return (
@@ -1444,10 +1472,6 @@ export default function HomeScreen() {
       </View>
     );
   }
-
-  /* ------------------------------------------------------------------------ */
-  /* NO ACCOUNT                                                               */
-  /* ------------------------------------------------------------------------ */
 
   if (!selectedAccount) {
     return (
@@ -1508,16 +1532,8 @@ export default function HomeScreen() {
     );
   }
 
-  /* ------------------------------------------------------------------------ */
-  /* ACCOUNT TYPE                                                             */
-  /* ------------------------------------------------------------------------ */
-
   const accountTypeLabel =
     selectedAccount.type === "apartment" ? "Apartment Community" : "Home";
-
-  /* ------------------------------------------------------------------------ */
-  /* REUSABLE BANNER BLOCK                                                    */
-  /* ------------------------------------------------------------------------ */
 
   const renderPendingOffers = () => {
     if (pendingAdminOffers.length === 0) return null;
@@ -1536,15 +1552,21 @@ export default function HomeScreen() {
     );
   };
 
+  const portalLabel = isAdmin
+    ? accountTypeLabel
+    : isMember
+      ? "Resident Portal"
+      : isStaff
+        ? "Staff Portal"
+        : "Portal";
+
   /* ======================================================================== */
-  /* STAFF VIEW                                                               */
+  /* NON-ADMIN VIEW                                                           */
   /* ======================================================================== */
 
-  if (isStaff) {
-    const staffProfile =
-      matchedProfile && "monthlySalary" in matchedProfile
-        ? matchedProfile
-        : null;
+  if (!isAdmin && (isMember || isStaff)) {
+    const hasAnyProfile =
+      matchedMemberProfiles.length > 0 || matchedStaffProfiles.length > 0;
 
     return (
       <View style={styles.container}>
@@ -1571,7 +1593,7 @@ export default function HomeScreen() {
                 </Text>
                 <View style={styles.accountTypeRow}>
                   <View style={styles.accountStatusDot} />
-                  <Text style={styles.accountTypeText}>Staff Portal</Text>
+                  <Text style={styles.accountTypeText}>{portalLabel}</Text>
                   <View style={styles.dotSeparator} />
                   <Text style={styles.monthText}>{getCurrentMonth()}</Text>
                 </View>
@@ -1579,193 +1601,145 @@ export default function HomeScreen() {
             </View>
           </View>
 
-          {staffProfile ? (
-            <StaffPersonalCard
-              staff={staffProfile}
-              onEdit={() => handleStaffPress(staffProfile)}
+          {matchedMemberProfiles.map((member) => (
+            <MemberPersonalCard
+              key={`member-${member.id}`}
+              member={member}
+              onEdit={() => handleMemberPress(member)}
             />
-          ) : (
+          ))}
+
+          {matchedStaffProfiles.map((staff) => (
+            <StaffPersonalCard
+              key={`staff-${staff.id}`}
+              staff={staff}
+              onEdit={() => handleStaffPress(staff)}
+            />
+          ))}
+
+          {!hasAnyProfile ? (
             <View style={styles.emptyStateContainer}>
               <View style={styles.emptyIconCircle}>
                 <Ionicons name="person-outline" size={42} color="#94A3B8" />
               </View>
-              <Text style={styles.emptyTitle}>No staff profile found</Text>
+              <Text style={styles.emptyTitle}>No profile found</Text>
               <Text style={styles.emptySubtitle}>
-                Please contact your administrator to set up your staff profile.
+                Please contact your administrator to set up your profile.
               </Text>
             </View>
-          )}
+          ) : null}
 
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <View>
-                <Text style={styles.sectionTitle}>My Attendance</Text>
-                <Text style={styles.sectionSubtitle}>
-                  Tap the month to change it
-                </Text>
+          {isStaff ? (
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <View>
+                  <Text style={styles.sectionTitle}>My Attendance</Text>
+                  <Text style={styles.sectionSubtitle}>
+                    Tap the month to change it
+                  </Text>
+                </View>
               </View>
+              <AttendanceSection
+                year={attYear}
+                month={attMonth}
+                onChangeMonth={handleChangeAttendanceMonth}
+              />
             </View>
-            <AttendanceSection
-              year={attYear}
-              month={attMonth}
-              onChangeMonth={handleChangeAttendanceMonth}
-            />
-          </View>
+          ) : null}
+
+          {isMember ? (
+            <>
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <View>
+                    <Text style={styles.sectionTitle}>Society Overview</Text>
+                    <Text style={styles.sectionSubtitle}>
+                      Your community at a glance
+                    </Text>
+                  </View>
+                </View>
+                <View style={styles.statsGrid}>
+                  <StatCard
+                    title="Members"
+                    value={stats.totalProperties}
+                    icon="people-outline"
+                    color="#2563EB"
+                    description="Active"
+                  />
+                  <StatCard
+                    title="Staff"
+                    value={stats.totalStaff}
+                    icon="briefcase-outline"
+                    color="#16A34A"
+                    description="Working"
+                  />
+                </View>
+              </View>
+
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <View>
+                    <Text style={styles.sectionTitle}>Society Finance</Text>
+                    <Text style={styles.sectionSubtitle}>
+                      Overall · all-time totals
+                    </Text>
+                  </View>
+                  <Pressable
+                    style={styles.seeAllButton}
+                    onPress={() => router.push("/(tabs)/finance")}
+                  >
+                    <Text style={styles.seeAllText}>View All</Text>
+                    <Ionicons
+                      name="chevron-forward"
+                      size={15}
+                      color="#2563EB"
+                    />
+                  </Pressable>
+                </View>
+                <View style={styles.financialGrid}>
+                  <FinancialCard
+                    title="Income"
+                    amount={overallIncome}
+                    icon="arrow-down-outline"
+                    color="#16A34A"
+                    background="#DCFCE7"
+                    period="Overall"
+                  />
+                  <FinancialCard
+                    title="Expenses"
+                    amount={overallExpense}
+                    icon="arrow-up-outline"
+                    color="#EA580C"
+                    background="#FFEDD5"
+                    period="Overall"
+                  />
+                  <FinancialCard
+                    title="Net"
+                    amount={overallNet}
+                    icon={
+                      isOverallPositive
+                        ? "wallet-outline"
+                        : "alert-circle-outline"
+                    }
+                    color={isOverallPositive ? "#2563EB" : "#DC2626"}
+                    background={isOverallPositive ? "#DBEAFE" : "#FEE2E2"}
+                    period="Incl. opening"
+                  />
+                </View>
+              </View>
+            </>
+          ) : null}
 
           <View style={styles.footerMessage}>
             <Ionicons
-              name="shield-checkmark-outline"
+              name={isMember ? "eye-outline" : "shield-checkmark-outline"}
               size={18}
               color="#94A3B8"
             />
             <Text style={styles.footerMessageText}>
-              You are viewing your personal staff dashboard
-            </Text>
-          </View>
-
-          <View style={styles.bottomSpace} />
-        </ScrollView>
-      </View>
-    );
-  }
-
-  /* ======================================================================== */
-  /* MEMBER VIEW                                                              */
-  /* ======================================================================== */
-
-  if (isMember) {
-    const memberProfile =
-      matchedProfile && "maintenanceAmount" in matchedProfile
-        ? matchedProfile
-        : null;
-
-    return (
-      <View style={styles.container}>
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.scrollContent}
-          refreshControl={
-            <RefreshControl
-              refreshing={refreshing}
-              onRefresh={onRefresh}
-              tintColor="#2563EB"
-              colors={["#2563EB"]}
-            />
-          }
-        >
-          {renderPendingOffers()}
-
-          <View style={styles.header}>
-            <View style={styles.headerTop}>
-              <View style={styles.headerTextContainer}>
-                <Text style={styles.greeting}>{getGreeting()} 👋</Text>
-                <Text style={styles.accountName} numberOfLines={1}>
-                  {selectedAccount?.name || "My Property"}
-                </Text>
-                <View style={styles.accountTypeRow}>
-                  <View style={styles.accountStatusDot} />
-                  <Text style={styles.accountTypeText}>Resident Portal</Text>
-                  <View style={styles.dotSeparator} />
-                  <Text style={styles.monthText}>{getCurrentMonth()}</Text>
-                </View>
-              </View>
-            </View>
-          </View>
-
-          {memberProfile ? (
-            <MemberPersonalCard
-              member={memberProfile}
-              onEdit={() => handleMemberPress(memberProfile)}
-            />
-          ) : (
-            <View style={styles.emptyStateContainer}>
-              <View style={styles.emptyIconCircle}>
-                <Ionicons name="home-outline" size={42} color="#94A3B8" />
-              </View>
-              <Text style={styles.emptyTitle}>No member profile found</Text>
-              <Text style={styles.emptySubtitle}>
-                Please contact your administrator to set up your member profile.
-              </Text>
-            </View>
-          )}
-
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <View>
-                <Text style={styles.sectionTitle}>Society Overview</Text>
-                <Text style={styles.sectionSubtitle}>
-                  Your community at a glance
-                </Text>
-              </View>
-            </View>
-            <View style={styles.statsGrid}>
-              <StatCard
-                title="Members"
-                value={stats.totalProperties}
-                icon="people-outline"
-                color="#2563EB"
-                description="Active"
-              />
-              <StatCard
-                title="Staff"
-                value={stats.totalStaff}
-                icon="briefcase-outline"
-                color="#16A34A"
-                description="Working"
-              />
-            </View>
-          </View>
-
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <View>
-                <Text style={styles.sectionTitle}>Society Finance</Text>
-                <Text style={styles.sectionSubtitle}>
-                  Overall · all-time totals
-                </Text>
-              </View>
-              <Pressable
-                style={styles.seeAllButton}
-                onPress={() => router.push("/(tabs)/finance")}
-              >
-                <Text style={styles.seeAllText}>View All</Text>
-                <Ionicons name="chevron-forward" size={15} color="#2563EB" />
-              </Pressable>
-            </View>
-            <View style={styles.financialGrid}>
-              <FinancialCard
-                title="Income"
-                amount={overallIncome}
-                icon="arrow-down-outline"
-                color="#16A34A"
-                background="#DCFCE7"
-                period="Overall"
-              />
-              <FinancialCard
-                title="Expenses"
-                amount={overallExpense}
-                icon="arrow-up-outline"
-                color="#EA580C"
-                background="#FFEDD5"
-                period="Overall"
-              />
-              <FinancialCard
-                title="Net"
-                amount={overallNet}
-                icon={
-                  isOverallPositive ? "wallet-outline" : "alert-circle-outline"
-                }
-                color={isOverallPositive ? "#2563EB" : "#DC2626"}
-                background={isOverallPositive ? "#DBEAFE" : "#FEE2E2"}
-                period="Incl. opening"
-              />
-            </View>
-          </View>
-
-          <View style={styles.footerMessage}>
-            <Ionicons name="eye-outline" size={18} color="#94A3B8" />
-            <Text style={styles.footerMessageText}>
-              View-only access · Contact admin for changes
+              {isMember
+                ? "View-only access · Contact admin for changes"
+                : "You are viewing your personal staff dashboard"}
             </Text>
           </View>
 
@@ -1812,110 +1786,154 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        <View style={styles.balanceCard}>
-          <View style={styles.balanceTop}>
-            <View>
-              <Text style={styles.balanceLabel}>Net Balance</Text>
-              <Text style={styles.balancePeriod}>Monthly · incl. opening</Text>
+        {matchedMemberProfiles.map((member) => (
+          <MemberPersonalCard
+            key={`member-${member.id}`}
+            member={member}
+            onEdit={() => handleMemberPress(member)}
+          />
+        ))}
+
+        {matchedStaffProfiles.map((staff) => (
+          <StaffPersonalCard
+            key={`staff-${staff.id}`}
+            staff={staff}
+            onEdit={() => handleStaffPress(staff)}
+          />
+        ))}
+
+        {showAttendance ? (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <View>
+                <Text style={styles.sectionTitle}>My Attendance</Text>
+                <Text style={styles.sectionSubtitle}>
+                  Tap the month to change it
+                </Text>
+              </View>
             </View>
-            <View
+            <AttendanceSection
+              year={attYear}
+              month={attMonth}
+              onChangeMonth={handleChangeAttendanceMonth}
+            />
+          </View>
+        ) : null}
+
+        {showBalanceCard ? (
+          <View style={styles.balanceCard}>
+            <View style={styles.balanceTop}>
+              <View>
+                <Text style={styles.balanceLabel}>Net Balance</Text>
+                <Text style={styles.balancePeriod}>
+                  Monthly · incl. opening
+                </Text>
+              </View>
+              <View
+                style={[
+                  styles.balanceIcon,
+                  {
+                    backgroundColor: isMonthlyPositive ? "#DCFCE7" : "#FEE2E2",
+                  },
+                ]}
+              >
+                <Ionicons
+                  name={
+                    isMonthlyPositive
+                      ? "trending-up-outline"
+                      : "trending-down-outline"
+                  }
+                  size={21}
+                  color={isMonthlyPositive ? "#16A34A" : "#DC2626"}
+                />
+              </View>
+            </View>
+            <Text
               style={[
-                styles.balanceIcon,
-                {
-                  backgroundColor: isMonthlyPositive ? "#DCFCE7" : "#FEE2E2",
-                },
+                styles.balanceAmount,
+                { color: isMonthlyPositive ? "#15803D" : "#DC2626" },
               ]}
+              numberOfLines={1}
+              adjustsFontSizeToFit
             >
-              <Ionicons
-                name={
-                  isMonthlyPositive
-                    ? "trending-up-outline"
-                    : "trending-down-outline"
+              {isMonthlyPositive ? "" : "-"}
+              {formatCurrency(monthlyNet)}
+            </Text>
+            <View style={styles.balanceDivider} />
+            <View style={styles.balanceBottom}>
+              <View style={styles.balanceMiniItem}>
+                <View
+                  style={[styles.miniDot, { backgroundColor: "#16A34A" }]}
+                />
+                <View>
+                  <Text style={styles.miniLabel}>Monthly Income</Text>
+                  <Text style={styles.miniValue}>
+                    {formatCurrency(stats.monthlyIncome)}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.balanceMiniItem}>
+                <View
+                  style={[styles.miniDot, { backgroundColor: "#EA580C" }]}
+                />
+                <View>
+                  <Text style={styles.miniLabel}>Monthly Expenses</Text>
+                  <Text style={styles.miniValue}>
+                    {formatCurrency(stats.monthlyExpense)}
+                  </Text>
+                </View>
+              </View>
+            </View>
+          </View>
+        ) : null}
+
+        {showFinance ? (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <View>
+                <Text style={styles.sectionTitle}>Financial Overview</Text>
+                <Text style={styles.sectionSubtitle}>
+                  Overall · all-time totals
+                </Text>
+              </View>
+              <Pressable
+                style={styles.seeAllButton}
+                onPress={() => router.push("/(tabs)/finance")}
+              >
+                <Text style={styles.seeAllText}>View All</Text>
+                <Ionicons name="chevron-forward" size={15} color="#2563EB" />
+              </Pressable>
+            </View>
+            <View style={styles.financialGrid}>
+              <FinancialCard
+                title="Total Income"
+                amount={overallIncome}
+                icon="arrow-down-outline"
+                color="#16A34A"
+                background="#DCFCE7"
+                period="Overall"
+              />
+              <FinancialCard
+                title="Total Expenses"
+                amount={overallExpense}
+                icon="arrow-up-outline"
+                color="#EA580C"
+                background="#FFEDD5"
+                period="Overall"
+              />
+              <FinancialCard
+                title="Net Balance"
+                amount={overallNet}
+                icon={
+                  isOverallPositive ? "wallet-outline" : "alert-circle-outline"
                 }
-                size={21}
-                color={isMonthlyPositive ? "#16A34A" : "#DC2626"}
+                color={isOverallPositive ? "#2563EB" : "#DC2626"}
+                background={isOverallPositive ? "#DBEAFE" : "#FEE2E2"}
+                period="Incl. opening"
               />
             </View>
           </View>
-          <Text
-            style={[
-              styles.balanceAmount,
-              { color: isMonthlyPositive ? "#15803D" : "#DC2626" },
-            ]}
-            numberOfLines={1}
-            adjustsFontSizeToFit
-          >
-            {isMonthlyPositive ? "" : "-"}
-            {formatCurrency(monthlyNet)}
-          </Text>
-          <View style={styles.balanceDivider} />
-          <View style={styles.balanceBottom}>
-            <View style={styles.balanceMiniItem}>
-              <View style={[styles.miniDot, { backgroundColor: "#16A34A" }]} />
-              <View>
-                <Text style={styles.miniLabel}>Monthly Income</Text>
-                <Text style={styles.miniValue}>
-                  {formatCurrency(stats.monthlyIncome)}
-                </Text>
-              </View>
-            </View>
-            <View style={styles.balanceMiniItem}>
-              <View style={[styles.miniDot, { backgroundColor: "#EA580C" }]} />
-              <View>
-                <Text style={styles.miniLabel}>Monthly Expenses</Text>
-                <Text style={styles.miniValue}>
-                  {formatCurrency(stats.monthlyExpense)}
-                </Text>
-              </View>
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <View>
-              <Text style={styles.sectionTitle}>Financial Overview</Text>
-              <Text style={styles.sectionSubtitle}>
-                Overall · all-time totals
-              </Text>
-            </View>
-            <Pressable
-              style={styles.seeAllButton}
-              onPress={() => router.push("/(tabs)/finance")}
-            >
-              <Text style={styles.seeAllText}>View All</Text>
-              <Ionicons name="chevron-forward" size={15} color="#2563EB" />
-            </Pressable>
-          </View>
-          <View style={styles.financialGrid}>
-            <FinancialCard
-              title="Total Income"
-              amount={overallIncome}
-              icon="arrow-down-outline"
-              color="#16A34A"
-              background="#DCFCE7"
-              period="Overall"
-            />
-            <FinancialCard
-              title="Total Expenses"
-              amount={overallExpense}
-              icon="arrow-up-outline"
-              color="#EA580C"
-              background="#FFEDD5"
-              period="Overall"
-            />
-            <FinancialCard
-              title="Net Balance"
-              amount={overallNet}
-              icon={
-                isOverallPositive ? "wallet-outline" : "alert-circle-outline"
-              }
-              color={isOverallPositive ? "#2563EB" : "#DC2626"}
-              background={isOverallPositive ? "#DBEAFE" : "#FEE2E2"}
-              period="Incl. opening"
-            />
-          </View>
-        </View>
+        ) : null}
 
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
@@ -1950,25 +1968,27 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <View>
-              <Text style={styles.sectionTitle}>Quick Actions</Text>
-              <Text style={styles.sectionSubtitle}>
-                Manage your property faster
-              </Text>
+        {showQuickActions ? (
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <View>
+                <Text style={styles.sectionTitle}>Quick Actions</Text>
+                <Text style={styles.sectionSubtitle}>
+                  Manage your property faster
+                </Text>
+              </View>
+            </View>
+            <View style={styles.quickActions}>
+              {ADMIN_QUICK_ACTIONS.map((action) => (
+                <QuickActionCard
+                  key={action.id}
+                  action={action}
+                  onPress={() => handleQuickAction(action)}
+                />
+              ))}
             </View>
           </View>
-          <View style={styles.quickActions}>
-            {ADMIN_QUICK_ACTIONS.map((action) => (
-              <QuickActionCard
-                key={action.id}
-                action={action}
-                onPress={() => handleQuickAction(action)}
-              />
-            ))}
-          </View>
-        </View>
+        ) : null}
 
         <View style={styles.bottomSpace} />
       </ScrollView>
