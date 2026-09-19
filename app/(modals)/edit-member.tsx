@@ -35,8 +35,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import DatePickerModal from "../../components/DatePickerModal";
 import {
+  closeNameConflict,
   confirmNameConflict,
-  setNameConflictBusy,
 } from "../../components/NameConflictAlert";
 import {
   PhoneVisibilityRow,
@@ -108,10 +108,6 @@ const INCOME_SOURCES: RoleOption[] = [
   },
 ];
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 function normalizePhone(raw?: string): string {
   if (!raw) return "";
   const digits = String(raw).replace(/\D/g, "");
@@ -149,10 +145,6 @@ function toDateInput(raw: unknown): string {
 
   return "";
 }
-
-// ---------------------------------------------------------------------------
-// Bill save / download helpers
-// ---------------------------------------------------------------------------
 
 const pickExtension = (mimeOrUri?: string | null): string => {
   const s = String(mimeOrUri || "").toLowerCase();
@@ -314,10 +306,6 @@ async function downloadBillAttachment(
     );
   }
 }
-
-// ---------------------------------------------------------------------------
-// Photo Adjust Modal
-// ---------------------------------------------------------------------------
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const VIEWPORT = Math.min(SCREEN_WIDTH - 64, 320);
@@ -886,7 +874,6 @@ export default function EditMemberScreen() {
 
   const hasFieldErrors = Object.values(fieldErrors).some(Boolean);
 
-  // ── Snapshot of the pristine form, used for "no changes to save". ──
   const originalRef = useRef<Record<string, any> | null>(null);
 
   const deleteNoun =
@@ -916,7 +903,6 @@ export default function EditMemberScreen() {
     });
   }, [contactsList, contactSearch]);
 
-  // ── Build a snapshot of every editable form field. ──
   const buildFormSnapshot = (): Record<string, any> => ({
     name: name.trim(),
     phone: phone.replace(/\D/g, "").slice(-10),
@@ -941,7 +927,6 @@ export default function EditMemberScreen() {
       .join("::"),
   });
 
-  // ── Load member into form ──
   useEffect(() => {
     if (!member) return;
 
@@ -993,8 +978,6 @@ export default function EditMemberScreen() {
       setBillAttachments(member.billAttachments || []);
     }
 
-    // Capture the pristine snapshot on the next tick, after all the
-    // setState calls above have flushed. Used for "no changes" detection.
     const t = setTimeout(() => {
       originalRef.current = buildFormSnapshot();
     }, 0);
@@ -1002,7 +985,6 @@ export default function EditMemberScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [member, groupType]);
 
-  // ── PHOTO PICK ──
   const showPhotoSelectionOptions = (forBill: boolean = false) => {
     setIsBillPhotoMode(forBill);
     setShowPhotoOptions(true);
@@ -1095,7 +1077,6 @@ export default function EditMemberScreen() {
     setRawImage(null);
   };
 
-  // ── CONTACT PICKER ──
   const pickContact = async () => {
     if (Platform.OS === "web") {
       Alert.alert(
@@ -1190,7 +1171,6 @@ export default function EditMemberScreen() {
     setShowContactPicker(false);
   };
 
-  // ── PHONE VISIBILITY ──
   const openVisibilityModal = async () => {
     if (!isSelfMember || !memberId) return;
 
@@ -1264,7 +1244,6 @@ export default function EditMemberScreen() {
   const allSelectableOn =
     selectableRows.length > 0 && selectableRows.every((r) => r.enabled);
 
-  // ── UPDATE ──
   const handleUpdate = async () => {
     setError("");
 
@@ -1313,7 +1292,6 @@ export default function EditMemberScreen() {
       return;
     }
 
-    // ── No-changes detection ──
     const current = buildFormSnapshot();
     const original = originalRef.current;
 
@@ -1391,7 +1369,6 @@ export default function EditMemberScreen() {
           return;
         }
 
-        setNameConflictBusy(true);
         try {
           await update(memberId, { ...updateData, confirm_rename: true });
 
@@ -1404,11 +1381,11 @@ export default function EditMemberScreen() {
             );
           }
 
-          setNameConflictBusy(false);
+          closeNameConflict();
           router.back();
           return;
         } catch (err: any) {
-          setNameConflictBusy(false);
+          closeNameConflict();
           console.error("[edit-member] confirmed save failed:", err);
           setError(
             err?.message || `Failed to update ${deleteNoun.toLowerCase()}`,
@@ -1423,7 +1400,6 @@ export default function EditMemberScreen() {
     }
   };
 
-  // ── DELETE (soft for members/staff, hard for expenses) ──
   const handleDelete = () => setShowDeleteConfirmation(true);
 
   const confirmDelete = async () => {
@@ -2890,10 +2866,6 @@ export default function EditMemberScreen() {
   );
 }
 
-// ==================================================
-// REUSABLE UI COMPONENTS
-// ==================================================
-
 function SectionHeader({
   icon,
   title,
@@ -2974,10 +2946,6 @@ function InputContainer({
     </View>
   );
 }
-
-// ==================================================
-// STYLES
-// ==================================================
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f6f8fc" },

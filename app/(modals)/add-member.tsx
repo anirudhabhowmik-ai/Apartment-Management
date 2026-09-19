@@ -33,8 +33,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import DatePickerModal from "../../components/DatePickerModal";
 import {
-  confirmNameConflict,
-  setNameConflictBusy,
+  closeNameConflict,
+  confirmNameConflict
 } from "../../components/NameConflictAlert";
 import { useExpenses, useMembers, useStaff } from "../../hooks/useManagement";
 import type { BillAttachment, ManagementType, MemberRole } from "../../types";
@@ -430,6 +430,7 @@ function PhotoAdjustModal({
                 }}
                 resizeMode="cover"
               />
+
               <View
                 style={[adjustStyles.circleGuide, { pointerEvents: "none" }]}
               />
@@ -1158,14 +1159,25 @@ export default function AddMemberScreen() {
           return;
         }
 
-        setNameConflictBusy(true);
+        // The user tapped "Rename". The modal stays open with a spinner
+        // on the Rename button until we call closeNameConflict().
         try {
           await addNewMember({ ...payload, confirm_rename: true });
-          setNameConflictBusy(false);
+
+          try {
+            await activeHook.refresh({ force: true });
+          } catch (refreshErr) {
+            console.warn(
+              "[add-member] post-rename refresh failed:",
+              refreshErr,
+            );
+          }
+
+          closeNameConflict();
           router.back();
           return;
         } catch (err: any) {
-          setNameConflictBusy(false);
+          closeNameConflict();
           console.error("[add-member] confirmed save failed:", err);
           setError(
             err?.message ||
