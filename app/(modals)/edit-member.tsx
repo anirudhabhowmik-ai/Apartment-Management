@@ -35,6 +35,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import DatePickerModal from "../../components/DatePickerModal";
 import {
+  confirmNameConflict,
+  setNameConflictBusy,
+} from "../../components/NameConflictAlert";
+import {
   PhoneVisibilityRow,
   useExpenses,
   useMembers,
@@ -147,7 +151,7 @@ function toDateInput(raw: unknown): string {
 }
 
 // ---------------------------------------------------------------------------
-// Bill save / download helpers — folder picker on Android, share sheet on iOS
+// Bill save / download helpers
 // ---------------------------------------------------------------------------
 
 const pickExtension = (mimeOrUri?: string | null): string => {
@@ -882,7 +886,9 @@ export default function EditMemberScreen() {
 
   const hasFieldErrors = Object.values(fieldErrors).some(Boolean);
 
-  // ── Dynamic labels per groupType ──
+  // ── Snapshot of the pristine form, used for "no changes to save". ──
+  const originalRef = useRef<Record<string, any> | null>(null);
+
   const deleteNoun =
     groupType === "expense"
       ? "Expense"
@@ -909,6 +915,31 @@ export default function EditMemberScreen() {
       return nameMatch || phoneMatch;
     });
   }, [contactsList, contactSearch]);
+
+  // ── Build a snapshot of every editable form field. ──
+  const buildFormSnapshot = (): Record<string, any> => ({
+    name: name.trim(),
+    phone: phone.replace(/\D/g, "").slice(-10),
+    role: role ?? "",
+    isCustomRole,
+    customRole: isCustomRole ? customRole.trim() : "",
+    photoUri: photoUri ?? "",
+    wing: wing.trim(),
+    flatNumber: flatNumber.trim(),
+    areaSqft: areaSqft.trim(),
+    parkingAvailable,
+    maintenanceAmount: maintenanceAmount.trim(),
+    monthlySalary: monthlySalary.trim(),
+    expenseAmount: expenseAmount.trim(),
+    expenseStatus,
+    reminderEnabled,
+    expenseDescription: expenseDescription.trim(),
+    dueDate: dueDate ?? "",
+    transactionKind,
+    billAttachmentsKey: billAttachments
+      .map((b) => `${b.uri}|${b.name ?? ""}`)
+      .join("::"),
+  });
 
   // ── Load member into form ──
   useEffect(() => {
@@ -961,6 +992,13 @@ export default function EditMemberScreen() {
       setRole((member.role as MemberRole) || null);
       setBillAttachments(member.billAttachments || []);
     }
+
+    // Capture the pristine snapshot on the next tick, after all the
+    // setState calls above have flushed. Used for "no changes" detection.
+    const t = setTimeout(() => {
+      originalRef.current = buildFormSnapshot();
+    }, 0);
+    return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [member, groupType]);
 
@@ -1275,48 +1313,111 @@ export default function EditMemberScreen() {
       return;
     }
 
+    // ── No-changes detection ──
+    const current = buildFormSnapshot();
+    const original = originalRef.current;
+
+    if (original) {
+      const keys = new Set([...Object.keys(original), ...Object.keys(current)]);
+      let changed = false;
+      for (const k of keys) {
+        if ((original as any)[k] !== (current as any)[k]) {
+          changed = true;
+          break;
+        }
+      }
+      if (!changed) {
+        Alert.alert(
+          "No changes to save",
+          "You haven't made any changes yet. Update a field and try again.",
+          [{ text: "OK" }],
+        );
+        return;
+      }
+    }
+
     setFieldErrors({});
     setLoading(true);
 
+    const updateData: any = {
+      name: name.trim(),
+      phone: groupType === "expense" ? "" : `+91${phone}`,
+      role,
+      photoUri: photoUri ?? undefined,
+    };
+
+    if (groupType === "apartment") {
+      if (wing && wing.trim()) updateData.wing = wing.trim();
+      updateData.flatNumber = flatNumber.trim();
+      if (areaSqft && !isNaN(Number(areaSqft))) {
+        updateData.areaSqft = Number(areaSqft);
+      }
+      updateData.parkingAvailable = parkingAvailable;
+      updateData.maintenanceAmount = Number(maintenanceAmount);
+    }
+
+    if (groupType === "staff") {
+      updateData.monthlySalary = Number(monthlySalary);
+    }
+
+    if (groupType === "expense") {
+      updateData.amount = Number(expenseAmount);
+      updateData.role = role;
+      updateData.transactionType = transactionKind;
+      updateData.status = expenseStatus;
+      updateData.reminderEnabled =
+        expenseStatus === "due" ? reminderEnabled : false;
+      updateData.dueDate = toDateInput(dueDate) || undefined;
+      updateData.description = expenseDescription.trim() || undefined;
+      updateData.billAttachments = billAttachments;
+    }
+
     try {
-      const updateData: any = {
-        name: name.trim(),
-        phone: groupType === "expense" ? "" : `+91${phone}`,
-        role,
-        photoUri: photoUri ?? undefined,
-      };
-
-      if (groupType === "apartment") {
-        if (wing && wing.trim()) updateData.wing = wing.trim();
-        updateData.flatNumber = flatNumber.trim();
-        if (areaSqft && !isNaN(Number(areaSqft))) {
-          updateData.areaSqft = Number(areaSqft);
-        }
-        updateData.parkingAvailable = parkingAvailable;
-        updateData.maintenanceAmount = Number(maintenanceAmount);
-      }
-
-      if (groupType === "staff") {
-        updateData.monthlySalary = Number(monthlySalary);
-      }
-
-      if (groupType === "expense") {
-        updateData.amount = Number(expenseAmount);
-        updateData.role = role;
-        updateData.transactionType = transactionKind;
-        updateData.status = expenseStatus;
-        updateData.reminderEnabled =
-          expenseStatus === "due" ? reminderEnabled : false;
-        updateData.dueDate = toDateInput(dueDate) || undefined;
-        updateData.description = expenseDescription.trim() || undefined;
-        updateData.billAttachments = billAttachments;
-      }
-
       await update(memberId, updateData);
-
       router.back();
     } catch (e: any) {
-      setError(e.message || `Failed to update ${deleteNoun.toLowerCase()}`);
+      if (e?.code === "name_conflict") {
+        setLoading(false);
+
+        const confirmed = await confirmNameConflict({
+          phone: String(e?.body?.phone ?? e?.phone ?? phone ?? ""),
+          existing_name: String(
+            e?.body?.existing_name ?? e?.existing_name ?? "",
+          ),
+          role: groupType === "staff" ? "staff" : "member",
+        });
+
+        if (!confirmed) {
+          return;
+        }
+
+        setNameConflictBusy(true);
+        try {
+          await update(memberId, { ...updateData, confirm_rename: true });
+
+          try {
+            await activeHook.refresh({ force: true });
+          } catch (refreshErr) {
+            console.warn(
+              "[edit-member] post-rename refresh failed:",
+              refreshErr,
+            );
+          }
+
+          setNameConflictBusy(false);
+          router.back();
+          return;
+        } catch (err: any) {
+          setNameConflictBusy(false);
+          console.error("[edit-member] confirmed save failed:", err);
+          setError(
+            err?.message || `Failed to update ${deleteNoun.toLowerCase()}`,
+          );
+          return;
+        }
+      }
+
+      setError(e?.message || `Failed to update ${deleteNoun.toLowerCase()}`);
     } finally {
       setLoading(false);
     }
@@ -1331,10 +1432,6 @@ export default function EditMemberScreen() {
       setError("");
       setFieldErrors({});
 
-      // For members and staff, this is a SOFT delete on the backend:
-      // the row is kept in the DB with status = 'inactive'.
-      // For expenses, this is a real DELETE.
-      // Either way, the hook treats it as "removed from the list".
       await remove(memberId);
 
       setShowDeleteConfirmation(false);

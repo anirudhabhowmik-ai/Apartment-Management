@@ -32,6 +32,10 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import DatePickerModal from "../../components/DatePickerModal";
+import {
+  confirmNameConflict,
+  setNameConflictBusy,
+} from "../../components/NameConflictAlert";
 import { useExpenses, useMembers, useStaff } from "../../hooks/useManagement";
 import type { BillAttachment, ManagementType, MemberRole } from "../../types";
 
@@ -1095,13 +1099,10 @@ export default function AddMemberScreen() {
     }
 
     if (Object.keys(errors).length > 0) {
-      console.log("[add-member] validation failed:", errors);
       setFieldErrors(errors);
       setError("Please fix the highlighted fields");
       return;
     }
-
-    setLoading(true);
 
     const payload = {
       groupType,
@@ -1136,68 +1137,51 @@ export default function AddMemberScreen() {
       billAttachments: groupType === "expense" ? billAttachments : undefined,
     };
 
+    setLoading(true);
+
     try {
       await addNewMember(payload);
       router.back();
     } catch (e: any) {
-      console.error("[add-member] save failed:", e);
-
-      // ── Name-conflict handling ──
-      // Backend returns 409 { code: "name_conflict", existing_name, phone }
-      // when the phone already belongs to a different name on this account.
       if (e?.code === "name_conflict") {
-        const existingName =
-          e?.body?.existing_name ?? e?.existing_name ?? "someone else";
-        const conflictPhone = e?.body?.phone ?? e?.phone ?? phone ?? "";
-
         setLoading(false);
 
-        Alert.alert(
-          "This number is already in use",
-          `+91${conflictPhone} already belongs to "${existingName}" on this account as a member, admin, or staff.\n\nOne number, one name. If you continue, the name will be updated everywhere this number appears on this account — member, staff, and any pending invitations.\n\nIf you do not want to change the existing name, tap Cancel.`,
-          [
-            {
-              text: "Cancel",
-              style: "cancel",
-            },
-            {
-              text: "Continue & rename",
-              style: "destructive",
-              onPress: async () => {
-                setLoading(true);
-                try {
-                  await addNewMember({
-                    ...payload,
-                    confirm_rename: true,
-                  });
-                  router.back();
-                } catch (err: any) {
-                  console.error(
-                    "[add-member] save with confirm_rename failed:",
-                    err,
-                  );
-                  setError(
-                    err?.message ||
-                      `Failed to add ${getGroupTypeLabel(groupType).toLowerCase()}. Please try again.`,
-                  );
-                } finally {
-                  setLoading(false);
-                }
-              },
-            },
-          ],
-        );
-        return;
+        const confirmed = await confirmNameConflict({
+          phone: String(e?.body?.phone ?? e?.phone ?? phone ?? ""),
+          existing_name: String(
+            e?.body?.existing_name ?? e?.existing_name ?? "",
+          ),
+          role: groupType === "staff" ? "staff" : "member",
+        });
+
+        if (!confirmed) {
+          return;
+        }
+
+        setNameConflictBusy(true);
+        try {
+          await addNewMember({ ...payload, confirm_rename: true });
+          setNameConflictBusy(false);
+          router.back();
+          return;
+        } catch (err: any) {
+          setNameConflictBusy(false);
+          console.error("[add-member] confirmed save failed:", err);
+          setError(
+            err?.message ||
+              `Failed to add ${getGroupTypeLabel(groupType).toLowerCase()}. Please try again.`,
+          );
+          return;
+        }
       }
 
+      console.error("[add-member] save failed:", e);
       setError(
         e?.message ||
           `Failed to add ${getGroupTypeLabel(groupType).toLowerCase()}. Please try again.`,
       );
-      setLoading(false);
     } finally {
-      // Only clear loading here if we didn't return early from the
-      // name-conflict branch (that branch manages setLoading itself).
+      setLoading(false);
     }
   };
 
