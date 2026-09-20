@@ -242,6 +242,14 @@ function getStaffRoleLabel(role?: string) {
   );
 }
 
+// =============================================================================
+// NEW helper — pluralize "account(s)" for badges and labels.
+// A "member record" is always one account, whether it's flat / shop / custom.
+// =============================================================================
+function pluralizeAccounts(count: number): string {
+  return count === 1 ? "1 account" : `${count} accounts`;
+}
+
 function getDaysInMonth(year: number, month: number) {
   return new Date(year, month + 1, 0).getDate();
 }
@@ -462,6 +470,55 @@ function StatCard({
         <Text style={styles.statDescription}>{description}</Text>
       ) : null}
     </View>
+  );
+}
+
+function GroupOverviewCard({
+  title,
+  subtitle,
+  count,
+  countLabel,
+  icon,
+  color,
+  onPress,
+}: {
+  title: string;
+  subtitle: string;
+  count: number;
+  countLabel: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  color: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.groupOverviewCard,
+        pressed && styles.pressed,
+      ]}
+    >
+      <View style={styles.groupOverviewHeader}>
+        <View
+          style={[styles.groupOverviewIcon, { backgroundColor: `${color}15` }]}
+        >
+          <Ionicons name={icon} size={22} color={color} />
+        </View>
+        <View style={styles.groupOverviewChevron}>
+          <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
+        </View>
+      </View>
+
+      <Text style={styles.groupOverviewTitle}>{title}</Text>
+      <Text style={styles.groupOverviewSubtitle} numberOfLines={1}>
+        {subtitle}
+      </Text>
+
+      <View style={styles.groupOverviewCountRow}>
+        <Text style={[styles.groupOverviewCount, { color }]}>{count}</Text>
+        <Text style={styles.groupOverviewCountLabel}>{countLabel}</Text>
+      </View>
+    </Pressable>
   );
 }
 
@@ -1018,6 +1075,20 @@ export default function HomeScreen() {
     setAttMonth(m);
   };
 
+  const handleOpenMembersGroup = useCallback(() => {
+    router.push({
+      pathname: "/(tabs)/people",
+      params: { tab: "apartment" },
+    });
+  }, [router]);
+
+  const handleOpenStaffGroup = useCallback(() => {
+    router.push({
+      pathname: "/(tabs)/people",
+      params: { tab: "staff" },
+    });
+  }, [router]);
+
   const loadPendingAdminOffers = useCallback(async () => {
     if (!user?.phone) {
       setPendingAdminOffers([]);
@@ -1252,6 +1323,9 @@ export default function HomeScreen() {
   const stats = dashboardData.stats;
   const allTime = dashboardData.allTime;
 
+  // Every member row (flat / shop / custom) counts as one account.
+  const totalMemberRecords = apartmentMembers.length;
+
   const monthlyNet =
     openingBalance + (stats.monthlyIncome - stats.monthlyExpense);
   const isMonthlyPositive = monthlyNet >= 0;
@@ -1438,7 +1512,13 @@ export default function HomeScreen() {
             {/* ===================== MEMBER GROUP ===================== */}
             {hasMembers ? (
               <View style={styles.groupCard}>
-                <View style={styles.groupCardHeader}>
+                <Pressable
+                  onPress={handleOpenMembersGroup}
+                  style={({ pressed }) => [
+                    styles.groupCardHeader,
+                    pressed && styles.pressed,
+                  ]}
+                >
                   <View style={styles.groupCardHeaderLeft}>
                     <View
                       style={[
@@ -1450,13 +1530,21 @@ export default function HomeScreen() {
                     </View>
                     <Text style={styles.groupCardHeaderTitle}>Member</Text>
                   </View>
-                  <View style={styles.groupCardHeaderBadge}>
-                    <Text style={styles.groupCardHeaderBadgeText}>
-                      {matchedMemberProfiles.length}{" "}
-                      {matchedMemberProfiles.length === 1 ? "flat" : "flats"}
-                    </Text>
+                  <View style={styles.groupCardHeaderRight}>
+                    <View style={styles.groupCardHeaderBadge}>
+                      {/* "accounts" instead of "flats" — a member row
+                          can be flat, shop, or custom. */}
+                      <Text style={styles.groupCardHeaderBadgeText}>
+                        {pluralizeAccounts(matchedMemberProfiles.length)}
+                      </Text>
+                    </View>
+                    <Ionicons
+                      name="chevron-forward"
+                      size={16}
+                      color="#94A3B8"
+                    />
                   </View>
-                </View>
+                </Pressable>
 
                 <View style={styles.groupCardBody}>
                   {matchedMemberProfiles.map((member: any, index: number) => {
@@ -1465,7 +1553,7 @@ export default function HomeScreen() {
                       [member.wing, member.flatNumber]
                         .filter(Boolean)
                         .join(" · ") ||
-                      "Flat";
+                      "Account";
                     const roleLabel = getMemberRoleLabel(member.role);
 
                     return (
@@ -1528,7 +1616,13 @@ export default function HomeScreen() {
             {/* ===================== STAFF GROUP ===================== */}
             {hasStaff ? (
               <View style={styles.groupCard}>
-                <View style={styles.groupCardHeader}>
+                <Pressable
+                  onPress={handleOpenStaffGroup}
+                  style={({ pressed }) => [
+                    styles.groupCardHeader,
+                    pressed && styles.pressed,
+                  ]}
+                >
                   <View style={styles.groupCardHeaderLeft}>
                     <View
                       style={[
@@ -1544,13 +1638,20 @@ export default function HomeScreen() {
                     </View>
                     <Text style={styles.groupCardHeaderTitle}>Staff</Text>
                   </View>
-                  <View style={styles.groupCardHeaderBadge}>
-                    <Text style={styles.groupCardHeaderBadgeText}>
-                      {matchedStaffProfiles.length}{" "}
-                      {matchedStaffProfiles.length === 1 ? "role" : "roles"}
-                    </Text>
+                  <View style={styles.groupCardHeaderRight}>
+                    <View style={styles.groupCardHeaderBadge}>
+                      <Text style={styles.groupCardHeaderBadgeText}>
+                        {matchedStaffProfiles.length}{" "}
+                        {matchedStaffProfiles.length === 1 ? "role" : "roles"}
+                      </Text>
+                    </View>
+                    <Ionicons
+                      name="chevron-forward"
+                      size={16}
+                      color="#94A3B8"
+                    />
                   </View>
-                </View>
+                </Pressable>
 
                 <View style={styles.groupCardBody}>
                   {matchedStaffProfiles.map((staff: any, index: number) => {
@@ -1676,20 +1777,26 @@ export default function HomeScreen() {
                     </Text>
                   </View>
                 </View>
-                <View style={styles.statsGrid}>
-                  <StatCard
+                <View style={styles.groupOverviewGrid}>
+                  <GroupOverviewCard
                     title="Members"
-                    value={stats.totalProperties}
+                    subtitle="Owner accounts"
+                    count={totalMemberRecords}
+                    countLabel={
+                      totalMemberRecords === 1 ? "account" : "accounts"
+                    }
                     icon="people-outline"
                     color="#2563EB"
-                    description="Active"
+                    onPress={handleOpenMembersGroup}
                   />
-                  <StatCard
+                  <GroupOverviewCard
                     title="Staff"
-                    value={stats.totalStaff}
+                    subtitle="Working on site"
+                    count={staffMembers.length}
+                    countLabel={staffMembers.length === 1 ? "staff" : "staff"}
                     icon="briefcase-outline"
                     color="#16A34A"
-                    description="Working"
+                    onPress={handleOpenStaffGroup}
                   />
                 </View>
               </View>
@@ -1935,35 +2042,38 @@ export default function HomeScreen() {
           </View>
         ) : null}
 
+        {/* ===================== OVERVIEW (clickable) ===================== */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <View>
               <Text style={styles.sectionTitle}>Overview</Text>
               <Text style={styles.sectionSubtitle}>
-                Your property at a glance
+                Tap a card to open the group
               </Text>
             </View>
           </View>
-          <View style={styles.statsGrid}>
-            <StatCard
-              title={
-                selectedAccount.type === "apartment" ? "Members" : "Tenants"
-              }
-              value={stats.totalProperties}
+          <View style={styles.groupOverviewGrid}>
+            <GroupOverviewCard
+              title="Members"
+              subtitle="Owner accounts"
+              count={totalMemberRecords}
+              countLabel={totalMemberRecords === 1 ? "account" : "accounts"}
               icon={
                 selectedAccount.type === "apartment"
                   ? "people-outline"
                   : "home-outline"
               }
               color="#2563EB"
-              description="Active"
+              onPress={handleOpenMembersGroup}
             />
-            <StatCard
+            <GroupOverviewCard
               title="Staff"
-              value={stats.totalStaff}
+              subtitle="Working on site"
+              count={staffMembers.length}
+              countLabel={staffMembers.length === 1 ? "staff" : "staff"}
               icon="briefcase-outline"
               color="#16A34A"
-              description="Working"
+              onPress={handleOpenStaffGroup}
             />
           </View>
         </View>
@@ -2140,6 +2250,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
+  groupCardHeaderRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
   groupCardHeaderIcon: {
     width: 28,
     height: 28,
@@ -2212,6 +2327,73 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: "800",
     letterSpacing: 0.2,
+  },
+
+  /* ============================ OVERVIEW CARDS ============================ */
+  groupOverviewGrid: {
+    flexDirection: "row",
+    gap: 12,
+  },
+  groupOverviewCard: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 20,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    minHeight: 155,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    elevation: 2,
+  },
+  groupOverviewHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  groupOverviewIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: 15,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  groupOverviewChevron: {
+    width: 28,
+    height: 28,
+    borderRadius: 10,
+    backgroundColor: "#F1F5F9",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  groupOverviewTitle: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#0F172A",
+    marginTop: 14,
+  },
+  groupOverviewSubtitle: {
+    fontSize: 11.5,
+    color: "#94A3B8",
+    marginTop: 2,
+  },
+  groupOverviewCountRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 5,
+    marginTop: 10,
+  },
+  groupOverviewCount: {
+    fontSize: 28,
+    fontWeight: "800",
+    letterSpacing: -0.5,
+  },
+  groupOverviewCountLabel: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#94A3B8",
   },
 
   offersSection: { marginBottom: 14, gap: 10 },
