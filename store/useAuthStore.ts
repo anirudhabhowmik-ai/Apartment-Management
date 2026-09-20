@@ -1,5 +1,6 @@
 // store/useAuthStore.ts
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as FileSystem from "expo-file-system/legacy";
 import * as SecureStore from "expo-secure-store";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
@@ -53,6 +54,69 @@ async function getAuthToken(): Promise<string | null> {
     return await SecureStore.getItemAsync(AUTH_TOKEN_KEY);
   } catch {
     return null;
+  }
+}
+
+// ------------------------------------------------------------
+// Photo encoding
+//
+// A device-local URI (file://, content://, ph://) cannot be read on any
+// other phone. Encode it as a base64 data URI so the server stores a
+// portable value that renders everywhere.
+// ------------------------------------------------------------
+async function encodePhotoForServer(localUri: string): Promise<string> {
+  if (!localUri) return localUri;
+
+  // Already portable — pass through unchanged.
+  if (localUri.startsWith("data:") || /^https?:\/\//i.test(localUri)) {
+    return localUri;
+  }
+
+  // Anything else must be encoded. Do NOT fall back to returning the raw
+  // URI — that would leak a device-local path into the database.
+  const base64 = await FileSystem.readAsStringAsync(localUri, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+
+  const lower = localUri.toLowerCase();
+  const mime = lower.endsWith(".png")
+    ? "image/png"
+    : lower.endsWith(".webp")
+      ? "image/webp"
+      : "image/jpeg";
+
+  return `data:${mime};base64,${base64}`;
+}
+
+// ------------------------------------------------------------
+// Identity fan-out
+//
+// Push the current user's name / photo to every cached member & staff
+// row of theirs, in every account. This is what makes the People tab
+// reflect a change made from Edit Profile without a refetch.
+// ------------------------------------------------------------
+function syncIdentityToManagement(
+  userId: string,
+  name: string | null,
+  photoUrl: string | null,
+): void {
+  if (!userId) return;
+  try {
+    // Lazy requires to avoid circular imports at module load.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { useManagementStore } = require("../hooks/useManagement");
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { useAccountStore } = require("./accountStore");
+
+    const accounts = useAccountStore.getState().accounts || [];
+    for (const acc of accounts) {
+      useManagementStore.getState().syncUserIdentity(acc.id, userId, {
+        name,
+        photoUri: photoUrl,
+      });
+    }
+  } catch (e) {
+    console.warn("[auth] syncIdentityToManagement failed:", e);
   }
 }
 
@@ -124,16 +188,24 @@ export const useAuthStore = create<AuthState>()(
           const u = data?.user;
           if (!u) return;
 
-          set({
-            user: {
-              id: u.id,
-              phone: u.phone,
-              name: u.name ?? null,
-              photoUrl: u.photoUrl ?? null,
-              isActive: u.isActive,
-              lastLoginAt: u.lastLoginAt ?? null,
-            },
-          });
+          const nextUser: AuthUser = {
+            id: u.id,
+            phone: u.phone,
+            name: u.name ?? null,
+            photoUrl: u.photoUrl ?? null,
+            isActive: u.isActive,
+            lastLoginAt: u.lastLoginAt ?? null,
+          };
+
+          set({ user: nextUser });
+
+          // Mirror the fetched identity across cached member/staff rows
+          // so any stale row in the People tab catches up.
+          syncIdentityToManagement(
+            nextUser.id,
+            nextUser.name ?? null,
+            nextUser.photoUrl ?? null,
+          );
         } catch (e) {
           console.warn("[auth] refreshProfile failed:", e);
         }
@@ -145,12 +217,20 @@ export const useAuthStore = create<AuthState>()(
           throw new Error("Not signed in.");
         }
 
+        const currentUser = get().user;
+
         const body: Record<string, any> = {};
+
         if (Object.prototype.hasOwnProperty.call(patch, "name")) {
           body.name = patch.name;
         }
+
         if (Object.prototype.hasOwnProperty.call(patch, "photoUrl")) {
-          body.photo_url = patch.photoUrl;
+          if (patch.photoUrl === null || patch.photoUrl === undefined) {
+            body.photo_url = null;
+          } else {
+            body.photo_url = await encodePhotoForServer(String(patch.photoUrl));
+          }
         }
 
         const res = await fetch(`${API_BASE_URL}/auth/me`, {
@@ -174,18 +254,28 @@ export const useAuthStore = create<AuthState>()(
         }
 
         const u = data?.user;
-        if (u) {
-          set({
-            user: {
-              id: u.id,
-              phone: u.phone,
-              name: u.name ?? null,
-              photoUrl: u.photoUrl ?? null,
-              isActive: u.isActive,
-              lastLoginAt: u.lastLoginAt ?? null,
-            },
-          });
+        if (!u) {
+          throw new Error("Server returned no user.");
         }
+
+        const nextUser: AuthUser = {
+          id: u.id,
+          phone: u.phone,
+          name: u.name ?? null,
+          photoUrl: u.photoUrl ?? null,
+          isActive: u.isActive,
+          lastLoginAt: u.lastLoginAt ?? null,
+        };
+
+        set({ user: nextUser });
+
+        // Fan the new identity out to every cached member / staff row
+        // of this user, in every account.
+        syncIdentityToManagement(
+          nextUser.id,
+          nextUser.name ?? currentUser?.name ?? null,
+          nextUser.photoUrl ?? null,
+        );
       },
 
       logout: async (opts) => {

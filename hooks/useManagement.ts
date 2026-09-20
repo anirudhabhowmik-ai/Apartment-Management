@@ -99,27 +99,27 @@ function endpointFor(type: ManagementType): string {
 
 async function encodePhotoForServer(localUri: string): Promise<string> {
   if (!localUri) return localUri;
+
+  // Already a data URI or a public URL — pass through unchanged.
   if (localUri.startsWith("data:") || /^https?:\/\//i.test(localUri)) {
     return localUri;
   }
 
-  try {
-    const base64 = await FileSystem.readAsStringAsync(localUri, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
+  // Any other URI (file://, content://, ph://, etc.) must be encoded.
+  // Do NOT fall back to returning the raw URI — that would store a
+  // device-local path that no other phone can resolve.
+  const base64 = await FileSystem.readAsStringAsync(localUri, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
 
-    const lower = localUri.toLowerCase();
-    const mime = lower.endsWith(".png")
-      ? "image/png"
-      : lower.endsWith(".webp")
-        ? "image/webp"
-        : "image/jpeg";
+  const lower = localUri.toLowerCase();
+  const mime = lower.endsWith(".png")
+    ? "image/png"
+    : lower.endsWith(".webp")
+      ? "image/webp"
+      : "image/jpeg";
 
-    return `data:${mime};base64,${base64}`;
-  } catch (e) {
-    console.warn("[useManagement] photo encode failed:", e);
-    return localUri;
-  }
+  return `data:${mime};base64,${base64}`;
 }
 
 function serverDateToLocalDateString(raw: unknown): string | undefined {
@@ -372,7 +372,6 @@ interface ManagementState {
     userId: string,
     patch: { name?: string | null; photoUri?: string | null },
   ) => void;
-  // NEW
   renamePersonByPhone: (
     accountId: string,
     phone10: string,
@@ -519,8 +518,6 @@ export const useManagementStore = create<ManagementState>((set) => ({
       };
     }),
 
-  // NEW: rename every member and staff row on this account whose phone
-  // matches the last-10-digits target. No refetch needed.
   renamePersonByPhone: (accountId, phone10, newName) =>
     set((s) => {
       if (!accountId || !phone10 || !newName) return s;
@@ -653,21 +650,12 @@ function createManagementHook(kind: ManagementType) {
         const aid: string = accountId;
 
         const body = await toServerBody(input, kind);
-
-        console.log(
-          `[useManagement:${kind}] POST body:`,
-          JSON.stringify(body, null, 2),
-        );
-
         const qs =
           month && /^\d{4}-\d{2}$/.test(month) ? `?month=${month}` : "";
         const row = await apiRequest<any>(
           `/management/${aid}/${segment}${qs}`,
           { method: "POST", body: JSON.stringify(body) },
         );
-
-        console.log(`[useManagement:${kind}] POST response role:`, row?.role);
-
         const created = mapRowToMember(row, aid, kind);
         useManagementStore.getState().appendItem(kind, aid, created);
         return created;
@@ -698,6 +686,17 @@ function createManagementHook(kind: ManagementType) {
         );
         const updated = mapRowToMember(row, aid, kind);
         useManagementStore.getState().replaceItem(kind, aid, id, updated);
+
+        // If name or photo changed on this row, propagate to every other
+        // member/staff row for the same user in this account.
+        const rowUserId = (updated as any).userId;
+        if (rowUserId) {
+          useManagementStore.getState().syncUserIdentity(aid, rowUserId, {
+            name: (updated as any).name ?? "",
+            photoUri: (updated as any).photoUri ?? null,
+          });
+        }
+
         return updated;
       },
       [accountId, segment, month, kind],
@@ -768,7 +767,6 @@ function createManagementHook(kind: ManagementType) {
       [accountId],
     );
 
-    // NEW
     const renameByPhone = useCallback(
       (phone10: string, newName: string) => {
         if (!accountId) return;

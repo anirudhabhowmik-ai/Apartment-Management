@@ -1,3 +1,4 @@
+// app/(modals)/edit-member.tsx
 import { Ionicons } from "@expo/vector-icons";
 import {
   Contact,
@@ -817,8 +818,6 @@ export default function EditMemberScreen() {
   const [dueDate, setDueDate] = useState("");
   const [billAttachments, setBillAttachments] = useState<BillAttachment[]>([]);
 
-  // Transaction kind is set from the loaded record and never changed on this
-  // screen. A user cannot flip an expense into an income (or vice versa).
   const [transactionKind, setTransactionKind] =
     useState<TransactionKind>("expense");
   const isIncome = transactionKind === "income";
@@ -947,7 +946,6 @@ export default function EditMemberScreen() {
     }
 
     if (groupType === "expense" && "amount" in member) {
-      // Transaction type is read once and locked. Never toggled on this screen.
       setTransactionKind(
         member.transactionType === "income" ? "income" : "expense",
       );
@@ -1310,17 +1308,26 @@ export default function EditMemberScreen() {
       }
       updateData.parkingAvailable = parkingAvailable;
       updateData.maintenanceAmount = Number(maintenanceAmount);
+
+      // Send the photo so updateMember writes it to users.photo_url.
+      if (photoUri) {
+        updateData.photoUri = photoUri;
+      }
     }
 
     if (groupType === "staff") {
       updateData.monthlySalary = Number(monthlySalary);
+
+      // Same for staff.
+      if (photoUri) {
+        updateData.photoUri = photoUri;
+      }
     }
 
     if (groupType === "expense") {
       updateData.name = name.trim();
       updateData.amount = Number(expenseAmount);
       updateData.role = role;
-      // Sent back unchanged; backend accepts it as-is.
       updateData.transactionType = transactionKind;
       updateData.status = expenseStatus;
       updateData.reminderEnabled =
@@ -1803,11 +1810,6 @@ export default function EditMemberScreen() {
               }
             />
 
-            {/* =====================================================
-                Read-only Type badge.
-                The transaction type is decided at creation and cannot
-                be flipped here — an expense stays an expense.
-                ===================================================== */}
             <View style={styles.fieldContainer}>
               <Text style={styles.fieldLabel}>Type</Text>
               <View
@@ -2840,7 +2842,6 @@ const styles = StyleSheet.create({
   requiredMark: { color: "#dc2626" },
   optionalText: { color: "#9ca3af", fontWeight: "500" },
 
-  // ── Read-only transaction-type badge ─────────────────────────────────────
   typeBadge: {
     marginTop: 8,
     minHeight: 60,
