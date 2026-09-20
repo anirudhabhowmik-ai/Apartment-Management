@@ -664,10 +664,6 @@ export default function EditProfileScreen() {
   const [contactSearch, setContactSearch] = useState("");
   const [loadingContacts, setLoadingContacts] = useState(false);
 
-  const [showSignOutModal, setShowSignOutModal] = useState(false);
-
-  const [signingOut, setSigningOut] = useState(false);
-
   useEffect(() => {
     refreshProfile();
 
@@ -907,7 +903,6 @@ export default function EditProfileScreen() {
 
       if (!token) {
         setPhoneError("You're not signed in.");
-
         return;
       }
 
@@ -949,25 +944,6 @@ export default function EditProfileScreen() {
       setPhoneError(e?.message || "Failed to start phone change.");
     } finally {
       setPhoneLoading(false);
-    }
-  };
-
-  const handleSignOut = async () => {
-    if (signingOut) return;
-
-    setSigningOut(true);
-
-    try {
-      await logout({
-        revokeAllSessions: true,
-      });
-    } catch (e) {
-      console.warn("Logout after phone change failed:", e);
-    } finally {
-      setSigningOut(false);
-      setShowSignOutModal(false);
-
-      router.replace("/(auth)/login");
     }
   };
 
@@ -1023,9 +999,26 @@ export default function EditProfileScreen() {
         return;
       }
 
-      closePhoneModal();
+      // ======================================================
+      // PHONE NUMBER CHANGED SUCCESSFULLY
+      //
+      // Do NOT show an alert or confirmation modal.
+      // Clear the current session immediately and redirect
+      // directly to login.
+      // ======================================================
 
-      setShowSignOutModal(true);
+      setShowPhoneModal(false);
+      setPhoneLoading(false);
+
+      try {
+        await logout({
+          revokeAllSessions: true,
+        });
+      } catch (logoutError) {
+        console.warn("Logout after phone change failed:", logoutError);
+      }
+
+      router.replace("/(auth)/login");
     } catch (e: any) {
       console.error("handleConfirmOtp error:", e);
 
@@ -1053,7 +1046,7 @@ export default function EditProfileScreen() {
 
       <KeyboardAvoidingView
         style={styles.flex}
-        behavior="padding"
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
         keyboardVerticalOffset={Platform.OS === "ios" ? insets.top + 44 : 0}
       >
         <ScrollView
@@ -1289,7 +1282,7 @@ export default function EditProfileScreen() {
       >
         <KeyboardAvoidingView
           style={styles.phoneModalBackdrop}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
           keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
         >
           <View style={styles.phoneModal}>
@@ -1512,67 +1505,6 @@ export default function EditProfileScreen() {
             </ScrollView>
           </View>
         </KeyboardAvoidingView>
-      </Modal>
-
-      {/* ====================================================== */}
-      {/* SIGN OUT MODAL */}
-      {/* ====================================================== */}
-
-      <Modal
-        visible={showSignOutModal}
-        transparent
-        animationType="fade"
-        onRequestClose={() => {
-          if (!signingOut) {
-            setShowSignOutModal(false);
-          }
-        }}
-      >
-        <View style={styles.signOutBackdrop}>
-          <View style={styles.signOutModal}>
-            <View style={styles.signOutIconWrap}>
-              <Ionicons name="log-out-outline" size={29} color={RED} />
-            </View>
-
-            <Text style={styles.signOutTitle}>Sign out?</Text>
-
-            <Text style={styles.signOutMessage}>
-              Your phone number has been updated successfully.{"\n\n"}You need
-              to sign in again with your new number to continue.
-            </Text>
-
-            <View style={styles.signOutActions}>
-              <TouchableOpacity
-                style={styles.signOutCancelButton}
-                onPress={() => setShowSignOutModal(false)}
-                activeOpacity={0.8}
-                disabled={signingOut}
-              >
-                <Text style={styles.signOutCancelText}>Cancel</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.signOutConfirmButton,
-                  signingOut && styles.signOutConfirmButtonDisabled,
-                ]}
-                onPress={handleSignOut}
-                activeOpacity={0.85}
-                disabled={signingOut}
-              >
-                {signingOut ? (
-                  <ActivityIndicator size="small" color="#fff" />
-                ) : (
-                  <>
-                    <Ionicons name="log-out-outline" size={17} color="#fff" />
-
-                    <Text style={styles.signOutConfirmText}>Sign Out</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
       </Modal>
 
       {/* ====================================================== */}
@@ -2094,16 +2026,6 @@ const styles = StyleSheet.create({
   // PHONE CHANGE MODAL
   // ==========================================================
 
-  /*
-   * FIX:
-   * Previously this was:
-   *
-   * justifyContent: "flex-end"
-   *
-   * which forced the phone modal to the bottom.
-   *
-   * It is now centered.
-   */
   phoneModalBackdrop: {
     flex: 1,
     backgroundColor: "rgba(15, 23, 42, 0.52)",
@@ -2265,108 +2187,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: BLUE,
     fontWeight: "600",
-  },
-
-  // ==========================================================
-  // SIGN OUT MODAL
-  // ==========================================================
-
-  signOutBackdrop: {
-    flex: 1,
-    backgroundColor: "rgba(15, 23, 42, 0.55)",
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 24,
-  },
-
-  signOutModal: {
-    width: "100%",
-    maxWidth: 380,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 24,
-    paddingHorizontal: 22,
-    paddingTop: 24,
-    paddingBottom: 20,
-    alignItems: "center",
-    shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 10,
-    },
-    shadowOpacity: 0.18,
-    shadowRadius: 24,
-    elevation: 10,
-  },
-
-  signOutIconWrap: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: "#FEF2F2",
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 16,
-  },
-
-  signOutTitle: {
-    fontSize: 20,
-    fontWeight: "800",
-    color: "#0F172A",
-    textAlign: "center",
-  },
-
-  signOutMessage: {
-    fontSize: 13,
-    lineHeight: 19,
-    color: "#64748B",
-    textAlign: "center",
-    marginTop: 9,
-    maxWidth: 310,
-  },
-
-  signOutActions: {
-    flexDirection: "row",
-    width: "100%",
-    gap: 10,
-    marginTop: 24,
-  },
-
-  signOutCancelButton: {
-    flex: 1,
-    minHeight: 48,
-    borderRadius: 13,
-    borderWidth: 1,
-    borderColor: "#E2E8F0",
-    backgroundColor: "#F8FAFC",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-
-  signOutCancelText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#475569",
-  },
-
-  signOutConfirmButton: {
-    flex: 1,
-    minHeight: 48,
-    borderRadius: 13,
-    backgroundColor: "#DC2626",
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-    gap: 7,
-  },
-
-  signOutConfirmButtonDisabled: {
-    opacity: 0.65,
-  },
-
-  signOutConfirmText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#FFFFFF",
   },
 
   // ==========================================================
