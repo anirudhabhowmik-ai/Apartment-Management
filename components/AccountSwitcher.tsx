@@ -470,10 +470,76 @@ const adjustStyles = StyleSheet.create({
 });
 
 // ---------------------------------------------------------------------------
-// Main Component
+// Trigger — goes in every tab header. Flips the store flag only.
+// Does NOT render the modal.
 // ---------------------------------------------------------------------------
 
-export default function AccountSwitcher() {
+export function AccountSwitcherTrigger() {
+  const { selectedAccount } = useAccounts();
+
+  const setAccountSwitcherOpen = useAccountStore(
+    (state) => state.setAccountSwitcherOpen,
+  );
+
+  const selectedName = selectedAccount?.name ?? "No Account";
+  const selectedType =
+    selectedAccount?.type === "apartment"
+      ? "Apartment"
+      : selectedAccount
+        ? "Home"
+        : "No Account";
+  const selectedIcon =
+    selectedAccount?.type === "apartment" ? "business-outline" : "home-outline";
+
+  return (
+    <Pressable
+      onPress={() => setAccountSwitcherOpen(true)}
+      android_disableSound
+      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+      style={({ pressed }) => [
+        styles.trigger,
+        pressed && styles.triggerPressed,
+      ]}
+    >
+      {selectedAccount?.photoUri ? (
+        <Image
+          source={{ uri: selectedAccount.photoUri }}
+          style={styles.triggerAvatar}
+        />
+      ) : (
+        <View style={styles.triggerAvatarPlaceholder}>
+          <Ionicons
+            name={selectedAccount?.type === "apartment" ? "business" : "home"}
+            size={17}
+            color={COLORS.primary}
+          />
+        </View>
+      )}
+
+      <View style={styles.triggerInfo}>
+        <Text style={styles.triggerName} numberOfLines={1} ellipsizeMode="tail">
+          {selectedName}
+        </Text>
+        <View style={styles.triggerTypeRow}>
+          <Ionicons name={selectedIcon} size={11} color={COLORS.secondary} />
+          <Text style={styles.triggerType} numberOfLines={1}>
+            {selectedType}
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.triggerChevron}>
+        <Ionicons name="chevron-down" size={15} color={COLORS.secondary} />
+      </View>
+    </Pressable>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Host — renders the modal. Render EXACTLY ONCE at the app root.
+// ---------------------------------------------------------------------------
+
+export function AccountSwitcherHost() {
   const router = useRouter();
 
   const { accounts, selectedAccount, selectAccount, editAccount } =
@@ -503,12 +569,6 @@ export default function AccountSwitcher() {
     }
   };
 
-  /**
-   * PATCH {API_URL}/accounts/:id
-   *
-   * NOTE: API_URL already ends with "/api" (from .env), so we do NOT prefix
-   * this path with another "/api".
-   */
   const patchAccount = async (
     accountId: string,
     payload: { name?: string; photoUrl?: string | null },
@@ -550,8 +610,6 @@ export default function AccountSwitcher() {
     selectAccount(account.id);
     setAccountSwitcherOpen(false);
 
-    // Best-effort: remember this as the user's last account.
-    // Path is relative to API_URL (which already includes /api).
     try {
       const authToken = await getAuthToken();
       if (!authToken) return;
@@ -694,61 +752,8 @@ export default function AccountSwitcher() {
     setAccountSwitcherOpen(false);
   };
 
-  const selectedName = selectedAccount?.name ?? "No Account";
-  const selectedType =
-    selectedAccount?.type === "apartment"
-      ? "Apartment"
-      : selectedAccount
-        ? "Home"
-        : "No Account";
-  const selectedIcon =
-    selectedAccount?.type === "apartment" ? "business-outline" : "home-outline";
-
   return (
     <>
-      <Pressable
-        onPress={() => setAccountSwitcherOpen(true)}
-        style={({ pressed }) => [
-          styles.trigger,
-          pressed && styles.triggerPressed,
-        ]}
-      >
-        {selectedAccount?.photoUri ? (
-          <Image
-            source={{ uri: selectedAccount.photoUri }}
-            style={styles.triggerAvatar}
-          />
-        ) : (
-          <View style={styles.triggerAvatarPlaceholder}>
-            <Ionicons
-              name={selectedAccount?.type === "apartment" ? "business" : "home"}
-              size={17}
-              color={COLORS.primary}
-            />
-          </View>
-        )}
-
-        <View style={styles.triggerInfo}>
-          <Text
-            style={styles.triggerName}
-            numberOfLines={1}
-            ellipsizeMode="tail"
-          >
-            {selectedName}
-          </Text>
-          <View style={styles.triggerTypeRow}>
-            <Ionicons name={selectedIcon} size={11} color={COLORS.secondary} />
-            <Text style={styles.triggerType} numberOfLines={1}>
-              {selectedType}
-            </Text>
-          </View>
-        </View>
-
-        <View style={styles.triggerChevron}>
-          <Ionicons name="chevron-down" size={15} color={COLORS.secondary} />
-        </View>
-      </Pressable>
-
       <Modal
         visible={visible}
         transparent
@@ -758,7 +763,7 @@ export default function AccountSwitcher() {
         <View style={styles.modalContainer}>
           <Pressable style={styles.overlay} onPress={closeSwitcher} />
 
-          <View style={styles.sheet}>
+          <Pressable style={styles.sheet} onPress={() => {}}>
             <View style={styles.handle} />
 
             <View style={styles.sheetHeader}>
@@ -802,39 +807,43 @@ export default function AccountSwitcher() {
                 const isEditingName = editingNameId === item.id;
 
                 return (
-                  <View
-                    style={[
+                  <Pressable
+                    onPress={() => {
+                      if (isEditingName) return;
+                      handleSelect(item);
+                    }}
+                    android_disableSound
+                    style={({ pressed }) => [
                       styles.accountCard,
                       isSelected && styles.accountCardSelected,
+                      pressed && !isEditingName && styles.accountCardPressed,
                     ]}
                   >
                     <View style={styles.avatarWrapper}>
-                      <Pressable
-                        onPress={() => handleSelect(item)}
-                        style={({ pressed }) => [
-                          pressed && styles.avatarPressed,
-                        ]}
-                      >
-                        {item.photoUri ? (
-                          <Image
-                            source={{ uri: item.photoUri }}
-                            style={styles.itemAvatar}
+                      {item.photoUri ? (
+                        <Image
+                          source={{ uri: item.photoUri }}
+                          style={styles.itemAvatar}
+                        />
+                      ) : (
+                        <View style={styles.itemAvatarPlaceholder}>
+                          <Ionicons
+                            name={
+                              item.type === "apartment" ? "business" : "home"
+                            }
+                            size={21}
+                            color={COLORS.primary}
                           />
-                        ) : (
-                          <View style={styles.itemAvatarPlaceholder}>
-                            <Ionicons
-                              name={
-                                item.type === "apartment" ? "business" : "home"
-                              }
-                              size={21}
-                              color={COLORS.primary}
-                            />
-                          </View>
-                        )}
-                      </Pressable>
+                        </View>
+                      )}
 
                       <Pressable
-                        onPress={() => showPhotoSelectionOptions(item.id)}
+                        onPress={(e) => {
+                          e?.stopPropagation?.();
+                          showPhotoSelectionOptions(item.id);
+                        }}
+                        android_disableSound
+                        hitSlop={6}
                         style={({ pressed }) => [
                           styles.cameraBadge,
                           pressed && styles.cameraBadgePressed,
@@ -864,7 +873,11 @@ export default function AccountSwitcher() {
                               : {})}
                           />
                           <Pressable
-                            onPress={() => saveEditName(item.id)}
+                            onPress={(e) => {
+                              e?.stopPropagation?.();
+                              saveEditName(item.id);
+                            }}
+                            android_disableSound
                             style={({ pressed }) => [
                               styles.saveButton,
                               pressed && styles.saveButtonPressed,
@@ -877,7 +890,11 @@ export default function AccountSwitcher() {
                             />
                           </Pressable>
                           <Pressable
-                            onPress={cancelEditName}
+                            onPress={(e) => {
+                              e?.stopPropagation?.();
+                              cancelEditName();
+                            }}
+                            android_disableSound
                             style={({ pressed }) => [
                               styles.cancelButton,
                               pressed && styles.cancelButtonPressed,
@@ -893,16 +910,16 @@ export default function AccountSwitcher() {
                       ) : (
                         <>
                           <View style={styles.nameRow}>
+                            <Text style={styles.itemName} numberOfLines={1}>
+                              {item.name}
+                            </Text>
                             <Pressable
-                              onPress={() => handleSelect(item)}
-                              style={styles.namePressable}
-                            >
-                              <Text style={styles.itemName} numberOfLines={1}>
-                                {item.name}
-                              </Text>
-                            </Pressable>
-                            <Pressable
-                              onPress={() => startEditName(item)}
+                              onPress={(e) => {
+                                e?.stopPropagation?.();
+                                startEditName(item);
+                              }}
+                              android_disableSound
+                              hitSlop={6}
                               style={({ pressed }) => [
                                 styles.editButton,
                                 pressed && styles.editButtonPressed,
@@ -916,10 +933,7 @@ export default function AccountSwitcher() {
                             </Pressable>
                           </View>
 
-                          <Pressable
-                            onPress={() => handleSelect(item)}
-                            style={styles.typePressable}
-                          >
+                          <View style={styles.typeRow}>
                             <Ionicons
                               name={
                                 item.type === "apartment"
@@ -939,16 +953,13 @@ export default function AccountSwitcher() {
                                 </Text>
                               </View>
                             )}
-                          </Pressable>
+                          </View>
                         </>
                       )}
                     </View>
 
                     {!isEditingName && (
-                      <Pressable
-                        onPress={() => handleSelect(item)}
-                        style={styles.selectionButton}
-                      >
+                      <View style={styles.selectionButton} pointerEvents="none">
                         <View
                           style={[
                             styles.radioOuter,
@@ -957,9 +968,9 @@ export default function AccountSwitcher() {
                         >
                           {isSelected && <View style={styles.radioInner} />}
                         </View>
-                      </Pressable>
+                      </View>
                     )}
-                  </View>
+                  </Pressable>
                 );
               }}
               ListEmptyComponent={
@@ -981,6 +992,7 @@ export default function AccountSwitcher() {
 
             <Pressable
               onPress={handleAddNew}
+              android_disableSound
               style={({ pressed }) => [
                 styles.addButton,
                 pressed && styles.addButtonPressed,
@@ -999,7 +1011,7 @@ export default function AccountSwitcher() {
               </View>
               <Ionicons name="chevron-forward" size={19} color={COLORS.muted} />
             </Pressable>
-          </View>
+          </Pressable>
         </View>
       </Modal>
 
@@ -1209,6 +1221,9 @@ const styles = StyleSheet.create({
     borderColor: COLORS.primary,
     backgroundColor: COLORS.primaryLight,
   },
+  accountCardPressed: {
+    backgroundColor: "#F1F5F9",
+  },
 
   avatarWrapper: { position: "relative", marginRight: 12 },
   itemAvatar: { width: 48, height: 48, borderRadius: 15 },
@@ -1220,7 +1235,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     backgroundColor: COLORS.primaryLight,
   },
-  avatarPressed: { opacity: 0.7 },
 
   cameraBadge: {
     position: "absolute",
@@ -1239,7 +1253,6 @@ const styles = StyleSheet.create({
 
   accountDetails: { flex: 1, minWidth: 0 },
   nameRow: { flexDirection: "row", alignItems: "center" },
-  namePressable: { flex: 1, minWidth: 0 },
   itemName: { fontSize: 15, fontWeight: "700", color: COLORS.text },
   editButton: {
     width: 26,
@@ -1252,7 +1265,7 @@ const styles = StyleSheet.create({
   },
   editButtonPressed: { opacity: 0.6 },
 
-  typePressable: { flexDirection: "row", alignItems: "center", marginTop: 5 },
+  typeRow: { flexDirection: "row", alignItems: "center", marginTop: 5 },
   itemType: { fontSize: 12, color: COLORS.secondary, marginLeft: 5 },
   currentBadge: {
     paddingHorizontal: 7,

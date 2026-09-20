@@ -14,7 +14,10 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import AccountSwitcher from "../../components/AccountSwitcher";
+import {
+  AccountSwitcherHost,
+  AccountSwitcherTrigger,
+} from "../../components/AccountSwitcher";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useMaintenance } from "../../hooks/useMaintenance";
 import { usePayments } from "../../hooks/usePayments";
@@ -76,16 +79,6 @@ export default function TabsLayout() {
     return () => sub.remove();
   }, [refresh]);
 
-  /*
-   * REDIRECT ON INVALID STATE
-   *
-   * Guard: while there is no signed-in user, do nothing. During a
-   * phone-change logout, this component is still mounted behind the
-   * edit-profile modal. Without the guard, step 4b of logout()
-   * (which empties the account store) makes this effect fire while
-   * the user is being torn down, producing a redirect to add-account
-   * that the app then carries into the next login.
-   */
   useEffect(() => {
     if (!authUser) return;
     if (!hasLoaded || isLoading) return;
@@ -158,344 +151,356 @@ export default function TabsLayout() {
   const bottomInset = insets.bottom;
 
   return (
-    <Tabs
-      screenOptions={{
-        headerTitle: () => (
-          <View style={styles.accountSwitcherContainer}>
-            <AccountSwitcher />
-          </View>
-        ),
-        headerTitleAlign: "left",
-        headerStyle: {
-          backgroundColor: COLORS.white,
-          elevation: 0,
-          borderBottomWidth: 1,
-          borderBottomColor: COLORS.border,
-        },
-        headerShadowVisible: false,
-        headerRight: () => (
-          <View style={styles.notificationMenu}>
-            <TouchableOpacity
-              onPress={() => setShowNotifications((visible) => !visible)}
-              style={styles.notificationButton}
-              activeOpacity={0.7}
-            >
-              <View style={styles.notificationIconWrapper}>
-                <Ionicons
-                  name="notifications-outline"
-                  size={23}
-                  color={COLORS.text}
-                />
-                {notificationCount > 0 && (
-                  <View style={styles.notificationBadge}>
-                    <Text style={styles.notificationCount}>
-                      {notificationCount > 99 ? "99+" : notificationCount}
-                    </Text>
-                  </View>
-                )}
-              </View>
-            </TouchableOpacity>
+    <>
+      <Tabs
+        screenOptions={{
+          // Header title is a lightweight TRIGGER, not the modal.
+          headerTitle: () => (
+            <View style={styles.accountSwitcherContainer}>
+              <AccountSwitcherTrigger />
+            </View>
+          ),
+          headerTitleAlign: "left",
+          headerStyle: {
+            backgroundColor: COLORS.white,
+            elevation: 0,
+            borderBottomWidth: 1,
+            borderBottomColor: COLORS.border,
+          },
+          headerShadowVisible: false,
+          headerRight: () => (
+            <View style={styles.notificationMenu}>
+              <TouchableOpacity
+                onPress={() => setShowNotifications((visible) => !visible)}
+                style={styles.notificationButton}
+                activeOpacity={0.7}
+              >
+                <View style={styles.notificationIconWrapper}>
+                  <Ionicons
+                    name="notifications-outline"
+                    size={23}
+                    color={COLORS.text}
+                  />
+                  {notificationCount > 0 && (
+                    <View style={styles.notificationBadge}>
+                      <Text style={styles.notificationCount}>
+                        {notificationCount > 99 ? "99+" : notificationCount}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              </TouchableOpacity>
 
-            <Modal
-              transparent
-              visible={showNotifications}
-              animationType="fade"
-              onRequestClose={() => setShowNotifications(false)}
-            >
-              <Pressable
-                style={styles.notificationBackdrop}
-                onPress={() => setShowNotifications(false)}
+              <Modal
+                transparent
+                visible={showNotifications}
+                animationType="fade"
+                onRequestClose={() => setShowNotifications(false)}
               >
                 <Pressable
-                  style={styles.notificationPopover}
-                  onPress={(event) => event.stopPropagation()}
+                  style={styles.notificationBackdrop}
+                  onPress={() => setShowNotifications(false)}
                 >
-                  <View style={styles.notificationHeader}>
-                    <View style={styles.notificationHeaderTextContainer}>
-                      <Text style={styles.notificationHeaderTitle}>
-                        Notifications
-                      </Text>
-                      <Text style={styles.notificationHeaderSubtitle}>
-                        {notificationCount === 0
-                          ? "Everything is up to date"
-                          : `${notificationCount} item${
-                              notificationCount === 1 ? "" : "s"
-                            } need your attention`}
-                      </Text>
-                    </View>
-                    <TouchableOpacity
-                      style={styles.closeNotificationButton}
-                      onPress={() => setShowNotifications(false)}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons
-                        name="close"
-                        size={19}
-                        color={COLORS.secondary}
-                      />
-                    </TouchableOpacity>
-                  </View>
-
-                  {notificationCount === 0 ? (
-                    <View style={styles.emptyNotifications}>
-                      <View style={styles.emptyNotificationIcon}>
-                        <Ionicons
-                          name="checkmark-circle"
-                          size={30}
-                          color={COLORS.success}
-                        />
+                  <Pressable
+                    style={styles.notificationPopover}
+                    onPress={(event) => event.stopPropagation()}
+                  >
+                    <View style={styles.notificationHeader}>
+                      <View style={styles.notificationHeaderTextContainer}>
+                        <Text style={styles.notificationHeaderTitle}>
+                          Notifications
+                        </Text>
+                        <Text style={styles.notificationHeaderSubtitle}>
+                          {notificationCount === 0
+                            ? "Everything is up to date"
+                            : `${notificationCount} item${
+                                notificationCount === 1 ? "" : "s"
+                              } need your attention`}
+                        </Text>
                       </View>
-                      <Text style={styles.emptyNotificationsTitle}>
-                        You're all caught up
-                      </Text>
-                      <Text style={styles.emptyNotificationsText}>
-                        {canSeeFinance
-                          ? "There are no pending payments or maintenance tasks."
-                          : "There are no pending maintenance tasks."}
-                      </Text>
+                      <TouchableOpacity
+                        style={styles.closeNotificationButton}
+                        onPress={() => setShowNotifications(false)}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons
+                          name="close"
+                          size={19}
+                          color={COLORS.secondary}
+                        />
+                      </TouchableOpacity>
                     </View>
-                  ) : (
-                    <ScrollView
-                      showsVerticalScrollIndicator={false}
-                      contentContainerStyle={styles.notificationScrollContent}
-                    >
-                      {pendingPayments.map((payment) => (
-                        <View
-                          key={`payment-${payment.id}`}
-                          style={styles.notificationItem}
-                        >
-                          <View
-                            style={[
-                              styles.notificationItemIcon,
-                              styles.paymentIcon,
-                            ]}
-                          >
-                            <Ionicons
-                              name="receipt-outline"
-                              size={18}
-                              color={COLORS.warning}
-                            />
-                          </View>
-                          <View style={styles.notificationContent}>
-                            <Text
-                              style={styles.notificationTitle}
-                              numberOfLines={1}
-                            >
-                              {payment.description ||
-                                `${payment.category} payment`}
-                            </Text>
-                            <View style={styles.notificationMeta}>
-                              <Ionicons
-                                name="calendar-outline"
-                                size={12}
-                                color={COLORS.secondary}
-                              />
-                              <Text style={styles.notificationDetail}>
-                                Due{" "}
-                                {new Date(payment.dueDate).toLocaleDateString()}
-                              </Text>
-                            </View>
-                          </View>
-                          <TouchableOpacity
-                            style={styles.dismissButton}
-                            onPress={() =>
-                              dismissNotification(`payment-${payment.id}`)
-                            }
-                            activeOpacity={0.7}
-                          >
-                            <Ionicons
-                              name="close"
-                              size={17}
-                              color={COLORS.secondary}
-                            />
-                          </TouchableOpacity>
-                        </View>
-                      ))}
 
-                      {pendingTasks.map((task) => (
-                        <View
-                          key={`task-${task.id}`}
-                          style={styles.notificationItem}
-                        >
+                    {notificationCount === 0 ? (
+                      <View style={styles.emptyNotifications}>
+                        <View style={styles.emptyNotificationIcon}>
+                          <Ionicons
+                            name="checkmark-circle"
+                            size={30}
+                            color={COLORS.success}
+                          />
+                        </View>
+                        <Text style={styles.emptyNotificationsTitle}>
+                          You're all caught up
+                        </Text>
+                        <Text style={styles.emptyNotificationsText}>
+                          {canSeeFinance
+                            ? "There are no pending payments or maintenance tasks."
+                            : "There are no pending maintenance tasks."}
+                        </Text>
+                      </View>
+                    ) : (
+                      <ScrollView
+                        showsVerticalScrollIndicator={false}
+                        contentContainerStyle={styles.notificationScrollContent}
+                      >
+                        {pendingPayments.map((payment) => (
                           <View
-                            style={[
-                              styles.notificationItemIcon,
-                              styles.taskIcon,
-                            ]}
+                            key={`payment-${payment.id}`}
+                            style={styles.notificationItem}
                           >
-                            <Ionicons
-                              name="construct-outline"
-                              size={18}
-                              color={COLORS.primary}
-                            />
-                          </View>
-                          <View style={styles.notificationContent}>
-                            <Text
-                              style={styles.notificationTitle}
-                              numberOfLines={1}
+                            <View
+                              style={[
+                                styles.notificationItemIcon,
+                                styles.paymentIcon,
+                              ]}
                             >
-                              {task.title}
-                            </Text>
-                            <View style={styles.notificationMeta}>
                               <Ionicons
-                                name="calendar-outline"
-                                size={12}
+                                name="receipt-outline"
+                                size={18}
+                                color={COLORS.warning}
+                              />
+                            </View>
+                            <View style={styles.notificationContent}>
+                              <Text
+                                style={styles.notificationTitle}
+                                numberOfLines={1}
+                              >
+                                {payment.description ||
+                                  `${payment.category} payment`}
+                              </Text>
+                              <View style={styles.notificationMeta}>
+                                <Ionicons
+                                  name="calendar-outline"
+                                  size={12}
+                                  color={COLORS.secondary}
+                                />
+                                <Text style={styles.notificationDetail}>
+                                  Due{" "}
+                                  {new Date(
+                                    payment.dueDate,
+                                  ).toLocaleDateString()}
+                                </Text>
+                              </View>
+                            </View>
+                            <TouchableOpacity
+                              style={styles.dismissButton}
+                              onPress={() =>
+                                dismissNotification(`payment-${payment.id}`)
+                              }
+                              activeOpacity={0.7}
+                            >
+                              <Ionicons
+                                name="close"
+                                size={17}
                                 color={COLORS.secondary}
                               />
-                              <Text style={styles.notificationDetail}>
-                                Scheduled{" "}
-                                {new Date(task.date).toLocaleDateString()}
-                              </Text>
-                            </View>
+                            </TouchableOpacity>
                           </View>
-                          <TouchableOpacity
-                            style={styles.dismissButton}
-                            onPress={() =>
-                              dismissNotification(`task-${task.id}`)
-                            }
-                            activeOpacity={0.7}
+                        ))}
+
+                        {pendingTasks.map((task) => (
+                          <View
+                            key={`task-${task.id}`}
+                            style={styles.notificationItem}
                           >
-                            <Ionicons
-                              name="close"
-                              size={17}
-                              color={COLORS.secondary}
-                            />
-                          </TouchableOpacity>
-                        </View>
-                      ))}
-                    </ScrollView>
-                  )}
+                            <View
+                              style={[
+                                styles.notificationItemIcon,
+                                styles.taskIcon,
+                              ]}
+                            >
+                              <Ionicons
+                                name="construct-outline"
+                                size={18}
+                                color={COLORS.primary}
+                              />
+                            </View>
+                            <View style={styles.notificationContent}>
+                              <Text
+                                style={styles.notificationTitle}
+                                numberOfLines={1}
+                              >
+                                {task.title}
+                              </Text>
+                              <View style={styles.notificationMeta}>
+                                <Ionicons
+                                  name="calendar-outline"
+                                  size={12}
+                                  color={COLORS.secondary}
+                                />
+                                <Text style={styles.notificationDetail}>
+                                  Scheduled{" "}
+                                  {new Date(task.date).toLocaleDateString()}
+                                </Text>
+                              </View>
+                            </View>
+                            <TouchableOpacity
+                              style={styles.dismissButton}
+                              onPress={() =>
+                                dismissNotification(`task-${task.id}`)
+                              }
+                              activeOpacity={0.7}
+                            >
+                              <Ionicons
+                                name="close"
+                                size={17}
+                                color={COLORS.secondary}
+                              />
+                            </TouchableOpacity>
+                          </View>
+                        ))}
+                      </ScrollView>
+                    )}
+                  </Pressable>
                 </Pressable>
-              </Pressable>
-            </Modal>
-          </View>
-        ),
-        tabBarActiveTintColor: COLORS.primary,
-        tabBarInactiveTintColor: COLORS.muted,
-        tabBarStyle: {
-          height: 64 + bottomInset,
-          paddingTop: 5,
-          paddingBottom: bottomInset + 5,
-          paddingHorizontal: 8,
-          backgroundColor: COLORS.white,
-          borderTopWidth: 1,
-          borderTopColor: COLORS.border,
-          ...(Platform.OS === "android" ? { elevation: 0 } : {}),
-        },
-        tabBarLabelStyle: {
-          fontSize: 10,
-          fontWeight: "600",
-          marginTop: 1,
-        },
-        tabBarItemStyle: {
-          height: 44,
-          marginHorizontal: 0,
-          padding: 0,
-          backgroundColor: "transparent",
-          borderRadius: 0,
-        },
-      }}
-    >
-      <Tabs.Screen
-        name="index"
-        options={{
-          title: "Home",
-          tabBarIcon: ({ color, focused }) => (
-            <View
-              style={[
-                styles.tabIconContainer,
-                focused && styles.tabIconContainerActive,
-              ]}
-            >
-              <Ionicons
-                name={focused ? "home" : "home-outline"}
-                color={color}
-                size={22}
-              />
+              </Modal>
             </View>
           ),
+          tabBarActiveTintColor: COLORS.primary,
+          tabBarInactiveTintColor: COLORS.muted,
+          tabBarStyle: {
+            height: 64 + bottomInset,
+            paddingTop: 5,
+            paddingBottom: bottomInset + 5,
+            paddingHorizontal: 8,
+            backgroundColor: COLORS.white,
+            borderTopWidth: 1,
+            borderTopColor: COLORS.border,
+            ...(Platform.OS === "android" ? { elevation: 0 } : {}),
+          },
+          tabBarLabelStyle: {
+            fontSize: 10,
+            fontWeight: "600",
+            marginTop: 1,
+          },
+          tabBarItemStyle: {
+            height: 44,
+            marginHorizontal: 0,
+            padding: 0,
+            backgroundColor: "transparent",
+            borderRadius: 0,
+          },
         }}
-      />
-      <Tabs.Screen
-        name="calendar"
-        options={{
-          title: "Calendar",
-          href: canSeeCalendar ? undefined : null,
-          tabBarIcon: ({ color, focused }) => (
-            <View
-              style={[
-                styles.tabIconContainer,
-                focused && styles.tabIconContainerActive,
-              ]}
-            >
-              <Ionicons
-                name={focused ? "calendar" : "calendar-outline"}
-                color={color}
-                size={22}
-              />
-            </View>
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="finance"
-        options={{
-          title: "Finance",
-          href: canSeeFinance ? undefined : null,
-          tabBarIcon: ({ color, focused }) => (
-            <View
-              style={[
-                styles.tabIconContainer,
-                focused && styles.tabIconContainerActive,
-              ]}
-            >
-              <Ionicons
-                name={focused ? "wallet" : "wallet-outline"}
-                color={color}
-                size={22}
-              />
-            </View>
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="people"
-        options={{
-          title: peopleTabTitle,
-          href: canSeeManagement ? undefined : null,
-          tabBarIcon: ({ color, focused }) => (
-            <View
-              style={[
-                styles.tabIconContainer,
-                focused && styles.tabIconContainerActive,
-              ]}
-            >
-              <Ionicons name={peopleTabIcon(focused)} color={color} size={22} />
-            </View>
-          ),
-        }}
-      />
-      <Tabs.Screen
-        name="profile"
-        options={{
-          title: "Profile",
-          tabBarIcon: ({ color, focused }) => (
-            <View
-              style={[
-                styles.tabIconContainer,
-                focused && styles.tabIconContainerActive,
-              ]}
-            >
-              <Ionicons
-                name={focused ? "person" : "person-outline"}
-                color={color}
-                size={22}
-              />
-            </View>
-          ),
-        }}
-      />
-    </Tabs>
+      >
+        <Tabs.Screen
+          name="index"
+          options={{
+            title: "Home",
+            tabBarIcon: ({ color, focused }) => (
+              <View
+                style={[
+                  styles.tabIconContainer,
+                  focused && styles.tabIconContainerActive,
+                ]}
+              >
+                <Ionicons
+                  name={focused ? "home" : "home-outline"}
+                  color={color}
+                  size={22}
+                />
+              </View>
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="calendar"
+          options={{
+            title: "Calendar",
+            href: canSeeCalendar ? undefined : null,
+            tabBarIcon: ({ color, focused }) => (
+              <View
+                style={[
+                  styles.tabIconContainer,
+                  focused && styles.tabIconContainerActive,
+                ]}
+              >
+                <Ionicons
+                  name={focused ? "calendar" : "calendar-outline"}
+                  color={color}
+                  size={22}
+                />
+              </View>
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="finance"
+          options={{
+            title: "Finance",
+            href: canSeeFinance ? undefined : null,
+            tabBarIcon: ({ color, focused }) => (
+              <View
+                style={[
+                  styles.tabIconContainer,
+                  focused && styles.tabIconContainerActive,
+                ]}
+              >
+                <Ionicons
+                  name={focused ? "wallet" : "wallet-outline"}
+                  color={color}
+                  size={22}
+                />
+              </View>
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="people"
+          options={{
+            title: peopleTabTitle,
+            href: canSeeManagement ? undefined : null,
+            tabBarIcon: ({ color, focused }) => (
+              <View
+                style={[
+                  styles.tabIconContainer,
+                  focused && styles.tabIconContainerActive,
+                ]}
+              >
+                <Ionicons
+                  name={peopleTabIcon(focused)}
+                  color={color}
+                  size={22}
+                />
+              </View>
+            ),
+          }}
+        />
+        <Tabs.Screen
+          name="profile"
+          options={{
+            title: "Profile",
+            tabBarIcon: ({ color, focused }) => (
+              <View
+                style={[
+                  styles.tabIconContainer,
+                  focused && styles.tabIconContainerActive,
+                ]}
+              >
+                <Ionicons
+                  name={focused ? "person" : "person-outline"}
+                  color={color}
+                  size={22}
+                />
+              </View>
+            ),
+          }}
+        />
+      </Tabs>
+
+      {/* The modal host — rendered ONCE for the whole tab navigator. */}
+      <AccountSwitcherHost />
+    </>
   );
 }
 
