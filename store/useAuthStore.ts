@@ -26,8 +26,8 @@ const USER_SCOPED_ASYNC_KEYS = [
 export interface AuthUser {
   id: string;
   phone: string;
-  name: string | null;
-  photoUrl: string | null;
+  name?: string | null;
+  photoUrl?: string | null;
   isActive?: boolean;
   lastLoginAt?: string | null;
 }

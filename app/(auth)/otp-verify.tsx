@@ -14,7 +14,6 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useAccounts } from "../../hooks/useAccounts";
 import { sendOtp, verifyOtp } from "../../services/otpService";
 import { useAuthStore } from "../../store/useAuthStore";
 
@@ -47,8 +46,6 @@ export default function OtpVerifyScreen() {
   const pendingPhone = useAuthStore((s) => s.pendingPhone);
   const setUser = useAuthStore((s) => s.setUser);
   const setPendingPhone = useAuthStore((s) => s.setPendingPhone);
-
-  const { accounts } = useAccounts();
 
   const [otp, setOtp] = useState<string[]>(Array(OTP_LENGTH).fill(""));
 
@@ -92,8 +89,13 @@ export default function OtpVerifyScreen() {
   };
 
   /**
-   * Save authenticated user and JWT,
-   * then decide where the user should go.
+   * Save authenticated user and JWT, then hand control to the root
+   * index route. The root route is where the "do we have accounts?"
+   * decision is made — after `useAccounts` has actually fetched them.
+   *
+   * Previously this function read `accounts.length` from a hook whose
+   * fetch had not yet run for the new session, so it always saw `[]`
+   * and wrongly routed every user to add-account.
    */
   const completeLogin = async (
     userId: string,
@@ -122,11 +124,11 @@ export default function OtpVerifyScreen() {
 
     setPendingPhone(null);
 
-    if (accounts.length > 0) {
-      router.replace("/(modals)/select-account");
-    } else {
-      router.replace("/(modals)/add-account");
-    }
+    // Hand off to the root index route. That route waits for
+    // useAccounts().hasLoaded before deciding where to send the user,
+    // so the decision is made against the real account list rather
+    // than a stale, pre-fetch empty array.
+    router.replace("/");
   };
 
   const handleVerifyDirect = async (otpArray: string[]) => {
@@ -269,7 +271,6 @@ export default function OtpVerifyScreen() {
         showsVerticalScrollIndicator={false}
         bounces={false}
       >
-        {/* HEADER */}
         <View style={styles.header}>
           <TouchableOpacity
             style={styles.backButton}
@@ -291,7 +292,6 @@ export default function OtpVerifyScreen() {
           </View>
         </View>
 
-        {/* OTP CARD */}
         <View style={styles.card}>
           <Text style={styles.cardTitle}>Verify OTP</Text>
 
@@ -299,14 +299,12 @@ export default function OtpVerifyScreen() {
             Enter the 6-digit code sent to
           </Text>
 
-          {/* PHONE */}
           <View style={styles.phoneContainer}>
             <Ionicons name="call-outline" size={18} color="#1a73e8" />
 
             <Text style={styles.phoneText}>+91 {pendingPhone}</Text>
           </View>
 
-          {/* OTP INPUTS */}
           <View style={styles.otpContainer}>
             <View style={styles.otpRow}>
               {otp.map((digit, index) => (
@@ -340,7 +338,6 @@ export default function OtpVerifyScreen() {
             </View>
           </View>
 
-          {/* ERROR */}
           {error ? (
             <View style={styles.errorContainer}>
               <Ionicons name="alert-circle-outline" size={18} color="#e53935" />
@@ -349,7 +346,6 @@ export default function OtpVerifyScreen() {
             </View>
           ) : null}
 
-          {/* VERIFY BUTTON */}
           <TouchableOpacity
             style={[styles.button, loading && styles.buttonDisabled]}
             onPress={handleVerify}
@@ -370,7 +366,6 @@ export default function OtpVerifyScreen() {
             )}
           </TouchableOpacity>
 
-          {/* RESEND */}
           <View style={styles.resendContainer}>
             <Text style={styles.resendLabel}>Didn't receive the code?</Text>
 
@@ -392,7 +387,6 @@ export default function OtpVerifyScreen() {
           </View>
         </View>
 
-        {/* FOOTER */}
         <View style={styles.footer}>
           <View style={styles.footerRow}>
             <View style={styles.footerItem}>
@@ -418,10 +412,6 @@ export default function OtpVerifyScreen() {
     </KeyboardAvoidingView>
   );
 }
-
-// ================================================================
-// STYLES
-// ================================================================
 
 const styles = StyleSheet.create({
   container: {
