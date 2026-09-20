@@ -675,7 +675,6 @@ export default function AddMemberScreen() {
     }
   };
 
-  // ── Load account people from the backend ──────────────────────────────
   const loadAccountPeople = async () => {
     if (!accountId || !isPersonTab) {
       setAccountPeople([]);
@@ -988,11 +987,10 @@ export default function AddMemberScreen() {
   };
 
   // =========================================================================
-  // handleAdd — FIXED
+  // handleAdd
   //
-  // 1. Role is required in BOTH modes (new AND existing).
-  // 2. payload.role is always sent for apartment/staff creates.
-  // 3. payload.customRole is sent when the custom role branch is active.
+  // For custom roles, the typed label is sent AS `role`.
+  // The backend stores whatever string arrives in the single `role` column.
   // =========================================================================
   const handleAdd = async () => {
     setError("");
@@ -1023,15 +1021,14 @@ export default function AddMemberScreen() {
         errors.person = "Please select a person";
       }
 
-      // Role is required in BOTH modes: a user can hold multiple roles
-      // (e.g. flat owner + shop owner), so the client must always declare
-      // which role is being added for this record.
-      if (!role) {
+      // Role is required in both modes. For custom, the effective role is
+      // whatever the user typed — validate that it's non-empty.
+      if (isCustomRole) {
+        if (!customRole.trim()) {
+          errors.role = "Please enter a custom role name";
+        }
+      } else if (!role) {
         errors.role = "Please select a role";
-      }
-
-      if (isCustomRole && !customRole.trim()) {
-        errors.role = "Please enter a custom role name";
       }
     }
 
@@ -1087,14 +1084,9 @@ export default function AddMemberScreen() {
     } else {
       payload.mode = mode;
 
-      // Role must ALWAYS be sent for apartment and staff — even in
-      // "existing person" mode. A single user can be a flat owner AND a
-      // shop owner, or hold two staff roles at the same property.
-      payload.role = role;
-
-      if (isCustomRole) {
-        payload.customRole = customRole.trim();
-      }
+      // Send the effective role. For a custom role, that's the typed label
+      // itself — the backend stores it in the same `role` column.
+      payload.role = isCustomRole ? customRole.trim() : role;
 
       if (mode === "existing") {
         payload.user_id = selectedUserId;
@@ -1116,12 +1108,6 @@ export default function AddMemberScreen() {
         payload.monthlySalary = Number(monthlySalary);
       }
     }
-
-    // TEMP diagnostic — remove after verification.
-    console.log(
-      "[add-member] sending payload:",
-      JSON.stringify(payload, null, 2),
-    );
 
     setLoading(true);
 
@@ -1948,12 +1934,15 @@ export default function AddMemberScreen() {
                       isCustomRole && styles.roleCardSelected,
                     ]}
                     onPress={() => {
+                      // Custom: the typed label will be the effective role.
+                      // Until the user types, treat the role as empty.
                       setIsCustomRole(true);
                       setRole(
                         customRole.trim()
                           ? (customRole.trim() as MemberRole)
                           : null,
                       );
+                      clearFieldError("role");
                     }}
                     activeOpacity={0.8}
                   >
@@ -1994,6 +1983,7 @@ export default function AddMemberScreen() {
                       value={customRole}
                       onChangeText={(text) => {
                         setCustomRole(text);
+                        // The effective role IS the typed label.
                         setRole(
                           text.trim() ? (text.trim() as MemberRole) : null,
                         );

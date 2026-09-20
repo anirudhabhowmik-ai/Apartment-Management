@@ -100,14 +100,10 @@ function endpointFor(type: ManagementType): string {
 async function encodePhotoForServer(localUri: string): Promise<string> {
   if (!localUri) return localUri;
 
-  // Already a data URI or a public URL — pass through unchanged.
   if (localUri.startsWith("data:") || /^https?:\/\//i.test(localUri)) {
     return localUri;
   }
 
-  // Any other URI (file://, content://, ph://, etc.) must be encoded.
-  // Do NOT fall back to returning the raw URI — that would store a
-  // device-local path that no other phone can resolve.
   const base64 = await FileSystem.readAsStringAsync(localUri, {
     encoding: FileSystem.EncodingType.Base64,
   });
@@ -186,6 +182,11 @@ function mapRowToMember(
     createdAt: row.created_at,
     updatedAt: row.updated_at,
 
+    // True when the linked user has an active account_members row for
+    // this account. When true, the owner/admin can no longer edit the
+    // person's identity (name, phone, photo).
+    hasAccess: !!row.has_access,
+
     paymentStatus: row.payment_status ?? row.status ?? undefined,
     paidDate: row.paid_date ?? undefined,
     additionalAmount: row.additional_amount ?? undefined,
@@ -260,11 +261,16 @@ async function toServerBody(
   if (input.mode !== undefined) body.mode = input.mode;
 
   if (kind !== "expense") {
+    // name and phone are only sent when the caller explicitly provided
+    // them (i.e. the identity isn't locked). The backend rejects them
+    // with `user_identity_locked` if the target has an active
+    // account_members row, so sending them is always safe here.
     if (input.name !== undefined) body.name = input.name;
-    if (input.phone !== undefined)
+    if (input.phone !== undefined) {
       body.phone = input.phone
         ? String(input.phone).replace(/^\+?91/, "")
         : null;
+    }
     if (input.user_id !== undefined) body.user_id = input.user_id;
 
     if (input.photoUri !== undefined) {
@@ -275,11 +281,10 @@ async function toServerBody(
   }
 
   if (kind !== "expense") {
+    // role is a single free-form string. It can be a standard token
+    // ("flat", "shop") or a custom label ("Gardener"). Send it as-is.
     if (input.role !== undefined && input.role !== null) {
-      body.role = input.role;
-    }
-    if (input.customRole !== undefined && input.customRole !== null) {
-      body.custom_role = String(input.customRole).trim();
+      body.role = String(input.role).trim();
     }
   } else {
     if (input.role !== undefined) body.category = input.role;
