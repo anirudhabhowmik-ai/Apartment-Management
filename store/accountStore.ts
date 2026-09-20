@@ -74,10 +74,6 @@ export const useAccountStore = create<AccountState>()(
           return;
         }
 
-        // Do NOT auto-select accounts[0] here. The selection is decided
-        // by fetchAccountsDeduped, which honors the server's
-        // last_account_id. If the server has no preference, selection
-        // stays null and the UI routes the user to select-account.
         set({ accounts, selectedAccountId: null });
       },
 
@@ -94,9 +90,6 @@ export const useAccountStore = create<AccountState>()(
         const lostSelection =
           !!selectedAccountId && !freshIds.has(selectedAccountId);
 
-        // If the selection no longer exists, clear it. Don't silently
-        // jump to a different account — that hides the select-account
-        // screen and misleads the user about which account they're in.
         const nextSelectedId = lostSelection ? null : selectedAccountId;
 
         if (idsEqual && nextSelectedId === selectedAccountId) {
@@ -139,8 +132,6 @@ export const useAccountStore = create<AccountState>()(
         set((state) => {
           const remaining = state.accounts.filter((a) => a.id !== id);
           const wasSelected = state.selectedAccountId === id;
-          // Clear the selection rather than jump to remaining[0]. The
-          // user will be routed to select-account by the tabs layout.
           const nextId = wasSelected ? null : state.selectedAccountId;
 
           if (wasSelected) {
