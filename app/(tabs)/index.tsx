@@ -212,6 +212,36 @@ function getRoleLabel(role?: string) {
   return ROLE_LABELS[role.toLowerCase()] || role;
 }
 
+function getMemberRoleLabel(role?: string) {
+  if (!role) return "Member";
+  const map: Record<string, string> = {
+    flat: "Flat Owner",
+    shop: "Shop Owner",
+    custom: "Custom",
+  };
+  const key = String(role).toLowerCase();
+  return (
+    map[key] ?? key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+  );
+}
+
+function getStaffRoleLabel(role?: string) {
+  if (!role) return "Staff";
+  const map: Record<string, string> = {
+    sweeper: "Sweeper",
+    security: "Security",
+    maintenance: "Maintenance",
+    gardener: "Gardener",
+    driver: "Driver",
+    accountant: "Accountant",
+    custom: "Custom",
+  };
+  const key = String(role).toLowerCase();
+  return (
+    map[key] ?? key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+  );
+}
+
 function getDaysInMonth(year: number, month: number) {
   return new Date(year, month + 1, 0).getDate();
 }
@@ -543,42 +573,6 @@ function ProfileCard({ user, onEdit }: { user: any; onEdit: () => void }) {
           <Text style={styles.profileEditText}>Edit</Text>
         </View>
       </View>
-    </Pressable>
-  );
-}
-
-function MyRoleRow({
-  icon,
-  iconColor,
-  iconBg,
-  title,
-  subtitle,
-  onPress,
-}: {
-  icon: keyof typeof Ionicons.glyphMap;
-  iconColor: string;
-  iconBg: string;
-  title: string;
-  subtitle: string;
-  onPress: () => void;
-}) {
-  return (
-    <Pressable
-      onPress={onPress}
-      style={({ pressed }) => [styles.roleRow, pressed && styles.pressed]}
-    >
-      <View style={[styles.roleRowIcon, { backgroundColor: iconBg }]}>
-        <Ionicons name={icon} size={18} color={iconColor} />
-      </View>
-      <View style={styles.roleRowInfo}>
-        <Text style={styles.roleRowTitle} numberOfLines={1}>
-          {title}
-        </Text>
-        <Text style={styles.roleRowSubtitle} numberOfLines={1}>
-          {subtitle}
-        </Text>
-      </View>
-      <Ionicons name="chevron-forward" size={16} color="#94A3B8" />
     </Pressable>
   );
 }
@@ -1191,16 +1185,11 @@ export default function HomeScreen() {
     };
   }, [selectedAccount?.id]);
 
-  // FIX: use `userId` (camelCase) not `user_id`. The `Member` objects
-  // produced by mapRowToMember in useManagement.ts set `userId`, so the
-  // snake_case lookup always returned undefined and this section never
-  // rendered.
   const matchedMemberProfiles = useMemo(() => {
     if (!user || !selectedAccount) return [];
     return apartmentMembers.filter((m: any) => m.userId === user.id);
   }, [user, selectedAccount, apartmentMembers]);
 
-  // FIX: same change as above, for staff.
   const matchedStaffProfiles = useMemo(() => {
     if (!user || !selectedAccount) return [];
     return staffMembers.filter((s: any) => s.userId === user.id);
@@ -1433,6 +1422,9 @@ export default function HomeScreen() {
         : "Portal";
 
   const renderProfileBlock = () => {
+    const hasMembers = matchedMemberProfiles.length > 0;
+    const hasStaff = matchedStaffProfiles.length > 0;
+
     return (
       <>
         <ProfileCard user={user} onEdit={handleOpenProfile} />
@@ -1443,46 +1435,176 @@ export default function HomeScreen() {
               My Roles on this Property
             </Text>
 
-            {matchedMemberProfiles.map((member: any) => {
-              const unit =
-                member.unit ||
-                [member.wing, member.flatNumber].filter(Boolean).join(" · ") ||
-                "Flat";
-              const roleLabel = member.role
-                ? member.role.charAt(0).toUpperCase() + member.role.slice(1)
-                : "Member";
-              return (
-                <MyRoleRow
-                  key={`member-${member.id}`}
-                  icon="home-outline"
-                  iconColor="#2563EB"
-                  iconBg="#EFF6FF"
-                  title={`${roleLabel} · ${unit}`}
-                  subtitle={`Maintenance ${formatCurrency(
-                    member.maintenanceAmount || 0,
-                  )} / month`}
-                  onPress={() => handleMemberPress(member)}
-                />
-              );
-            })}
+            {/* ===================== MEMBER GROUP ===================== */}
+            {hasMembers ? (
+              <View style={styles.groupCard}>
+                <View style={styles.groupCardHeader}>
+                  <View style={styles.groupCardHeaderLeft}>
+                    <View
+                      style={[
+                        styles.groupCardHeaderIcon,
+                        { backgroundColor: "#EFF6FF" },
+                      ]}
+                    >
+                      <Ionicons name="home-outline" size={16} color="#2563EB" />
+                    </View>
+                    <Text style={styles.groupCardHeaderTitle}>Member</Text>
+                  </View>
+                  <View style={styles.groupCardHeaderBadge}>
+                    <Text style={styles.groupCardHeaderBadgeText}>
+                      {matchedMemberProfiles.length}{" "}
+                      {matchedMemberProfiles.length === 1 ? "flat" : "flats"}
+                    </Text>
+                  </View>
+                </View>
 
-            {matchedStaffProfiles.map((staff: any) => {
-              const color = getRoleColor(staff.role);
-              const label = getRoleLabel(staff.role);
-              return (
-                <MyRoleRow
-                  key={`staff-${staff.id}`}
-                  icon="briefcase-outline"
-                  iconColor={color}
-                  iconBg={`${color}12`}
-                  title={label}
-                  subtitle={`Salary ${formatCurrency(
-                    staff.monthlySalary || 0,
-                  )} / month`}
-                  onPress={() => handleStaffPress(staff)}
-                />
-              );
-            })}
+                <View style={styles.groupCardBody}>
+                  {matchedMemberProfiles.map((member: any, index: number) => {
+                    const unit =
+                      member.unit ||
+                      [member.wing, member.flatNumber]
+                        .filter(Boolean)
+                        .join(" · ") ||
+                      "Flat";
+                    const roleLabel = getMemberRoleLabel(member.role);
+
+                    return (
+                      <Pressable
+                        key={`member-${member.id}`}
+                        onPress={() => handleMemberPress(member)}
+                        style={({ pressed }) => [
+                          styles.groupRow,
+                          index === matchedMemberProfiles.length - 1 &&
+                            styles.groupRowLast,
+                          pressed && styles.pressed,
+                        ]}
+                      >
+                        <View style={styles.groupRowInfo}>
+                          <View style={styles.groupRowTitleLine}>
+                            <Text
+                              style={styles.groupRowTitle}
+                              numberOfLines={1}
+                            >
+                              {unit}
+                            </Text>
+                            <View
+                              style={[
+                                styles.roleChip,
+                                {
+                                  backgroundColor: "#EFF6FF",
+                                  borderColor: "#BFDBFE",
+                                },
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  styles.roleChipText,
+                                  { color: "#1D4ED8" },
+                                ]}
+                                numberOfLines={1}
+                              >
+                                {roleLabel}
+                              </Text>
+                            </View>
+                          </View>
+                          <Text style={styles.groupRowSubtitle}>
+                            Maintenance{" "}
+                            {formatCurrency(member.maintenanceAmount || 0)} /
+                            month
+                          </Text>
+                        </View>
+                        <Ionicons
+                          name="chevron-forward"
+                          size={16}
+                          color="#94A3B8"
+                        />
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+            ) : null}
+
+            {/* ===================== STAFF GROUP ===================== */}
+            {hasStaff ? (
+              <View style={styles.groupCard}>
+                <View style={styles.groupCardHeader}>
+                  <View style={styles.groupCardHeaderLeft}>
+                    <View
+                      style={[
+                        styles.groupCardHeaderIcon,
+                        { backgroundColor: "#F5F3FF" },
+                      ]}
+                    >
+                      <Ionicons
+                        name="briefcase-outline"
+                        size={16}
+                        color="#7C3AED"
+                      />
+                    </View>
+                    <Text style={styles.groupCardHeaderTitle}>Staff</Text>
+                  </View>
+                  <View style={styles.groupCardHeaderBadge}>
+                    <Text style={styles.groupCardHeaderBadgeText}>
+                      {matchedStaffProfiles.length}{" "}
+                      {matchedStaffProfiles.length === 1 ? "role" : "roles"}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.groupCardBody}>
+                  {matchedStaffProfiles.map((staff: any, index: number) => {
+                    const roleLabel = getStaffRoleLabel(staff.role);
+
+                    return (
+                      <Pressable
+                        key={`staff-${staff.id}`}
+                        onPress={() => handleStaffPress(staff)}
+                        style={({ pressed }) => [
+                          styles.groupRow,
+                          index === matchedStaffProfiles.length - 1 &&
+                            styles.groupRowLast,
+                          pressed && styles.pressed,
+                        ]}
+                      >
+                        <View style={styles.groupRowInfo}>
+                          <View style={styles.groupRowTitleLine}>
+                            <View
+                              style={[
+                                styles.roleChip,
+                                {
+                                  backgroundColor: "#F5F3FF",
+                                  borderColor: "#DDD6FE",
+                                },
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  styles.roleChipText,
+                                  { color: "#6D28D9" },
+                                ]}
+                                numberOfLines={1}
+                              >
+                                {roleLabel}
+                              </Text>
+                            </View>
+                          </View>
+                          <Text style={styles.groupRowSubtitle}>
+                            Salary {formatCurrency(staff.monthlySalary || 0)} /
+                            month
+                          </Text>
+                        </View>
+                        <Ionicons
+                          name="chevron-forward"
+                          size={16}
+                          color="#94A3B8"
+                        />
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+            ) : null}
           </View>
         ) : null}
       </>
@@ -1993,27 +2115,104 @@ const styles = StyleSheet.create({
     marginBottom: 9,
     marginLeft: 2,
   },
-  roleRow: {
+
+  /* ============================ GROUPED CARDS ============================ */
+  groupCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    overflow: "hidden",
+    marginBottom: 10,
+  },
+  groupCardHeader: {
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    backgroundColor: "#F8FAFC",
+    borderBottomWidth: 1,
+    borderBottomColor: "#E2E8F0",
+  },
+  groupCardHeaderLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  groupCardHeaderIcon: {
+    width: 28,
+    height: 28,
+    borderRadius: 9,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  groupCardHeaderTitle: {
+    fontSize: 13.5,
+    fontWeight: "800",
+    color: "#0F172A",
+  },
+  groupCardHeaderBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 7,
     backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    padding: 13,
-    marginBottom: 8,
     borderWidth: 1,
     borderColor: "#E2E8F0",
   },
-  roleRowIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 12,
+  groupCardHeaderBadgeText: {
+    fontSize: 10.5,
+    fontWeight: "700",
+    color: "#64748B",
   },
-  roleRowInfo: { flex: 1, minWidth: 0 },
-  roleRowTitle: { fontSize: 14, fontWeight: "700", color: "#0F172A" },
-  roleRowSubtitle: { fontSize: 12, color: "#64748B", marginTop: 3 },
+  groupCardBody: {
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+  },
+  groupRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F1F5F9",
+  },
+  groupRowLast: {
+    borderBottomWidth: 0,
+  },
+  groupRowInfo: {
+    flex: 1,
+    minWidth: 0,
+    marginRight: 8,
+  },
+  groupRowTitleLine: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  groupRowTitle: {
+    fontSize: 13.5,
+    fontWeight: "700",
+    color: "#0F172A",
+    flexShrink: 1,
+  },
+  groupRowSubtitle: {
+    fontSize: 11.5,
+    color: "#64748B",
+    marginTop: 3,
+  },
+  roleChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  roleChipText: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.2,
+  },
 
   offersSection: { marginBottom: 14, gap: 10 },
   offerBanner: {
