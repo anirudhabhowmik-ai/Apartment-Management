@@ -1,10 +1,10 @@
 // app/(tabs)/profile.tsx
 import { Ionicons } from "@expo/vector-icons";
+import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
-  Image,
   Modal,
   ScrollView,
   StyleSheet,
@@ -193,6 +193,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginRight: 10,
+    overflow: "hidden",
+  },
+  ownerMiniAvatarImage: {
+    width: "100%",
+    height: "100%",
   },
   ownerMiniAvatarText: {
     color: "#1D4ED8",
@@ -324,6 +329,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginRight: 11,
+    overflow: "hidden",
+  },
+  adminRowAvatarImage: {
+    width: "100%",
+    height: "100%",
   },
   ownerRowAvatar: { backgroundColor: "#DBEAFE" },
   adminRowAvatarBg: { backgroundColor: "#EDE9FE" },
@@ -749,7 +759,7 @@ const styles = StyleSheet.create({
 
 export default function ProfileTabScreen() {
   const router = useRouter();
-  const { user, logout } = useAuthStore();
+  const { user, logout, refreshProfile } = useAuthStore();
   const { selectedAccount } = useAccounts();
   const { isAdmin, isMember } = useUserRole();
 
@@ -757,7 +767,6 @@ export default function ProfileTabScreen() {
   const grants = useAccessStore((s) => s.grants);
 
   const isOwner = selectedAccount?.ownerId === user?.id;
-  // Anyone who's NOT the owner: admin, member, staff — all see the Admin & Owners section
   const showAdminDirectory = !isOwner;
 
   const canSeeSubscription = isAdmin || isMember;
@@ -780,9 +789,13 @@ export default function ProfileTabScreen() {
     useState<BillingPeriod>("monthly");
   const plans = DEFAULT_PLANS;
 
+  // Refresh the user's own profile (name + photo) whenever this screen
+  // mounts or regains focus, so `user.photoUrl` stays current.
+  useEffect(() => {
+    refreshProfile().catch(() => {});
+  }, [refreshProfile]);
+
   // ── Close profile-page modals when the account switcher opens ──
-  // Prevents the RN Modal manager from double-presenting the switcher
-  // on Android when this tab already has sibling Modals in the tree.
   const isSwitcherOpen = useAccountStore((s) => s.isAccountSwitcherOpen);
 
   useEffect(() => {
@@ -958,9 +971,6 @@ export default function ProfileTabScreen() {
       .toUpperCase()
       .slice(0, 2);
 
-  /**
-   * Logout — no confirm alert, direct action.
-   */
   const handleLogout = async () => {
     try {
       await logout();
@@ -986,11 +996,6 @@ export default function ProfileTabScreen() {
     );
   };
 
-  /**
-   * Phone row press:
-   *  - Owners → go to account-profile (which handles the phone change).
-   *  - Non-owners → show the informational tooltip.
-   */
   const handlePhoneRowPress = () => {
     if (isOwner) {
       router.push("/(modals)/account-profile");
@@ -1008,7 +1013,6 @@ export default function ProfileTabScreen() {
     );
   };
 
-  // ── Subscription ─────────────────────────────────────────────
   const getPlanPrice = (plan: SubscriptionPlan, period: BillingPeriod) =>
     period === "yearly" ? plan.yearlyPrice : plan.monthlyPrice;
 
@@ -1118,7 +1122,6 @@ export default function ProfileTabScreen() {
     }
   };
 
-  // ── Menu ─────────────────────────────────────────────────────
   const menuItems: MenuItem[] = [
     {
       id: "generate_bill",
@@ -1264,7 +1267,6 @@ export default function ProfileTabScreen() {
     </TouchableOpacity>
   );
 
-  // ── History modal ────────────────────────────────────────────
   const renderHistoryModal = () => (
     <Modal
       visible={showHistoryModal}
@@ -1352,13 +1354,22 @@ export default function ProfileTabScreen() {
     </Modal>
   );
 
-  // ── Main render ──────────────────────────────────────────────
   const goToAccountProfile = () => router.push("/(modals)/account-profile");
 
   const accountName = selectedAccount?.name || "Apartment";
   const ownerPhone = user?.phone || "—";
   const ownerName = (user as any)?.name || "You";
-  const hasPhoto = !!selectedAccount?.photoUri;
+
+  // ---- PHOTO RESOLUTION ----
+  // The hero avatar (top-left) is the *account's* photo — the society
+  // banner/logo managed from Manage Account Profile.
+  // The owner mini-avatar (in the row below) is the *owner's personal*
+  // photo (users.photo_url).
+  //
+  // We keep them separate so uploading an account photo doesn't
+  // accidentally overwrite the owner's personal avatar, and vice versa.
+  const accountPhotoUri: string | null = selectedAccount?.photoUri ?? null;
+  const ownerPhotoUri: string | null = user?.photoUrl ?? null;
 
   return (
     <View style={styles.container}>
@@ -1366,18 +1377,18 @@ export default function ProfileTabScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-        {/* ================================================================ */}
-        {/* ACCOUNT HERO CARD                                                */}
-        {/* ================================================================ */}
+        {/* ACCOUNT HERO CARD */}
         <View style={styles.heroCard}>
           <View style={styles.heroTopRow}>
             <View style={styles.avatarWrap}>
               <View style={styles.avatarInner}>
-                {hasPhoto ? (
+                {accountPhotoUri ? (
                   <Image
-                    source={{ uri: selectedAccount!.photoUri as string }}
+                    source={{ uri: accountPhotoUri }}
                     style={styles.avatarImage}
-                    resizeMode="cover"
+                    contentFit="cover"
+                    cachePolicy="memory-disk"
+                    transition={120}
                   />
                 ) : (
                   <Text style={styles.avatarInitials}>
@@ -1400,11 +1411,22 @@ export default function ProfileTabScreen() {
             </View>
           </View>
 
+          {/* Owner mini-card — shows the owner's personal photo */}
           <View style={styles.ownerMiniCard}>
             <View style={styles.ownerMiniAvatar}>
-              <Text style={styles.ownerMiniAvatarText}>
-                {getInitials(ownerName) || "Y"}
-              </Text>
+              {ownerPhotoUri ? (
+                <Image
+                  source={{ uri: ownerPhotoUri }}
+                  style={styles.ownerMiniAvatarImage}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                  transition={120}
+                />
+              ) : (
+                <Text style={styles.ownerMiniAvatarText}>
+                  {getInitials(ownerName) || "Y"}
+                </Text>
+              )}
             </View>
             <View style={styles.ownerMiniContent}>
               <Text style={styles.ownerMiniLabel}>Account Owner</Text>
@@ -1447,9 +1469,7 @@ export default function ProfileTabScreen() {
           )}
         </View>
 
-        {/* ================================================================ */}
-        {/* ADMIN & OWNERS — visible to admin, member and staff (not owner)   */}
-        {/* ================================================================ */}
+        {/* ADMIN & OWNERS — for non-owners */}
         {showAdminDirectory && (
           <View style={styles.adminCard}>
             <View style={styles.adminCardHeader}>
@@ -1471,9 +1491,19 @@ export default function ProfileTabScreen() {
               ]}
             >
               <View style={[styles.adminRowAvatar, styles.ownerRowAvatar]}>
-                <Text style={styles.adminRowAvatarText}>
-                  {getInitials(ownerName) || "O"}
-                </Text>
+                {ownerPhotoUri ? (
+                  <Image
+                    source={{ uri: ownerPhotoUri }}
+                    style={styles.adminRowAvatarImage}
+                    contentFit="cover"
+                    cachePolicy="memory-disk"
+                    transition={120}
+                  />
+                ) : (
+                  <Text style={styles.adminRowAvatarText}>
+                    {getInitials(ownerName) || "O"}
+                  </Text>
+                )}
               </View>
               <View style={styles.adminRowContent}>
                 <View style={styles.adminRowNameRow}>
@@ -1533,9 +1563,7 @@ export default function ProfileTabScreen() {
           </View>
         )}
 
-        {/* ================================================================ */}
-        {/* SUBSCRIPTION                                                     */}
-        {/* ================================================================ */}
+        {/* SUBSCRIPTION */}
         {canSeeSubscription &&
           (() => {
             const currentPlan = plans.find((p) => p.id === activePlan);
@@ -1645,9 +1673,7 @@ export default function ProfileTabScreen() {
             );
           })()}
 
-        {/* ================================================================ */}
-        {/* SETTINGS                                                         */}
-        {/* ================================================================ */}
+        {/* SETTINGS */}
         {settingsSections.map((section) => {
           const items = menuItems.filter((item) =>
             section.itemIds.includes(item.id),
@@ -1663,9 +1689,7 @@ export default function ProfileTabScreen() {
           );
         })}
 
-        {/* ================================================================ */}
-        {/* HISTORY                                                          */}
-        {/* ================================================================ */}
+        {/* HISTORY */}
         <View style={styles.historyCard}>
           <View style={styles.historyHeader}>
             <View>
@@ -1737,9 +1761,7 @@ export default function ProfileTabScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* ================================================================ */}
-        {/* DANGER: DELETE ACCOUNT                                           */}
-        {/* ================================================================ */}
+        {/* DANGER ZONE */}
         <View style={styles.menuSection}>
           <Text style={styles.menuSectionTitle}>DANGER ZONE</Text>
           <View style={styles.menuCard}>
@@ -1766,9 +1788,7 @@ export default function ProfileTabScreen() {
           </View>
         </View>
 
-        {/* ================================================================ */}
-        {/* LOGOUT — solid red button, no confirmation                       */}
-        {/* ================================================================ */}
+        {/* LOGOUT */}
         <TouchableOpacity
           style={styles.logoutButton}
           onPress={handleLogout}
@@ -1778,9 +1798,7 @@ export default function ProfileTabScreen() {
           <Text style={styles.logoutButtonText}>Log Out</Text>
         </TouchableOpacity>
 
-        {/* ================================================================ */}
-        {/* FOOTER                                                           */}
-        {/* ================================================================ */}
+        {/* FOOTER */}
         <View style={styles.footer}>
           <View style={styles.footerLogo}>
             <Ionicons name="business-outline" size={16} color="#2563EB" />
@@ -1792,7 +1810,6 @@ export default function ProfileTabScreen() {
 
       {renderHistoryModal()}
 
-      {/* Phone tooltip — shown to non-owners who tap the phone */}
       {showPhoneTooltip && (
         <Modal
           transparent
