@@ -2,11 +2,10 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Dimensions,
   Image,
   Keyboard,
   KeyboardAvoidingView,
@@ -91,8 +90,9 @@ const COLORS = {
   primaryLight: "#EFF6FF",
   primarySoft: "#DBEAFE",
 
-  background: "#F8FAFC",
+  background: "#F5F7FB",
   white: "#FFFFFF",
+  surface: "#F8FAFC",
 
   text: "#0F172A",
   textSoft: "#334155",
@@ -100,9 +100,10 @@ const COLORS = {
   muted: "#94A3B8",
 
   border: "#E2E8F0",
-  borderLight: "#F1F5F9",
+  borderLight: "#EEF2F7",
 
   success: "#16A34A",
+  successDark: "#15803D",
   successLight: "#F0FDF4",
   successBorder: "#BBF7D0",
 
@@ -316,6 +317,22 @@ const formatBadgeDate = (dateStr: string): string => {
   return `${parts.day}/${parts.month}/${parts.year}`;
 };
 
+// Indian digit grouping (12,34,567) without relying on Intl support.
+const formatINR = (value: number): string => {
+  const n = Math.round(Number.isFinite(value) ? value : 0);
+  const negative = n < 0;
+  const s = String(Math.abs(n));
+  let out: string;
+  if (s.length <= 3) {
+    out = s;
+  } else {
+    const last3 = s.slice(-3);
+    const rest = s.slice(0, -3).replace(/\B(?=(\d{2})+(?!\d))/g, ",");
+    out = `${rest},${last3}`;
+  }
+  return `${negative ? "-" : ""}₹${out}`;
+};
+
 const formatPhoneForDisplay = (raw?: string | null): string => {
   if (!raw) return "";
   const digits = String(raw).replace(/\D/g, "");
@@ -346,7 +363,7 @@ const getTabLabel = (
   accountType?: "apartment" | "home",
 ): string => {
   if (type === "apartment") {
-    return accountType === "home" ? "Tenant" : "Member";
+    return accountType === "home" ? "Tenants" : "Members";
   }
   if (type === "staff") return "Staff";
   if (type === "expense") return "Transactions";
@@ -365,7 +382,7 @@ const getCountLabel = (
         : "Owner"
       : type === "staff"
         ? "Staff"
-        : "Expense";
+        : "Transaction";
   const plural = type === "staff" ? "Staff" : `${singular}s`;
   return `${count} ${count === 1 ? singular : plural}`;
 };
@@ -378,7 +395,7 @@ const getAddButtonLabel = (
     return accountType === "home" ? "Add Tenant" : "Add Member";
   }
   if (type === "staff") return "Add Staff";
-  if (type === "expense") return "Add Transaction";
+  if (type === "expense") return "Add Entry";
   return "Add";
 };
 
@@ -576,6 +593,23 @@ function groupRowsByUser(rows: any[]): GroupedCard[] {
   return Array.from(map.values());
 }
 
+const getRecordStatus = (
+  record: any,
+  month: string,
+  isExpense: boolean,
+): "paid" | "due" => {
+  if (isExpense) return record.status === "paid" ? "paid" : "due";
+  return getPaymentForMonth(record, month).status === "paid" ? "paid" : "due";
+};
+
+const cardHasStatus = (
+  card: GroupedCard,
+  status: "paid" | "due",
+  month: string,
+  isExpense: boolean,
+): boolean =>
+  card.records.some((r) => getRecordStatus(r, month, isExpense) === status);
+
 interface TemplateMissingState {
   visible: boolean;
   memberType: BillMemberType;
@@ -587,6 +621,39 @@ const EMPTY_TEMPLATE_MISSING: TemplateMissingState = {
   memberType: "owner",
   isApartment: true,
 };
+
+// ---------------------------------------------------------------------------
+// Small presentational pieces
+// ---------------------------------------------------------------------------
+
+function SummaryStat({
+  label,
+  value,
+  hint,
+  color,
+  align = "left",
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  color: string;
+  align?: "left" | "right";
+}) {
+  return (
+    <View
+      style={[
+        styles.summaryStat,
+        align === "right" && { alignItems: "flex-end" },
+      ]}
+    >
+      <Text style={styles.summaryLabel}>{label}</Text>
+      <Text style={[styles.summaryValue, { color }]} numberOfLines={1}>
+        {value}
+      </Text>
+      {hint ? <Text style={styles.summaryHint}>{hint}</Text> : null}
+    </View>
+  );
+}
 
 export default function PeopleScreen() {
   const router = useRouter();
@@ -604,6 +671,7 @@ export default function PeopleScreen() {
   const [selectedMonth, setSelectedMonth] = useState<string | null>(
     new Date().toISOString().slice(0, 7),
   );
+  const month = selectedMonth || new Date().toISOString().slice(0, 7);
 
   const membersHook = useMembers(selectedAccountId ?? null, selectedMonth);
   const staffHook = useStaff(selectedAccountId ?? null, selectedMonth);
@@ -680,34 +748,6 @@ export default function PeopleScreen() {
     expense: "all",
   });
 
-  const [showFilterDropdown, setShowFilterDropdown] = useState(false);
-
-  const containerRef = useRef<View | null>(null);
-  const searchRowRef = useRef<View | null>(null);
-
-  const [filterAnchor, setFilterAnchor] = useState<{
-    top: number;
-    right: number;
-  }>({ top: 0, right: 16 });
-
-  const measureSearchRow = () => {
-    const row = searchRowRef.current;
-    const container = containerRef.current;
-    if (!row || !container) return;
-    row.measureLayout(
-      container as any,
-      (x, y, width, height) => {
-        const screenWidth = Dimensions.get("window").width;
-        const rightOffset = Math.max(screenWidth - (x + width), 12);
-        setFilterAnchor({
-          top: y + height + 4,
-          right: rightOffset,
-        });
-      },
-      () => {},
-    );
-  };
-
   const activeSearch = searchQuery[activeTab];
   const activeFilter = paymentFilter[activeTab];
 
@@ -716,6 +756,14 @@ export default function PeopleScreen() {
 
   const setActiveFilter = (value: PaymentFilter) =>
     setPaymentFilter((current) => ({ ...current, [activeTab]: value }));
+
+  const isApartmentTab = activeTab === "apartment";
+  const isStaffTab = activeTab === "staff";
+  const isExpenseTab = activeTab === "expense";
+
+  // -------------------------------------------------------------------------
+  // Data fetching
+  // -------------------------------------------------------------------------
 
   useEffect(() => {
     if (!selectedAccountId) return;
@@ -760,7 +808,6 @@ export default function PeopleScreen() {
       return;
     }
 
-    const month = selectedMonth || new Date().toISOString().slice(0, 7);
     const targetMemberId = paymentMember.id;
     const accountId = selectedAccountId;
 
@@ -841,16 +888,7 @@ export default function PeopleScreen() {
   useEffect(() => {
     setSearchQuery((current) => ({ ...current, [activeTab]: "" }));
     setPaymentFilter((current) => ({ ...current, [activeTab]: "all" }));
-    setShowFilterDropdown(false);
   }, [activeTab]);
-
-  useEffect(() => {
-    if (showFilterDropdown) {
-      const id = requestAnimationFrame(() => measureSearchRow());
-      return () => cancelAnimationFrame(id);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showFilterDropdown]);
 
   useEffect(() => {
     if (!selectedAccountId || !selectedMonth) return;
@@ -863,6 +901,142 @@ export default function PeopleScreen() {
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedAccountId, selectedMonth, staffHook.items]);
+
+  // -------------------------------------------------------------------------
+  // Derived data (ALL hooks live above the early return below)
+  // -------------------------------------------------------------------------
+
+  const activeMembersSource = useMemo(
+    () => membersHook.items.filter(isActiveRow),
+    [membersHook.items],
+  );
+  const activeStaffSource = useMemo(
+    () => staffHook.items.filter(isActiveRow),
+    [staffHook.items],
+  );
+
+  const activeMembers = useMemo(() => {
+    const membersInActiveGroup =
+      activeTab === "apartment"
+        ? activeMembersSource
+        : activeTab === "staff"
+          ? activeStaffSource
+          : expensesHook.items;
+
+    if (!selectedMonth) return membersInActiveGroup;
+
+    return membersInActiveGroup.filter((member: any) => {
+      const date =
+        activeTab === "expense" && "dueDate" in member
+          ? member.dueDate
+          : member.createdAt;
+      return activeTab === "expense"
+        ? date?.slice(0, 7) === selectedMonth
+        : (date?.slice(0, 7) ?? "") <= selectedMonth;
+    });
+  }, [
+    activeTab,
+    activeMembersSource,
+    activeStaffSource,
+    expensesHook.items,
+    selectedMonth,
+  ]);
+
+  const showFinancialInfo =
+    canSeeFinance && (isApartmentTab || isStaffTab || isExpenseTab);
+
+  const groupedCards = useMemo<GroupedCard[]>(() => {
+    if (isExpenseTab) {
+      return activeMembers.map((m: any) => ({
+        user_id: `expense-${m.id}`,
+        name: m.name,
+        phone: null,
+        photo_url: null,
+        records: [m],
+      }));
+    }
+    return groupRowsByUser(activeMembers);
+  }, [activeMembers, isExpenseTab]);
+
+  const searchedCards = useMemo(
+    () => groupedCards.filter((card) => memberMatchesQuery(card, activeSearch)),
+    [groupedCards, activeSearch],
+  );
+
+  const statusCounts = useMemo(() => {
+    let paid = 0;
+    let due = 0;
+    for (const card of searchedCards) {
+      if (cardHasStatus(card, "paid", month, isExpenseTab)) paid += 1;
+      if (cardHasStatus(card, "due", month, isExpenseTab)) due += 1;
+    }
+    return { all: searchedCards.length, paid, due };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchedCards, month, isExpenseTab, attendanceVersion]);
+
+  const visibleGroupedCards = useMemo(() => {
+    if (activeFilter === "all") return searchedCards;
+    return searchedCards.filter((card) =>
+      cardHasStatus(card, activeFilter, month, isExpenseTab),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchedCards, activeFilter, month, isExpenseTab, attendanceVersion]);
+
+  const summary = useMemo(() => {
+    if (isExpenseTab) {
+      let income = 0;
+      let expense = 0;
+      for (const card of groupedCards) {
+        for (const r of card.records) {
+          const amt = Number(r.amount) || 0;
+          if (getTransactionTypeLabel(r) === "income") income += amt;
+          else expense += amt;
+        }
+      }
+      return { kind: "expense" as const, income, expense };
+    }
+
+    let paidAmount = 0;
+    let dueAmount = 0;
+    let paidCount = 0;
+    let dueCount = 0;
+    for (const card of groupedCards) {
+      for (const r of card.records) {
+        const amount = resolveDueAmount(r, selectedMonth, {
+          isApartmentTab,
+          isStaffTab,
+          getAttendanceRecord,
+        });
+        if (getRecordStatus(r, month, false) === "paid") {
+          paidAmount += amount;
+          paidCount += 1;
+        } else {
+          dueAmount += amount;
+          dueCount += 1;
+        }
+      }
+    }
+    return {
+      kind: "dues" as const,
+      paidAmount,
+      dueAmount,
+      paidCount,
+      dueCount,
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    groupedCards,
+    isExpenseTab,
+    isApartmentTab,
+    isStaffTab,
+    selectedMonth,
+    month,
+    attendanceVersion,
+  ]);
+
+  // -------------------------------------------------------------------------
+  // Actions
+  // -------------------------------------------------------------------------
 
   const handleAdd = async (type: ManagementType) => {
     if (!canEdit) return;
@@ -896,169 +1070,6 @@ export default function PeopleScreen() {
     closeTemplateMissingModal();
     setShowGenerateBillModal(true);
   };
-
-  if (!selectedAccountId) {
-    return (
-      <View style={styles.container}>
-        <View style={styles.noPropertyState}>
-          <View style={styles.noPropertyIcon}>
-            <Ionicons
-              name="business-outline"
-              size={40}
-              color={COLORS.primary}
-            />
-          </View>
-          <Text style={styles.noPropertyTitle}>Create your property</Text>
-          <Text style={styles.noPropertySubtitle}>
-            Create a property first to start managing your apartment or home.
-          </Text>
-          {canEdit && (
-            <Pressable
-              style={({ pressed }) => [
-                styles.createButton,
-                pressed && styles.pressedButton,
-              ]}
-              onPress={() => router.push("/(modals)/add-account")}
-            >
-              <Ionicons name="add" size={18} color={COLORS.white} />
-              <Text style={styles.createButtonText}>Create Property</Text>
-            </Pressable>
-          )}
-        </View>
-      </View>
-    );
-  }
-
-  const activeMembersSource = membersHook.items.filter(isActiveRow);
-  const activeStaffSource = staffHook.items.filter(isActiveRow);
-
-  const membersInActiveGroup =
-    activeTab === "apartment"
-      ? activeMembersSource
-      : activeTab === "staff"
-        ? activeStaffSource
-        : expensesHook.items;
-
-  const activeMembers = selectedMonth
-    ? membersInActiveGroup.filter((member: any) => {
-        const date =
-          activeTab === "expense" && "dueDate" in member
-            ? member.dueDate
-            : member.createdAt;
-        return activeTab === "expense"
-          ? date?.slice(0, 7) === selectedMonth
-          : (date?.slice(0, 7) ?? "") <= selectedMonth;
-      })
-    : membersInActiveGroup;
-
-  const isApartmentTab = activeTab === "apartment";
-  const isStaffTab = activeTab === "staff";
-  const isExpenseTab = activeTab === "expense";
-
-  const showFinancialInfo =
-    canSeeFinance && (isApartmentTab || isStaffTab || isExpenseTab);
-
-  const groupedCards = useMemo<GroupedCard[]>(() => {
-    if (isExpenseTab) {
-      return activeMembers.map((m: any) => ({
-        user_id: `expense-${m.id}`,
-        name: m.name,
-        phone: null,
-        photo_url: null,
-        records: [m],
-      }));
-    }
-    return groupRowsByUser(activeMembers);
-  }, [activeMembers, isExpenseTab]);
-
-  const visibleGroupedCards = useMemo(() => {
-    const month = selectedMonth || new Date().toISOString().slice(0, 7);
-    return groupedCards.filter((card) => {
-      if (!memberMatchesQuery(card, activeSearch)) return false;
-      if (activeFilter === "all") return true;
-
-      let status: "paid" | "due" | null = null;
-      for (const record of card.records) {
-        if (isExpenseTab) {
-          const s = record.status === "paid" ? "paid" : "due";
-          if (s === activeFilter) {
-            status = s;
-            break;
-          }
-        } else {
-          const monthlyPayment = getPaymentForMonth(record, month);
-          const s = monthlyPayment.status === "paid" ? "paid" : "due";
-          if (s === activeFilter) {
-            status = s;
-            break;
-          }
-        }
-      }
-      return status === activeFilter;
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [
-    groupedCards,
-    activeSearch,
-    activeFilter,
-    activeTab,
-    isExpenseTab,
-    selectedMonth,
-    attendanceVersion,
-  ]);
-
-  const month = selectedMonth || new Date().toISOString().slice(0, 7);
-
-  const baseSalary = paymentMember
-    ? isApartmentTab
-      ? paymentMember.maintenanceAmount || 0
-      : paymentMember.monthlySalary || 0
-    : 0;
-
-  const attendanceRecordForModal = paymentMember
-    ? getAttendanceRecord(paymentMember.id, month)
-    : undefined;
-
-  const attendanceAdjustedSalary = (() => {
-    if (!isStaffTab || !paymentMember) return null;
-    if (!("monthlySalary" in paymentMember)) return null;
-
-    const base = paymentMember.monthlySalary || 0;
-
-    if (attendanceRecordForModal?.calculatedSalary != null) {
-      return attendanceRecordForModal.calculatedSalary;
-    }
-    if (
-      attendanceRecordForModal?.statuses &&
-      Object.keys(attendanceRecordForModal.statuses).length > 0
-    ) {
-      return getCalculatedStaffSalary(
-        base,
-        month,
-        attendanceRecordForModal.statuses as Record<string, AttendanceStatus>,
-      );
-    }
-    if (modalAttendance?.calculatedSalary != null) {
-      return modalAttendance.calculatedSalary;
-    }
-    if (
-      modalAttendance?.statuses &&
-      Object.keys(modalAttendance.statuses).length > 0
-    ) {
-      return getCalculatedStaffSalary(base, month, modalAttendance.statuses);
-    }
-    return null;
-  })();
-
-  const effectiveBase =
-    isStaffTab && attendanceAdjustedSalary != null
-      ? attendanceAdjustedSalary
-      : baseSalary;
-
-  const netPaidAmount =
-    effectiveBase +
-    (showAdditionalAmount ? Number(additionalAmount) || 0 : 0) -
-    (showDeduction ? Number(deductionAmount) || 0 : 0);
 
   const openPaymentModal = (member: any) => {
     if (!canEdit) return;
@@ -1311,39 +1322,149 @@ export default function PeopleScreen() {
     setSelectedMonth(navigateMonth(selectedMonth, "next"));
   };
 
+  // -------------------------------------------------------------------------
+  // Early return — safe now, every hook has already run.
+  // -------------------------------------------------------------------------
+
+  if (!selectedAccountId) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.noPropertyState}>
+          <View style={styles.noPropertyIcon}>
+            <Ionicons
+              name="business-outline"
+              size={40}
+              color={COLORS.primary}
+            />
+          </View>
+          <Text style={styles.noPropertyTitle}>Create your property</Text>
+          <Text style={styles.noPropertySubtitle}>
+            Create a property first to start managing your apartment or home.
+          </Text>
+          {canEdit && (
+            <Pressable
+              style={({ pressed }) => [
+                styles.createButton,
+                pressed && styles.pressedButton,
+              ]}
+              onPress={() => router.push("/(modals)/add-account")}
+            >
+              <Ionicons name="add" size={18} color={COLORS.white} />
+              <Text style={styles.createButtonText}>Create Property</Text>
+            </Pressable>
+          )}
+        </View>
+      </View>
+    );
+  }
+
+  // -------------------------------------------------------------------------
+  // Render-only derived values
+  // -------------------------------------------------------------------------
+
+  const baseSalary = paymentMember
+    ? isApartmentTab
+      ? paymentMember.maintenanceAmount || 0
+      : paymentMember.monthlySalary || 0
+    : 0;
+
+  const attendanceRecordForModal = paymentMember
+    ? getAttendanceRecord(paymentMember.id, month)
+    : undefined;
+
+  const attendanceAdjustedSalary = (() => {
+    if (!isStaffTab || !paymentMember) return null;
+    if (!("monthlySalary" in paymentMember)) return null;
+
+    const base = paymentMember.monthlySalary || 0;
+
+    if (attendanceRecordForModal?.calculatedSalary != null) {
+      return attendanceRecordForModal.calculatedSalary;
+    }
+    if (
+      attendanceRecordForModal?.statuses &&
+      Object.keys(attendanceRecordForModal.statuses).length > 0
+    ) {
+      return getCalculatedStaffSalary(
+        base,
+        month,
+        attendanceRecordForModal.statuses as Record<string, AttendanceStatus>,
+      );
+    }
+    if (modalAttendance?.calculatedSalary != null) {
+      return modalAttendance.calculatedSalary;
+    }
+    if (
+      modalAttendance?.statuses &&
+      Object.keys(modalAttendance.statuses).length > 0
+    ) {
+      return getCalculatedStaffSalary(base, month, modalAttendance.statuses);
+    }
+    return null;
+  })();
+
+  const effectiveBase =
+    isStaffTab && attendanceAdjustedSalary != null
+      ? attendanceAdjustedSalary
+      : baseSalary;
+
+  const netPaidAmount =
+    effectiveBase +
+    (showAdditionalAmount ? Number(additionalAmount) || 0 : 0) -
+    (showDeduction ? Number(deductionAmount) || 0 : 0);
+
+  const isFilterActive = activeFilter !== "all";
   const filterLabel =
     activeFilter === "all" ? "All" : activeFilter === "paid" ? "Paid" : "Due";
 
-  const filterIcon: keyof typeof Ionicons.glyphMap =
-    activeFilter === "all"
-      ? "filter-outline"
-      : activeFilter === "paid"
-        ? "checkmark-circle-outline"
-        : "time-outline";
+  const listBottomPadding = Math.max(insets.bottom, 16) + 40;
 
-  const filterColor =
-    activeFilter === "all"
-      ? COLORS.secondary
-      : activeFilter === "paid"
-        ? COLORS.success
-        : COLORS.danger;
+  const filterOptions: {
+    key: PaymentFilter;
+    label: string;
+    count: number;
+    color: string;
+    bg: string;
+    border: string;
+  }[] = [
+    {
+      key: "all",
+      label: "All",
+      count: statusCounts.all,
+      color: COLORS.primary,
+      bg: COLORS.primaryLight,
+      border: COLORS.primarySoft,
+    },
+    {
+      key: "paid",
+      label: "Paid",
+      count: statusCounts.paid,
+      color: COLORS.successDark,
+      bg: COLORS.successLight,
+      border: COLORS.successBorder,
+    },
+    {
+      key: "due",
+      label: "Due",
+      count: statusCounts.due,
+      color: COLORS.danger,
+      bg: COLORS.dangerLight,
+      border: COLORS.dangerBorder,
+    },
+  ];
 
-  const isFilterActive = activeFilter !== "all";
-
-  const listBottomPadding =
-    Math.max(insets.bottom, 24) + (Platform.OS === "ios" ? 320 : 160);
+  const summaryTotal =
+    summary.kind === "dues" ? summary.paidCount + summary.dueCount : 0;
+  const summaryPct =
+    summary.kind === "dues" && summaryTotal > 0
+      ? Math.round((summary.paidCount / summaryTotal) * 100)
+      : 0;
 
   return (
-    <KeyboardAvoidingView
-      style={[
-        styles.container,
-        { paddingBottom: Platform.OS === "ios" ? insets.bottom : 0 },
-      ]}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      keyboardVerticalOffset={0}
-    >
-      <View ref={containerRef} style={styles.innerContainer}>
-        <View style={styles.header}>
+    <View style={styles.container}>
+      {/* ============================ HEADER ============================ */}
+      <View style={styles.header}>
+        <View style={styles.headerTop}>
           <View style={styles.headerTitleArea}>
             <Text style={styles.title}>
               {isAdmin ? "Management" : isMember ? "Residents" : "Directory"}
@@ -1353,29 +1474,25 @@ export default function PeopleScreen() {
             </Text>
           </View>
 
-          <View style={styles.monthNavigation}>
+          <View style={styles.monthPill}>
             <Pressable
               style={({ pressed }) => [
                 styles.monthArrow,
                 pressed && styles.pressedButton,
               ]}
               onPress={handlePrevMonth}
+              hitSlop={6}
             >
-              <Ionicons name="chevron-back" size={17} color={COLORS.primary} />
+              <Ionicons name="chevron-back" size={18} color={COLORS.primary} />
             </Pressable>
 
             <Pressable
               style={({ pressed }) => [
-                styles.monthSelector,
+                styles.monthCenter,
                 pressed && styles.pressedButton,
               ]}
               onPress={() => setShowMonthPicker(true)}
             >
-              <Ionicons
-                name="calendar-outline"
-                size={15}
-                color={COLORS.primary}
-              />
               <Text style={styles.monthText}>
                 {selectedMonth ? formatMonth(selectedMonth) : "All months"}
               </Text>
@@ -1387,10 +1504,11 @@ export default function PeopleScreen() {
                 pressed && styles.pressedButton,
               ]}
               onPress={handleNextMonth}
+              hitSlop={6}
             >
               <Ionicons
                 name="chevron-forward"
-                size={17}
+                size={18}
                 color={COLORS.primary}
               />
             </Pressable>
@@ -1408,13 +1526,13 @@ export default function PeopleScreen() {
                   style={({ pressed }) => [
                     styles.tab,
                     isActive && styles.tabActive,
-                    pressed && styles.tabPressed,
+                    pressed && !isActive && styles.tabPressed,
                   ]}
                   onPress={() => setActiveTab(type)}
                 >
                   <Ionicons
                     name={getTabIcon(type)}
-                    size={16}
+                    size={17}
                     color={isActive ? COLORS.primary : COLORS.secondary}
                   />
                   <Text
@@ -1427,20 +1545,97 @@ export default function PeopleScreen() {
               );
             })}
         </View>
+      </View>
 
-        {visibleGroupedCards.length > 0 && (
-          <View
-            ref={searchRowRef}
-            onLayout={measureSearchRow}
-            style={styles.searchFilterRow}
-          >
+      {/* ============================ CONTENT ============================ */}
+      <ScrollView
+        style={styles.scrollArea}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[
+          styles.listContent,
+          { paddingBottom: listBottomPadding },
+        ]}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
+        automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
+      >
+        {/* ---------- Summary ---------- */}
+        {showFinancialInfo && groupedCards.length > 0 ? (
+          <View style={styles.summaryCard}>
+            {summary.kind === "expense" ? (
+              <>
+                <Text style={styles.summaryTitle}>
+                  Cash flow · {formatMonthLong(month)}
+                </Text>
+                <View style={styles.summaryRow}>
+                  <SummaryStat
+                    label="Income"
+                    value={formatINR(summary.income)}
+                    color={COLORS.successDark}
+                  />
+                  <SummaryStat
+                    label="Expense"
+                    value={formatINR(summary.expense)}
+                    color={COLORS.danger}
+                  />
+                  <SummaryStat
+                    label="Net"
+                    value={formatINR(summary.income - summary.expense)}
+                    color={
+                      summary.income - summary.expense >= 0
+                        ? COLORS.successDark
+                        : COLORS.danger
+                    }
+                    align="right"
+                  />
+                </View>
+              </>
+            ) : (
+              <>
+                <View style={styles.summaryTitleRow}>
+                  <Text style={styles.summaryTitle}>
+                    {isStaffTab ? "Salaries" : "Maintenance"} ·{" "}
+                    {formatMonthLong(month)}
+                  </Text>
+                  <Text style={styles.summaryPct}>{summaryPct}% paid</Text>
+                </View>
+                <View style={styles.progressTrack}>
+                  <View
+                    style={[
+                      styles.progressFill,
+                      { width: `${summaryPct}%` as any },
+                    ]}
+                  />
+                </View>
+                <View style={styles.summaryRow}>
+                  <SummaryStat
+                    label="Paid"
+                    value={formatINR(summary.paidAmount)}
+                    hint={`${summary.paidCount} ${
+                      summary.paidCount === 1 ? "record" : "records"
+                    }`}
+                    color={COLORS.successDark}
+                  />
+                  <SummaryStat
+                    label="Pending"
+                    value={formatINR(summary.dueAmount)}
+                    hint={`${summary.dueCount} ${
+                      summary.dueCount === 1 ? "record" : "records"
+                    }`}
+                    color={COLORS.danger}
+                    align="right"
+                  />
+                </View>
+              </>
+            )}
+          </View>
+        ) : null}
+
+        {/* ---------- Search + filter ---------- */}
+        {groupedCards.length > 0 ? (
+          <>
             <View style={styles.searchBox}>
-              <Ionicons
-                name="search-outline"
-                size={18}
-                color={COLORS.muted}
-                style={styles.searchIcon}
-              />
+              <Ionicons name="search-outline" size={20} color={COLORS.muted} />
               <TextInput
                 style={styles.searchInput}
                 value={activeSearch}
@@ -1460,638 +1655,645 @@ export default function PeopleScreen() {
               {activeSearch.length > 0 && (
                 <Pressable
                   onPress={() => setActiveSearch("")}
+                  hitSlop={8}
                   style={styles.searchClearButton}
-                  hitSlop={6}
                 >
                   <Ionicons
                     name="close-circle"
-                    size={18}
+                    size={20}
                     color={COLORS.muted}
                   />
                 </Pressable>
               )}
             </View>
 
-            <Pressable
-              style={({ pressed }) => [
-                styles.filterTrigger,
-                isFilterActive && styles.filterTriggerActive,
-                pressed && styles.pressedButton,
-              ]}
-              onPress={() => {
-                Keyboard.dismiss();
-                measureSearchRow();
-                setShowFilterDropdown((open) => !open);
-              }}
-            >
-              <Ionicons name={filterIcon} size={16} color={filterColor} />
-              <Text
-                style={[
-                  styles.filterTriggerText,
-                  isFilterActive && { color: filterColor, fontWeight: "700" },
-                ]}
-              >
-                {filterLabel}
-              </Text>
-              <Ionicons
-                name={showFilterDropdown ? "chevron-up" : "chevron-down"}
-                size={14}
-                color={filterColor}
-              />
-            </Pressable>
-          </View>
-        )}
-
-        {visibleGroupedCards.length > 0 && showFilterDropdown && (
-          <>
-            <Pressable
-              style={styles.filterBackdrop}
-              onPress={() => setShowFilterDropdown(false)}
-            />
-            <View
-              style={[
-                styles.filterDropdown,
-                { top: filterAnchor.top, right: filterAnchor.right },
-              ]}
-            >
-              <Text style={styles.filterDropdownTitle}>Payment Status</Text>
-              {(
-                [
-                  { key: "all", label: "All", icon: "apps-outline" },
-                  {
-                    key: "paid",
-                    label: "Paid",
-                    icon: "checkmark-circle-outline",
-                  },
-                  { key: "due", label: "Due", icon: "time-outline" },
-                ] as {
-                  key: PaymentFilter;
-                  label: string;
-                  icon: keyof typeof Ionicons.glyphMap;
-                }[]
-              ).map((option) => {
-                const isSelected = activeFilter === option.key;
+            <View style={styles.chipRow}>
+              {filterOptions.map((option) => {
+                const selected = activeFilter === option.key;
                 return (
                   <Pressable
                     key={option.key}
                     style={({ pressed }) => [
-                      styles.filterOption,
-                      isSelected && styles.filterOptionSelected,
-                      pressed && styles.filterOptionPressed,
+                      styles.chip,
+                      selected && {
+                        backgroundColor: option.bg,
+                        borderColor: option.border,
+                      },
+                      pressed && styles.pressedButton,
                     ]}
                     onPress={() => {
+                      Keyboard.dismiss();
                       setActiveFilter(option.key);
-                      setShowFilterDropdown(false);
                     }}
                   >
-                    <Ionicons
-                      name={option.icon}
-                      size={16}
-                      color={isSelected ? COLORS.primary : COLORS.secondary}
-                    />
                     <Text
                       style={[
-                        styles.filterOptionText,
-                        isSelected && styles.filterOptionTextSelected,
+                        styles.chipText,
+                        selected && { color: option.color, fontWeight: "700" },
                       ]}
                     >
                       {option.label}
                     </Text>
-                    {isSelected && (
-                      <Ionicons
-                        name="checkmark"
-                        size={16}
-                        color={COLORS.primary}
-                      />
-                    )}
+                    <View
+                      style={[
+                        styles.chipCount,
+                        selected && { backgroundColor: option.color },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.chipCountText,
+                          selected && { color: COLORS.white },
+                        ]}
+                      >
+                        {option.count}
+                      </Text>
+                    </View>
                   </Pressable>
                 );
               })}
             </View>
           </>
-        )}
+        ) : null}
 
-        <ScrollView
-          style={styles.scrollArea}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={[
-            styles.listContent,
-            { paddingBottom: listBottomPadding },
-          ]}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="none"
-          automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
-        >
-          <Pressable onPress={() => Keyboard.dismiss()}>
-            <View style={styles.listHeader}>
-              <View style={styles.countArea}>
-                <Text style={styles.countTitle}>
-                  {getCountLabel(
-                    activeTab,
-                    visibleGroupedCards.length,
-                    selectedAccount?.type,
-                  )}
-                </Text>
-                <Text style={styles.countSubtitle}>
-                  {isExpenseTab
-                    ? "Property expenses"
-                    : isStaffTab
-                      ? "Staff and salary"
-                      : selectedAccount?.type === "home"
-                        ? "Your tenants"
-                        : "Apartment members"}
-                </Text>
-              </View>
-
-              {canEdit && (
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.addButton,
-                    pressed && styles.addButtonPressed,
-                  ]}
-                  onPress={() => handleAdd(activeTab)}
-                >
-                  <Ionicons name="add" size={18} color={COLORS.white} />
-                  <Text style={styles.addButtonText}>
-                    {getAddButtonLabel(activeTab, selectedAccount?.type)}
-                  </Text>
-                </Pressable>
+        {/* ---------- List header ---------- */}
+        <View style={styles.listHeader}>
+          <View style={styles.countArea}>
+            <Text style={styles.countTitle}>
+              {getCountLabel(
+                activeTab,
+                visibleGroupedCards.length,
+                selectedAccount?.type,
               )}
-            </View>
+            </Text>
+            <Text style={styles.countSubtitle}>
+              {isExpenseTab
+                ? "Income and expenses this month"
+                : isStaffTab
+                  ? "Staff and salary"
+                  : selectedAccount?.type === "home"
+                    ? "Your tenants"
+                    : "Apartment members"}
+            </Text>
+          </View>
 
-            {visibleGroupedCards.length === 0 ? (
-              <View style={styles.emptyCard}>
-                <View
-                  style={[
-                    styles.emptyIcon,
-                    isStaffTab && styles.emptyIconStaff,
-                    isExpenseTab && styles.emptyIconExpense,
-                  ]}
-                >
-                  <Ionicons
-                    name={
-                      activeSearch
-                        ? "search-outline"
-                        : isFilterActive
-                          ? "funnel-outline"
-                          : getTabIcon(activeTab)
-                    }
-                    size={31}
-                    color={
+          {canEdit && (
+            <Pressable
+              style={({ pressed }) => [
+                styles.addButton,
+                pressed && styles.addButtonPressed,
+              ]}
+              onPress={() => handleAdd(activeTab)}
+            >
+              <Ionicons name="add" size={20} color={COLORS.white} />
+              <Text style={styles.addButtonText}>
+                {getAddButtonLabel(activeTab, selectedAccount?.type)}
+              </Text>
+            </Pressable>
+          )}
+        </View>
+
+        {/* ---------- Cards ---------- */}
+        {visibleGroupedCards.length === 0 ? (
+          <View style={styles.emptyCard}>
+            <View
+              style={[
+                styles.emptyIcon,
+                isStaffTab && styles.emptyIconStaff,
+                isExpenseTab && styles.emptyIconExpense,
+              ]}
+            >
+              <Ionicons
+                name={
+                  activeSearch
+                    ? "search-outline"
+                    : isFilterActive
+                      ? "funnel-outline"
+                      : getTabIcon(activeTab)
+                }
+                size={32}
+                color={
+                  isStaffTab
+                    ? COLORS.purple
+                    : isExpenseTab
+                      ? COLORS.success
+                      : COLORS.primary
+                }
+              />
+            </View>
+            <Text style={styles.emptyTitle}>
+              {activeSearch
+                ? "No matches found"
+                : isFilterActive
+                  ? `No ${filterLabel.toLowerCase()} ${
                       isStaffTab
-                        ? COLORS.purple
+                        ? "staff"
                         : isExpenseTab
-                          ? COLORS.success
-                          : COLORS.primary
-                    }
-                  />
-                </View>
-                <Text style={styles.emptyTitle}>
-                  {activeSearch
-                    ? "No matches found"
-                    : isFilterActive
-                      ? `No ${filterLabel.toLowerCase()} ${
-                          isStaffTab ? "staff" : "members"
-                        }`
-                      : `No ${getTabLabel(
-                          activeTab,
-                          selectedAccount?.type,
-                        ).toLowerCase()} yet`}
+                          ? "transactions"
+                          : "members"
+                    }`
+                  : `No ${getTabLabel(
+                      activeTab,
+                      selectedAccount?.type,
+                    ).toLowerCase()} yet`}
+            </Text>
+            <Text style={styles.emptySubtitle}>
+              {activeSearch
+                ? `Nothing matches "${activeSearch}". Try a different name or number.`
+                : isFilterActive
+                  ? `No entries with "${filterLabel}" status for this month.`
+                  : isExpenseTab
+                    ? "Add your first transaction to start tracking income and expenses."
+                    : isStaffTab
+                      ? "Add staff members to manage attendance and salary."
+                      : selectedAccount?.type === "home"
+                        ? "Add tenants to start managing your property."
+                        : "Add apartment members to manage maintenance and payments."}
+            </Text>
+            {(activeSearch || isFilterActive) && (
+              <Pressable
+                style={({ pressed }) => [
+                  styles.clearFiltersButton,
+                  pressed && styles.pressedButton,
+                ]}
+                onPress={() => {
+                  setActiveSearch("");
+                  setActiveFilter("all");
+                }}
+              >
+                <Ionicons
+                  name="close-circle-outline"
+                  size={17}
+                  color={COLORS.primary}
+                />
+                <Text style={styles.clearFiltersText}>
+                  Clear search and filter
                 </Text>
-                <Text style={styles.emptySubtitle}>
-                  {activeSearch
-                    ? `No ${getTabLabel(
-                        activeTab,
-                        selectedAccount?.type,
-                      ).toLowerCase()} match "${activeSearch}". Try a different name or number.`
-                    : isFilterActive
-                      ? `No ${getTabLabel(
-                          activeTab,
-                          selectedAccount?.type,
-                        ).toLowerCase()} with "${filterLabel}" status for this month.`
-                      : isExpenseTab
-                        ? "Add your first expense to start tracking property spending."
-                        : isStaffTab
-                          ? "Add staff members to manage attendance and salary."
-                          : selectedAccount?.type === "home"
-                            ? "Add tenants to start managing your property."
-                            : "Add apartment members to manage maintenance and payments."}
-                </Text>
-                {(activeSearch || isFilterActive) && (
+              </Pressable>
+            )}
+          </View>
+        ) : (
+          <View>
+            {visibleGroupedCards.map((card) => {
+              const primaryRecord = card.records[0];
+
+              // ---------------- Expense / transaction card ----------------
+              if (isExpenseTab) {
+                const txn = primaryRecord;
+                const isIncome = getTransactionTypeLabel(txn) === "income";
+                const isPaid = txn.status === "paid";
+                return (
                   <Pressable
+                    key={`${card.user_id}-${refreshKey}`}
                     style={({ pressed }) => [
-                      styles.clearFiltersButton,
-                      pressed && styles.pressedButton,
+                      styles.memberCard,
+                      pressed && styles.memberCardPressed,
                     ]}
                     onPress={() => {
-                      setActiveSearch("");
-                      setActiveFilter("all");
+                      Keyboard.dismiss();
+                      if (canEdit && txn) {
+                        router.push({
+                          pathname: "/(modals)/edit-member",
+                          params: {
+                            memberId: txn.id,
+                            accountId: selectedAccountId || "",
+                            groupType: activeTab,
+                          },
+                        });
+                      }
                     }}
                   >
-                    <Ionicons
-                      name="close-circle-outline"
-                      size={16}
-                      color={COLORS.primary}
-                    />
-                    <Text style={styles.clearFiltersText}>
-                      Clear search & filter
-                    </Text>
-                  </Pressable>
-                )}
-              </View>
-            ) : (
-              <View>
-                {visibleGroupedCards.map((card) => {
-                  const isSelf = !isExpenseTab && myUserId === card.user_id;
-                  const primaryRecord = card.records[0];
+                    <View style={styles.txnRow}>
+                      <View
+                        style={[
+                          styles.txnIcon,
+                          {
+                            backgroundColor: isIncome
+                              ? COLORS.successLight
+                              : COLORS.dangerLight,
+                          },
+                        ]}
+                      >
+                        <Ionicons
+                          name={isIncome ? "arrow-down" : "arrow-up"}
+                          size={22}
+                          color={isIncome ? COLORS.successDark : COLORS.danger}
+                        />
+                      </View>
 
-                  return (
-                    <Pressable
-                      key={`${card.user_id}-${refreshKey}-${attendanceVersion}`}
-                      style={({ pressed }) => [
-                        styles.memberCard,
-                        pressed && styles.memberCardPressed,
-                      ]}
-                      onPress={() => {
-                        Keyboard.dismiss();
-                        if (canEdit && primaryRecord) {
-                          router.push({
-                            pathname: "/(modals)/edit-member",
-                            params: {
-                              memberId: primaryRecord.id,
-                              accountId: selectedAccountId || "",
-                              groupType: activeTab,
+                      <View style={styles.txnInfo}>
+                        <Text style={styles.memberName} numberOfLines={1}>
+                          {card.name || "Untitled"}
+                        </Text>
+                        <Text style={styles.txnMeta} numberOfLines={1}>
+                          {getCategoryLabel(txn.role)}
+                          {txn.dueDate
+                            ? `  ·  ${formatFullDate(txn.dueDate)}`
+                            : ""}
+                        </Text>
+                      </View>
+
+                      <View style={styles.txnRight}>
+                        <Text
+                          style={[
+                            styles.txnAmount,
+                            {
+                              color: isIncome
+                                ? COLORS.successDark
+                                : COLORS.text,
                             },
-                          });
-                        }
-                      }}
-                    >
-                      <View style={styles.memberTop}>
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {isIncome ? "+" : "−"}
+                          {formatINR(Number(txn.amount) || 0)}
+                        </Text>
                         <View
                           style={[
-                            styles.memberAvatar,
-                            isStaffTab && styles.memberAvatarStaff,
-                            isExpenseTab && styles.memberAvatarExpense,
+                            styles.statusPill,
+                            isPaid
+                              ? styles.statusPillPaid
+                              : styles.statusPillDue,
                           ]}
                         >
-                          {isExpenseTab ? (
-                            <Ionicons
-                              name="wallet-outline"
-                              size={19}
-                              color={COLORS.white}
-                            />
-                          ) : card.photo_url ? (
-                            <Image
-                              source={{ uri: card.photo_url }}
-                              style={styles.memberPhoto}
-                            />
-                          ) : (
-                            <Text style={styles.memberInitial}>
-                              {card.name?.charAt(0)?.toUpperCase() || "?"}
-                            </Text>
-                          )}
+                          <View
+                            style={[
+                              styles.statusDot,
+                              {
+                                backgroundColor: isPaid
+                                  ? COLORS.success
+                                  : COLORS.danger,
+                              },
+                            ]}
+                          />
+                          <Text
+                            style={[
+                              styles.statusPillText,
+                              {
+                                color: isPaid
+                                  ? COLORS.successDark
+                                  : COLORS.danger,
+                              },
+                            ]}
+                          >
+                            {isPaid ? "Paid" : "Due"}
+                          </Text>
                         </View>
+                      </View>
+                    </View>
+                  </Pressable>
+                );
+              }
 
-                        <View style={styles.memberInfo}>
-                          <View style={styles.memberNameRow}>
-                            <Text style={styles.memberName} numberOfLines={1}>
-                              {card.name}
+              // ---------------- Member / staff card ----------------
+              const isSelf = myUserId === card.user_id;
+              const subline = [
+                card.phone ? formatPhoneForDisplay(card.phone) : null,
+                card.records.length > 1
+                  ? `${card.records.length} ${isStaffTab ? "roles" : "flats"}`
+                  : null,
+              ]
+                .filter(Boolean)
+                .join("  ·  ");
+
+              return (
+                <Pressable
+                  key={`${card.user_id}-${refreshKey}-${attendanceVersion}`}
+                  style={({ pressed }) => [
+                    styles.memberCard,
+                    pressed && styles.memberCardPressed,
+                  ]}
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    if (canEdit && primaryRecord) {
+                      router.push({
+                        pathname: "/(modals)/edit-member",
+                        params: {
+                          memberId: primaryRecord.id,
+                          accountId: selectedAccountId || "",
+                          groupType: activeTab,
+                        },
+                      });
+                    }
+                  }}
+                >
+                  {/* Person row */}
+                  <View style={styles.memberTop}>
+                    <View
+                      style={[
+                        styles.memberAvatar,
+                        isStaffTab && styles.memberAvatarStaff,
+                      ]}
+                    >
+                      {card.photo_url ? (
+                        <Image
+                          source={{ uri: card.photo_url }}
+                          style={styles.memberPhoto}
+                        />
+                      ) : (
+                        <Text style={styles.memberInitial}>
+                          {card.name?.charAt(0)?.toUpperCase() || "?"}
+                        </Text>
+                      )}
+                    </View>
+
+                    <View style={styles.memberInfo}>
+                      <View style={styles.memberNameRow}>
+                        <Text style={styles.memberName} numberOfLines={1}>
+                          {card.name}
+                        </Text>
+                        {isSelf ? (
+                          <View style={styles.youBadge}>
+                            <Text style={styles.youBadgeText}>You</Text>
+                          </View>
+                        ) : null}
+                      </View>
+                      {subline ? (
+                        <Text style={styles.memberSubline} numberOfLines={1}>
+                          {subline}
+                        </Text>
+                      ) : null}
+                    </View>
+
+                    {card.phone ? (
+                      <Pressable
+                        style={({ pressed }) => [
+                          styles.callButton,
+                          pressed && styles.pressedButton,
+                        ]}
+                        onPress={(event) => {
+                          event.stopPropagation();
+                          Keyboard.dismiss();
+                          callNumber(card.phone);
+                        }}
+                        hitSlop={6}
+                      >
+                        <Ionicons
+                          name="call"
+                          size={18}
+                          color={COLORS.primary}
+                        />
+                      </Pressable>
+                    ) : null}
+                  </View>
+
+                  {/* Records */}
+                  {card.records.map((record: any) => {
+                    const monthlyPaymentData = getPaymentForMonth(
+                      record,
+                      selectedMonth,
+                    );
+                    const statusPaymentAmount = resolveDueAmount(
+                      record,
+                      selectedMonth,
+                      {
+                        isApartmentTab,
+                        isStaffTab,
+                        getAttendanceRecord,
+                      },
+                    );
+                    const isPaidThisMonth =
+                      monthlyPaymentData.status === "paid";
+
+                    const paidDateForMonth: string | null =
+                      isPaidThisMonth &&
+                      typeof monthlyPaymentData.paidDate === "string" &&
+                      monthlyPaymentData.paidDate.length >= 10
+                        ? monthlyPaymentData.paidDate
+                        : null;
+
+                    const roleStyle = isApartmentTab
+                      ? getMemberRoleStyle(record.role)
+                      : getStaffRoleStyle(record.role);
+
+                    const recordTitle = isApartmentTab
+                      ? `${record.wing ? `${record.wing} · ` : ""}${
+                          record.flatNumber
+                            ? `Flat ${record.flatNumber}`
+                            : "Apartment"
+                        }`
+                      : roleStyle.label;
+
+                    const baseLabel = isApartmentTab
+                      ? `${formatINR(Number(record.maintenanceAmount) || 0)} / month`
+                      : `${formatINR(Number(record.monthlySalary) || 0)} / month`;
+
+                    const showPay = showFinancialInfo;
+                    const showAttendance = isStaffTab;
+                    const showBill = showFinancialInfo && isPaidThisMonth;
+
+                    return (
+                      <View key={record.id} style={styles.recordBlock}>
+                        <Pressable
+                          style={({ pressed }) => [
+                            styles.recordRow,
+                            pressed && styles.recordRowPressed,
+                          ]}
+                          onPress={(event) => {
+                            event.stopPropagation();
+                            Keyboard.dismiss();
+                            if (canEdit) {
+                              router.push({
+                                pathname: "/(modals)/edit-member",
+                                params: {
+                                  memberId: record.id,
+                                  accountId: selectedAccountId || "",
+                                  groupType: activeTab,
+                                },
+                              });
+                            }
+                          }}
+                        >
+                          <View style={styles.recordInfo}>
+                            <Text style={styles.recordTitle} numberOfLines={1}>
+                              {recordTitle}
                             </Text>
-
-                            {isSelf ? (
-                              <View style={styles.youBadge}>
-                                <Text style={styles.youBadgeText}>You</Text>
-                              </View>
-                            ) : null}
-
-                            {!isExpenseTab && (
-                              <View style={styles.countBadge}>
-                                <Text style={styles.countBadgeText}>
-                                  {card.records.length}{" "}
-                                  {card.records.length === 1
-                                    ? isStaffTab
-                                      ? "role"
-                                      : "flat"
-                                    : isStaffTab
-                                      ? "roles"
-                                      : "flats"}
-                                </Text>
-                              </View>
-                            )}
+                            <View style={styles.recordMetaRow}>
+                              {isApartmentTab ? (
+                                <View
+                                  style={[
+                                    styles.roleBadge,
+                                    {
+                                      backgroundColor: roleStyle.bg,
+                                      borderColor: roleStyle.border,
+                                    },
+                                  ]}
+                                >
+                                  <Text
+                                    style={[
+                                      styles.roleBadgeText,
+                                      { color: roleStyle.text },
+                                    ]}
+                                    numberOfLines={1}
+                                  >
+                                    {roleStyle.label}
+                                  </Text>
+                                </View>
+                              ) : null}
+                              <Text
+                                style={styles.recordSubtitle}
+                                numberOfLines={1}
+                              >
+                                {baseLabel}
+                              </Text>
+                            </View>
                           </View>
 
-                          {!isExpenseTab && card.phone ? (
-                            <View style={styles.phoneRow}>
+                          {showFinancialInfo ? (
+                            <View style={styles.recordRight}>
+                              <Text
+                                style={[
+                                  styles.recordAmount,
+                                  {
+                                    color: isPaidThisMonth
+                                      ? COLORS.successDark
+                                      : COLORS.danger,
+                                  },
+                                ]}
+                                numberOfLines={1}
+                              >
+                                {formatINR(statusPaymentAmount)}
+                              </Text>
+                              <View style={styles.statusInline}>
+                                <View
+                                  style={[
+                                    styles.statusDot,
+                                    {
+                                      backgroundColor: isPaidThisMonth
+                                        ? COLORS.success
+                                        : COLORS.danger,
+                                    },
+                                  ]}
+                                />
+                                <Text
+                                  style={[
+                                    styles.statusInlineText,
+                                    {
+                                      color: isPaidThisMonth
+                                        ? COLORS.successDark
+                                        : COLORS.danger,
+                                    },
+                                  ]}
+                                  numberOfLines={1}
+                                >
+                                  {isPaidThisMonth
+                                    ? paidDateForMonth
+                                      ? `Paid ${formatBadgeDate(paidDateForMonth)}`
+                                      : "Paid"
+                                    : "Due"}
+                                </Text>
+                              </View>
+                            </View>
+                          ) : null}
+                        </Pressable>
+
+                        {canEdit && (showPay || showAttendance || showBill) ? (
+                          <View style={styles.recordActionsRow}>
+                            {showAttendance ? (
                               <Pressable
                                 style={({ pressed }) => [
-                                  styles.phonePill,
-                                  pressed && styles.pressedButton,
+                                  styles.recordActionButton,
+                                  styles.recordActionAttendance,
+                                  pressed && styles.recordActionButtonPressed,
                                 ]}
                                 onPress={(event) => {
                                   event.stopPropagation();
                                   Keyboard.dismiss();
-                                  callNumber(card.phone);
+                                  router.push({
+                                    pathname: "/(modals)/mark-attendance",
+                                    params: {
+                                      memberId: record.id,
+                                      accountId: selectedAccountId || "",
+                                      month: selectedMonth || "",
+                                    },
+                                  });
                                 }}
-                                hitSlop={6}
                               >
                                 <Ionicons
-                                  name="call"
-                                  size={12}
-                                  color={COLORS.primary}
+                                  name="calendar-outline"
+                                  size={16}
+                                  color={COLORS.purple}
                                 />
-                                <Text style={styles.phonePillText}>
-                                  {formatPhoneForDisplay(card.phone)}
+                                <Text
+                                  style={[
+                                    styles.recordActionText,
+                                    { color: COLORS.purple },
+                                  ]}
+                                >
+                                  Attendance
                                 </Text>
                               </Pressable>
-                            </View>
-                          ) : null}
-                        </View>
+                            ) : null}
 
-                        {canEdit && (
-                          <Ionicons
-                            name="chevron-forward"
-                            size={17}
-                            color={COLORS.muted}
-                          />
-                        )}
-                      </View>
+                            {showPay ? (
+                              <Pressable
+                                style={({ pressed }) => [
+                                  styles.recordActionButton,
+                                  pressed && styles.recordActionButtonPressed,
+                                ]}
+                                onPress={(event) => {
+                                  event.stopPropagation();
+                                  Keyboard.dismiss();
+                                  openPaymentModal(record);
+                                }}
+                              >
+                                <Ionicons
+                                  name="cash-outline"
+                                  size={16}
+                                  color={COLORS.primary}
+                                />
+                                <Text style={styles.recordActionText}>
+                                  Payment
+                                </Text>
+                              </Pressable>
+                            ) : null}
 
-                      {!isExpenseTab ? (
-                        <View style={styles.recordsList}>
-                          {card.records.map((record: any) => {
-                            const monthlyPaymentData = getPaymentForMonth(
-                              record,
-                              selectedMonth,
-                            );
-                            const statusPaymentAmount = resolveDueAmount(
-                              record,
-                              selectedMonth,
-                              {
-                                isApartmentTab,
-                                isStaffTab,
-                                getAttendanceRecord,
-                              },
-                            );
-                            const isPaidThisMonth =
-                              monthlyPaymentData.status === "paid";
-
-                            const paidDateForMonth: string | null =
-                              isPaidThisMonth &&
-                              typeof monthlyPaymentData.paidDate === "string" &&
-                              monthlyPaymentData.paidDate.length >= 10
-                                ? monthlyPaymentData.paidDate
-                                : null;
-
-                            const roleStyle = isApartmentTab
-                              ? getMemberRoleStyle(record.role)
-                              : getStaffRoleStyle(record.role);
-
-                            const locationTitle = isApartmentTab
-                              ? `${record.wing ? `${record.wing} · ` : ""}${
-                                  record.flatNumber
-                                    ? `Flat ${record.flatNumber}`
-                                    : "Apartment"
-                                }`
-                              : null;
-
-                            const recordSubtitle = isApartmentTab
-                              ? `₹${record.maintenanceAmount || 0} /month`
-                              : `₹${record.monthlySalary || 0} /month`;
-
-                            return (
-                              <View key={record.id} style={styles.recordBlock}>
-                                <Pressable
-                                  style={({ pressed }) => [
-                                    styles.recordRow,
-                                    pressed && styles.recordRowPressed,
-                                  ]}
-                                  onPress={(event) => {
-                                    event.stopPropagation();
-                                    Keyboard.dismiss();
-                                    if (canEdit) {
-                                      router.push({
-                                        pathname: "/(modals)/edit-member",
-                                        params: {
-                                          memberId: record.id,
-                                          accountId: selectedAccountId || "",
-                                          groupType: activeTab,
-                                        },
-                                      });
-                                    }
-                                  }}
-                                >
-                                  <View style={styles.recordInfo}>
-                                    <View style={styles.recordTitleRow}>
-                                      {locationTitle ? (
-                                        <Text
-                                          style={styles.recordLocation}
-                                          numberOfLines={1}
-                                        >
-                                          {locationTitle}
-                                        </Text>
-                                      ) : null}
-
-                                      <View
-                                        style={[
-                                          styles.roleBadge,
-                                          {
-                                            backgroundColor: roleStyle.bg,
-                                            borderColor: roleStyle.border,
-                                          },
-                                        ]}
-                                      >
-                                        <Text
-                                          style={[
-                                            styles.roleBadgeText,
-                                            { color: roleStyle.text },
-                                          ]}
-                                          numberOfLines={1}
-                                        >
-                                          {roleStyle.label}
-                                        </Text>
-                                      </View>
-                                    </View>
-                                    <Text style={styles.recordSubtitle}>
-                                      {recordSubtitle}
-                                    </Text>
-                                  </View>
-
-                                  {showFinancialInfo ? (
-                                    <View
-                                      style={[
-                                        styles.paymentBadge,
-                                        isPaidThisMonth
-                                          ? styles.paymentBadgePaid
-                                          : styles.paymentBadgeDue,
-                                      ]}
+                            {showBill ? (
+                              <Pressable
+                                style={({ pressed }) => [
+                                  styles.recordActionButton,
+                                  styles.recordActionButtonPrimary,
+                                  pressed && styles.recordActionButtonPressed,
+                                ]}
+                                onPress={(event) => {
+                                  event.stopPropagation();
+                                  Keyboard.dismiss();
+                                  handleDownloadBill(record);
+                                }}
+                                disabled={generatingBill === record.id}
+                              >
+                                {generatingBill === record.id ? (
+                                  <ActivityIndicator
+                                    size="small"
+                                    color="#fff"
+                                  />
+                                ) : (
+                                  <>
+                                    <Ionicons
+                                      name="download-outline"
+                                      size={16}
+                                      color="#fff"
+                                    />
+                                    <Text
+                                      style={styles.recordActionTextPrimary}
                                     >
-                                      <View
-                                        style={[
-                                          styles.paymentDot,
-                                          isPaidThisMonth
-                                            ? styles.paymentDotPaid
-                                            : styles.paymentDotDue,
-                                        ]}
-                                      />
-                                      <Text
-                                        style={[
-                                          styles.paymentBadgeText,
-                                          isPaidThisMonth
-                                            ? styles.paymentTextPaid
-                                            : styles.paymentTextDue,
-                                        ]}
-                                        numberOfLines={1}
-                                      >
-                                        {isPaidThisMonth
-                                          ? paidDateForMonth
-                                            ? `Paid ₹${statusPaymentAmount} · ${formatBadgeDate(
-                                                paidDateForMonth,
-                                              )}`
-                                            : `Paid ₹${statusPaymentAmount}`
-                                          : `Due ₹${statusPaymentAmount}`}
-                                      </Text>
-                                    </View>
-                                  ) : null}
-                                </Pressable>
-
-                                {canEdit ? (
-                                  <View style={styles.recordActionsRow}>
-                                    {isApartmentTab && showFinancialInfo ? (
-                                      <Pressable
-                                        style={({ pressed }) => [
-                                          styles.recordActionButton,
-                                          pressed &&
-                                            styles.recordActionButtonPressed,
-                                        ]}
-                                        onPress={(event) => {
-                                          event.stopPropagation();
-                                          Keyboard.dismiss();
-                                          openPaymentModal(record);
-                                        }}
-                                      >
-                                        <Ionicons
-                                          name="cash-outline"
-                                          size={14}
-                                          color={COLORS.primary}
-                                        />
-                                        <Text style={styles.recordActionText}>
-                                          Mark Payment
-                                        </Text>
-                                      </Pressable>
-                                    ) : null}
-
-                                    {isStaffTab ? (
-                                      <Pressable
-                                        style={({ pressed }) => [
-                                          styles.recordActionButton,
-                                          pressed &&
-                                            styles.recordActionButtonPressed,
-                                        ]}
-                                        onPress={(event) => {
-                                          event.stopPropagation();
-                                          Keyboard.dismiss();
-                                          router.push({
-                                            pathname:
-                                              "/(modals)/mark-attendance",
-                                            params: {
-                                              memberId: record.id,
-                                              accountId:
-                                                selectedAccountId || "",
-                                              month: selectedMonth || "",
-                                            },
-                                          });
-                                        }}
-                                      >
-                                        <Ionicons
-                                          name="calendar-outline"
-                                          size={14}
-                                          color={COLORS.purple}
-                                        />
-                                        <Text style={styles.recordActionText}>
-                                          Mark Attendance
-                                        </Text>
-                                      </Pressable>
-                                    ) : null}
-
-                                    {isStaffTab && showFinancialInfo ? (
-                                      <Pressable
-                                        style={({ pressed }) => [
-                                          styles.recordActionButton,
-                                          pressed &&
-                                            styles.recordActionButtonPressed,
-                                        ]}
-                                        onPress={(event) => {
-                                          event.stopPropagation();
-                                          Keyboard.dismiss();
-                                          openPaymentModal(record);
-                                        }}
-                                      >
-                                        <Ionicons
-                                          name="cash-outline"
-                                          size={14}
-                                          color={COLORS.primary}
-                                        />
-                                        <Text style={styles.recordActionText}>
-                                          Mark Payment
-                                        </Text>
-                                      </Pressable>
-                                    ) : null}
-
-                                    {!isExpenseTab &&
-                                    showFinancialInfo &&
-                                    isPaidThisMonth ? (
-                                      <Pressable
-                                        style={({ pressed }) => [
-                                          styles.recordActionButton,
-                                          styles.recordActionButtonPrimary,
-                                          pressed &&
-                                            styles.recordActionButtonPressed,
-                                        ]}
-                                        onPress={(event) => {
-                                          event.stopPropagation();
-                                          Keyboard.dismiss();
-                                          handleDownloadBill(record);
-                                        }}
-                                        disabled={generatingBill === record.id}
-                                      >
-                                        {generatingBill === record.id ? (
-                                          <ActivityIndicator
-                                            size="small"
-                                            color="#fff"
-                                          />
-                                        ) : (
-                                          <>
-                                            <Ionicons
-                                              name="download-outline"
-                                              size={14}
-                                              color="#fff"
-                                            />
-                                            <Text
-                                              style={
-                                                styles.recordActionTextPrimary
-                                              }
-                                            >
-                                              Bill
-                                            </Text>
-                                          </>
-                                        )}
-                                      </Pressable>
-                                    ) : null}
-                                  </View>
-                                ) : null}
-                              </View>
-                            );
-                          })}
-                        </View>
-                      ) : null}
-                    </Pressable>
-                  );
-                })}
-              </View>
-            )}
-          </Pressable>
-        </ScrollView>
-      </View>
+                                      Download bill
+                                    </Text>
+                                  </>
+                                )}
+                              </Pressable>
+                            ) : null}
+                          </View>
+                        ) : null}
+                      </View>
+                    );
+                  })}
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
+      </ScrollView>
 
       <MonthYearPickerModal
         visible={showMonthPicker}
@@ -2100,6 +2302,7 @@ export default function PeopleScreen() {
         onSelect={setSelectedMonth}
       />
 
+      {/* ============================ PAYMENT MODAL ============================ */}
       {canEdit && (
         <Modal
           transparent
@@ -2116,12 +2319,12 @@ export default function PeopleScreen() {
                 <View style={styles.paymentHeaderIcon}>
                   <Ionicons
                     name={isApartmentTab ? "home-outline" : "wallet-outline"}
-                    size={20}
+                    size={22}
                     color={COLORS.primary}
                   />
                 </View>
                 <View style={styles.paymentHeaderInfo}>
-                  <Text style={styles.paymentTitle}>Payment Details</Text>
+                  <Text style={styles.paymentTitle}>Payment details</Text>
                   <Text style={styles.paymentMemberName} numberOfLines={1}>
                     {paymentMember?.name}
                   </Text>
@@ -2146,7 +2349,7 @@ export default function PeopleScreen() {
               >
                 <View style={styles.paymentMonthRow}>
                   <View>
-                    <Text style={styles.paymentMonthLabel}>PAYMENT FOR</Text>
+                    <Text style={styles.paymentMonthLabel}>Payment for</Text>
                     <Text style={styles.paymentMonthText}>
                       {formatMonthLong(selectedMonth || paidDate.slice(0, 7))}
                     </Text>
@@ -2167,122 +2370,97 @@ export default function PeopleScreen() {
                           : styles.statusSmallTextDue,
                       ]}
                     >
-                      {selectedStatus === "paid" ? "PAID" : "DUE"}
+                      {selectedStatus === "paid" ? "Paid" : "Due"}
                     </Text>
                   </View>
                 </View>
 
-                <Text style={styles.sectionLabel}>Payment Status</Text>
+                <Text style={styles.sectionLabel}>Payment status</Text>
 
                 <View style={styles.statusRadioRow}>
                   <Pressable
                     style={({ pressed }) => [
                       styles.statusRadioOption,
-                      selectedStatus === "paid" &&
-                        styles.statusRadioOptionSelected,
                       selectedStatus === "paid" && styles.statusRadioOptionPaid,
                       pressed && styles.statusRadioOptionPressed,
                     ]}
                     onPress={() => setSelectedStatus("paid")}
                   >
-                    <View
+                    <Ionicons
+                      name={
+                        selectedStatus === "paid"
+                          ? "checkmark-circle"
+                          : "ellipse-outline"
+                      }
+                      size={22}
+                      color={
+                        selectedStatus === "paid"
+                          ? COLORS.success
+                          : COLORS.muted
+                      }
+                    />
+                    <Text
                       style={[
-                        styles.radioOuter,
-                        selectedStatus === "paid" && styles.radioOuterSelected,
+                        styles.statusRadioTitle,
+                        selectedStatus === "paid" &&
+                          styles.statusRadioTitlePaid,
                       ]}
                     >
-                      {selectedStatus === "paid" && (
-                        <View style={styles.radioInner} />
-                      )}
-                    </View>
-                    <View style={styles.statusRadioContent}>
-                      <View
-                        style={[
-                          styles.statusRadioIcon,
-                          styles.statusRadioIconPaid,
-                        ]}
-                      >
-                        <Ionicons
-                          name="checkmark-circle"
-                          size={18}
-                          color={COLORS.success}
-                        />
-                      </View>
-                      <Text
-                        style={[
-                          styles.statusRadioTitle,
-                          selectedStatus === "paid" &&
-                            styles.statusRadioTitlePaid,
-                        ]}
-                      >
-                        Paid
-                      </Text>
-                    </View>
+                      Paid
+                    </Text>
                   </Pressable>
 
                   <Pressable
                     style={({ pressed }) => [
                       styles.statusRadioOption,
-                      selectedStatus === "due" &&
-                        styles.statusRadioOptionSelected,
                       selectedStatus === "due" && styles.statusRadioOptionDue,
                       pressed && styles.statusRadioOptionPressed,
                     ]}
                     onPress={() => setSelectedStatus("due")}
                   >
-                    <View
+                    <Ionicons
+                      name={
+                        selectedStatus === "due" ? "time" : "ellipse-outline"
+                      }
+                      size={22}
+                      color={
+                        selectedStatus === "due" ? COLORS.danger : COLORS.muted
+                      }
+                    />
+                    <Text
                       style={[
-                        styles.radioOuter,
-                        selectedStatus === "due" && styles.radioOuterSelected,
+                        styles.statusRadioTitle,
+                        selectedStatus === "due" && styles.statusRadioTitleDue,
                       ]}
                     >
-                      {selectedStatus === "due" && (
-                        <View style={styles.radioInner} />
-                      )}
-                    </View>
-                    <View style={styles.statusRadioContent}>
-                      <View
-                        style={[
-                          styles.statusRadioIcon,
-                          styles.statusRadioIconDue,
-                        ]}
-                      >
-                        <Ionicons name="time" size={18} color={COLORS.danger} />
-                      </View>
-                      <Text
-                        style={[
-                          styles.statusRadioTitle,
-                          selectedStatus === "due" &&
-                            styles.statusRadioTitleDue,
-                        ]}
-                      >
-                        Due
-                      </Text>
-                    </View>
+                      Due
+                    </Text>
                   </Pressable>
                 </View>
 
                 <Text style={styles.sectionLabel}>
-                  {isApartmentTab ? "Maintenance Amount" : "Monthly Salary"}
+                  {isApartmentTab ? "Maintenance amount" : "Monthly salary"}
                 </Text>
 
                 <View style={styles.amountCard}>
                   <View style={styles.amountLeft}>
                     <Ionicons
                       name="cash-outline"
-                      size={19}
+                      size={20}
                       color={COLORS.primary}
                     />
                     <Text style={styles.amountLabel}>
                       {isApartmentTab ? "Base amount" : "Monthly salary"}
                     </Text>
                   </View>
-                  <Text style={styles.amountValue}>₹{baseSalary || 0}</Text>
+                  <Text style={styles.amountValue}>
+                    {formatINR(baseSalary)}
+                  </Text>
                 </View>
 
                 {isStaffTab && attendanceAdjustedSalary != null ? (
                   <>
-                    <Text style={styles.sectionLabel}>Attendance Adjusted</Text>
+                    <Text style={styles.sectionLabel}>Attendance adjusted</Text>
                     <View
                       style={[
                         styles.amountCard,
@@ -2295,7 +2473,7 @@ export default function PeopleScreen() {
                       <View style={styles.amountLeft}>
                         <Ionicons
                           name="calendar-outline"
-                          size={19}
+                          size={20}
                           color={COLORS.primary}
                         />
                         <Text
@@ -2304,7 +2482,7 @@ export default function PeopleScreen() {
                             { color: COLORS.primaryDark, fontWeight: "700" },
                           ]}
                         >
-                          Payable for this month
+                          Payable this month
                         </Text>
                       </View>
                       <Text
@@ -2313,7 +2491,7 @@ export default function PeopleScreen() {
                           { color: COLORS.primaryDark },
                         ]}
                       >
-                        ₹{attendanceAdjustedSalary}
+                        {formatINR(attendanceAdjustedSalary)}
                       </Text>
                     </View>
                   </>
@@ -2339,7 +2517,7 @@ export default function PeopleScreen() {
                   >
                     <Ionicons
                       name={showAdditionalAmount ? "remove" : "add"}
-                      size={16}
+                      size={18}
                       color={
                         showAdditionalAmount ? COLORS.danger : COLORS.primary
                       }
@@ -2404,7 +2582,7 @@ export default function PeopleScreen() {
                   >
                     <Ionicons
                       name="remove"
-                      size={16}
+                      size={18}
                       color={showDeduction ? COLORS.danger : COLORS.primary}
                     />
                   </View>
@@ -2414,7 +2592,7 @@ export default function PeopleScreen() {
                       showDeduction && styles.modifierTextRemove,
                     ]}
                   >
-                    {showDeduction ? "Remove deduction" : "Less deduction"}
+                    {showDeduction ? "Remove deduction" : "Add deduction"}
                   </Text>
                   <Ionicons
                     name={showDeduction ? "chevron-up" : "chevron-down"}
@@ -2448,18 +2626,20 @@ export default function PeopleScreen() {
                 <View style={styles.netAmountCard}>
                   <View>
                     <Text style={styles.netAmountLabel}>
-                      {selectedStatus === "paid" ? "NET PAID" : "AMOUNT TO PAY"}
+                      {selectedStatus === "paid" ? "Net paid" : "Amount to pay"}
                     </Text>
                     <Text style={styles.netAmountHint}>
                       Base + additions − deductions
                     </Text>
                   </View>
-                  <Text style={styles.netAmountValue}>₹{netPaidAmount}</Text>
+                  <Text style={styles.netAmountValue}>
+                    {formatINR(netPaidAmount)}
+                  </Text>
                 </View>
 
                 {selectedStatus === "paid" && (
                   <>
-                    <Text style={styles.sectionLabel}>Paid Date</Text>
+                    <Text style={styles.sectionLabel}>Paid date</Text>
                     <Pressable
                       style={styles.dateSelector}
                       onPress={() => setShowPaidDatePicker(true)}
@@ -2467,7 +2647,7 @@ export default function PeopleScreen() {
                       <View style={styles.dateIcon}>
                         <Ionicons
                           name="calendar-outline"
-                          size={17}
+                          size={18}
                           color={COLORS.primary}
                         />
                       </View>
@@ -2476,7 +2656,7 @@ export default function PeopleScreen() {
                       </Text>
                       <Ionicons
                         name="chevron-forward"
-                        size={17}
+                        size={18}
                         color={COLORS.muted}
                       />
                     </Pressable>
@@ -2519,15 +2699,15 @@ export default function PeopleScreen() {
                         ? "checkmark-circle-outline"
                         : "time-outline"
                     }
-                    size={18}
+                    size={19}
                     color={COLORS.white}
                   />
                   <Text style={styles.saveButtonText}>
                     {saving
                       ? "Saving..."
                       : selectedStatus === "paid"
-                        ? "Save as Paid"
-                        : "Save as Due"}
+                        ? "Save as paid"
+                        : "Save as due"}
                   </Text>
                 </Pressable>
               </View>
@@ -2610,480 +2790,534 @@ export default function PeopleScreen() {
         onClose={() => setShowPaidDatePicker(false)}
         onSelect={setPaidDate}
       />
-    </KeyboardAvoidingView>
+    </View>
   );
 }
 
+// ---------------------------------------------------------------------------
+// Styles
+// ---------------------------------------------------------------------------
+
+const cardShadow = {
+  shadowColor: "#0F172A",
+  shadowOffset: { width: 0, height: 4 },
+  shadowOpacity: 0.05,
+  shadowRadius: 12,
+  elevation: 2,
+} as const;
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
-  innerContainer: { flex: 1 },
   scrollArea: { flex: 1 },
   pressedButton: { opacity: 0.7 },
 
+  // ----- Header -----
   header: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
     paddingHorizontal: 16,
     paddingTop: 14,
-    paddingBottom: 12,
+    paddingBottom: 14,
     backgroundColor: COLORS.white,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.borderLight,
   },
-  headerTitleArea: { flex: 1, minWidth: 0, marginRight: 10 },
+  headerTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  headerTitleArea: { flex: 1, minWidth: 0, marginRight: 12 },
   title: {
-    fontSize: 21,
-    lineHeight: 27,
-    fontWeight: "700",
+    fontSize: 24,
+    lineHeight: 30,
+    fontWeight: "800",
     color: COLORS.text,
+    letterSpacing: -0.3,
   },
   headerSubtitle: {
     marginTop: 2,
-    fontSize: 11,
-    lineHeight: 16,
+    fontSize: 13,
+    lineHeight: 18,
     color: COLORS.secondary,
   },
-  monthNavigation: { flexDirection: "row", alignItems: "center" },
-  monthArrow: {
-    width: 32,
-    height: 38,
-    alignItems: "center",
-    justifyContent: "center",
-    borderRadius: 10,
-    backgroundColor: COLORS.primaryLight,
-  },
-  monthSelector: {
-    height: 38,
-    minWidth: 105,
+  monthPill: {
+    height: 42,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 9,
-    marginHorizontal: 4,
-    borderRadius: 10,
+    borderRadius: 14,
     backgroundColor: COLORS.primaryLight,
+    borderWidth: 1,
+    borderColor: COLORS.primarySoft,
+    paddingHorizontal: 2,
+  },
+  monthArrow: {
+    width: 34,
+    height: 38,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  monthCenter: {
+    minWidth: 76,
+    height: 38,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 4,
   },
   monthText: {
-    marginLeft: 6,
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: "700",
     color: COLORS.primaryDark,
   },
 
   tabsContainer: {
     flexDirection: "row",
-    marginHorizontal: 16,
-    marginTop: 12,
-    padding: 3,
-    borderRadius: 13,
-    backgroundColor: COLORS.white,
-    borderWidth: 1,
-    borderColor: COLORS.border,
+    marginTop: 14,
+    padding: 4,
+    borderRadius: 14,
+    backgroundColor: COLORS.borderLight,
   },
   tab: {
     flex: 1,
-    height: 44,
+    height: 42,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 10,
+    gap: 6,
+    borderRadius: 11,
   },
-  tabActive: { backgroundColor: COLORS.primaryLight },
+  tabActive: {
+    backgroundColor: COLORS.white,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.08,
+    shadowRadius: 3,
+    elevation: 2,
+  },
   tabPressed: { opacity: 0.7 },
   tabText: {
-    marginLeft: 6,
-    fontSize: 12,
+    fontSize: 13,
     fontWeight: "600",
     color: COLORS.secondary,
   },
   tabTextActive: { color: COLORS.primary, fontWeight: "700" },
 
-  searchFilterRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginHorizontal: 16,
-    marginTop: 12,
-    gap: 8,
-    zIndex: 5,
+  // ----- Scroll content -----
+  listContent: { paddingHorizontal: 16, paddingTop: 16 },
+
+  // ----- Summary -----
+  summaryCard: {
+    padding: 16,
+    marginBottom: 16,
+    borderRadius: 20,
+    backgroundColor: COLORS.white,
+    borderWidth: 1,
+    borderColor: COLORS.border,
+    ...cardShadow,
   },
-  searchBox: {
-    flex: 1,
-    height: 44,
+  summaryTitleRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 12,
-    borderRadius: 11,
+    justifyContent: "space-between",
+  },
+  summaryTitle: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: COLORS.secondary,
+  },
+  summaryPct: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: COLORS.successDark,
+  },
+  progressTrack: {
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: COLORS.borderLight,
+    overflow: "hidden",
+    marginTop: 10,
+  },
+  progressFill: {
+    height: "100%",
+    borderRadius: 4,
+    backgroundColor: COLORS.success,
+  },
+  summaryRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginTop: 14,
+    gap: 12,
+  },
+  summaryStat: { flex: 1, minWidth: 0 },
+  summaryLabel: {
+    fontSize: 12,
+    fontWeight: "600",
+    color: COLORS.muted,
+  },
+  summaryValue: {
+    marginTop: 3,
+    fontSize: 20,
+    lineHeight: 26,
+    fontWeight: "800",
+    letterSpacing: -0.3,
+  },
+  summaryHint: {
+    marginTop: 1,
+    fontSize: 12,
+    color: COLORS.secondary,
+  },
+
+  // ----- Search + chips -----
+  searchBox: {
+    height: 50,
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 14,
+    gap: 10,
+    borderRadius: 14,
     backgroundColor: COLORS.white,
     borderWidth: 1,
     borderColor: COLORS.border,
   },
-  searchIcon: { marginRight: 8 },
   searchInput: {
     flex: 1,
     height: "100%",
-    fontSize: 13,
+    fontSize: 14,
     color: COLORS.text,
     padding: 0,
   },
-  searchClearButton: { paddingLeft: 6 },
-  filterTrigger: {
-    height: 44,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: 12,
-    gap: 6,
-    borderRadius: 11,
-    backgroundColor: COLORS.white,
-    borderWidth: 1,
-    borderColor: COLORS.border,
-    minWidth: 90,
-  },
-  filterTriggerActive: {
-    borderColor: COLORS.primarySoft,
-    backgroundColor: COLORS.primaryLight,
-  },
-  filterTriggerText: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: COLORS.secondary,
-  },
+  searchClearButton: { paddingLeft: 4 },
 
-  filterBackdrop: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    zIndex: 10,
+  chipRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 12,
   },
-  filterDropdown: {
-    position: "absolute",
-    width: 180,
-    paddingVertical: 6,
-    borderRadius: 13,
+  chip: {
+    height: 38,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingLeft: 14,
+    paddingRight: 8,
+    borderRadius: 19,
     backgroundColor: COLORS.white,
     borderWidth: 1,
     borderColor: COLORS.border,
-    zIndex: 20,
-    elevation: 8,
-    shadowColor: "#0F172A",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 12,
   },
-  filterDropdownTitle: {
-    fontSize: 10,
-    fontWeight: "700",
-    letterSpacing: 0.6,
-    color: COLORS.muted,
-    textTransform: "uppercase",
-    paddingHorizontal: 14,
-    paddingTop: 6,
-    paddingBottom: 6,
-  },
-  filterOption: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-    gap: 9,
-  },
-  filterOptionSelected: { backgroundColor: COLORS.primaryLight },
-  filterOptionPressed: { opacity: 0.7 },
-  filterOptionText: {
-    flex: 1,
+  chipText: {
     fontSize: 13,
     fontWeight: "600",
     color: COLORS.secondary,
   },
-  filterOptionTextSelected: { color: COLORS.primary, fontWeight: "700" },
+  chipCount: {
+    minWidth: 22,
+    height: 22,
+    paddingHorizontal: 6,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.borderLight,
+  },
+  chipCountText: {
+    fontSize: 11.5,
+    fontWeight: "700",
+    color: COLORS.secondary,
+  },
 
-  listContent: { paddingHorizontal: 16, paddingTop: 17 },
+  // ----- List header -----
   listHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 13,
+    marginTop: 22,
+    marginBottom: 14,
   },
   countArea: { flex: 1, minWidth: 0, marginRight: 10 },
   countTitle: {
-    fontSize: 16,
-    lineHeight: 21,
-    fontWeight: "700",
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: "800",
     color: COLORS.text,
   },
   countSubtitle: {
     marginTop: 2,
-    fontSize: 11,
-    lineHeight: 15,
+    fontSize: 13,
+    lineHeight: 18,
     color: COLORS.secondary,
   },
   addButton: {
-    height: 40,
+    height: 42,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 13,
-    borderRadius: 11,
+    gap: 4,
+    paddingLeft: 12,
+    paddingRight: 16,
+    borderRadius: 13,
     backgroundColor: COLORS.primary,
   },
-  addButtonPressed: { opacity: 0.8 },
+  addButtonPressed: { opacity: 0.85 },
   addButtonText: {
-    marginLeft: 5,
-    fontSize: 12,
+    fontSize: 13.5,
     fontWeight: "700",
     color: COLORS.white,
   },
 
+  // ----- Empty state -----
   emptyCard: {
     alignItems: "center",
     paddingHorizontal: 24,
-    paddingVertical: 40,
-    borderRadius: 16,
+    paddingVertical: 44,
+    borderRadius: 20,
     backgroundColor: COLORS.white,
     borderWidth: 1,
     borderColor: COLORS.border,
   },
   emptyIcon: {
-    width: 66,
-    height: 66,
+    width: 70,
+    height: 70,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 15,
-    borderRadius: 20,
+    marginBottom: 16,
+    borderRadius: 22,
     backgroundColor: COLORS.primaryLight,
   },
   emptyIconStaff: { backgroundColor: COLORS.purpleLight },
   emptyIconExpense: { backgroundColor: COLORS.successLight },
   emptyTitle: {
-    fontSize: 17,
-    lineHeight: 23,
+    fontSize: 18,
+    lineHeight: 24,
     fontWeight: "700",
     color: COLORS.text,
     textAlign: "center",
   },
   emptySubtitle: {
     maxWidth: 300,
-    marginTop: 7,
-    fontSize: 12,
-    lineHeight: 18,
+    marginTop: 8,
+    fontSize: 13.5,
+    lineHeight: 20,
     color: COLORS.secondary,
     textAlign: "center",
   },
   clearFiltersButton: {
+    height: 42,
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    marginTop: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 9,
-    borderRadius: 10,
+    marginTop: 18,
+    paddingHorizontal: 16,
+    borderRadius: 12,
     backgroundColor: COLORS.primaryLight,
     borderWidth: 1,
     borderColor: COLORS.primarySoft,
   },
-  clearFiltersText: { fontSize: 12, fontWeight: "700", color: COLORS.primary },
+  clearFiltersText: { fontSize: 13, fontWeight: "700", color: COLORS.primary },
 
+  // ----- Member card -----
   memberCard: {
-    padding: 13,
-    marginBottom: 10,
-    borderRadius: 16,
+    padding: 16,
+    marginBottom: 14,
+    borderRadius: 20,
     backgroundColor: COLORS.white,
     borderWidth: 1,
     borderColor: COLORS.border,
+    ...cardShadow,
   },
-  memberCardPressed: { opacity: 0.76 },
+  memberCardPressed: { opacity: 0.85 },
   memberTop: { flexDirection: "row", alignItems: "center" },
   memberAvatar: {
-    width: 45,
-    height: 45,
+    width: 52,
+    height: 52,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 10,
+    marginRight: 12,
     overflow: "hidden",
-    borderRadius: 14,
+    borderRadius: 16,
     backgroundColor: COLORS.primary,
   },
   memberAvatarStaff: { backgroundColor: COLORS.purple },
-  memberAvatarExpense: { backgroundColor: COLORS.success },
   memberPhoto: { width: "100%", height: "100%" },
-  memberInitial: { fontSize: 16, fontWeight: "700", color: COLORS.white },
+  memberInitial: { fontSize: 20, fontWeight: "700", color: COLORS.white },
   memberInfo: { flex: 1, minWidth: 0 },
   memberNameRow: {
     flexDirection: "row",
     alignItems: "center",
-    flexWrap: "wrap",
-    gap: 4,
+    gap: 8,
     minWidth: 0,
   },
   memberName: {
     flexShrink: 1,
-    fontSize: 14,
-    lineHeight: 19,
+    fontSize: 16,
+    lineHeight: 22,
     fontWeight: "700",
     color: COLORS.text,
   },
+  memberSubline: {
+    marginTop: 2,
+    fontSize: 13,
+    lineHeight: 18,
+    color: COLORS.secondary,
+  },
   youBadge: {
-    paddingHorizontal: 7,
+    paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: 6,
-    backgroundColor: "#DCFCE7",
+    borderRadius: 8,
+    backgroundColor: COLORS.successLight,
     borderWidth: 1,
-    borderColor: "#BBF7D0",
+    borderColor: COLORS.successBorder,
     flexShrink: 0,
   },
   youBadgeText: {
-    fontSize: 9,
-    lineHeight: 12,
-    fontWeight: "800",
-    color: "#15803D",
-    letterSpacing: 0.3,
-  },
-  countBadge: {
-    paddingHorizontal: 7,
-    paddingVertical: 2,
-    borderRadius: 6,
-    backgroundColor: COLORS.primaryLight,
-    borderWidth: 1,
-    borderColor: COLORS.primarySoft,
-    flexShrink: 0,
-  },
-  countBadgeText: {
-    fontSize: 9,
-    lineHeight: 12,
-    fontWeight: "700",
-    color: COLORS.primary,
-  },
-  phoneRow: {
-    marginTop: 4,
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  phonePill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-    backgroundColor: COLORS.primaryLight,
-    borderWidth: 1,
-    borderColor: COLORS.primarySoft,
-    alignSelf: "flex-start",
-  },
-  phonePillText: {
-    color: COLORS.primary,
     fontSize: 11,
+    lineHeight: 15,
     fontWeight: "700",
+    color: COLORS.successDark,
+  },
+  callButton: {
+    width: 42,
+    height: 42,
+    marginLeft: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 21,
+    backgroundColor: COLORS.primaryLight,
   },
 
-  recordsList: {
-    marginTop: 10,
-    paddingTop: 9,
-    borderTopWidth: 1,
-    borderTopColor: COLORS.borderLight,
-    gap: 6,
-  },
+  // ----- Record block -----
   recordBlock: {
-    marginBottom: 8,
+    marginTop: 14,
+    padding: 12,
+    borderRadius: 16,
+    backgroundColor: COLORS.surface,
+    borderWidth: 1,
+    borderColor: COLORS.borderLight,
   },
   recordRow: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 7,
-    paddingHorizontal: 9,
-    borderRadius: 10,
-    backgroundColor: "#F8FAFC",
-    borderWidth: 1,
-    borderColor: COLORS.borderLight,
   },
   recordRowPressed: { opacity: 0.75 },
-  recordInfo: { flex: 1, minWidth: 0, marginRight: 8 },
-  recordTitleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    flexWrap: "wrap",
-    gap: 6,
-  },
-  recordLocation: {
-    fontSize: 12.5,
+  recordInfo: { flex: 1, minWidth: 0, marginRight: 10 },
+  recordTitle: {
+    fontSize: 15,
+    lineHeight: 20,
     fontWeight: "700",
     color: COLORS.text,
   },
+  recordMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 6,
+  },
   roleBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
+    paddingHorizontal: 9,
+    paddingVertical: 3,
+    borderRadius: 8,
     borderWidth: 1,
   },
   roleBadgeText: {
-    fontSize: 10.5,
-    fontWeight: "800",
-    letterSpacing: 0.2,
+    fontSize: 12,
+    fontWeight: "700",
   },
-  recordSubtitle: { fontSize: 11, color: COLORS.secondary, marginTop: 3 },
+  recordSubtitle: { fontSize: 13, color: COLORS.secondary },
+  recordRight: { alignItems: "flex-end", maxWidth: "48%" },
+  recordAmount: {
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: "800",
+    letterSpacing: -0.2,
+  },
+  statusInline: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 3,
+  },
+  statusInlineText: { fontSize: 12, fontWeight: "700" },
+  statusDot: { width: 7, height: 7, borderRadius: 4 },
 
   recordActionsRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 6,
-    marginTop: 6,
-    paddingLeft: 4,
-    paddingRight: 4,
+    gap: 8,
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
   },
   recordActionButton: {
+    flexGrow: 1,
+    flexBasis: "40%",
+    height: 42,
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
+    justifyContent: "center",
+    gap: 6,
     paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
+    borderRadius: 12,
     backgroundColor: COLORS.primaryLight,
     borderWidth: 1,
     borderColor: COLORS.primarySoft,
   },
-  recordActionButtonPressed: {
-    opacity: 0.75,
+  recordActionAttendance: {
+    backgroundColor: COLORS.purpleLight,
+    borderColor: COLORS.purpleBorder,
   },
+  recordActionButtonPressed: { opacity: 0.75 },
   recordActionButtonPrimary: {
+    flexBasis: "100%",
     backgroundColor: COLORS.success,
     borderColor: COLORS.success,
   },
   recordActionText: {
-    fontSize: 11.5,
+    fontSize: 13.5,
     fontWeight: "700",
     color: COLORS.primary,
   },
   recordActionTextPrimary: {
-    fontSize: 11.5,
+    fontSize: 13.5,
     fontWeight: "700",
     color: "#fff",
   },
 
-  paymentBadge: {
+  // ----- Transaction card -----
+  txnRow: { flexDirection: "row", alignItems: "center" },
+  txnIcon: {
+    width: 48,
+    height: 48,
+    marginRight: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 15,
+  },
+  txnInfo: { flex: 1, minWidth: 0, marginRight: 10 },
+  txnMeta: {
+    marginTop: 3,
+    fontSize: 13,
+    color: COLORS.secondary,
+  },
+  txnRight: { alignItems: "flex-end", maxWidth: "45%" },
+  txnAmount: {
+    fontSize: 17,
+    lineHeight: 22,
+    fontWeight: "800",
+    letterSpacing: -0.2,
+  },
+  statusPill: {
     flexDirection: "row",
     alignItems: "center",
+    gap: 5,
+    marginTop: 5,
     paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: 8,
-    maxWidth: "55%",
+    paddingVertical: 3,
+    borderRadius: 9,
   },
-  paymentBadgePaid: { backgroundColor: COLORS.successLight },
-  paymentBadgeDue: { backgroundColor: COLORS.dangerLight },
-  paymentDot: {
-    width: 5,
-    height: 5,
-    marginRight: 5,
-    borderRadius: 3,
-  },
-  paymentDotPaid: { backgroundColor: COLORS.success },
-  paymentDotDue: { backgroundColor: COLORS.danger },
-  paymentBadgeText: { fontSize: 10, fontWeight: "700", flexShrink: 1 },
-  paymentTextPaid: { color: COLORS.success },
-  paymentTextDue: { color: COLORS.danger },
+  statusPillPaid: { backgroundColor: COLORS.successLight },
+  statusPillDue: { backgroundColor: COLORS.dangerLight },
+  statusPillText: { fontSize: 12, fontWeight: "700" },
 
+  // ----- No property -----
   noPropertyState: {
     flex: 1,
     alignItems: "center",
@@ -3100,8 +3334,8 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primaryLight,
   },
   noPropertyTitle: {
-    fontSize: 20,
-    lineHeight: 26,
+    fontSize: 21,
+    lineHeight: 27,
     fontWeight: "700",
     color: COLORS.text,
     textAlign: "center",
@@ -3109,28 +3343,29 @@ const styles = StyleSheet.create({
   noPropertySubtitle: {
     maxWidth: 310,
     marginTop: 8,
-    fontSize: 12,
-    lineHeight: 19,
+    fontSize: 13.5,
+    lineHeight: 20,
     color: COLORS.secondary,
     textAlign: "center",
   },
   createButton: {
-    height: 47,
+    height: 48,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 20,
-    marginTop: 21,
-    borderRadius: 12,
+    paddingHorizontal: 22,
+    marginTop: 22,
+    borderRadius: 13,
     backgroundColor: COLORS.primary,
   },
   createButtonText: {
     marginLeft: 7,
-    fontSize: 13,
+    fontSize: 14,
     fontWeight: "700",
     color: COLORS.white,
   },
 
+  // ----- Payment modal -----
   modalOverlay: {
     flex: 1,
     alignItems: "center",
@@ -3141,302 +3376,277 @@ const styles = StyleSheet.create({
   },
   paymentModal: {
     width: "100%",
-    maxWidth: 410,
-    maxHeight: "91%",
+    maxWidth: 420,
+    maxHeight: "92%",
     overflow: "hidden",
-    borderRadius: 21,
+    borderRadius: 24,
     backgroundColor: COLORS.white,
   },
   paymentModalHeader: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 17,
-    paddingVertical: 14,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.borderLight,
   },
   paymentHeaderIcon: {
-    width: 41,
-    height: 41,
+    width: 44,
+    height: 44,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 10,
-    borderRadius: 12,
+    marginRight: 12,
+    borderRadius: 14,
     backgroundColor: COLORS.primaryLight,
   },
   paymentHeaderInfo: { flex: 1, minWidth: 0 },
   paymentTitle: {
-    fontSize: 17,
-    lineHeight: 22,
-    fontWeight: "700",
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: "800",
     color: COLORS.text,
   },
   paymentMemberName: {
-    marginTop: 2,
-    fontSize: 11,
-    lineHeight: 16,
+    marginTop: 1,
+    fontSize: 13,
+    lineHeight: 18,
     color: COLORS.secondary,
   },
   closeModalButton: {
-    width: 34,
-    height: 34,
+    width: 36,
+    height: 36,
     alignItems: "center",
     justifyContent: "center",
-    borderRadius: 10,
+    borderRadius: 12,
     backgroundColor: COLORS.background,
   },
   paymentScroll: { flexGrow: 0 },
-  paymentScrollContent: { paddingHorizontal: 17, paddingTop: 14 },
+  paymentScrollContent: { paddingHorizontal: 18, paddingTop: 16 },
   paymentMonthRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 12,
-    paddingVertical: 11,
-    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderRadius: 14,
     backgroundColor: COLORS.primaryLight,
   },
   paymentMonthLabel: {
-    fontSize: 8,
-    lineHeight: 11,
-    fontWeight: "700",
-    letterSpacing: 0.7,
-    color: COLORS.muted,
+    fontSize: 12,
+    lineHeight: 16,
+    fontWeight: "600",
+    color: COLORS.secondary,
   },
   paymentMonthText: {
-    marginTop: 2,
-    fontSize: 13,
-    lineHeight: 18,
+    marginTop: 1,
+    fontSize: 15,
+    lineHeight: 20,
     fontWeight: "700",
     color: COLORS.text,
   },
 
   statusSmallBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    borderRadius: 7,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
   },
   statusSmallBadgePaid: { backgroundColor: COLORS.successLight },
   statusSmallBadgeDue: { backgroundColor: COLORS.dangerLight },
-  statusSmallText: { fontSize: 9, fontWeight: "700" },
-  statusSmallTextPaid: { color: COLORS.success },
+  statusSmallText: { fontSize: 12.5, fontWeight: "700" },
+  statusSmallTextPaid: { color: COLORS.successDark },
   statusSmallTextDue: { color: COLORS.danger },
 
-  statusRadioRow: { flexDirection: "row", gap: 10, marginTop: 4 },
+  statusRadioRow: { flexDirection: "row", gap: 10 },
   statusRadioOption: {
     flex: 1,
+    height: 52,
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    borderRadius: 12,
+    gap: 10,
+    paddingHorizontal: 14,
+    borderRadius: 14,
     borderWidth: 1.5,
     borderColor: COLORS.border,
     backgroundColor: COLORS.white,
   },
-  statusRadioOptionSelected: {
-    borderColor: COLORS.primary,
-    backgroundColor: COLORS.primaryLight,
+  statusRadioOptionPaid: {
+    borderColor: COLORS.success,
+    backgroundColor: COLORS.successLight,
   },
-  statusRadioOptionPaid: { borderColor: COLORS.successBorder },
-  statusRadioOptionDue: { borderColor: COLORS.dangerBorder },
+  statusRadioOptionDue: {
+    borderColor: COLORS.danger,
+    backgroundColor: COLORS.dangerLight,
+  },
   statusRadioOptionPressed: { opacity: 0.7 },
-  radioOuter: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 2,
-    borderColor: COLORS.border,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 8,
-    flexShrink: 0,
+  statusRadioTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: COLORS.secondary,
   },
-  radioOuterSelected: { borderColor: COLORS.primary },
-  radioInner: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: COLORS.primary,
-  },
-  statusRadioContent: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  statusRadioIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 8,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  statusRadioIconPaid: { backgroundColor: COLORS.successLight },
-  statusRadioIconDue: { backgroundColor: COLORS.dangerLight },
-  statusRadioTitle: { fontSize: 13, fontWeight: "700", color: COLORS.text },
-  statusRadioTitlePaid: { color: COLORS.success },
+  statusRadioTitlePaid: { color: COLORS.successDark },
   statusRadioTitleDue: { color: COLORS.danger },
 
   sectionLabel: {
-    marginTop: 16,
-    marginBottom: 7,
-    fontSize: 11,
-    lineHeight: 16,
+    marginTop: 18,
+    marginBottom: 8,
+    fontSize: 13,
+    lineHeight: 18,
     fontWeight: "700",
     color: COLORS.textSoft,
   },
   amountCard: {
-    minHeight: 59,
+    minHeight: 60,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 11,
-    borderRadius: 12,
+    paddingHorizontal: 14,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: COLORS.border,
-    backgroundColor: COLORS.background,
+    backgroundColor: COLORS.surface,
   },
-  amountLeft: { flexDirection: "row", alignItems: "center" },
-  amountLabel: { marginLeft: 8, fontSize: 11, color: COLORS.secondary },
+  amountLeft: { flexDirection: "row", alignItems: "center", flex: 1 },
+  amountLabel: { marginLeft: 10, fontSize: 13, color: COLORS.secondary },
   amountValue: {
-    fontSize: 17,
-    lineHeight: 22,
-    fontWeight: "700",
+    fontSize: 18,
+    lineHeight: 24,
+    fontWeight: "800",
     color: COLORS.text,
   },
 
   modifierButton: {
-    minHeight: 42,
+    minHeight: 48,
     flexDirection: "row",
     alignItems: "center",
+    marginTop: 6,
   },
   modifierIcon: {
-    width: 27,
-    height: 27,
+    width: 30,
+    height: 30,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 8,
-    borderRadius: 8,
+    marginRight: 10,
+    borderRadius: 9,
   },
   modifierIconAdd: { backgroundColor: COLORS.primaryLight },
   modifierIconRemove: { backgroundColor: COLORS.dangerLight },
   modifierText: {
     flex: 1,
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: "600",
     color: COLORS.primary,
   },
   modifierTextRemove: { color: COLORS.danger },
-  inputGroup: { marginTop: 1 },
+  inputGroup: { marginTop: 2 },
   modalInput: {
-    minHeight: 45,
-    paddingHorizontal: 11,
-    marginBottom: 8,
-    borderRadius: 10,
+    minHeight: 48,
+    paddingHorizontal: 14,
+    marginBottom: 10,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: COLORS.border,
     backgroundColor: COLORS.white,
-    fontSize: 13,
+    fontSize: 14,
     color: COLORS.text,
   },
 
   netAmountCard: {
-    minHeight: 69,
+    minHeight: 72,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 13,
-    paddingVertical: 9,
-    marginTop: 10,
-    borderRadius: 13,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    marginTop: 12,
+    borderRadius: 16,
     backgroundColor: COLORS.text,
   },
   netAmountLabel: {
-    fontSize: 9,
-    lineHeight: 13,
+    fontSize: 12,
+    lineHeight: 16,
     fontWeight: "700",
-    letterSpacing: 0.7,
     color: "#CBD5E1",
   },
   netAmountHint: {
     marginTop: 2,
-    fontSize: 9,
-    lineHeight: 14,
+    fontSize: 12,
+    lineHeight: 16,
     color: "#94A3B8",
   },
   netAmountValue: {
-    fontSize: 20,
-    lineHeight: 26,
-    fontWeight: "700",
+    fontSize: 24,
+    lineHeight: 30,
+    fontWeight: "800",
     color: COLORS.white,
   },
 
   dateSelector: {
-    minHeight: 49,
+    minHeight: 52,
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 10,
-    borderRadius: 11,
+    paddingHorizontal: 12,
+    borderRadius: 14,
     borderWidth: 1,
     borderColor: COLORS.border,
     backgroundColor: COLORS.white,
   },
   dateIcon: {
-    width: 32,
-    height: 32,
+    width: 34,
+    height: 34,
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 9,
-    borderRadius: 9,
+    marginRight: 10,
+    borderRadius: 10,
     backgroundColor: COLORS.primaryLight,
   },
-  dateText: { flex: 1, fontSize: 13, fontWeight: "600", color: COLORS.text },
-  paymentBottomSpace: { height: 17 },
+  dateText: { flex: 1, fontSize: 15, fontWeight: "600", color: COLORS.text },
+  paymentBottomSpace: { height: 18 },
   modalActions: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "flex-end",
-    paddingHorizontal: 17,
-    paddingVertical: 12,
+    gap: 10,
+    paddingHorizontal: 18,
+    paddingVertical: 14,
     borderTopWidth: 1,
     borderTopColor: COLORS.borderLight,
     backgroundColor: COLORS.white,
   },
   cancelButton: {
-    minHeight: 42,
+    flex: 1,
+    height: 50,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 13,
-    marginRight: 7,
-    borderRadius: 10,
+    borderRadius: 14,
+    backgroundColor: COLORS.background,
+    borderWidth: 1,
+    borderColor: COLORS.border,
   },
-  cancelButtonPressed: { backgroundColor: COLORS.background },
+  cancelButtonPressed: { opacity: 0.7 },
   cancelButtonText: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: COLORS.secondary,
+    fontSize: 14.5,
+    fontWeight: "700",
+    color: COLORS.textSoft,
   },
   saveButton: {
-    minHeight: 42,
+    flex: 1.5,
+    height: 50,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 14,
-    borderRadius: 10,
+    gap: 7,
+    borderRadius: 14,
     backgroundColor: COLORS.success,
   },
   saveDueButton: { backgroundColor: COLORS.danger },
-  saveButtonPressed: { opacity: 0.8 },
+  saveButtonPressed: { opacity: 0.85 },
   saveButtonDisabled: { opacity: 0.6 },
   saveButtonText: {
-    marginLeft: 6,
-    fontSize: 12,
+    fontSize: 14.5,
     fontWeight: "700",
     color: COLORS.white,
   },
 
-  /* ============================ TEMPLATE MISSING MODAL ============================ */
+  // ----- Template missing modal -----
   templateBackdrop: {
     flex: 1,
     backgroundColor: "rgba(15, 23, 42, 0.6)",
@@ -3471,8 +3681,8 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   templateMessage: {
-    fontSize: 13,
-    lineHeight: 20,
+    fontSize: 14,
+    lineHeight: 21,
     color: "#64748B",
     textAlign: "center",
   },

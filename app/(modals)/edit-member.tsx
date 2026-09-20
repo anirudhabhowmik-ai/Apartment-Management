@@ -817,6 +817,8 @@ export default function EditMemberScreen() {
   const [dueDate, setDueDate] = useState("");
   const [billAttachments, setBillAttachments] = useState<BillAttachment[]>([]);
 
+  // Transaction kind is set from the loaded record and never changed on this
+  // screen. A user cannot flip an expense into an income (or vice versa).
   const [transactionKind, setTransactionKind] =
     useState<TransactionKind>("expense");
   const isIncome = transactionKind === "income";
@@ -862,7 +864,8 @@ export default function EditMemberScreen() {
         : "Member";
 
   const getHeaderTitle = () => {
-    if (groupType === "expense") return "Edit Transaction";
+    if (groupType === "expense")
+      return isIncome ? "Edit Income" : "Edit Expense";
     if (groupType === "staff") return "Edit Staff";
     if (groupType === "apartment") return "Edit Member";
     return "Edit Member";
@@ -944,6 +947,7 @@ export default function EditMemberScreen() {
     }
 
     if (groupType === "expense" && "amount" in member) {
+      // Transaction type is read once and locked. Never toggled on this screen.
       setTransactionKind(
         member.transactionType === "income" ? "income" : "expense",
       );
@@ -1316,6 +1320,7 @@ export default function EditMemberScreen() {
       updateData.name = name.trim();
       updateData.amount = Number(expenseAmount);
       updateData.role = role;
+      // Sent back unchanged; backend accepts it as-is.
       updateData.transactionType = transactionKind;
       updateData.status = expenseStatus;
       updateData.reminderEnabled =
@@ -1798,90 +1803,49 @@ export default function EditMemberScreen() {
               }
             />
 
+            {/* =====================================================
+                Read-only Type badge.
+                The transaction type is decided at creation and cannot
+                be flipped here — an expense stays an expense.
+                ===================================================== */}
             <View style={styles.fieldContainer}>
               <Text style={styles.fieldLabel}>Type</Text>
-              <View style={styles.kindRadioRow}>
-                <TouchableOpacity
+              <View
+                style={[
+                  styles.typeBadge,
+                  isIncome ? styles.typeBadgeIncome : styles.typeBadgeExpense,
+                ]}
+              >
+                <View
                   style={[
-                    styles.kindRadioOption,
-                    !isIncome && styles.kindRadioOptionExpense,
+                    styles.typeBadgeIcon,
+                    isIncome
+                      ? styles.typeBadgeIconIncome
+                      : styles.typeBadgeIconExpense,
                   ]}
-                  onPress={() => {
-                    setTransactionKind("expense");
-                    setRole(null);
-                    if (fieldErrors.role) {
-                      setFieldErrors({ ...fieldErrors, role: "" });
-                    }
-                  }}
-                  activeOpacity={0.8}
                 >
-                  <View
-                    style={[
-                      styles.radioOuter,
-                      !isIncome && styles.radioOuterExpense,
-                    ]}
-                  >
-                    {!isIncome && (
-                      <View
-                        style={[styles.radioInner, { backgroundColor: RED }]}
-                      />
-                    )}
-                  </View>
                   <Ionicons
-                    name="arrow-down-circle-outline"
-                    size={17}
-                    color={!isIncome ? RED : "#94A3B8"}
+                    name={isIncome ? "arrow-up-circle" : "arrow-down-circle"}
+                    size={18}
+                    color={isIncome ? GREEN : RED}
                   />
+                </View>
+                <View style={styles.typeBadgeTextWrap}>
                   <Text
                     style={[
-                      styles.kindRadioText,
-                      !isIncome && { color: RED, fontWeight: "800" },
+                      styles.typeBadgeTitle,
+                      { color: isIncome ? "#166534" : "#991b1b" },
                     ]}
                   >
-                    Expense
+                    {isIncome ? "Income" : "Expense"}
                   </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    styles.kindRadioOption,
-                    isIncome && styles.kindRadioOptionIncome,
-                  ]}
-                  onPress={() => {
-                    setTransactionKind("income");
-                    setRole(null);
-                    if (fieldErrors.role) {
-                      setFieldErrors({ ...fieldErrors, role: "" });
-                    }
-                  }}
-                  activeOpacity={0.8}
-                >
-                  <View
-                    style={[
-                      styles.radioOuter,
-                      isIncome && styles.radioOuterIncome,
-                    ]}
-                  >
-                    {isIncome && (
-                      <View
-                        style={[styles.radioInner, { backgroundColor: GREEN }]}
-                      />
-                    )}
-                  </View>
-                  <Ionicons
-                    name="arrow-up-circle-outline"
-                    size={17}
-                    color={isIncome ? GREEN : "#94A3B8"}
-                  />
-                  <Text
-                    style={[
-                      styles.kindRadioText,
-                      isIncome && { color: GREEN, fontWeight: "800" },
-                    ]}
-                  >
-                    Income
+                  <Text style={styles.typeBadgeSubtitle}>
+                    {isIncome
+                      ? "Money received · cannot be changed"
+                      : "Money spent · cannot be changed"}
                   </Text>
-                </TouchableOpacity>
+                </View>
+                <Ionicons name="lock-closed" size={14} color="#94a3b8" />
               </View>
             </View>
 
@@ -2875,6 +2839,44 @@ const styles = StyleSheet.create({
   fieldLabelError: { color: "#dc2626" },
   requiredMark: { color: "#dc2626" },
   optionalText: { color: "#9ca3af", fontWeight: "500" },
+
+  // ── Read-only transaction-type badge ─────────────────────────────────────
+  typeBadge: {
+    marginTop: 8,
+    minHeight: 60,
+    borderRadius: 13,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  typeBadgeExpense: {
+    backgroundColor: "#fef2f2",
+    borderColor: "#fecaca",
+  },
+  typeBadgeIncome: {
+    backgroundColor: "#f0fdf4",
+    borderColor: "#bbf7d0",
+  },
+  typeBadgeIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 11,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  typeBadgeIconExpense: { backgroundColor: "#fee2e2" },
+  typeBadgeIconIncome: { backgroundColor: "#dcfce7" },
+  typeBadgeTextWrap: { flex: 1, minWidth: 0 },
+  typeBadgeTitle: { fontSize: 14, fontWeight: "800" },
+  typeBadgeSubtitle: {
+    fontSize: 11,
+    color: "#6b7280",
+    marginTop: 2,
+    fontWeight: "500",
+  },
 
   inputContainer: {
     minHeight: 52,
