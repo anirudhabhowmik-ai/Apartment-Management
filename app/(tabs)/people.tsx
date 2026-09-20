@@ -370,23 +370,6 @@ const getTabLabel = (
   return "Group";
 };
 
-const getCountLabel = (
-  type: ManagementType,
-  count: number,
-  accountType?: "apartment" | "home",
-): string => {
-  const singular =
-    type === "apartment"
-      ? accountType === "home"
-        ? "Tenant"
-        : "Owner"
-      : type === "staff"
-        ? "Staff"
-        : "Transaction";
-  const plural = type === "staff" ? "Staff" : `${singular}s`;
-  return `${count} ${count === 1 ? singular : plural}`;
-};
-
 const getAddButtonLabel = (
   type: ManagementType,
   accountType?: "apartment" | "home",
@@ -573,6 +556,8 @@ interface GroupedCard {
   phone: string | null;
   photo_url: string | null;
   records: any[];
+  /** Number of records before a Paid/Due filter was applied. */
+  totalCount?: number;
 }
 
 function groupRowsByUser(rows: any[]): GroupedCard[] {
@@ -902,6 +887,21 @@ export default function PeopleScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedAccountId, selectedMonth, staffHook.items]);
 
+  // Hide the floating add button while the keyboard is open.
+  const [keyboardVisible, setKeyboardVisible] = useState(false);
+  useEffect(() => {
+    const showEvt =
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvt =
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+    const s = Keyboard.addListener(showEvt, () => setKeyboardVisible(true));
+    const h = Keyboard.addListener(hideEvt, () => setKeyboardVisible(false));
+    return () => {
+      s.remove();
+      h.remove();
+    };
+  }, []);
+
   // -------------------------------------------------------------------------
   // Derived data (ALL hooks live above the early return below)
   // -------------------------------------------------------------------------
@@ -974,11 +974,26 @@ export default function PeopleScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchedCards, month, isExpenseTab, attendanceVersion]);
 
-  const visibleGroupedCards = useMemo(() => {
+  const visibleGroupedCards = useMemo<GroupedCard[]>(() => {
     if (activeFilter === "all") return searchedCards;
-    return searchedCards.filter((card) =>
-      cardHasStatus(card, activeFilter, month, isExpenseTab),
-    );
+
+    // A person can own several flats / hold several roles with mixed
+    // statuses. Keep only the records that match the filter so a "Due"
+    // filter never shows a paid flat (and vice versa).
+    const result: GroupedCard[] = [];
+    for (const card of searchedCards) {
+      const matching = card.records.filter(
+        (r) => getRecordStatus(r, month, isExpenseTab) === activeFilter,
+      );
+      if (matching.length > 0) {
+        result.push({
+          ...card,
+          records: matching,
+          totalCount: card.records.length,
+        });
+      }
+    }
+    return result;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchedCards, activeFilter, month, isExpenseTab, attendanceVersion]);
 
@@ -1417,7 +1432,11 @@ export default function PeopleScreen() {
   const filterLabel =
     activeFilter === "all" ? "All" : activeFilter === "paid" ? "Paid" : "Due";
 
-  const listBottomPadding = Math.max(insets.bottom, 16) + 40;
+  // Extra room at the bottom so the floating add button never covers the last card.
+  const listBottomPadding = Math.max(insets.bottom, 16) + (canEdit ? 96 : 40);
+
+  const showSummary = showFinancialInfo && groupedCards.length > 0;
+  const showToolbar = groupedCards.length > 0;
 
   const filterOptions: {
     key: PaymentFilter;
@@ -1547,6 +1566,87 @@ export default function PeopleScreen() {
         </View>
       </View>
 
+      {/* ---------- Search + filter (fixed, outside the scroll area) ---------- */}
+      {showToolbar ? (
+        <View style={styles.stickyToolbar}>
+          <View style={styles.searchBox}>
+            <Ionicons name="search-outline" size={20} color={COLORS.muted} />
+            <TextInput
+              style={styles.searchInput}
+              value={activeSearch}
+              onChangeText={setActiveSearch}
+              placeholder={
+                isExpenseTab
+                  ? "Search by transaction name"
+                  : "Search by name or mobile no."
+              }
+              placeholderTextColor={COLORS.muted}
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="search"
+              onSubmitEditing={() => Keyboard.dismiss()}
+              blurOnSubmit
+            />
+            {activeSearch.length > 0 && (
+              <Pressable
+                onPress={() => setActiveSearch("")}
+                hitSlop={8}
+                style={styles.searchClearButton}
+              >
+                <Ionicons name="close-circle" size={20} color={COLORS.muted} />
+              </Pressable>
+            )}
+          </View>
+
+          <View style={styles.chipRow}>
+            {filterOptions.map((option) => {
+              const selected = activeFilter === option.key;
+              return (
+                <Pressable
+                  key={option.key}
+                  style={({ pressed }) => [
+                    styles.chip,
+                    selected && {
+                      backgroundColor: option.bg,
+                      borderColor: option.border,
+                    },
+                    pressed && styles.pressedButton,
+                  ]}
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    setActiveFilter(option.key);
+                  }}
+                >
+                  <Text
+                    style={[
+                      styles.chipText,
+                      selected && { color: option.color, fontWeight: "700" },
+                    ]}
+                  >
+                    {option.label}
+                  </Text>
+                  <View
+                    style={[
+                      styles.chipCount,
+                      selected && { backgroundColor: option.color },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.chipCountText,
+                        selected && { color: COLORS.white },
+                      ]}
+                    >
+                      {option.count}
+                    </Text>
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
+        </View>
+      ) : null}
+
       {/* ============================ CONTENT ============================ */}
       <ScrollView
         style={styles.scrollArea}
@@ -1559,8 +1659,8 @@ export default function PeopleScreen() {
         keyboardDismissMode="on-drag"
         automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
       >
-        {/* ---------- Summary ---------- */}
-        {showFinancialInfo && groupedCards.length > 0 ? (
+        {/* ---------- Summary (scrolls away) ---------- */}
+        {showSummary ? (
           <View style={styles.summaryCard}>
             {summary.kind === "expense" ? (
               <>
@@ -1630,128 +1730,6 @@ export default function PeopleScreen() {
             )}
           </View>
         ) : null}
-
-        {/* ---------- Search + filter ---------- */}
-        {groupedCards.length > 0 ? (
-          <>
-            <View style={styles.searchBox}>
-              <Ionicons name="search-outline" size={20} color={COLORS.muted} />
-              <TextInput
-                style={styles.searchInput}
-                value={activeSearch}
-                onChangeText={setActiveSearch}
-                placeholder={
-                  isExpenseTab
-                    ? "Search by transaction name"
-                    : "Search by name or mobile no."
-                }
-                placeholderTextColor={COLORS.muted}
-                autoCapitalize="none"
-                autoCorrect={false}
-                returnKeyType="search"
-                onSubmitEditing={() => Keyboard.dismiss()}
-                blurOnSubmit
-              />
-              {activeSearch.length > 0 && (
-                <Pressable
-                  onPress={() => setActiveSearch("")}
-                  hitSlop={8}
-                  style={styles.searchClearButton}
-                >
-                  <Ionicons
-                    name="close-circle"
-                    size={20}
-                    color={COLORS.muted}
-                  />
-                </Pressable>
-              )}
-            </View>
-
-            <View style={styles.chipRow}>
-              {filterOptions.map((option) => {
-                const selected = activeFilter === option.key;
-                return (
-                  <Pressable
-                    key={option.key}
-                    style={({ pressed }) => [
-                      styles.chip,
-                      selected && {
-                        backgroundColor: option.bg,
-                        borderColor: option.border,
-                      },
-                      pressed && styles.pressedButton,
-                    ]}
-                    onPress={() => {
-                      Keyboard.dismiss();
-                      setActiveFilter(option.key);
-                    }}
-                  >
-                    <Text
-                      style={[
-                        styles.chipText,
-                        selected && { color: option.color, fontWeight: "700" },
-                      ]}
-                    >
-                      {option.label}
-                    </Text>
-                    <View
-                      style={[
-                        styles.chipCount,
-                        selected && { backgroundColor: option.color },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          styles.chipCountText,
-                          selected && { color: COLORS.white },
-                        ]}
-                      >
-                        {option.count}
-                      </Text>
-                    </View>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </>
-        ) : null}
-
-        {/* ---------- List header ---------- */}
-        <View style={styles.listHeader}>
-          <View style={styles.countArea}>
-            <Text style={styles.countTitle}>
-              {getCountLabel(
-                activeTab,
-                visibleGroupedCards.length,
-                selectedAccount?.type,
-              )}
-            </Text>
-            <Text style={styles.countSubtitle}>
-              {isExpenseTab
-                ? "Income and expenses this month"
-                : isStaffTab
-                  ? "Staff and salary"
-                  : selectedAccount?.type === "home"
-                    ? "Your tenants"
-                    : "Apartment members"}
-            </Text>
-          </View>
-
-          {canEdit && (
-            <Pressable
-              style={({ pressed }) => [
-                styles.addButton,
-                pressed && styles.addButtonPressed,
-              ]}
-              onPress={() => handleAdd(activeTab)}
-            >
-              <Ionicons name="add" size={20} color={COLORS.white} />
-              <Text style={styles.addButtonText}>
-                {getAddButtonLabel(activeTab, selectedAccount?.type)}
-              </Text>
-            </Pressable>
-          )}
-        </View>
 
         {/* ---------- Cards ---------- */}
         {visibleGroupedCards.length === 0 ? (
@@ -1833,7 +1811,7 @@ export default function PeopleScreen() {
             )}
           </View>
         ) : (
-          <View>
+          <View style={styles.cardsWrap}>
             {visibleGroupedCards.map((card) => {
               const primaryRecord = card.records[0];
 
@@ -1949,8 +1927,13 @@ export default function PeopleScreen() {
               const isSelf = myUserId === card.user_id;
               const subline = [
                 card.phone ? formatPhoneForDisplay(card.phone) : null,
-                card.records.length > 1
-                  ? `${card.records.length} ${isStaffTab ? "roles" : "flats"}`
+                (card.totalCount ?? card.records.length) > 1
+                  ? `${
+                      card.records.length !==
+                      (card.totalCount ?? card.records.length)
+                        ? `${card.records.length} of ${card.totalCount}`
+                        : card.records.length
+                    } ${isStaffTab ? "roles" : "flats"}`
                   : null,
               ]
                 .filter(Boolean)
@@ -2294,6 +2277,19 @@ export default function PeopleScreen() {
           </View>
         )}
       </ScrollView>
+
+      {/* ============================ FLOATING ADD BUTTON ============================ */}
+      {canEdit && !keyboardVisible ? (
+        <Pressable
+          style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}
+          onPress={() => handleAdd(activeTab)}
+        >
+          <Ionicons name="add" size={22} color={COLORS.white} />
+          <Text style={styles.fabText}>
+            {getAddButtonLabel(activeTab, selectedAccount?.type)}
+          </Text>
+        </Pressable>
+      ) : null}
 
       <MonthYearPickerModal
         visible={showMonthPicker}
@@ -2906,7 +2902,7 @@ const styles = StyleSheet.create({
   // ----- Summary -----
   summaryCard: {
     padding: 16,
-    marginBottom: 16,
+    marginBottom: 14,
     borderRadius: 20,
     backgroundColor: COLORS.white,
     borderWidth: 1,
@@ -2965,7 +2961,13 @@ const styles = StyleSheet.create({
     color: COLORS.secondary,
   },
 
-  // ----- Search + chips -----
+  // ----- Search + chips (fixed under the header) -----
+  stickyToolbar: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 2,
+    backgroundColor: COLORS.background,
+  },
   searchBox: {
     height: 50,
     flexDirection: "row",
@@ -3023,44 +3025,34 @@ const styles = StyleSheet.create({
     color: COLORS.secondary,
   },
 
-  // ----- List header -----
-  listHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginTop: 22,
-    marginBottom: 14,
-  },
-  countArea: { flex: 1, minWidth: 0, marginRight: 10 },
-  countTitle: {
-    fontSize: 18,
-    lineHeight: 24,
-    fontWeight: "800",
-    color: COLORS.text,
-  },
-  countSubtitle: {
-    marginTop: 2,
-    fontSize: 13,
-    lineHeight: 18,
-    color: COLORS.secondary,
-  },
-  addButton: {
-    height: 42,
+  // ----- Floating add button -----
+  fab: {
+    position: "absolute",
+    right: 16,
+    bottom: 16,
+    height: 52,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 4,
-    paddingLeft: 12,
-    paddingRight: 16,
-    borderRadius: 13,
+    gap: 6,
+    paddingLeft: 16,
+    paddingRight: 20,
+    borderRadius: 26,
     backgroundColor: COLORS.primary,
+    shadowColor: COLORS.primaryDark,
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 6,
   },
-  addButtonPressed: { opacity: 0.85 },
-  addButtonText: {
-    fontSize: 13.5,
+  fabPressed: { opacity: 0.88, transform: [{ scale: 0.97 }] },
+  fabText: {
+    fontSize: 14.5,
     fontWeight: "700",
     color: COLORS.white,
   },
+
+  cardsWrap: {},
 
   // ----- Empty state -----
   emptyCard: {
