@@ -470,8 +470,7 @@ const adjustStyles = StyleSheet.create({
 });
 
 // ---------------------------------------------------------------------------
-// Trigger — goes in every tab header. Flips the store flag only.
-// Does NOT render the modal.
+// Trigger
 // ---------------------------------------------------------------------------
 
 export function AccountSwitcherTrigger() {
@@ -536,12 +535,17 @@ export function AccountSwitcherTrigger() {
 }
 
 // ---------------------------------------------------------------------------
-// Host — renders the modal. Render EXACTLY ONCE at the app root.
+// Host
 // ---------------------------------------------------------------------------
 
 export function AccountSwitcherHost() {
   const router = useRouter();
 
+  // NOTE: `refresh` is intentionally NOT destructured here. We do not
+  // want to refresh the account list when the sheet opens, because
+  // that toggles `isLoading` on the shared account store, which every
+  // tab screen (including Home) subscribes to — making Home re-render
+  // and look like it's "reloading".
   const { accounts, selectedAccount, selectAccount, editAccount } =
     useAccounts();
 
@@ -569,35 +573,29 @@ export function AccountSwitcherHost() {
     }
   };
 
-  const patchAccount = async (
+  const patchAccountName = async (
     accountId: string,
-    payload: { name?: string; photoUrl?: string | null },
+    name: string,
   ): Promise<Account | null> => {
     const authToken = await getAuthToken();
     if (!authToken) {
       throw new Error("You're not signed in. Please log in again.");
     }
 
-    const body: Record<string, any> = {};
-    if (payload.name !== undefined) body.name = payload.name;
-    if (payload.photoUrl !== undefined) body.photo_url = payload.photoUrl;
-
     const url = `${API_URL}/accounts/${accountId}`;
-    console.log("[account-switcher] PATCH →", url, body);
-
     const res = await fetch(url, {
       method: "PATCH",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${authToken}`,
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ name }),
     });
 
     const data = await res.json().catch(() => null);
 
     if (!res.ok) {
-      console.warn("[account-switcher] PATCH failed:", res.status, data);
+      console.warn("[account-switcher] PATCH name failed:", res.status, data);
       throw new Error(data?.message || "Failed to update account");
     }
 
@@ -694,17 +692,10 @@ export function AccountSwitcherHost() {
     if (!accountId) return;
 
     try {
-      await patchAccount(accountId, { photoUrl: uri });
+      await editAccount(accountId, { photoUri: uri });
     } catch (err: any) {
       console.error("[account-switcher] save photo failed:", err);
       Alert.alert("Couldn't save photo", err?.message || "Please try again.");
-      return;
-    }
-
-    try {
-      await editAccount(accountId, { photoUri: uri });
-    } catch {
-      // ignore — backend is the source of truth
     }
   };
 
@@ -733,7 +724,7 @@ export function AccountSwitcherHost() {
     if (!trimmed) return;
 
     try {
-      await patchAccount(accountId, { name: trimmed });
+      await patchAccountName(accountId, trimmed);
     } catch (err: any) {
       console.error("[account-switcher] save name failed:", err);
       Alert.alert("Couldn't save name", err?.message || "Please try again.");
@@ -754,13 +745,8 @@ export function AccountSwitcherHost() {
 
   return (
     <>
-      <Modal
-        visible={visible}
-        transparent
-        animationType="slide"
-        onRequestClose={closeSwitcher}
-      >
-        <View style={styles.modalContainer}>
+      {visible && (
+        <View style={styles.modalContainer} pointerEvents="box-none">
           <Pressable style={styles.overlay} onPress={closeSwitcher} />
 
           <Pressable style={styles.sheet} onPress={() => {}}>
@@ -1013,17 +999,23 @@ export function AccountSwitcherHost() {
             </Pressable>
           </Pressable>
         </View>
-      </Modal>
+      )}
 
       <Modal
         visible={showPhotoOptions}
         transparent
         animationType="fade"
-        onRequestClose={() => setShowPhotoOptions(false)}
+        onRequestClose={() => {
+          setShowPhotoOptions(false);
+          setEditingPhotoAccountId(null);
+        }}
       >
         <Pressable
           style={styles.modalBackdrop}
-          onPress={() => setShowPhotoOptions(false)}
+          onPress={() => {
+            setShowPhotoOptions(false);
+            setEditingPhotoAccountId(null);
+          }}
         >
           <Pressable style={styles.photoOptionsModal} onPress={() => {}}>
             <View style={styles.modalHandle} />
@@ -1070,7 +1062,10 @@ export function AccountSwitcherHost() {
 
             <TouchableOpacity
               style={styles.photoOptionsCancel}
-              onPress={() => setShowPhotoOptions(false)}
+              onPress={() => {
+                setShowPhotoOptions(false);
+                setEditingPhotoAccountId(null);
+              }}
               activeOpacity={0.7}
             >
               <Text style={styles.photoOptionsCancelText}>Cancel</Text>
@@ -1137,7 +1132,11 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
   },
 
-  modalContainer: { flex: 1, justifyContent: "flex-end" },
+  modalContainer: {
+    ...StyleSheet.absoluteFill,
+    justifyContent: "flex-end",
+    zIndex: 1000,
+  },
   overlay: {
     ...StyleSheet.absoluteFill,
     backgroundColor: "rgba(15, 23, 42, 0.48)",

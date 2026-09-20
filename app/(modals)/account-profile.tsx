@@ -101,6 +101,8 @@ interface ApiInvitation {
   invited_by_phone: string;
   account_name: string;
   account_photo_url: string | null;
+  accepted_user_name?: string | null;
+  accepted_user_photo_url?: string | null;
 }
 
 interface RevokePreview {
@@ -582,6 +584,51 @@ function MenuRow({
 }
 
 // ============================================================================
+// GRANT AVATAR — shows the accepted user's photo when available,
+// otherwise falls back to initials.
+// ============================================================================
+
+function GrantAvatar({
+  photoUrl,
+  name,
+  size = 41,
+  radius = 13,
+  style,
+  textStyle,
+}: {
+  photoUrl?: string | null;
+  name?: string | null;
+  size?: number;
+  radius?: number;
+  style?: any;
+  textStyle?: any;
+}) {
+  const initial = (name || "?").trim().charAt(0).toUpperCase() || "?";
+
+  if (photoUrl) {
+    return (
+      <Image
+        source={{ uri: photoUrl }}
+        style={[{ width: size, height: size, borderRadius: radius }, style]}
+        resizeMode="cover"
+      />
+    );
+  }
+
+  return (
+    <View
+      style={[
+        { width: size, height: size, borderRadius: radius },
+        styles.accessAvatar,
+        style,
+      ]}
+    >
+      <Text style={[styles.accessAvatarText, textStyle]}>{initial}</Text>
+    </View>
+  );
+}
+
+// ============================================================================
 // SCREEN
 // ============================================================================
 
@@ -781,7 +828,13 @@ export default function AccountProfileScreen() {
             KNOWN_ROLE.includes(rawRole) ? rawRole : "member_visibility"
           ) as InvitationRole;
 
-          return { ...r, status: safeStatus, role: safeRole };
+          return {
+            ...r,
+            status: safeStatus,
+            role: safeRole,
+            accepted_user_name: r.accepted_user_name ?? null,
+            accepted_user_photo_url: r.accepted_user_photo_url ?? null,
+          };
         });
 
         setInvitations(normalized);
@@ -1284,7 +1337,6 @@ export default function AccountProfileScreen() {
     setRevokeTarget(inv);
     setRevokePreview(null);
     setRevokePreviewLoading(true);
-    // Default both toggles to true (owner usually wants to keep).
     setKeepMemberVisibility(true);
     setKeepStaffVisibility(true);
 
@@ -1301,7 +1353,6 @@ export default function AccountProfileScreen() {
       );
 
       if (!res.ok) {
-        // Fall back to plain modal if preview fails.
         setRevokePreview(null);
         return;
       }
@@ -1756,16 +1807,14 @@ export default function AccountProfileScreen() {
                       styles.lastAccessRow,
                   ]}
                 >
-                  <View style={[styles.accessAvatar, styles.adminAvatar]}>
-                    <Text style={styles.accessAvatarText}>
-                      {(inv.invited_name || inv.invited_phone)
-                        .charAt(0)
-                        .toUpperCase()}
-                    </Text>
-                  </View>
+                  <GrantAvatar
+                    photoUrl={inv.accepted_user_photo_url ?? null}
+                    name={inv.accepted_user_name ?? inv.invited_name ?? "Admin"}
+                    style={styles.adminAvatar}
+                  />
                   <View style={styles.accessInfo}>
                     <Text style={styles.accessName}>
-                      {inv.invited_name || "Admin"}
+                      {inv.accepted_user_name ?? inv.invited_name ?? "Admin"}
                     </Text>
                     <Text style={styles.accessPhone}>
                       +91{inv.invited_phone}
@@ -1803,18 +1852,17 @@ export default function AccountProfileScreen() {
                       styles.lastAccessRow,
                   ]}
                 >
-                  <View style={[styles.accessAvatar, styles.memberAvatar]}>
-                    <Text
-                      style={[styles.accessAvatarText, styles.memberAvatarText]}
-                    >
-                      {(inv.invited_name || inv.invited_phone)
-                        .charAt(0)
-                        .toUpperCase()}
-                    </Text>
-                  </View>
+                  <GrantAvatar
+                    photoUrl={inv.accepted_user_photo_url ?? null}
+                    name={
+                      inv.accepted_user_name ?? inv.invited_name ?? "Member"
+                    }
+                    style={styles.memberAvatar}
+                    textStyle={styles.memberAvatarText}
+                  />
                   <View style={styles.accessInfo}>
                     <Text style={styles.accessName}>
-                      {inv.invited_name || "Member"}
+                      {inv.accepted_user_name ?? inv.invited_name ?? "Member"}
                     </Text>
                     <Text style={styles.accessPhone}>
                       +91{inv.invited_phone}
@@ -1850,18 +1898,15 @@ export default function AccountProfileScreen() {
                       styles.lastAccessRow,
                   ]}
                 >
-                  <View style={[styles.accessAvatar, styles.staffAvatar]}>
-                    <Text
-                      style={[styles.accessAvatarText, styles.staffAvatarText]}
-                    >
-                      {(inv.invited_name || inv.invited_phone)
-                        .charAt(0)
-                        .toUpperCase()}
-                    </Text>
-                  </View>
+                  <GrantAvatar
+                    photoUrl={inv.accepted_user_photo_url ?? null}
+                    name={inv.accepted_user_name ?? inv.invited_name ?? "Staff"}
+                    style={styles.staffAvatar}
+                    textStyle={styles.staffAvatarText}
+                  />
                   <View style={styles.accessInfo}>
                     <Text style={styles.accessName}>
-                      {inv.invited_name || "Staff"}
+                      {inv.accepted_user_name ?? inv.invited_name ?? "Staff"}
                     </Text>
                     <Text style={styles.accessPhone}>
                       +91{inv.invited_phone}

@@ -28,6 +28,23 @@ async function getToken(): Promise<string | null> {
   }
 }
 
+async function encodePhotoForServer(localUri: string): Promise<string> {
+  if (!localUri) return localUri;
+  if (localUri.startsWith("data:") || /^https?:\/\//i.test(localUri)) {
+    return localUri;
+  }
+  const base64 = await FileSystem.readAsStringAsync(localUri, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+  const lower = localUri.toLowerCase();
+  const mime = lower.endsWith(".png")
+    ? "image/png"
+    : lower.endsWith(".webp")
+      ? "image/webp"
+      : "image/jpeg";
+  return `data:${mime};base64,${base64}`;
+}
+
 function mapRowToAccount(r: any, fallbackOwnerId: string): Account {
   const now = new Date().toISOString();
   const ownerId = r.created_by ?? r.createdBy ?? fallbackOwnerId;
@@ -93,9 +110,6 @@ async function fetchAccountsDeduped(
     try {
       const result = await doFetchAccounts(userId);
 
-      // Mark the account list as loaded for THIS user id. This drives
-      // the derived `hasLoaded` value returned by the hook, which
-      // resets when the user changes (or on logout).
       useAccountStore.getState().setLoadedForUserId(userId);
 
       const current = useAccountStore.getState().selectedAccountId;
@@ -110,11 +124,6 @@ async function fetchAccountsDeduped(
         useAccountStore.setState({ selectedAccountId: serverPick });
       }
 
-      // reconcileAccounts():
-      //  - stores the fresh list
-      //  - keeps the current selection if it still exists
-      //  - falls back to first remaining account if the selection vanished
-      //  - clears selection to null if there are no accounts left
       useAccountStore.getState().reconcileAccounts(result.accounts);
 
       return result;
@@ -128,27 +137,7 @@ async function fetchAccountsDeduped(
 }
 
 async function uploadAccountPhoto(localUri: string): Promise<string> {
-  if (localUri.startsWith("data:") || /^https?:\/\//i.test(localUri)) {
-    return localUri;
-  }
-
-  try {
-    const base64 = await FileSystem.readAsStringAsync(localUri, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
-
-    const lower = localUri.toLowerCase();
-    const mime = lower.endsWith(".png")
-      ? "image/png"
-      : lower.endsWith(".webp")
-        ? "image/webp"
-        : "image/jpeg";
-
-    return `data:${mime};base64,${base64}`;
-  } catch (error) {
-    console.error("[uploadAccountPhoto] failed to encode image:", error);
-    return localUri;
-  }
+  return encodePhotoForServer(localUri);
 }
 
 async function createAccountApi(
@@ -237,9 +226,6 @@ export function useAccounts() {
   const setIsLoading = useAccountStore((s) => s.setIsLoading);
   const getSelectedAccount = useAccountStore((s) => s.getSelectedAccount);
 
-  // Derived — true only when the accounts have been fetched for the
-  // CURRENT user id, in this session. Resets automatically on logout
-  // (accountStore.reset clears loadedForUserId) and on user switch.
   const hasLoaded = !!user?.id && loadedForUserId === user.id;
 
   const refresh = useCallback(async () => {
@@ -261,14 +247,12 @@ export function useAccounts() {
 
     let cancelled = false;
 
-    // Already loaded for this user this session? Skip the fetch.
-    if (useAccountStore.getState().loadedForUserId === uid) {
-      return;
-    }
-
+    // Always fetch on launch. Previously we skipped when the store was
+    // already hydrated for this user, which left stale photos cached
+    // across app restarts.
     setIsLoading(true);
 
-    fetchAccountsDeduped(uid)
+    fetchAccountsDeduped(uid, true)
       .catch((e) => {
         if (cancelled) return;
         console.error("[useAccounts] initial load failed:", e);
@@ -284,7 +268,6 @@ export function useAccounts() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, hasHydrated]);
 
-  // Reconcile when any account-scoped request reports "no access".
   useEffect(() => {
     const uid = user?.id;
     if (!uid) return;
@@ -298,7 +281,6 @@ export function useAccounts() {
     return unsubscribe;
   }, [user?.id]);
 
-  // Reconcile when the app returns to the foreground.
   useEffect(() => {
     const uid = user?.id;
     if (!uid) return;
@@ -342,17 +324,16 @@ export function useAccounts() {
         serverPayload.photo_url = photoUrl ?? null;
       }
 
-      try {
-        await updateAccountApi(id, serverPayload);
-      } catch (e) {
-        console.error("[useAccounts] editAccount server sync failed:", e);
-      }
+      const serverRow = await updateAccountApi(id, serverPayload);
 
-      updateAccount(id, {
+      const merged: Partial<Account> = {
         ...(updates.name !== undefined ? { name: updates.name } : {}),
         ...(photoUrl !== undefined ? { photoUri: photoUrl } : {}),
-        updatedAt: new Date().toISOString(),
-      });
+        updatedAt: serverRow?.updated_at ?? new Date().toISOString(),
+      };
+
+      updateAccount(id, merged);
+      return merged;
     },
     [updateAccount],
   );

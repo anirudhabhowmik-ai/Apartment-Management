@@ -87,12 +87,28 @@ export const useAccountStore = create<AccountState>()(
           freshIds.size === oldIds.size &&
           [...freshIds].every((id) => oldIds.has(id));
 
+        // Even when the ID set is the same, the payload may differ
+        // (name / photo / type). Compare each field so a photo updated
+        // on another device replaces the cached value.
+        const dataEqual =
+          idsEqual &&
+          freshAccounts.every((fresh) => {
+            const old = oldAccounts.find((a) => a.id === fresh.id);
+            if (!old) return false;
+            return (
+              old.name === fresh.name &&
+              old.photoUri === fresh.photoUri &&
+              old.type === fresh.type &&
+              old.ownerId === fresh.ownerId
+            );
+          });
+
         const lostSelection =
           !!selectedAccountId && !freshIds.has(selectedAccountId);
 
         const nextSelectedId = lostSelection ? null : selectedAccountId;
 
-        if (idsEqual && nextSelectedId === selectedAccountId) {
+        if (dataEqual && nextSelectedId === selectedAccountId) {
           return false;
         }
 
@@ -109,9 +125,6 @@ export const useAccountStore = create<AccountState>()(
       },
 
       addAccount: (account) => {
-        // Keep the previously-selected account; only auto-select the
-        // new one if there was no selection to begin with. This makes
-        // creating an account from the switcher non-disruptive.
         set((state) => ({
           accounts: [...state.accounts, account],
           selectedAccountId: state.selectedAccountId ?? account.id,
