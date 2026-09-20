@@ -11,6 +11,7 @@ import * as SecureStore from "expo-secure-store";
 import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -94,6 +95,28 @@ const normalizePhone = (raw?: string | null): string => {
 const isActiveRow = (row: any): boolean => {
   const s = String(row?.status ?? "").toLowerCase();
   return s === "" || s === "active";
+};
+
+/**
+ * Extract a photo URL from a Member/Staff row, whatever the field name.
+ * Backend rows may expose the photo under any of these keys depending on
+ * which endpoint produced them.
+ */
+const getRowPhotoUrl = (row: any): string | null => {
+  if (!row) return null;
+  const candidates = [
+    row.photoUri,
+    row.photo_url,
+    row.photoUrl,
+    row.user_photo_url,
+    row.userPhotoUrl,
+    row.user?.photo_url,
+    row.user?.photoUrl,
+  ];
+  for (const c of candidates) {
+    if (typeof c === "string" && c.trim().length > 0) return c;
+  }
+  return null;
 };
 
 type FeedbackTone = "success" | "warning" | "error" | "info";
@@ -1128,6 +1151,7 @@ export default function GrantAccessScreen() {
     if (apt) parts.push(`Apt ${apt}`);
     const meta = parts.join("  •  ");
     const selected = selectedMemberIds.includes(member.id);
+    const photoUrl = getRowPhotoUrl(member);
 
     return (
       <TouchableOpacity
@@ -1139,14 +1163,22 @@ export default function GrantAccessScreen() {
         <View
           style={[styles.memberAvatar, selected && styles.memberAvatarSelected]}
         >
-          <Text
-            style={[
-              styles.memberAvatarText,
-              selected && styles.memberAvatarTextSelected,
-            ]}
-          >
-            {member.name.charAt(0).toUpperCase()}
-          </Text>
+          {photoUrl ? (
+            <Image
+              source={{ uri: photoUrl }}
+              style={styles.memberAvatarImage}
+              resizeMode="cover"
+            />
+          ) : (
+            <Text
+              style={[
+                styles.memberAvatarText,
+                selected && styles.memberAvatarTextSelected,
+              ]}
+            >
+              {member.name.charAt(0).toUpperCase()}
+            </Text>
+          )}
         </View>
         <View style={styles.memberContent}>
           <Text style={styles.memberName} numberOfLines={1}>
@@ -1181,6 +1213,7 @@ export default function GrantAccessScreen() {
   const renderStaffRow = (member: Member) => {
     const roleLabel = String((member as any).role ?? "").trim();
     const selected = selectedStaffIds.includes(member.id);
+    const photoUrl = getRowPhotoUrl(member);
 
     return (
       <TouchableOpacity
@@ -1196,14 +1229,22 @@ export default function GrantAccessScreen() {
             selected && styles.memberAvatarSelected,
           ]}
         >
-          <Text
-            style={[
-              styles.memberAvatarText,
-              selected && styles.memberAvatarTextSelected,
-            ]}
-          >
-            {member.name.charAt(0).toUpperCase()}
-          </Text>
+          {photoUrl ? (
+            <Image
+              source={{ uri: photoUrl }}
+              style={styles.memberAvatarImage}
+              resizeMode="cover"
+            />
+          ) : (
+            <Text
+              style={[
+                styles.memberAvatarText,
+                selected && styles.memberAvatarTextSelected,
+              ]}
+            >
+              {member.name.charAt(0).toUpperCase()}
+            </Text>
+          )}
         </View>
         <View style={styles.memberContent}>
           <Text style={styles.memberName} numberOfLines={1}>
@@ -2313,9 +2354,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginRight: 11,
+    overflow: "hidden",
   },
   memberAvatarStaff: { backgroundColor: "#F5F3FF" },
   memberAvatarSelected: { backgroundColor: "#2563EB" },
+  memberAvatarImage: {
+    width: "100%",
+    height: "100%",
+    borderRadius: 14,
+  },
   memberAvatarText: { color: "#2563EB", fontSize: 16, fontWeight: "700" },
   memberAvatarTextSelected: { color: "#FFFFFF" },
   memberContent: { flex: 1, minWidth: 0 },

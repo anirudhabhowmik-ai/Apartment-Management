@@ -103,6 +103,9 @@ interface ApiInvitation {
   account_photo_url: string | null;
   accepted_user_name?: string | null;
   accepted_user_photo_url?: string | null;
+  // Live invitee identity (matched by phone, even before accept)
+  invitee_user_name?: string | null;
+  invitee_user_photo_url?: string | null;
 }
 
 interface RevokePreview {
@@ -834,6 +837,8 @@ export default function AccountProfileScreen() {
             role: safeRole,
             accepted_user_name: r.accepted_user_name ?? null,
             accepted_user_photo_url: r.accepted_user_photo_url ?? null,
+            invitee_user_name: r.invitee_user_name ?? null,
+            invitee_user_photo_url: r.invitee_user_photo_url ?? null,
           };
         });
 
@@ -1754,7 +1759,7 @@ export default function AccountProfileScreen() {
             </View>
           </View>
 
-          {/* OWNER */}
+          {/* OWNER — shows user's photo */}
           {selectedAccount?.ownerId === user?.id && (
             <View style={styles.accessGroup}>
               <Text style={styles.accessHeading}>Account Owner</Text>
@@ -1769,14 +1774,16 @@ export default function AccountProfileScreen() {
                     styles.lastAccessRow,
                 ]}
               >
-                <View style={[styles.accessAvatar, styles.ownerAvatar]}>
-                  <Text style={styles.accessAvatarText}>
-                    {(user?.phone || "You").charAt(0).toUpperCase()}
-                  </Text>
-                </View>
+                <GrantAvatar
+                  photoUrl={user?.photoUrl ?? null}
+                  name={user?.name ?? user?.phone ?? "You"}
+                  style={styles.ownerAvatar}
+                />
                 <View style={styles.accessInfo}>
                   <View style={styles.accessNameRow}>
-                    <Text style={styles.accessName}>You</Text>
+                    <Text style={styles.accessName}>
+                      {user?.name?.trim() ? user.name : "You"}
+                    </Text>
                     <View style={styles.youBadge}>
                       <Text style={styles.youBadgeText}>YOU</Text>
                     </View>
@@ -1808,13 +1815,25 @@ export default function AccountProfileScreen() {
                   ]}
                 >
                   <GrantAvatar
-                    photoUrl={inv.accepted_user_photo_url ?? null}
-                    name={inv.accepted_user_name ?? inv.invited_name ?? "Admin"}
+                    photoUrl={
+                      inv.accepted_user_photo_url ??
+                      inv.invitee_user_photo_url ??
+                      null
+                    }
+                    name={
+                      inv.accepted_user_name ??
+                      inv.invitee_user_name ??
+                      inv.invited_name ??
+                      "Admin"
+                    }
                     style={styles.adminAvatar}
                   />
                   <View style={styles.accessInfo}>
                     <Text style={styles.accessName}>
-                      {inv.accepted_user_name ?? inv.invited_name ?? "Admin"}
+                      {inv.accepted_user_name ??
+                        inv.invitee_user_name ??
+                        inv.invited_name ??
+                        "Admin"}
                     </Text>
                     <Text style={styles.accessPhone}>
                       +91{inv.invited_phone}
@@ -1853,16 +1872,26 @@ export default function AccountProfileScreen() {
                   ]}
                 >
                   <GrantAvatar
-                    photoUrl={inv.accepted_user_photo_url ?? null}
+                    photoUrl={
+                      inv.accepted_user_photo_url ??
+                      inv.invitee_user_photo_url ??
+                      null
+                    }
                     name={
-                      inv.accepted_user_name ?? inv.invited_name ?? "Member"
+                      inv.accepted_user_name ??
+                      inv.invitee_user_name ??
+                      inv.invited_name ??
+                      "Member"
                     }
                     style={styles.memberAvatar}
                     textStyle={styles.memberAvatarText}
                   />
                   <View style={styles.accessInfo}>
                     <Text style={styles.accessName}>
-                      {inv.accepted_user_name ?? inv.invited_name ?? "Member"}
+                      {inv.accepted_user_name ??
+                        inv.invitee_user_name ??
+                        inv.invited_name ??
+                        "Member"}
                     </Text>
                     <Text style={styles.accessPhone}>
                       +91{inv.invited_phone}
@@ -1899,14 +1928,26 @@ export default function AccountProfileScreen() {
                   ]}
                 >
                   <GrantAvatar
-                    photoUrl={inv.accepted_user_photo_url ?? null}
-                    name={inv.accepted_user_name ?? inv.invited_name ?? "Staff"}
+                    photoUrl={
+                      inv.accepted_user_photo_url ??
+                      inv.invitee_user_photo_url ??
+                      null
+                    }
+                    name={
+                      inv.accepted_user_name ??
+                      inv.invitee_user_name ??
+                      inv.invited_name ??
+                      "Staff"
+                    }
                     style={styles.staffAvatar}
                     textStyle={styles.staffAvatarText}
                   />
                   <View style={styles.accessInfo}>
                     <Text style={styles.accessName}>
-                      {inv.accepted_user_name ?? inv.invited_name ?? "Staff"}
+                      {inv.accepted_user_name ??
+                        inv.invitee_user_name ??
+                        inv.invited_name ??
+                        "Staff"}
                     </Text>
                     <Text style={styles.accessPhone}>
                       +91{inv.invited_phone}
@@ -1924,7 +1965,7 @@ export default function AccountProfileScreen() {
             </View>
           )}
 
-          {/* PENDING */}
+          {/* PENDING — now shows photo via GrantAvatar */}
           {pendingInvitations.length > 0 && (
             <View style={styles.accessGroup}>
               <View style={styles.pendingHeader}>
@@ -1937,6 +1978,12 @@ export default function AccountProfileScreen() {
               </View>
               {pendingInvitations.map((inv, index) => {
                 const badge = roleBadge(inv.role);
+                const photoUrl =
+                  inv.invitee_user_photo_url ??
+                  inv.accepted_user_photo_url ??
+                  null;
+                const displayName =
+                  inv.invitee_user_name ?? inv.invited_name ?? "Invitee";
                 return (
                   <View
                     key={inv.id}
@@ -1947,13 +1994,14 @@ export default function AccountProfileScreen() {
                         styles.lastAccessRow,
                     ]}
                   >
-                    <View style={[styles.accessAvatar, styles.pendingAvatar]}>
-                      <Ionicons name="time-outline" size={19} color="#D97706" />
-                    </View>
+                    <GrantAvatar
+                      photoUrl={photoUrl}
+                      name={displayName}
+                      style={styles.pendingAvatar}
+                      textStyle={styles.pendingAvatarText}
+                    />
                     <View style={styles.accessInfo}>
-                      <Text style={styles.accessName}>
-                        {inv.invited_name || "Invitee"}
-                      </Text>
+                      <Text style={styles.accessName}>{displayName}</Text>
                       <Text style={styles.accessPhone}>
                         +91{inv.invited_phone}
                       </Text>
@@ -1985,6 +2033,12 @@ export default function AccountProfileScreen() {
               {rejectedInvitations.map((inv, index) => {
                 const badge = roleBadge(inv.role);
                 const isResending = resendingInvitationId === inv.id;
+                const photoUrl =
+                  inv.invitee_user_photo_url ??
+                  inv.accepted_user_photo_url ??
+                  null;
+                const displayName =
+                  inv.invitee_user_name ?? inv.invited_name ?? "Invitee";
                 return (
                   <View
                     key={inv.id}
@@ -1994,17 +2048,14 @@ export default function AccountProfileScreen() {
                         styles.lastAccessRow,
                     ]}
                   >
-                    <View style={[styles.accessAvatar, styles.rejectedAvatar]}>
-                      <Ionicons
-                        name="close-circle-outline"
-                        size={19}
-                        color="#DC2626"
-                      />
-                    </View>
+                    <GrantAvatar
+                      photoUrl={photoUrl}
+                      name={displayName}
+                      style={styles.rejectedAvatar}
+                      textStyle={styles.rejectedAvatarText}
+                    />
                     <View style={styles.accessInfo}>
-                      <Text style={styles.accessName}>
-                        {inv.invited_name || "Invitee"}
-                      </Text>
+                      <Text style={styles.accessName}>{displayName}</Text>
                       <Text style={styles.accessPhone}>
                         +91{inv.invited_phone}
                       </Text>
@@ -3265,6 +3316,8 @@ const styles = StyleSheet.create({
   pendingAvatar: { backgroundColor: "#FEF3C7" },
   rejectedAvatar: { backgroundColor: "#FEF2F2" },
   accessAvatarText: { color: "#2563EB", fontSize: 15, fontWeight: "700" },
+  pendingAvatarText: { color: "#B45309" },
+  rejectedAvatarText: { color: "#DC2626" },
   memberAvatarText: { color: "#16A34A" },
   staffAvatarText: { color: "#0284C7" },
   accessInfo: { flex: 1, minWidth: 0 },
