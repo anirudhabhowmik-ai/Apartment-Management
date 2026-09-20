@@ -24,6 +24,11 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import {
+  closeNameConflict,
+  confirmNameConflict,
+  setNameConflictBusy,
+} from "../../components/NameConflictAlert";
 import { useMembers, useStaff } from "../../hooks/useManagement";
 import { useAccountStore } from "../../store/accountStore";
 import { useAuthStore } from "../../store/useAuthStore";
@@ -158,8 +163,11 @@ export default function GrantAccessScreen() {
   const accounts = useAccountStore((state) => state.accounts);
   const account = accounts.find((a) => a.id === accountId);
 
-  const { items: rawApartmentMembers } = useMembers(accountId ?? null);
-  const { items: rawStaffList } = useStaff(accountId ?? null);
+  const { items: rawApartmentMembers, renameByPhone: renameMemberByPhone } =
+    useMembers(accountId ?? null);
+  const { items: rawStaffList, renameByPhone: renameStaffByPhone } = useStaff(
+    accountId ?? null,
+  );
 
   const [source, setSource] = useState<RecipientSource>("new");
   const [name, setName] = useState("");
@@ -242,7 +250,6 @@ export default function GrantAccessScreen() {
     [rawStaffList],
   );
 
-  // ── Load invitations + excluded phones (owner + active admins) ──
   useEffect(() => {
     let cancelled = false;
     if (!accountId) return;
@@ -275,7 +282,6 @@ export default function GrantAccessScreen() {
           else if (inv.role === "staff_visibility") staffSet.add(ten);
         }
 
-        // Owner + active admins are excluded from every picker.
         for (const p of excluded) {
           const ten = normalizePhone(p);
           if (ten) adminSet.add(ten);
@@ -296,8 +302,6 @@ export default function GrantAccessScreen() {
     };
   }, [accountId]);
 
-  // ── Member visibility picker: hide owner, admins, and anyone
-  //    who already has a pending/accepted member invite. ──
   const visibilityCandidateMembers = useMemo(() => {
     if (!isVisibilityFlow) return apartmentMembersList;
     return apartmentMembersList.filter((m) => {
@@ -314,8 +318,6 @@ export default function GrantAccessScreen() {
     isVisibilityFlow,
   ]);
 
-  // ── Admin picker: hide owner, existing admins, and anyone with a
-  //    pending admin invite. ──
   const adminCandidateMembers = useMemo(() => {
     return apartmentMembersList.filter((m) => {
       const ten = normalizePhone(m.phone);
@@ -335,8 +337,6 @@ export default function GrantAccessScreen() {
     apartmentMembersList,
   ]);
 
-  // ── Staff picker: hide owner, admins, and staff who already have a
-  //    pending/accepted staff invite. ──
   const staffCandidates = useMemo(() => {
     if (!isStaffFlow) return staffMembersList;
     return staffMembersList.filter((s) => {
@@ -368,6 +368,52 @@ export default function GrantAccessScreen() {
   }, [isAccountCreator, account?.name, currentUserMember?.name]);
 
   const inviterPhone = currentUser?.phone || "";
+
+  // ============================================================
+  // LIVE PHONE LOOKUP (admin New Phone flow only)
+  // ============================================================
+
+  const typedPhone10 =
+    source === "new" && !isVisibilityFlow && !isStaffFlow && phone.length === 10
+      ? phone
+      : "";
+
+  const phoneLookup = useMemo(() => {
+    if (!typedPhone10) {
+      return {
+        matched: false as const,
+        existingName: "",
+        existingKind: "" as "" | "member" | "staff" | "both",
+      };
+    }
+
+    const memberMatch =
+      apartmentMembersList.find(
+        (m) => normalizePhone(m.phone) === typedPhone10,
+      ) ?? null;
+    const staffMatch =
+      staffMembersList.find((s) => normalizePhone(s.phone) === typedPhone10) ??
+      null;
+
+    if (!memberMatch && !staffMatch) {
+      return {
+        matched: false as const,
+        existingName: "",
+        existingKind: "" as "" | "member" | "staff" | "both",
+      };
+    }
+
+    const kind: "member" | "staff" | "both" =
+      memberMatch && staffMatch ? "both" : memberMatch ? "member" : "staff";
+    const existingName =
+      memberMatch?.name?.trim() || staffMatch?.name?.trim() || "";
+
+    return {
+      matched: true as const,
+      existingName,
+      existingKind: kind,
+    };
+  }, [typedPhone10, apartmentMembersList, staffMembersList]);
 
   // ============================================================
   // SEARCH
@@ -578,6 +624,48 @@ export default function GrantAccessScreen() {
       return { ok: true };
     } catch (err: any) {
       console.warn("[grant-access] create network error:", err);
+      return {
+        ok: false,
+        message: `Network error: ${err?.message ?? "unknown"}`,
+      };
+    }
+  };
+
+  const callRenamePerson = async (payload: {
+    phone: string;
+    name: string;
+  }): Promise<{ ok: boolean; message?: string }> => {
+    const token = await getAuthToken();
+    if (!token) return { ok: false, message: "Not signed in" };
+    try {
+      const url = `${API_URL}/api/accounts/${accountId}/rename-person`;
+      const res = await fetch(url, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
+
+      if (!res.ok) {
+        const backendMessage =
+          data?.message ?? data?.error ?? "(no message from server)";
+        return {
+          ok: false,
+          message: `Rename failed · ${res.status} · ${backendMessage}`,
+        };
+      }
+      return { ok: true };
+    } catch (err: any) {
+      console.warn("[grant-access] rename network error:", err);
       return {
         ok: false,
         message: `Network error: ${err?.message ?? "unknown"}`,
@@ -804,6 +892,69 @@ export default function GrantAccessScreen() {
     if (!inviterPhone) {
       setError("Your phone number is missing. Please sign in again.");
       return;
+    }
+
+    // ── Name conflict gate (admin New Phone flow only) ──
+    if (
+      source === "new" &&
+      !isVisibilityFlow &&
+      !isStaffFlow &&
+      phoneLookup.matched &&
+      phone.length === 10
+    ) {
+      const cleanName = name.trim();
+
+      if (!cleanName) {
+        setError(
+          `This number belongs to ${
+            phoneLookup.existingName || "an existing person"
+          }. Enter a name to continue.`,
+        );
+        return;
+      }
+
+      const namesMatch =
+        phoneLookup.existingName &&
+        cleanName.toLowerCase() === phoneLookup.existingName.toLowerCase();
+
+      if (!namesMatch) {
+        const confirmed = await confirmNameConflict({
+          phone,
+          existing_name: phoneLookup.existingName || "another person",
+          role: "admin",
+        });
+
+        if (!confirmed) {
+          setName(phoneLookup.existingName);
+          setError("");
+          return;
+        }
+
+        setNameConflictBusy(true);
+
+        const renameResult = await callRenamePerson({
+          phone,
+          name: cleanName,
+        });
+
+        if (!renameResult.ok) {
+          setNameConflictBusy(false);
+          closeNameConflict();
+          showFeedback({
+            tone: "error",
+            title: "Couldn't update name",
+            message: renameResult.message || "Failed to rename this person.",
+            primaryLabel: "OK",
+          });
+          return;
+        }
+
+        renameMemberByPhone(phone, cleanName);
+        renameStaffByPhone(phone, cleanName);
+
+        setNameConflictBusy(false);
+        closeNameConflict();
+      }
     }
 
     const grantRole: AccountAccessRole =

@@ -251,10 +251,6 @@ function mapRowToMember(
   } as ExpenseEntry;
 }
 
-// ---------------------------------------------------------------------------
-// FIXED: toServerBody now always forwards `role` (and `custom_role`) for
-// member/staff creates, including "existing person" mode.
-// ---------------------------------------------------------------------------
 async function toServerBody(
   input: any,
   kind: ManagementType,
@@ -278,9 +274,6 @@ async function toServerBody(
     }
   }
 
-  // Role must always be forwarded for member/staff — even in
-  // "existing person" mode (a user can be flat + shop, or hold multiple
-  // staff roles). NEVER default it here; the backend rejects a missing role.
   if (kind !== "expense") {
     if (input.role !== undefined && input.role !== null) {
       body.role = input.role;
@@ -289,7 +282,6 @@ async function toServerBody(
       body.custom_role = String(input.customRole).trim();
     }
   } else {
-    // Expense uses `category` on the server side.
     if (input.role !== undefined) body.category = input.role;
   }
 
@@ -379,6 +371,12 @@ interface ManagementState {
     accountId: string,
     userId: string,
     patch: { name?: string | null; photoUri?: string | null },
+  ) => void;
+  // NEW
+  renamePersonByPhone: (
+    accountId: string,
+    phone10: string,
+    newName: string,
   ) => void;
 }
 
@@ -521,6 +519,62 @@ export const useManagementStore = create<ManagementState>((set) => ({
       };
     }),
 
+  // NEW: rename every member and staff row on this account whose phone
+  // matches the last-10-digits target. No refetch needed.
+  renamePersonByPhone: (accountId, phone10, newName) =>
+    set((s) => {
+      if (!accountId || !phone10 || !newName) return s;
+
+      const ten = (raw?: string | null) => {
+        if (!raw) return "";
+        const d = String(raw).replace(/\D/g, "");
+        return d.length > 10 ? d.slice(-10) : d;
+      };
+
+      const target = ten(phone10);
+      const now = new Date().toISOString();
+
+      const currentApartment = s.byKindAndAccount.apartment[accountId] ?? [];
+      const currentStaff = s.byKindAndAccount.staff[accountId] ?? [];
+
+      let apartmentChanged = false;
+      let staffChanged = false;
+
+      const nextApartment = currentApartment.map((m) => {
+        if (ten(m.phone) !== target) return m;
+        if ((m as any).name === newName) return m;
+        apartmentChanged = true;
+        return { ...(m as any), name: newName, updatedAt: now } as Member;
+      });
+
+      const nextStaff = currentStaff.map((m) => {
+        if (ten(m.phone) !== target) return m;
+        if ((m as any).name === newName) return m;
+        staffChanged = true;
+        return { ...(m as any), name: newName, updatedAt: now } as Member;
+      });
+
+      if (!apartmentChanged && !staffChanged) return s;
+
+      return {
+        byKindAndAccount: {
+          ...s.byKindAndAccount,
+          apartment: apartmentChanged
+            ? {
+                ...s.byKindAndAccount.apartment,
+                [accountId]: nextApartment,
+              }
+            : s.byKindAndAccount.apartment,
+          staff: staffChanged
+            ? {
+                ...s.byKindAndAccount.staff,
+                [accountId]: nextStaff,
+              }
+            : s.byKindAndAccount.staff,
+        },
+      };
+    }),
+
   clearAccount: (accountId) =>
     set((s) => ({
       byKindAndAccount: {
@@ -600,7 +654,6 @@ function createManagementHook(kind: ManagementType) {
 
         const body = await toServerBody(input, kind);
 
-        // TEMP diagnostic — remove once verified end-to-end.
         console.log(
           `[useManagement:${kind}] POST body:`,
           JSON.stringify(body, null, 2),
@@ -715,6 +768,17 @@ function createManagementHook(kind: ManagementType) {
       [accountId],
     );
 
+    // NEW
+    const renameByPhone = useCallback(
+      (phone10: string, newName: string) => {
+        if (!accountId) return;
+        useManagementStore
+          .getState()
+          .renamePersonByPhone(accountId, phone10, newName);
+      },
+      [accountId],
+    );
+
     return {
       items,
       isLoading,
@@ -726,6 +790,7 @@ function createManagementHook(kind: ManagementType) {
       getById,
       fetchPhoneVisibility,
       savePhoneVisibility,
+      renameByPhone,
     };
   };
 }
