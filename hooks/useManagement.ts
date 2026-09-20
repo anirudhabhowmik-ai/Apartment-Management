@@ -168,14 +168,6 @@ function localDateStringToServerISO(local: unknown): string | null {
   return localNoon.toISOString();
 }
 
-// ---------------------------------------------------------------------------
-// server row -> frontend Member
-//
-// Members and staff rows now come joined to `users`, so `row.name`,
-// `row.phone`, and `row.photo_url` are the *user's* identity. `row.user_id`
-// is the FK to users.
-// ---------------------------------------------------------------------------
-
 function mapRowToMember(
   row: any,
   accountId: string,
@@ -260,23 +252,17 @@ function mapRowToMember(
 }
 
 // ---------------------------------------------------------------------------
-// frontend input -> server body
-//
-// Members/staff no longer accept name / phone / photo_url on PATCH.
-// Those fields are accepted on POST (to create/seed the users row) and
-// on the /me endpoint for self-edits.
+// FIXED: toServerBody now always forwards `role` (and `custom_role`) for
+// member/staff creates, including "existing person" mode.
 // ---------------------------------------------------------------------------
-
 async function toServerBody(
   input: any,
   kind: ManagementType,
 ): Promise<Record<string, any>> {
   const body: Record<string, any> = {};
 
-  // `mode` — "new" or "existing" for members/staff create.
   if (input.mode !== undefined) body.mode = input.mode;
 
-  // Identity fields (only honored by createMember / createStaff).
   if (kind !== "expense") {
     if (input.name !== undefined) body.name = input.name;
     if (input.phone !== undefined)
@@ -292,7 +278,20 @@ async function toServerBody(
     }
   }
 
-  if (input.role !== undefined) body.role = input.role;
+  // Role must always be forwarded for member/staff — even in
+  // "existing person" mode (a user can be flat + shop, or hold multiple
+  // staff roles). NEVER default it here; the backend rejects a missing role.
+  if (kind !== "expense") {
+    if (input.role !== undefined && input.role !== null) {
+      body.role = input.role;
+    }
+    if (input.customRole !== undefined && input.customRole !== null) {
+      body.custom_role = String(input.customRole).trim();
+    }
+  } else {
+    // Expense uses `category` on the server side.
+    if (input.role !== undefined) body.category = input.role;
+  }
 
   if (kind === "apartment") {
     if (input.wing !== undefined) body.wing = input.wing ?? null;
@@ -311,7 +310,6 @@ async function toServerBody(
 
   if (kind === "expense") {
     if (input.name !== undefined) body.title = input.name;
-    if (input.role !== undefined) body.category = input.role;
     if (input.amount !== undefined) body.amount = input.amount ?? 0;
     if (input.transactionType !== undefined)
       body.transaction_type = input.transactionType ?? "expense";
@@ -328,7 +326,6 @@ async function toServerBody(
     }
   }
 
-  // Payment fields (used by upsert endpoints, ignored by member/staff PATCH)
   if (kind !== "expense") {
     if (input.paymentStatus !== undefined)
       body.payment_status = input.paymentStatus ?? null;
@@ -348,10 +345,6 @@ async function toServerBody(
   return body;
 }
 
-// ---------------------------------------------------------------------------
-// Phone visibility
-// ---------------------------------------------------------------------------
-
 export interface PhoneVisibilityRow {
   user_id: string;
   name: string;
@@ -363,10 +356,6 @@ export interface PhoneVisibilityRow {
   locked: boolean;
   note: string | null;
 }
-
-// ---------------------------------------------------------------------------
-// Store
-// ---------------------------------------------------------------------------
 
 interface ManagementState {
   byKindAndAccount: Record<ManagementType, Record<string, Member[]>>;
@@ -497,9 +486,6 @@ export const useManagementStore = create<ManagementState>((set) => ({
       };
     }),
 
-  // Mirror the user's name / photo across every member and staff row
-  // that belongs to them, in one shot. Called after a successful
-  // updateProfile() so Home / People refresh without a refetch.
   syncUserIdentity: (accountId, userId, patch) =>
     set((s) => {
       if (!accountId || !userId) return s;
@@ -544,10 +530,6 @@ export const useManagementStore = create<ManagementState>((set) => ({
       },
     })),
 }));
-
-// ---------------------------------------------------------------------------
-// Hook factory
-// ---------------------------------------------------------------------------
 
 function createManagementHook(kind: ManagementType) {
   return function useManagement(
@@ -617,12 +599,22 @@ function createManagementHook(kind: ManagementType) {
         const aid: string = accountId;
 
         const body = await toServerBody(input, kind);
+
+        // TEMP diagnostic — remove once verified end-to-end.
+        console.log(
+          `[useManagement:${kind}] POST body:`,
+          JSON.stringify(body, null, 2),
+        );
+
         const qs =
           month && /^\d{4}-\d{2}$/.test(month) ? `?month=${month}` : "";
         const row = await apiRequest<any>(
           `/management/${aid}/${segment}${qs}`,
           { method: "POST", body: JSON.stringify(body) },
         );
+
+        console.log(`[useManagement:${kind}] POST response role:`, row?.role);
+
         const created = mapRowToMember(row, aid, kind);
         useManagementStore.getState().appendItem(kind, aid, created);
         return created;

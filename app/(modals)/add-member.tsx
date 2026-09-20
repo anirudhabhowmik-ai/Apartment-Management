@@ -676,8 +676,6 @@ export default function AddMemberScreen() {
   };
 
   // ── Load account people from the backend ──────────────────────────────
-  // Everyone linked to this account: owner, admins, members, staff.
-  // The person picker is sourced from this list.
   const loadAccountPeople = async () => {
     if (!accountId || !isPersonTab) {
       setAccountPeople([]);
@@ -753,9 +751,6 @@ export default function AddMemberScreen() {
     [accountPeople, selectedUserId],
   );
 
-  // ── Phone-already-belongs detection ───────────────────────────────────
-  // When the user types a 10-digit number in New Person mode, check
-  // whether it matches an existing person on this account.
   const phoneAlreadyBelongs = useMemo(() => {
     const ten = normalizePhoneDigits(phone);
     if (ten.length !== 10) return null;
@@ -992,6 +987,13 @@ export default function AddMemberScreen() {
     setShowContactPicker(false);
   };
 
+  // =========================================================================
+  // handleAdd — FIXED
+  //
+  // 1. Role is required in BOTH modes (new AND existing).
+  // 2. payload.role is always sent for apartment/staff creates.
+  // 3. payload.customRole is sent when the custom role branch is active.
+  // =========================================================================
   const handleAdd = async () => {
     setError("");
     setFieldErrors({});
@@ -1013,13 +1015,24 @@ export default function AddMemberScreen() {
         } else if (phone.length !== 10) {
           errors.phone = "Phone number must be 10 digits";
         } else if (phoneAlreadyBelongs) {
-          errors.phone = `This number already belongs to ${phoneAlreadyBelongs.name || "an existing person"}. Use Existing Person instead.`;
+          errors.phone = `This number already belongs to ${
+            phoneAlreadyBelongs.name || "an existing person"
+          }. Use Existing Person instead.`;
         }
       } else if (!selectedUserId) {
         errors.person = "Please select a person";
       }
 
-      if (mode === "new" && !role) errors.role = "Please select a role";
+      // Role is required in BOTH modes: a user can hold multiple roles
+      // (e.g. flat owner + shop owner), so the client must always declare
+      // which role is being added for this record.
+      if (!role) {
+        errors.role = "Please select a role";
+      }
+
+      if (isCustomRole && !customRole.trim()) {
+        errors.role = "Please enter a custom role name";
+      }
     }
 
     if (groupType === "apartment") {
@@ -1074,12 +1087,18 @@ export default function AddMemberScreen() {
     } else {
       payload.mode = mode;
 
+      // Role must ALWAYS be sent for apartment and staff — even in
+      // "existing person" mode. A single user can be a flat owner AND a
+      // shop owner, or hold two staff roles at the same property.
+      payload.role = role;
+
+      if (isCustomRole) {
+        payload.customRole = customRole.trim();
+      }
+
       if (mode === "existing") {
         payload.user_id = selectedUserId;
-        // Existing Person: role is inherited from the person's prior
-        // record, so the client does not send `role`.
       } else {
-        payload.role = role;
         payload.name = name.trim();
         payload.phone = `+91${phone}`;
         payload.photoUri = photoUri ?? undefined;
@@ -1094,10 +1113,15 @@ export default function AddMemberScreen() {
       }
 
       if (groupType === "staff") {
-        payload.role = role;
         payload.monthlySalary = Number(monthlySalary);
       }
     }
+
+    // TEMP diagnostic — remove after verification.
+    console.log(
+      "[add-member] sending payload:",
+      JSON.stringify(payload, null, 2),
+    );
 
     setLoading(true);
 
