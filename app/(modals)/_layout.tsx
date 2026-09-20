@@ -14,6 +14,7 @@ export type ModalRouteParams = {
     groupId: string;
     groupType: "apartment" | "staff" | "expense";
   };
+  "edit-profile": undefined;
   "mark-attendance": { memberId: string; accountId: string };
   "mark-payment": {
     accountId: string;
@@ -38,6 +39,7 @@ export default function ModalsLayout() {
       <Stack.Screen name="add-account" options={{ title: "New Account" }} />
       <Stack.Screen name="add-member" options={{ title: "Add Member" }} />
       <Stack.Screen name="edit-member" options={{ title: "Edit Member" }} />
+      <Stack.Screen name="edit-profile" options={{ title: "Edit Profile" }} />
       <Stack.Screen
         name="mark-attendance"
         options={{ title: "Mark Attendance" }}

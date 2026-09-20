@@ -8,6 +8,7 @@ import {
 import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
+import * as SecureStore from "expo-secure-store";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -32,14 +33,11 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import DatePickerModal from "../../components/DatePickerModal";
-import {
-  closeNameConflict,
-  confirmNameConflict
-} from "../../components/NameConflictAlert";
 import { useExpenses, useMembers, useStaff } from "../../hooks/useManagement";
 import type { BillAttachment, ManagementType, MemberRole } from "../../types";
 
 type TransactionKind = "expense" | "income";
+type AddMode = "new" | "existing";
 
 interface RoleOption {
   role: MemberRole;
@@ -56,6 +54,14 @@ interface ContactData {
   }[];
 }
 
+interface PersonOption {
+  user_id: string;
+  name: string;
+  phone: string | null;
+  photo_url: string | null;
+  kind: "owner" | "admin" | "member" | "staff";
+}
+
 const BLUE = "#2563EB";
 const BLUE_LIGHT = "#EFF6FF";
 const TEXT = "#111827";
@@ -65,10 +71,12 @@ const BACKGROUND = "#F8FAFC";
 const RED = "#DC2626";
 const GREEN = "#16A34A";
 
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
+const AUTH_TOKEN_KEY = "auth_token";
+
 const APARTMENT_ROLES: RoleOption[] = [
   { role: "owner", label: "Owner", icon: "home-outline" },
-  { role: "secretary", label: "Secretary", icon: "shield-checkmark-outline" },
-  { role: "tenant", label: "Tenant", icon: "person-outline" },
+  { role: "manager", label: "Manager", icon: "briefcase-outline" },
 ];
 
 const STAFF_ROLES: RoleOption[] = [
@@ -100,6 +108,14 @@ const INCOME_SOURCES: RoleOption[] = [
   },
 ];
 
+async function getAuthToken(): Promise<string | null> {
+  try {
+    return await SecureStore.getItemAsync(AUTH_TOKEN_KEY);
+  } catch {
+    return null;
+  }
+}
+
 function normalizeGroupType(raw: unknown): ManagementType {
   const value = Array.isArray(raw) ? raw[0] : raw;
   const str = typeof value === "string" ? value.toLowerCase().trim() : "";
@@ -116,6 +132,12 @@ function normalizeAccountId(raw: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function normalizePhoneDigits(raw?: string | null): string {
+  if (!raw) return "";
+  const digits = String(raw).replace(/\D/g, "");
+  return digits.length > 10 ? digits.slice(-10) : digits;
+}
+
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const VIEWPORT = Math.min(SCREEN_WIDTH - 64, 320);
 const MIN_ZOOM = 1;
@@ -127,13 +149,6 @@ interface RawImage {
   height: number;
 }
 
-interface PhotoAdjustModalProps {
-  visible: boolean;
-  image: RawImage | null;
-  onCancel: () => void;
-  onConfirm: (uri: string) => void;
-}
-
 function clampNumber(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
@@ -143,7 +158,12 @@ function PhotoAdjustModal({
   image,
   onCancel,
   onConfirm,
-}: PhotoAdjustModalProps) {
+}: {
+  visible: boolean;
+  image: RawImage | null;
+  onCancel: () => void;
+  onConfirm: (uri: string) => void;
+}) {
   const [zoom, setZoom] = useState(1);
   const [translate, setTranslate] = useState({ x: 0, y: 0 });
   const [processing, setProcessing] = useState(false);
@@ -371,12 +391,7 @@ function PhotoAdjustModal({
         image.uri,
         [
           {
-            crop: {
-              originX,
-              originY,
-              width: cropSize,
-              height: cropSize,
-            },
+            crop: { originX, originY, width: cropSize, height: cropSize },
           },
           { resize: { width: 500, height: 500 } },
         ],
@@ -430,11 +445,9 @@ function PhotoAdjustModal({
                 }}
                 resizeMode="cover"
               />
-
               <View
                 style={[adjustStyles.circleGuide, { pointerEvents: "none" }]}
               />
-
               <View style={adjustStyles.zoomLevelBadge}>
                 <Text style={adjustStyles.zoomLevelText}>
                   {Math.round(zoom * 100)}%
@@ -500,17 +513,8 @@ const adjustStyles = StyleSheet.create({
     maxWidth: 420,
     alignItems: "center",
   },
-  title: {
-    fontSize: 17,
-    fontWeight: "800",
-    color: "#0f172a",
-    marginBottom: 2,
-  },
-  subtitle: {
-    fontSize: 12.5,
-    color: "#64748b",
-    marginBottom: 16,
-  },
+  title: { fontSize: 17, fontWeight: "800", color: "#0f172a", marginBottom: 2 },
+  subtitle: { fontSize: 12.5, color: "#64748b", marginBottom: 16 },
   viewportWrapper: { alignItems: "center", justifyContent: "center" },
   viewport: {
     backgroundColor: "#0f172a",
@@ -571,10 +575,6 @@ const adjustStyles = StyleSheet.create({
   confirmText: { fontSize: 14, fontWeight: "700", color: "#ffffff" },
 });
 
-// ================================================================
-// MAIN COMPONENT
-// ================================================================
-
 export default function AddMemberScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -586,11 +586,6 @@ export default function AddMemberScreen() {
 
   const accountId = normalizeAccountId(rawParams.accountId);
   const groupType = normalizeGroupType(rawParams.groupType);
-
-  useEffect(() => {
-    console.log("[add-member] raw params:", rawParams);
-    console.log("[add-member] normalized:", { accountId, groupType });
-  }, [rawParams, accountId, groupType]);
 
   const membersHook = useMembers(accountId || null);
   const staffHook = useStaff(accountId || null);
@@ -606,15 +601,19 @@ export default function AddMemberScreen() {
   const addNewMember = activeHook.add;
 
   const hasAccount = Boolean(accountId);
+  const isPersonTab = groupType === "apartment" || groupType === "staff";
 
   let roleOptions: RoleOption[] = [];
   if (groupType === "apartment") roleOptions = APARTMENT_ROLES;
   else if (groupType === "staff") roleOptions = STAFF_ROLES;
   else if (groupType === "expense") roleOptions = EXPENSE_ROLES;
 
+  const [mode, setMode] = useState<AddMode>("new");
+
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
   const [role, setRole] = useState<MemberRole | null>(null);
   const [isCustomRole, setIsCustomRole] = useState(false);
   const [customRole, setCustomRole] = useState("");
@@ -645,6 +644,12 @@ export default function AddMemberScreen() {
   const [contactsList, setContactsList] = useState<ContactData[]>([]);
   const [contactSearch, setContactSearch] = useState("");
 
+  const [showPersonPicker, setShowPersonPicker] = useState(false);
+  const [personSearch, setPersonSearch] = useState("");
+
+  const [accountPeople, setAccountPeople] = useState<PersonOption[]>([]);
+  const [accountPeopleLoading, setAccountPeopleLoading] = useState(false);
+
   const [showPhotoOptions, setShowPhotoOptions] = useState(false);
   const [rawImage, setRawImage] = useState<RawImage | null>(null);
   const [showAdjustModal, setShowAdjustModal] = useState(false);
@@ -667,36 +672,119 @@ export default function AddMemberScreen() {
     }
   };
 
-  const getGroupTypeLabel = (type: ManagementType): string => {
-    switch (type) {
-      case "apartment":
-        return "Apartment";
-      case "staff":
-        return "Staff";
-      case "expense":
-        return "Entry";
-      default:
-        return "Member";
+  // ── Load account people from the backend ──────────────────────────────
+  // Everyone linked to this account: owner, admins, members, staff.
+  // The person picker is sourced from this list.
+  const loadAccountPeople = async () => {
+    if (!accountId || !isPersonTab) {
+      setAccountPeople([]);
+      return;
+    }
+
+    setAccountPeopleLoading(true);
+    try {
+      const token = await getAuthToken();
+      if (!token) {
+        setAccountPeople([]);
+        return;
+      }
+
+      const res = await fetch(
+        `${API_BASE_URL}/management/${accountId}/people`,
+        {
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+        },
+      );
+
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
+
+      if (!res.ok || !Array.isArray(data)) {
+        setAccountPeople([]);
+        return;
+      }
+
+      const mapped: PersonOption[] = data.map((row: any) => ({
+        user_id: String(row.user_id),
+        name: row.name ?? "",
+        phone: row.phone ?? null,
+        photo_url: row.photo_url ?? null,
+        kind: (row.kind ?? "member") as PersonOption["kind"],
+      }));
+
+      setAccountPeople(mapped);
+    } catch (e) {
+      console.warn("[add-member] loadAccountPeople failed:", e);
+      setAccountPeople([]);
+    } finally {
+      setAccountPeopleLoading(false);
     }
   };
 
-  const getButtonText = (type: ManagementType): string => {
-    switch (type) {
-      case "apartment":
-        return "Add Apartment";
-      case "staff":
-        return "Add Staff";
-      case "expense":
-        return isIncome ? "Add Income" : "Add Expense";
-      default:
-        return "Add Member";
-    }
-  };
+  useEffect(() => {
+    loadAccountPeople();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountId, isPersonTab]);
+
+  const filteredPeople = useMemo(() => {
+    const q = personSearch.trim().toLowerCase();
+    if (!q) return accountPeople;
+    return accountPeople.filter((p) => {
+      const nameMatch = p.name.toLowerCase().includes(q);
+      const digits = (p.phone || "").replace(/\D/g, "");
+      const queryDigits = q.replace(/\D/g, "");
+      const phoneMatch = queryDigits ? digits.includes(queryDigits) : false;
+      return nameMatch || phoneMatch;
+    });
+  }, [accountPeople, personSearch]);
+
+  const selectedExisting = useMemo(
+    () => accountPeople.find((p) => p.user_id === selectedUserId) || null,
+    [accountPeople, selectedUserId],
+  );
+
+  // ── Phone-already-belongs detection ───────────────────────────────────
+  // When the user types a 10-digit number in New Person mode, check
+  // whether it matches an existing person on this account.
+  const phoneAlreadyBelongs = useMemo(() => {
+    const ten = normalizePhoneDigits(phone);
+    if (ten.length !== 10) return null;
+    const match = accountPeople.find(
+      (p) => normalizePhoneDigits(p.phone) === ten,
+    );
+    return match ?? null;
+  }, [phone, accountPeople]);
 
   const getHeaderTitle = () => {
     if (groupType === "expense") return "Add Transaction";
     if (groupType === "staff") return "Add Staff";
-    return "Add Apartment";
+    return "Add Member";
+  };
+
+  const getButtonText = (): string => {
+    if (groupType === "expense") return isIncome ? "Add Income" : "Add Expense";
+    if (groupType === "staff") return "Add Staff";
+    return "Add Member";
+  };
+
+  const getGroupTypeLabel = (type: ManagementType): string => {
+    switch (type) {
+      case "apartment":
+        return "apartment";
+      case "staff":
+        return "staff";
+      case "expense":
+        return "transaction";
+      default:
+        return "record";
+    }
   };
 
   const showPhotoSelectionOptions = (forBill: boolean = false) => {
@@ -796,7 +884,7 @@ export default function AddMemberScreen() {
     if (Platform.OS === "web") {
       Alert.alert(
         "Not Available",
-        "Contact picker is only available on mobile devices. Please enter your phone number manually.",
+        "Contact picker is only available on mobile devices. Please enter the phone number manually.",
         [{ text: "OK" }],
       );
       return;
@@ -899,6 +987,408 @@ export default function AddMemberScreen() {
 
     setContactSearch("");
     setShowContactPicker(false);
+  };
+
+  const handleAdd = async () => {
+    setError("");
+    setFieldErrors({});
+
+    if (!hasAccount) {
+      setError(
+        "Missing account information. Please go back and try opening this screen again.",
+      );
+      return;
+    }
+
+    const errors: Record<string, string> = {};
+
+    if (isPersonTab) {
+      if (mode === "new") {
+        if (!name.trim()) errors.name = "Name is required";
+        if (!phone || phone.length === 0) {
+          errors.phone = "Phone number is required";
+        } else if (phone.length !== 10) {
+          errors.phone = "Phone number must be 10 digits";
+        } else if (phoneAlreadyBelongs) {
+          errors.phone = `This number already belongs to ${phoneAlreadyBelongs.name || "an existing person"}. Use Existing Person instead.`;
+        }
+      } else if (!selectedUserId) {
+        errors.person = "Please select a person";
+      }
+
+      if (mode === "new" && !role) errors.role = "Please select a role";
+    }
+
+    if (groupType === "apartment") {
+      if (!flatNumber.trim()) {
+        errors.flatNumber = "Apartment number is required";
+      }
+      if (!maintenanceAmount.trim()) {
+        errors.maintenanceAmount = "Maintenance amount is required";
+      } else if (isNaN(Number(maintenanceAmount))) {
+        errors.maintenanceAmount = "Enter a valid amount";
+      }
+    }
+
+    if (groupType === "staff") {
+      if (!monthlySalary.trim()) {
+        errors.monthlySalary = "Monthly salary is required";
+      } else if (isNaN(Number(monthlySalary))) {
+        errors.monthlySalary = "Enter a valid salary";
+      }
+    }
+
+    if (groupType === "expense") {
+      if (!expenseAmount.trim()) {
+        errors.expenseAmount = "Amount is required";
+      } else if (isNaN(Number(expenseAmount))) {
+        errors.expenseAmount = "Enter a valid amount";
+      }
+      if (!role) errors.role = "Please choose a category";
+    }
+
+    if (Object.keys(errors).length > 0) {
+      setFieldErrors(errors);
+      setError("Please fix the highlighted fields");
+      return;
+    }
+
+    const payload: any = {
+      groupType,
+    };
+
+    if (groupType === "expense") {
+      payload.role = role;
+      payload.name = name.trim();
+      payload.amount = Number(expenseAmount);
+      payload.status = expenseStatus;
+      payload.transactionType = transactionKind;
+      payload.reminderEnabled =
+        expenseStatus === "due" ? reminderEnabled : false;
+      payload.dueDate = dueDate;
+      payload.description = expenseDescription.trim() || undefined;
+      payload.billAttachments = billAttachments;
+    } else {
+      payload.mode = mode;
+
+      if (mode === "existing") {
+        payload.user_id = selectedUserId;
+        // Existing Person: role is inherited from the person's prior
+        // record, so the client does not send `role`.
+      } else {
+        payload.role = role;
+        payload.name = name.trim();
+        payload.phone = `+91${phone}`;
+        payload.photoUri = photoUri ?? undefined;
+      }
+
+      if (groupType === "apartment") {
+        payload.wing = wing.trim() || undefined;
+        payload.flatNumber = flatNumber.trim();
+        payload.areaSqft = areaSqft ? Number(areaSqft) : undefined;
+        payload.parkingAvailable = parkingAvailable;
+        payload.maintenanceAmount = Number(maintenanceAmount);
+      }
+
+      if (groupType === "staff") {
+        payload.role = role;
+        payload.monthlySalary = Number(monthlySalary);
+      }
+    }
+
+    setLoading(true);
+
+    try {
+      await addNewMember(payload);
+      router.back();
+    } catch (e: any) {
+      console.error("[add-member] save failed:", e);
+      setError(
+        e?.message ||
+          `Failed to add ${getGroupTypeLabel(groupType)}. Please try again.`,
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const renderInput = ({
+    label,
+    value,
+    onChangeText,
+    placeholder,
+    icon,
+    errorKey,
+    keyboardType = "default",
+    optional = false,
+    maxLength,
+  }: {
+    label: string;
+    value: string;
+    onChangeText: (text: string) => void;
+    placeholder: string;
+    icon: keyof typeof Ionicons.glyphMap;
+    errorKey?: string;
+    keyboardType?: "default" | "numeric" | "number-pad";
+    optional?: boolean;
+    maxLength?: number;
+  }) => {
+    const inputError = errorKey ? fieldErrors[errorKey] : "";
+
+    return (
+      <View style={styles.fieldContainer}>
+        <View style={styles.labelRow}>
+          <Text
+            style={[
+              styles.inputLabel,
+              inputError ? styles.inputLabelError : undefined,
+            ]}
+          >
+            {label}
+          </Text>
+          {optional && <Text style={styles.optionalText}>Optional</Text>}
+        </View>
+
+        <View
+          style={[
+            styles.inputContainer,
+            inputError ? styles.inputContainerError : undefined,
+          ]}
+        >
+          <Ionicons
+            name={icon}
+            size={20}
+            color={inputError ? RED : "#94A3B8"}
+          />
+          <TextInput
+            style={styles.textInput}
+            placeholder={placeholder}
+            placeholderTextColor="#A1AAB8"
+            value={value}
+            onChangeText={onChangeText}
+            keyboardType={keyboardType}
+            maxLength={maxLength}
+          />
+        </View>
+
+        {inputError ? (
+          <Text style={styles.fieldError}>{inputError}</Text>
+        ) : null}
+      </View>
+    );
+  };
+
+  const renderSectionHeader = (
+    icon: keyof typeof Ionicons.glyphMap,
+    title: string,
+    subtitle?: string,
+  ) => (
+    <View style={styles.sectionHeader}>
+      <View style={styles.sectionIcon}>
+        <Ionicons name={icon} size={20} color={BLUE} />
+      </View>
+      <View style={styles.sectionHeaderText}>
+        <Text style={styles.sectionTitle}>{title}</Text>
+        {subtitle ? (
+          <Text style={styles.sectionSubtitle}>{subtitle}</Text>
+        ) : null}
+      </View>
+    </View>
+  );
+
+  const kindLabel = (kind: PersonOption["kind"]) => {
+    switch (kind) {
+      case "owner":
+        return "Owner";
+      case "admin":
+        return "Admin";
+      case "member":
+        return "Member";
+      case "staff":
+        return "Staff";
+      default:
+        return "Person";
+    }
+  };
+
+  const renderPersonPickerModal = () => {
+    if (!showPersonPicker) return null;
+
+    const showSearch = accountPeople.length > 0;
+
+    return (
+      <Modal
+        visible={showPersonPicker}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setShowPersonPicker(false)}
+      >
+        <TouchableWithoutFeedback onPress={() => setShowPersonPicker(false)}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback>
+              <View
+                style={[
+                  styles.modalContainer,
+                  { paddingBottom: Math.max(insets.bottom, 16) },
+                ]}
+              >
+                <View style={styles.modalHandle} />
+
+                <View style={styles.modalHeader}>
+                  <View>
+                    <Text style={styles.modalTitle}>Select Person</Text>
+                    <Text style={styles.modalSubtitle}>
+                      Add a record for someone already on this property
+                    </Text>
+                  </View>
+
+                  <TouchableOpacity
+                    onPress={() => setShowPersonPicker(false)}
+                    style={styles.modalCloseButton}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="close" size={22} color={TEXT} />
+                  </TouchableOpacity>
+                </View>
+
+                {showSearch && (
+                  <View style={styles.modalSearchContainer}>
+                    <Ionicons name="search-outline" size={20} color="#94A3B8" />
+                    <TextInput
+                      style={styles.modalSearchInput}
+                      placeholder="Search name or phone"
+                      placeholderTextColor="#94A3B8"
+                      value={personSearch}
+                      onChangeText={setPersonSearch}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                      returnKeyType="search"
+                    />
+                    {personSearch.length > 0 && (
+                      <TouchableOpacity
+                        onPress={() => setPersonSearch("")}
+                        style={styles.clearSearchButton}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons
+                          name="close-circle"
+                          size={19}
+                          color="#94A3B8"
+                        />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                )}
+
+                {accountPeopleLoading ? (
+                  <View style={styles.peopleLoadingContainer}>
+                    <ActivityIndicator size="small" color={BLUE} />
+                    <Text style={styles.peopleLoadingText}>
+                      Loading people...
+                    </Text>
+                  </View>
+                ) : (
+                  <>
+                    {showSearch && (
+                      <Text style={styles.resultCount}>
+                        {filteredPeople.length}{" "}
+                        {filteredPeople.length === 1 ? "person" : "people"}
+                      </Text>
+                    )}
+
+                    <View style={styles.contactListWrapper}>
+                      <ScrollView
+                        style={styles.contactListContainer}
+                        contentContainerStyle={styles.contactListContent}
+                        showsVerticalScrollIndicator={false}
+                        keyboardShouldPersistTaps="handled"
+                        nestedScrollEnabled
+                      >
+                        {filteredPeople.length > 0 ? (
+                          filteredPeople.map((person) => (
+                            <TouchableOpacity
+                              key={person.user_id}
+                              style={styles.contactItem}
+                              onPress={() => {
+                                setSelectedUserId(person.user_id);
+                                setPersonSearch("");
+                                setShowPersonPicker(false);
+                                clearFieldError("person");
+                              }}
+                              activeOpacity={0.7}
+                            >
+                              <View style={styles.contactAvatar}>
+                                {person.photo_url ? (
+                                  <Image
+                                    source={{ uri: person.photo_url }}
+                                    style={styles.contactAvatarImage}
+                                  />
+                                ) : (
+                                  <Text style={styles.contactAvatarText}>
+                                    {person.name
+                                      ? person.name.charAt(0).toUpperCase()
+                                      : "?"}
+                                  </Text>
+                                )}
+                              </View>
+                              <View style={styles.contactInfo}>
+                                <Text
+                                  style={styles.contactName}
+                                  numberOfLines={1}
+                                >
+                                  {person.name || "Unnamed"}
+                                </Text>
+                                <Text style={styles.contactPhone}>
+                                  {kindLabel(person.kind)}
+                                  {person.phone ? ` • ${person.phone}` : ""}
+                                </Text>
+                              </View>
+                              <View style={styles.contactSelectIcon}>
+                                <Ionicons
+                                  name="chevron-forward"
+                                  size={18}
+                                  color="#94A3B8"
+                                />
+                              </View>
+                            </TouchableOpacity>
+                          ))
+                        ) : (
+                          <View style={styles.noContactsContainer}>
+                            <View style={styles.noContactsIcon}>
+                              <Ionicons
+                                name="people-outline"
+                                size={30}
+                                color="#94A3B8"
+                              />
+                            </View>
+                            <Text style={styles.noContactsTitle}>
+                              No people found
+                            </Text>
+                            <Text style={styles.noContactsText}>
+                              {showSearch
+                                ? "Try a different name or phone number."
+                                : "No one else is on this account yet."}
+                            </Text>
+                          </View>
+                        )}
+                      </ScrollView>
+                    </View>
+                  </>
+                )}
+
+                <TouchableOpacity
+                  style={styles.modalCancelButton}
+                  onPress={() => setShowPersonPicker(false)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.modalCancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+    );
   };
 
   const renderContactPickerModal = () => {
@@ -1047,240 +1537,6 @@ export default function AddMemberScreen() {
     );
   };
 
-  const handleAdd = async () => {
-    setError("");
-    setFieldErrors({});
-
-    if (!hasAccount) {
-      setError(
-        "Missing account information. Please go back and try opening this screen again.",
-      );
-      return;
-    }
-
-    const errors: Record<string, string> = {};
-
-    if (!name.trim()) errors.name = "Name is required";
-
-    if (groupType !== "expense") {
-      if (!phone || phone.length === 0) {
-        errors.phone = "Phone number is required";
-      } else if (phone.length !== 10) {
-        errors.phone = "Phone number must be 10 digits";
-      }
-      if (!role) errors.role = "Please select a role";
-    }
-
-    if (groupType === "apartment") {
-      if (!flatNumber.trim()) {
-        errors.flatNumber = "Apartment number is required";
-      }
-      if (!maintenanceAmount.trim()) {
-        errors.maintenanceAmount = "Maintenance amount is required";
-      } else if (isNaN(Number(maintenanceAmount))) {
-        errors.maintenanceAmount = "Enter a valid amount";
-      }
-    }
-
-    if (groupType === "staff") {
-      if (!monthlySalary.trim()) {
-        errors.monthlySalary = "Monthly salary is required";
-      } else if (isNaN(Number(monthlySalary))) {
-        errors.monthlySalary = "Enter a valid salary";
-      }
-    }
-
-    if (groupType === "expense") {
-      if (!expenseAmount.trim()) {
-        errors.expenseAmount = "Amount is required";
-      } else if (isNaN(Number(expenseAmount))) {
-        errors.expenseAmount = "Enter a valid amount";
-      }
-      if (!role) errors.role = "Please choose a category";
-    }
-
-    if (Object.keys(errors).length > 0) {
-      setFieldErrors(errors);
-      setError("Please fix the highlighted fields");
-      return;
-    }
-
-    const payload = {
-      groupType,
-      name: name.trim(),
-      phone: groupType === "expense" ? "" : `+91${phone}`,
-      role,
-      photoUri: photoUri ?? undefined,
-
-      wing: groupType === "apartment" && wing.trim() ? wing.trim() : undefined,
-      flatNumber: groupType === "apartment" ? flatNumber.trim() : undefined,
-      areaSqft:
-        groupType === "apartment" && areaSqft ? Number(areaSqft) : undefined,
-      parkingAvailable:
-        groupType === "apartment" ? parkingAvailable : undefined,
-      maintenanceAmount:
-        groupType === "apartment" ? Number(maintenanceAmount) : undefined,
-
-      monthlySalary: groupType === "staff" ? Number(monthlySalary) : undefined,
-
-      amount: groupType === "expense" ? Number(expenseAmount) : undefined,
-      status: groupType === "expense" ? expenseStatus : undefined,
-      transactionType: groupType === "expense" ? transactionKind : undefined,
-      reminderEnabled:
-        groupType === "expense" && expenseStatus === "due"
-          ? reminderEnabled
-          : undefined,
-      dueDate: groupType === "expense" ? dueDate : undefined,
-      description:
-        groupType === "expense"
-          ? expenseDescription.trim() || undefined
-          : undefined,
-      billAttachments: groupType === "expense" ? billAttachments : undefined,
-    };
-
-    setLoading(true);
-
-    try {
-      await addNewMember(payload);
-      router.back();
-    } catch (e: any) {
-      if (e?.code === "name_conflict") {
-        setLoading(false);
-
-        const confirmed = await confirmNameConflict({
-          phone: String(e?.body?.phone ?? e?.phone ?? phone ?? ""),
-          existing_name: String(
-            e?.body?.existing_name ?? e?.existing_name ?? "",
-          ),
-          role: groupType === "staff" ? "staff" : "member",
-        });
-
-        if (!confirmed) {
-          return;
-        }
-
-        // The user tapped "Rename". The modal stays open with a spinner
-        // on the Rename button until we call closeNameConflict().
-        try {
-          await addNewMember({ ...payload, confirm_rename: true });
-
-          try {
-            await activeHook.refresh({ force: true });
-          } catch (refreshErr) {
-            console.warn(
-              "[add-member] post-rename refresh failed:",
-              refreshErr,
-            );
-          }
-
-          closeNameConflict();
-          router.back();
-          return;
-        } catch (err: any) {
-          closeNameConflict();
-          console.error("[add-member] confirmed save failed:", err);
-          setError(
-            err?.message ||
-              `Failed to add ${getGroupTypeLabel(groupType).toLowerCase()}. Please try again.`,
-          );
-          return;
-        }
-      }
-
-      console.error("[add-member] save failed:", e);
-      setError(
-        e?.message ||
-          `Failed to add ${getGroupTypeLabel(groupType).toLowerCase()}. Please try again.`,
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const renderInput = ({
-    label,
-    value,
-    onChangeText,
-    placeholder,
-    icon,
-    errorKey,
-    keyboardType = "default",
-    optional = false,
-    maxLength,
-  }: {
-    label: string;
-    value: string;
-    onChangeText: (text: string) => void;
-    placeholder: string;
-    icon: keyof typeof Ionicons.glyphMap;
-    errorKey?: string;
-    keyboardType?: "default" | "numeric" | "number-pad";
-    optional?: boolean;
-    maxLength?: number;
-  }) => {
-    const inputError = errorKey ? fieldErrors[errorKey] : "";
-
-    return (
-      <View style={styles.fieldContainer}>
-        <View style={styles.labelRow}>
-          <Text
-            style={[
-              styles.inputLabel,
-              inputError ? styles.inputLabelError : undefined,
-            ]}
-          >
-            {label}
-          </Text>
-          {optional && <Text style={styles.optionalText}>Optional</Text>}
-        </View>
-
-        <View
-          style={[
-            styles.inputContainer,
-            inputError ? styles.inputContainerError : undefined,
-          ]}
-        >
-          <Ionicons
-            name={icon}
-            size={20}
-            color={inputError ? RED : "#94A3B8"}
-          />
-          <TextInput
-            style={styles.textInput}
-            placeholder={placeholder}
-            placeholderTextColor="#A1AAB8"
-            value={value}
-            onChangeText={onChangeText}
-            keyboardType={keyboardType}
-            maxLength={maxLength}
-          />
-        </View>
-
-        {inputError ? (
-          <Text style={styles.fieldError}>{inputError}</Text>
-        ) : null}
-      </View>
-    );
-  };
-
-  const renderSectionHeader = (
-    icon: keyof typeof Ionicons.glyphMap,
-    title: string,
-    subtitle?: string,
-  ) => (
-    <View style={styles.sectionHeader}>
-      <View style={styles.sectionIcon}>
-        <Ionicons name={icon} size={20} color={BLUE} />
-      </View>
-      <View style={styles.sectionHeaderText}>
-        <Text style={styles.sectionTitle}>{title}</Text>
-        {subtitle ? (
-          <Text style={styles.sectionSubtitle}>{subtitle}</Text>
-        ) : null}
-      </View>
-    </View>
-  );
-
   return (
     <KeyboardAvoidingView
       style={[styles.container, { paddingBottom: insets.bottom }]}
@@ -1288,10 +1544,7 @@ export default function AddMemberScreen() {
       keyboardVerticalOffset={0}
     >
       <Stack.Screen
-        options={{
-          title: getHeaderTitle(),
-          headerBackTitle: "Back",
-        }}
+        options={{ title: getHeaderTitle(), headerBackTitle: "Back" }}
       />
 
       <ScrollView
@@ -1305,263 +1558,431 @@ export default function AddMemberScreen() {
         keyboardDismissMode="none"
         bounces={false}
       >
-        {groupType !== "expense" && (
-          <View style={styles.pageHeader}>
-            <View style={styles.pageHeaderIcon}>
-              <Ionicons
-                name={groupType === "staff" ? "people-outline" : "home-outline"}
-                size={28}
-                color={BLUE}
-              />
-            </View>
-            <View style={styles.pageHeaderText}>
-              <Text style={styles.pageTitle}>
-                {groupType === "staff"
-                  ? "New Staff Member"
-                  : "New Apartment Member"}
-              </Text>
-              <Text style={styles.pageSubtitle}>
-                {groupType === "staff"
-                  ? "Add staff information"
-                  : "Add resident and apartment details"}
-              </Text>
-            </View>
-          </View>
-        )}
-
-        {groupType !== "expense" && (
-          <View style={styles.photoCard}>
-            <TouchableOpacity
-              style={styles.photoButton}
-              onPress={() => showPhotoSelectionOptions(false)}
-              activeOpacity={0.8}
-            >
-              {photoUri ? (
-                <Image source={{ uri: photoUri }} style={styles.photoImage} />
-              ) : (
-                <>
-                  <Ionicons name="camera-outline" size={28} color={BLUE} />
-                  <View style={styles.photoPlus}>
-                    <Ionicons name="add" size={12} color="#fff" />
-                  </View>
-                </>
-              )}
-            </TouchableOpacity>
-            <View style={styles.photoTextContainer}>
-              <Text style={styles.photoTitle}>
-                {photoUri ? "Profile photo added" : "Add profile photo"}
-              </Text>
-              <Text style={styles.photoSubtitle}>
-                {photoUri
-                  ? "Tap the photo to change it"
-                  : "Optional • Helps identify members"}
-              </Text>
-            </View>
-            {photoUri && (
-              <TouchableOpacity
-                onPress={() => setPhotoUri(null)}
-                style={styles.removePhotoButton}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="trash-outline" size={19} color={RED} />
-              </TouchableOpacity>
-            )}
-          </View>
-        )}
-
-        {groupType !== "expense" && (
+        {isPersonTab ? (
           <View style={styles.card}>
             {renderSectionHeader(
-              "person-circle-outline",
-              "Basic Information",
-              "Enter the member's contact details",
+              "people-outline",
+              "Who are you adding?",
+              "Add a new person, or pick someone already on this property",
             )}
 
-            {renderInput({
-              label: "Full Name",
-              value: name,
-              onChangeText: (text) => {
-                setName(text);
-                clearFieldError("name");
-              },
-              placeholder: "e.g. Ramesh Kumar",
-              icon: "person-outline",
-              errorKey: "name",
-            })}
-
-            <View style={styles.fieldContainer}>
-              <View style={styles.labelRow}>
-                <Text
-                  style={[
-                    styles.inputLabel,
-                    fieldErrors.phone ? styles.inputLabelError : undefined,
-                  ]}
-                >
-                  Phone Number
-                </Text>
-              </View>
-              <View
+            <View style={styles.modeRow}>
+              <TouchableOpacity
                 style={[
-                  styles.inputContainer,
-                  fieldErrors.phone ? styles.inputContainerError : undefined,
+                  styles.modeCard,
+                  mode === "new" && styles.modeCardSelected,
                 ]}
+                onPress={() => {
+                  setMode("new");
+                  setError("");
+                  setFieldErrors({});
+                }}
+                activeOpacity={0.85}
               >
-                <View style={styles.countryCode}>
-                  <Text style={styles.countryCodeText}>+91</Text>
-                </View>
-                <TextInput
-                  style={styles.textInput}
-                  placeholder="9876543210"
-                  placeholderTextColor="#A1AAB8"
-                  keyboardType="number-pad"
-                  maxLength={10}
-                  value={phone}
-                  onChangeText={(text) => {
-                    setPhone(text.replace(/[^0-9]/g, ""));
-                    clearFieldError("phone");
-                  }}
-                />
-                <TouchableOpacity
-                  onPress={pickContact}
-                  style={styles.contactButton}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons name="people-outline" size={20} color={BLUE} />
-                </TouchableOpacity>
-              </View>
-              {fieldErrors.phone ? (
-                <Text style={styles.fieldError}>{fieldErrors.phone}</Text>
-              ) : (
-                <Text style={styles.helperText}>
-                  You can select a number from your contacts
-                </Text>
-              )}
-            </View>
-
-            <View style={styles.fieldContainer}>
-              <View style={styles.labelRow}>
-                <Text
+                <View
                   style={[
-                    styles.inputLabel,
-                    fieldErrors.role ? styles.inputLabelError : undefined,
+                    styles.modeIcon,
+                    mode === "new" && styles.modeIconSelected,
                   ]}
                 >
-                  Role
-                </Text>
-              </View>
-
-              <View style={styles.roleGrid}>
-                {roleOptions.map((option) => {
-                  const selected = !isCustomRole && role === option.role;
-                  return (
-                    <TouchableOpacity
-                      key={option.role}
-                      style={[
-                        styles.roleCard,
-                        selected && styles.roleCardSelected,
-                      ]}
-                      onPress={() => {
-                        setRole(option.role);
-                        setIsCustomRole(false);
-                        setCustomRole("");
-                        clearFieldError("role");
-                      }}
-                      activeOpacity={0.8}
-                    >
-                      <View
-                        style={[
-                          styles.roleIcon,
-                          selected && styles.roleIconSelected,
-                        ]}
-                      >
-                        <Ionicons
-                          name={option.icon}
-                          size={19}
-                          color={selected ? "#fff" : BLUE}
-                        />
-                      </View>
-                      <Text
-                        style={[
-                          styles.roleText,
-                          selected && styles.roleTextSelected,
-                        ]}
-                      >
-                        {option.label}
-                      </Text>
-                      {selected && (
-                        <View style={styles.roleCheck}>
-                          <Ionicons name="checkmark" size={13} color="#fff" />
-                        </View>
-                      )}
-                    </TouchableOpacity>
-                  );
-                })}
-
-                <TouchableOpacity
-                  style={[
-                    styles.roleCard,
-                    isCustomRole && styles.roleCardSelected,
-                  ]}
-                  onPress={() => {
-                    setIsCustomRole(true);
-                    setRole(
-                      customRole.trim()
-                        ? (customRole.trim() as MemberRole)
-                        : null,
-                    );
-                  }}
-                  activeOpacity={0.8}
-                >
-                  <View
-                    style={[
-                      styles.roleIcon,
-                      isCustomRole && styles.roleIconSelected,
-                    ]}
-                  >
-                    <Ionicons
-                      name="create-outline"
-                      size={19}
-                      color={isCustomRole ? "#fff" : BLUE}
-                    />
-                  </View>
-                  <Text
-                    style={[
-                      styles.roleText,
-                      isCustomRole && styles.roleTextSelected,
-                    ]}
-                  >
-                    Custom
-                  </Text>
-                  {isCustomRole && (
-                    <View style={styles.roleCheck}>
-                      <Ionicons name="checkmark" size={13} color="#fff" />
-                    </View>
-                  )}
-                </TouchableOpacity>
-              </View>
-
-              {isCustomRole && (
-                <View style={styles.customRoleWrapper}>
-                  <TextInput
-                    style={styles.customRoleInput}
-                    placeholder="Enter custom role"
-                    placeholderTextColor="#A1AAB8"
-                    value={customRole}
-                    onChangeText={(text) => {
-                      setCustomRole(text);
-                      setRole(text.trim() ? (text.trim() as MemberRole) : null);
-                      clearFieldError("role");
-                    }}
+                  <Ionicons
+                    name="person-add-outline"
+                    size={20}
+                    color={mode === "new" ? "#fff" : BLUE}
                   />
                 </View>
-              )}
+                <Text
+                  style={[
+                    styles.modeTitle,
+                    mode === "new" && styles.modeTitleSelected,
+                  ]}
+                >
+                  New Person
+                </Text>
+                <Text style={styles.modeSubtitle}>
+                  Create a new identity and their first{" "}
+                  {groupType === "staff" ? "role" : "flat"}
+                </Text>
+              </TouchableOpacity>
 
-              {fieldErrors.role ? (
-                <Text style={styles.fieldError}>{fieldErrors.role}</Text>
-              ) : null}
+              <TouchableOpacity
+                style={[
+                  styles.modeCard,
+                  mode === "existing" && styles.modeCardSelected,
+                ]}
+                onPress={() => {
+                  setMode("existing");
+                  setError("");
+                  setFieldErrors({});
+                  setSelectedUserId(null);
+                }}
+                activeOpacity={0.85}
+              >
+                <View
+                  style={[
+                    styles.modeIcon,
+                    mode === "existing" && styles.modeIconSelected,
+                  ]}
+                >
+                  <Ionicons
+                    name="link-outline"
+                    size={20}
+                    color={mode === "existing" ? "#fff" : BLUE}
+                  />
+                </View>
+                <Text
+                  style={[
+                    styles.modeTitle,
+                    mode === "existing" && styles.modeTitleSelected,
+                  ]}
+                >
+                  Existing Person
+                </Text>
+                <Text style={styles.modeSubtitle}>
+                  Add another {groupType === "staff" ? "role" : "flat"} for
+                  someone already here
+                </Text>
+              </TouchableOpacity>
             </View>
+
+            {mode === "existing" ? (
+              <View style={styles.fieldContainer}>
+                <View style={styles.labelRow}>
+                  <Text
+                    style={[
+                      styles.inputLabel,
+                      fieldErrors.person ? styles.inputLabelError : undefined,
+                    ]}
+                  >
+                    Person
+                  </Text>
+                </View>
+
+                <TouchableOpacity
+                  style={[
+                    styles.inputContainer,
+                    styles.personPickerTrigger,
+                    fieldErrors.person ? styles.inputContainerError : undefined,
+                  ]}
+                  onPress={() => {
+                    setPersonSearch("");
+                    setShowPersonPicker(true);
+                  }}
+                  activeOpacity={0.85}
+                >
+                  {selectedExisting ? (
+                    <>
+                      <View style={styles.selectedPersonAvatar}>
+                        {selectedExisting.photo_url ? (
+                          <Image
+                            source={{ uri: selectedExisting.photo_url }}
+                            style={styles.selectedPersonAvatarImage}
+                          />
+                        ) : (
+                          <Text style={styles.selectedPersonAvatarText}>
+                            {selectedExisting.name
+                              ? selectedExisting.name.charAt(0).toUpperCase()
+                              : "?"}
+                          </Text>
+                        )}
+                      </View>
+                      <View style={styles.selectedPersonInfo}>
+                        <Text
+                          style={styles.selectedPersonName}
+                          numberOfLines={1}
+                        >
+                          {selectedExisting.name || "Unnamed"}
+                        </Text>
+                        <Text
+                          style={styles.selectedPersonPhone}
+                          numberOfLines={1}
+                        >
+                          {kindLabel(selectedExisting.kind)}
+                          {selectedExisting.phone
+                            ? ` • ${selectedExisting.phone}`
+                            : ""}
+                        </Text>
+                      </View>
+                      <Ionicons name="chevron-down" size={18} color="#94A3B8" />
+                    </>
+                  ) : (
+                    <>
+                      <Ionicons
+                        name="people-outline"
+                        size={20}
+                        color="#94A3B8"
+                      />
+                      <Text style={styles.personPlaceholder}>
+                        Select a person
+                      </Text>
+                      <Ionicons name="chevron-down" size={18} color="#94A3B8" />
+                    </>
+                  )}
+                </TouchableOpacity>
+
+                {fieldErrors.person ? (
+                  <Text style={styles.fieldError}>{fieldErrors.person}</Text>
+                ) : (
+                  <Text style={styles.helperText}>
+                    Their name, phone, and photo come from their profile.
+                  </Text>
+                )}
+              </View>
+            ) : (
+              <>
+                <View style={styles.photoCard}>
+                  <TouchableOpacity
+                    style={styles.photoButton}
+                    onPress={() => showPhotoSelectionOptions(false)}
+                    activeOpacity={0.8}
+                  >
+                    {photoUri ? (
+                      <Image
+                        source={{ uri: photoUri }}
+                        style={styles.photoImage}
+                      />
+                    ) : (
+                      <>
+                        <Ionicons
+                          name="camera-outline"
+                          size={28}
+                          color={BLUE}
+                        />
+                        <View style={styles.photoPlus}>
+                          <Ionicons name="add" size={12} color="#fff" />
+                        </View>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                  <View style={styles.photoTextContainer}>
+                    <Text style={styles.photoTitle}>
+                      {photoUri ? "Profile photo added" : "Add profile photo"}
+                    </Text>
+                    <Text style={styles.photoSubtitle}>
+                      {photoUri
+                        ? "Tap the photo to change it"
+                        : "Optional • Helps identify people"}
+                    </Text>
+                  </View>
+                  {photoUri && (
+                    <TouchableOpacity
+                      onPress={() => setPhotoUri(null)}
+                      style={styles.removePhotoButton}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="trash-outline" size={19} color={RED} />
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                {renderInput({
+                  label: "Full Name",
+                  value: name,
+                  onChangeText: (text) => {
+                    setName(text);
+                    clearFieldError("name");
+                  },
+                  placeholder: "e.g. Ramesh Kumar",
+                  icon: "person-outline",
+                  errorKey: "name",
+                })}
+
+                <View style={styles.fieldContainer}>
+                  <View style={styles.labelRow}>
+                    <Text
+                      style={[
+                        styles.inputLabel,
+                        fieldErrors.phone ? styles.inputLabelError : undefined,
+                      ]}
+                    >
+                      Phone Number
+                    </Text>
+                  </View>
+                  <View
+                    style={[
+                      styles.inputContainer,
+                      fieldErrors.phone
+                        ? styles.inputContainerError
+                        : undefined,
+                    ]}
+                  >
+                    <View style={styles.countryCode}>
+                      <Text style={styles.countryCodeText}>+91</Text>
+                    </View>
+                    <TextInput
+                      style={styles.textInput}
+                      placeholder="9876543210"
+                      placeholderTextColor="#A1AAB8"
+                      keyboardType="number-pad"
+                      maxLength={10}
+                      value={phone}
+                      onChangeText={(text) => {
+                        setPhone(text.replace(/[^0-9]/g, ""));
+                        clearFieldError("phone");
+                      }}
+                    />
+                    <TouchableOpacity
+                      onPress={pickContact}
+                      style={styles.contactButton}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="people-outline" size={20} color={BLUE} />
+                    </TouchableOpacity>
+                  </View>
+                  {fieldErrors.phone ? (
+                    <Text style={styles.fieldError}>{fieldErrors.phone}</Text>
+                  ) : phoneAlreadyBelongs ? (
+                    <View style={styles.phoneBelongsNotice}>
+                      <Ionicons name="alert-circle" size={16} color="#B45309" />
+                      <Text style={styles.phoneBelongsText}>
+                        This number belongs to{" "}
+                        <Text style={styles.phoneBelongsName}>
+                          {phoneAlreadyBelongs.name || "an existing person"}
+                        </Text>
+                        . Go to Existing Person and select them, then add{" "}
+                        {groupType === "staff"
+                          ? "a staff role"
+                          : "another flat"}
+                        .
+                      </Text>
+                    </View>
+                  ) : (
+                    <Text style={styles.helperText}>
+                      You can select a number from your contacts
+                    </Text>
+                  )}
+                </View>
+              </>
+            )}
+
+            {mode === "new" && (
+              <View style={styles.fieldContainer}>
+                <View style={styles.labelRow}>
+                  <Text
+                    style={[
+                      styles.inputLabel,
+                      fieldErrors.role ? styles.inputLabelError : undefined,
+                    ]}
+                  >
+                    {groupType === "staff" ? "Staff Role" : "Role"}
+                  </Text>
+                </View>
+
+                <View style={styles.roleGrid}>
+                  {roleOptions.map((option) => {
+                    const selected = !isCustomRole && role === option.role;
+                    return (
+                      <TouchableOpacity
+                        key={option.role}
+                        style={[
+                          styles.roleCard,
+                          selected && styles.roleCardSelected,
+                        ]}
+                        onPress={() => {
+                          setRole(option.role);
+                          setIsCustomRole(false);
+                          setCustomRole("");
+                          clearFieldError("role");
+                        }}
+                        activeOpacity={0.8}
+                      >
+                        <View
+                          style={[
+                            styles.roleIcon,
+                            selected && styles.roleIconSelected,
+                          ]}
+                        >
+                          <Ionicons
+                            name={option.icon}
+                            size={19}
+                            color={selected ? "#fff" : BLUE}
+                          />
+                        </View>
+                        <Text
+                          style={[
+                            styles.roleText,
+                            selected && styles.roleTextSelected,
+                          ]}
+                        >
+                          {option.label}
+                        </Text>
+                        {selected && (
+                          <View style={styles.roleCheck}>
+                            <Ionicons name="checkmark" size={13} color="#fff" />
+                          </View>
+                        )}
+                      </TouchableOpacity>
+                    );
+                  })}
+
+                  <TouchableOpacity
+                    style={[
+                      styles.roleCard,
+                      isCustomRole && styles.roleCardSelected,
+                    ]}
+                    onPress={() => {
+                      setIsCustomRole(true);
+                      setRole(
+                        customRole.trim()
+                          ? (customRole.trim() as MemberRole)
+                          : null,
+                      );
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <View
+                      style={[
+                        styles.roleIcon,
+                        isCustomRole && styles.roleIconSelected,
+                      ]}
+                    >
+                      <Ionicons
+                        name="create-outline"
+                        size={19}
+                        color={isCustomRole ? "#fff" : BLUE}
+                      />
+                    </View>
+                    <Text
+                      style={[
+                        styles.roleText,
+                        isCustomRole && styles.roleTextSelected,
+                      ]}
+                    >
+                      Custom
+                    </Text>
+                    {isCustomRole && (
+                      <View style={styles.roleCheck}>
+                        <Ionicons name="checkmark" size={13} color="#fff" />
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                </View>
+
+                {isCustomRole && (
+                  <View style={styles.customRoleWrapper}>
+                    <TextInput
+                      style={styles.customRoleInput}
+                      placeholder="Enter custom role"
+                      placeholderTextColor="#A1AAB8"
+                      value={customRole}
+                      onChangeText={(text) => {
+                        setCustomRole(text);
+                        setRole(
+                          text.trim() ? (text.trim() as MemberRole) : null,
+                        );
+                        clearFieldError("role");
+                      }}
+                    />
+                  </View>
+                )}
+
+                {fieldErrors.role ? (
+                  <Text style={styles.fieldError}>{fieldErrors.role}</Text>
+                ) : null}
+              </View>
+            )}
           </View>
-        )}
+        ) : null}
 
         {groupType === "apartment" && (
           <View style={styles.card}>
@@ -2083,7 +2504,7 @@ export default function AddMemberScreen() {
                 size={21}
                 color="#fff"
               />
-              <Text style={styles.buttonText}>{getButtonText(groupType)}</Text>
+              <Text style={styles.buttonText}>{getButtonText()}</Text>
             </>
           )}
         </TouchableOpacity>
@@ -2101,6 +2522,7 @@ export default function AddMemberScreen() {
       />
 
       {renderContactPickerModal()}
+      {renderPersonPickerModal()}
 
       <Modal
         visible={showPhotoOptions}
@@ -2187,38 +2609,106 @@ export default function AddMemberScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: BACKGROUND },
   scrollView: { flex: 1 },
-  scrollContent: {
-    paddingHorizontal: 16,
-    paddingTop: 18,
-    flexGrow: 1,
+  scrollContent: { paddingHorizontal: 16, paddingTop: 18, flexGrow: 1 },
+
+  card: {
+    backgroundColor: "#fff",
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: BORDER,
+    padding: 16,
+    marginBottom: 14,
   },
 
-  pageHeader: {
+  sectionHeader: {
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 18,
+    marginBottom: 4,
   },
-  pageHeaderIcon: {
-    width: 54,
-    height: 54,
-    borderRadius: 16,
+  sectionIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
     backgroundColor: BLUE_LIGHT,
     justifyContent: "center",
     alignItems: "center",
-    marginRight: 13,
+    marginRight: 11,
   },
-  pageHeaderText: { flex: 1 },
-  pageTitle: {
-    fontSize: 22,
-    fontWeight: "700",
-    color: TEXT,
-    letterSpacing: -0.3,
+  sectionHeaderText: { flex: 1 },
+  sectionTitle: { fontSize: 16, fontWeight: "700", color: TEXT },
+  sectionSubtitle: { fontSize: 12, color: TEXT_SECONDARY, marginTop: 3 },
+
+  modeRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 14,
   },
-  pageSubtitle: {
-    fontSize: 13,
+  modeCard: {
+    flex: 1,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    borderColor: BORDER,
+    backgroundColor: "#fff",
+  },
+  modeCardSelected: {
+    borderColor: BLUE,
+    backgroundColor: BLUE_LIGHT,
+  },
+  modeIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: BLUE_LIGHT,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 10,
+  },
+  modeIconSelected: { backgroundColor: BLUE },
+  modeTitle: { fontSize: 14, fontWeight: "700", color: TEXT },
+  modeTitleSelected: { color: BLUE },
+  modeSubtitle: {
+    fontSize: 11.5,
     color: TEXT_SECONDARY,
     marginTop: 4,
-    lineHeight: 18,
+    lineHeight: 16,
+  },
+
+  personPickerTrigger: {
+    minHeight: 56,
+    paddingHorizontal: 12,
+  },
+  personPlaceholder: {
+    flex: 1,
+    fontSize: 14,
+    color: "#94A3B8",
+    marginLeft: 10,
+  },
+  selectedPersonAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: BLUE_LIGHT,
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+  },
+  selectedPersonAvatarImage: { width: "100%", height: "100%" },
+  selectedPersonAvatarText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: BLUE,
+  },
+  selectedPersonInfo: { flex: 1, minWidth: 0, marginLeft: 10 },
+  selectedPersonName: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: TEXT,
+  },
+  selectedPersonPhone: {
+    fontSize: 11.5,
+    color: TEXT_SECONDARY,
+    marginTop: 2,
   },
 
   photoCard: {
@@ -2229,7 +2719,8 @@ const styles = StyleSheet.create({
     padding: 14,
     flexDirection: "row",
     alignItems: "center",
-    marginBottom: 14,
+    marginTop: 14,
+    marginBottom: 10,
   },
   photoButton: {
     width: 66,
@@ -2273,33 +2764,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
 
-  card: {
-    backgroundColor: "#fff",
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: BORDER,
-    padding: 16,
-    marginBottom: 14,
-  },
-
-  sectionHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: 4,
-  },
-  sectionIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: BLUE_LIGHT,
-    justifyContent: "center",
-    alignItems: "center",
-    marginRight: 11,
-  },
-  sectionHeaderText: { flex: 1 },
-  sectionTitle: { fontSize: 16, fontWeight: "700", color: TEXT },
-  sectionSubtitle: { fontSize: 12, color: TEXT_SECONDARY, marginTop: 3 },
-
   fieldContainer: { marginTop: 18 },
   labelRow: {
     flexDirection: "row",
@@ -2318,8 +2782,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff",
     flexDirection: "row",
     alignItems: "center",
-    paddingLeft: 14,
-    paddingRight: 6,
+    paddingHorizontal: 14,
+    gap: 10,
   },
   inputContainerError: {
     borderColor: "#FCA5A5",
@@ -2330,7 +2794,7 @@ const styles = StyleSheet.create({
     minHeight: 50,
     fontSize: 15,
     color: TEXT,
-    paddingHorizontal: 10,
+    paddingHorizontal: 0,
   },
   countryCode: {
     paddingRight: 10,
@@ -2348,6 +2812,25 @@ const styles = StyleSheet.create({
   },
   helperText: { fontSize: 11, color: "#94A3B8", marginTop: 6 },
   fieldError: { fontSize: 11, color: RED, marginTop: 6, fontWeight: "500" },
+
+  phoneBelongsNotice: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    padding: 10,
+    borderRadius: 10,
+    backgroundColor: "#FEF3C7",
+    borderWidth: 1,
+    borderColor: "#FDE68A",
+    marginTop: 8,
+  },
+  phoneBelongsText: {
+    flex: 1,
+    fontSize: 11.5,
+    lineHeight: 16,
+    color: "#92400E",
+  },
+  phoneBelongsName: { fontWeight: "800", color: "#78350F" },
 
   roleGrid: { flexDirection: "row", flexWrap: "wrap", gap: 10 },
   roleCard: {
@@ -2687,7 +3170,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 26,
     paddingHorizontal: 18,
     paddingTop: 10,
-    maxHeight: "65%",
+    maxHeight: "75%",
     minHeight: "55%",
   },
   modalHandle: {
@@ -2744,6 +3227,13 @@ const styles = StyleSheet.create({
     marginBottom: 5,
     fontWeight: "500",
   },
+  peopleLoadingContainer: {
+    paddingVertical: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+  },
+  peopleLoadingText: { fontSize: 13, color: "#64748B", fontWeight: "600" },
   contactListWrapper: { flex: 1, minHeight: 220 },
   contactListContainer: { flex: 1 },
   contactListContent: { paddingBottom: 8 },
@@ -2762,7 +3252,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     marginRight: 11,
+    overflow: "hidden",
   },
+  contactAvatarImage: { width: "100%", height: "100%" },
   contactAvatarText: { fontSize: 17, fontWeight: "700", color: BLUE },
   contactInfo: { flex: 1, marginRight: 8 },
   contactName: { fontSize: 14, fontWeight: "600", color: TEXT },

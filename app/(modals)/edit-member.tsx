@@ -28,20 +28,14 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  TouchableWithoutFeedback,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import DatePickerModal from "../../components/DatePickerModal";
 import {
-  closeNameConflict,
-  confirmNameConflict,
-} from "../../components/NameConflictAlert";
-import {
   PhoneVisibilityRow,
   useExpenses,
-  useManagementStore,
   useMembers,
   useStaff,
 } from "../../hooks/useManagement";
@@ -620,7 +614,6 @@ function PhotoAdjustModal({
               <View
                 style={[adjustStyles.circleGuide, { pointerEvents: "none" }]}
               />
-
               <View style={adjustStyles.zoomLevelBadge}>
                 <Text style={adjustStyles.zoomLevelText}>
                   {Math.round(zoom * 100)}%
@@ -686,17 +679,8 @@ const adjustStyles = StyleSheet.create({
     maxWidth: 420,
     alignItems: "center",
   },
-  title: {
-    fontSize: 17,
-    fontWeight: "800",
-    color: "#0f172a",
-    marginBottom: 2,
-  },
-  subtitle: {
-    fontSize: 12.5,
-    color: "#64748b",
-    marginBottom: 16,
-  },
+  title: { fontSize: 17, fontWeight: "800", color: "#0f172a", marginBottom: 2 },
+  subtitle: { fontSize: 12.5, color: "#64748b", marginBottom: 16 },
   viewportWrapper: { alignItems: "center", justifyContent: "center" },
   viewport: {
     backgroundColor: "#0f172a",
@@ -757,10 +741,6 @@ const adjustStyles = StyleSheet.create({
   confirmText: { fontSize: 14, fontWeight: "700", color: "#ffffff" },
 });
 
-// ==================================================
-// MAIN COMPONENT
-// ==================================================
-
 export default function EditMemberScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -805,13 +785,8 @@ export default function EditMemberScreen() {
   const member = getById(memberId);
 
   const { user } = useAuthStore();
-  const currentUserPhone = normalizePhone(user?.phone);
-  const memberPhone = normalizePhone(member?.phone);
-  const isSelfMember =
-    groupType === "apartment" &&
-    !!currentUserPhone &&
-    !!memberPhone &&
-    currentUserPhone === memberPhone;
+
+  const isSelf = !!user?.id && !!member?.userId && user.id === member.userId;
 
   let roleOptions: RoleOption[] = [];
   if (groupType === "apartment") roleOptions = FLAT_ROLES;
@@ -931,7 +906,7 @@ export default function EditMemberScreen() {
   useEffect(() => {
     if (!member) return;
 
-    setName(member.name);
+    setName(member.name ?? "");
 
     let memberPhoneValue = member.phone || "";
     memberPhoneValue = memberPhoneValue
@@ -1173,7 +1148,7 @@ export default function EditMemberScreen() {
   };
 
   const openVisibilityModal = async () => {
-    if (!isSelfMember || !memberId) return;
+    if (!isSelf || !memberId) return;
 
     setShowVisibility(true);
     setVisibilityLoading(true);
@@ -1245,33 +1220,8 @@ export default function EditMemberScreen() {
   const allSelectableOn =
     selectableRows.length > 0 && selectableRows.every((r) => r.enabled);
 
-  // -------------------------------------------------------------------------
-  // Cross-entity sync helper
-  //
-  // When the same person also exists as the other entity type (member ↔
-  // staff) under the same phone, mirror the shared identity fields so the
-  // Home screen's twin card updates instantly instead of waiting for a
-  // refetch.
-  //
-  // We match on `member.phone` (the ORIGINAL phone captured from the store
-  // before save) rather than the freshly-saved value, because if the phone
-  // itself was edited, the sibling row still holds the old phone at this
-  // moment.
-  // -------------------------------------------------------------------------
-  const syncTwinEntity = (savedName: string, savedPhotoUri?: string | null) => {
-    if (!accountId) return;
-    if (groupType !== "apartment" && groupType !== "staff") return;
-    if (!member?.phone) return;
-
-    const shared: Record<string, any> = {};
-    if (savedName !== undefined) shared.name = savedName;
-    if (savedPhotoUri !== undefined) shared.photoUri = savedPhotoUri;
-
-    if (Object.keys(shared).length === 0) return;
-
-    useManagementStore
-      .getState()
-      .syncByIdentity(accountId, member.phone, shared);
+  const handleOpenProfile = () => {
+    router.push("/(modals)/edit-profile");
   };
 
   const handleUpdate = async () => {
@@ -1279,14 +1229,9 @@ export default function EditMemberScreen() {
 
     const errors: Record<string, string> = {};
 
-    if (!name.trim()) errors.name = "Name is required";
-
-    if (groupType !== "expense") {
-      if (!phone || phone.length === 0) {
-        errors.phone = "Phone number is missing";
-      } else if (phone.length !== 10) {
-        errors.phone = "Phone number must be 10 digits";
-      }
+    if (groupType === "expense") {
+      if (!name.trim()) errors.name = "Name is required";
+    } else {
       if (!role) errors.role = "Please select a role";
     }
 
@@ -1348,10 +1293,7 @@ export default function EditMemberScreen() {
     setLoading(true);
 
     const updateData: any = {
-      name: name.trim(),
-      phone: groupType === "expense" ? "" : `+91${phone}`,
       role,
-      photoUri: photoUri ?? undefined,
     };
 
     if (groupType === "apartment") {
@@ -1369,6 +1311,7 @@ export default function EditMemberScreen() {
     }
 
     if (groupType === "expense") {
+      updateData.name = name.trim();
       updateData.amount = Number(expenseAmount);
       updateData.role = role;
       updateData.transactionType = transactionKind;
@@ -1382,64 +1325,9 @@ export default function EditMemberScreen() {
 
     try {
       await update(memberId, updateData);
-
-      // Mirror shared identity fields to the sibling entity (member ↔
-      // staff) so the Home screen's twin card updates instantly.
-      syncTwinEntity(updateData.name, updateData.photoUri ?? undefined);
-
       router.back();
     } catch (e: any) {
-      if (e?.code === "name_conflict") {
-        setLoading(false);
-
-        const confirmed = await confirmNameConflict({
-          phone: String(e?.body?.phone ?? e?.phone ?? phone ?? ""),
-          existing_name: String(
-            e?.body?.existing_name ?? e?.existing_name ?? "",
-          ),
-          role: groupType === "staff" ? "staff" : "member",
-        });
-
-        if (!confirmed) {
-          return;
-        }
-
-        try {
-          // scoped_rename: true tells the server to rename ONLY this
-          // record's row (member OR staff), not every row sharing this
-          // phone. Without this, the server propagates the new name to
-          // the other entity type (member ↔ staff) and any pending invites.
-          await update(memberId, {
-            ...updateData,
-            confirm_rename: true,
-            scoped_rename: true,
-          });
-
-          // Mirror the rename across the twin card on the Home screen.
-          syncTwinEntity(updateData.name, updateData.photoUri ?? undefined);
-
-          try {
-            await activeHook.refresh({ force: true });
-          } catch (refreshErr) {
-            console.warn(
-              "[edit-member] post-rename refresh failed:",
-              refreshErr,
-            );
-          }
-
-          closeNameConflict();
-          router.back();
-          return;
-        } catch (err: any) {
-          closeNameConflict();
-          console.error("[edit-member] confirmed save failed:", err);
-          setError(
-            err?.message || `Failed to update ${deleteNoun.toLowerCase()}`,
-          );
-          return;
-        }
-      }
-
+      console.error("[edit-member] update failed:", e);
       setError(e?.message || `Failed to update ${deleteNoun.toLowerCase()}`);
     } finally {
       setLoading(false);
@@ -1511,11 +1399,7 @@ export default function EditMemberScreen() {
       >
         {groupType !== "expense" && (
           <View style={styles.profileCard}>
-            <TouchableOpacity
-              style={styles.profileAvatarWrapper}
-              onPress={() => showPhotoSelectionOptions(false)}
-              activeOpacity={0.8}
-            >
+            <View style={styles.profileAvatarWrapper}>
               {photoUri ? (
                 <Image source={{ uri: photoUri }} style={styles.profileImage} />
               ) : (
@@ -1523,10 +1407,7 @@ export default function EditMemberScreen() {
                   <Ionicons name="person" size={34} color="#2563eb" />
                 </View>
               )}
-              <View style={styles.cameraBadge}>
-                <Ionicons name="camera" size={14} color="#fff" />
-              </View>
-            </TouchableOpacity>
+            </View>
 
             <View style={styles.profileInfo}>
               <Text style={styles.profileName} numberOfLines={1}>
@@ -1538,19 +1419,16 @@ export default function EditMemberScreen() {
                   : roleOptions.find((item) => item.role === role)?.label ||
                     "Member"}
               </Text>
-              <TouchableOpacity
-                onPress={() => showPhotoSelectionOptions(false)}
-                activeOpacity={0.7}
-              >
+              <TouchableOpacity onPress={handleOpenProfile} activeOpacity={0.7}>
                 <Text style={styles.changePhotoText}>
-                  {photoUri ? "Change profile photo" : "Add profile photo"}
+                  Edit name & photo in your profile
                 </Text>
               </TouchableOpacity>
             </View>
           </View>
         )}
 
-        {isSelfMember ? (
+        {isSelf ? (
           <TouchableOpacity
             style={styles.visibilityCard}
             onPress={openVisibilityModal}
@@ -1568,181 +1446,6 @@ export default function EditMemberScreen() {
             <Ionicons name="chevron-forward" size={20} color="#94a3b8" />
           </TouchableOpacity>
         ) : null}
-
-        {groupType !== "expense" && (
-          <View style={styles.card}>
-            <SectionHeader
-              icon="person-outline"
-              title="Personal Details"
-              subtitle="Basic contact information"
-            />
-
-            <FieldLabel label="Full Name" required error={fieldErrors.name} />
-            <InputContainer icon="person-outline" error={!!fieldErrors.name}>
-              <TextInput
-                style={styles.input}
-                placeholder="Enter full name"
-                placeholderTextColor="#9ca3af"
-                value={name}
-                onChangeText={(text) => {
-                  setName(text);
-                  if (fieldErrors.name) {
-                    setFieldErrors({ ...fieldErrors, name: "" });
-                  }
-                }}
-              />
-            </InputContainer>
-            {fieldErrors.name ? <FieldError text={fieldErrors.name} /> : null}
-
-            <FieldLabel
-              label="Phone Number"
-              required
-              error={fieldErrors.phone}
-            />
-            <View
-              style={[
-                styles.phoneContainer,
-                fieldErrors.phone && styles.errorBorder,
-              ]}
-            >
-              <View style={styles.countryCode}>
-                <Text style={styles.countryCodeText}>+91</Text>
-              </View>
-              <TextInput
-                style={styles.phoneInput}
-                placeholder="9876543210"
-                placeholderTextColor="#9ca3af"
-                keyboardType="number-pad"
-                maxLength={10}
-                value={phone}
-                onChangeText={(text) => {
-                  setPhone(text.replace(/[^0-9]/g, ""));
-                  if (fieldErrors.phone) {
-                    setFieldErrors({ ...fieldErrors, phone: "" });
-                  }
-                }}
-              />
-              <TouchableOpacity
-                onPress={pickContact}
-                style={styles.contactButton}
-                activeOpacity={0.7}
-                disabled={loadingContacts}
-              >
-                <Ionicons
-                  name="people-outline"
-                  size={20}
-                  color={loadingContacts ? "#9ca3af" : "#2563eb"}
-                />
-              </TouchableOpacity>
-            </View>
-            {fieldErrors.phone ? <FieldError text={fieldErrors.phone} /> : null}
-          </View>
-        )}
-
-        {groupType !== "expense" && (
-          <View style={styles.card}>
-            <SectionHeader
-              icon="shield-checkmark-outline"
-              title="Role"
-              subtitle="Select the person's role"
-            />
-
-            <View style={styles.roleGrid}>
-              {roleOptions.map((option) => {
-                const selected = role === option.role && !isCustomRole;
-                return (
-                  <TouchableOpacity
-                    key={option.role}
-                    style={[
-                      styles.roleOption,
-                      selected && styles.roleOptionSelected,
-                    ]}
-                    onPress={() => {
-                      setRole(option.role);
-                      setIsCustomRole(false);
-                      setCustomRole("");
-                      if (fieldErrors.role) {
-                        setFieldErrors({ ...fieldErrors, role: "" });
-                      }
-                    }}
-                    activeOpacity={0.75}
-                  >
-                    <View
-                      style={[
-                        styles.roleRadio,
-                        selected && styles.roleRadioSelected,
-                      ]}
-                    >
-                      {selected ? <View style={styles.roleRadioDot} /> : null}
-                    </View>
-                    <Text
-                      style={[
-                        styles.roleOptionText,
-                        selected && styles.roleOptionTextSelected,
-                      ]}
-                    >
-                      {option.label}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-
-              <TouchableOpacity
-                style={[
-                  styles.roleOption,
-                  isCustomRole && styles.roleOptionSelected,
-                ]}
-                onPress={() => {
-                  setIsCustomRole(true);
-                  setRole((customRole.trim() as MemberRole) || null);
-                }}
-                activeOpacity={0.75}
-              >
-                <View
-                  style={[
-                    styles.roleRadio,
-                    isCustomRole && styles.roleRadioSelected,
-                  ]}
-                >
-                  {isCustomRole ? <View style={styles.roleRadioDot} /> : null}
-                </View>
-                <Text
-                  style={[
-                    styles.roleOptionText,
-                    isCustomRole && styles.roleOptionTextSelected,
-                  ]}
-                >
-                  Custom
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            {isCustomRole ? (
-              <View style={styles.customRoleWrapper}>
-                <InputContainer
-                  icon="create-outline"
-                  error={!!fieldErrors.role}
-                >
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Enter custom role"
-                    placeholderTextColor="#9ca3af"
-                    value={customRole}
-                    onChangeText={(text) => {
-                      setCustomRole(text);
-                      setRole((text.trim() as MemberRole) || null);
-                      if (fieldErrors.role) {
-                        setFieldErrors({ ...fieldErrors, role: "" });
-                      }
-                    }}
-                  />
-                </InputContainer>
-              </View>
-            ) : null}
-
-            {fieldErrors.role ? <FieldError text={fieldErrors.role} /> : null}
-          </View>
-        )}
 
         {groupType === "apartment" && (
           <View style={styles.card}>
@@ -1848,6 +1551,102 @@ export default function EditMemberScreen() {
             {fieldErrors.maintenanceAmount ? (
               <FieldError text={fieldErrors.maintenanceAmount} />
             ) : null}
+
+            <FieldLabel label="Role" required error={fieldErrors.role} />
+            <View style={styles.roleGrid}>
+              {roleOptions.map((option) => {
+                const selected = role === option.role && !isCustomRole;
+                return (
+                  <TouchableOpacity
+                    key={option.role}
+                    style={[
+                      styles.roleOption,
+                      selected && styles.roleOptionSelected,
+                    ]}
+                    onPress={() => {
+                      setRole(option.role);
+                      setIsCustomRole(false);
+                      setCustomRole("");
+                      if (fieldErrors.role) {
+                        setFieldErrors({ ...fieldErrors, role: "" });
+                      }
+                    }}
+                    activeOpacity={0.75}
+                  >
+                    <View
+                      style={[
+                        styles.roleRadio,
+                        selected && styles.roleRadioSelected,
+                      ]}
+                    >
+                      {selected ? <View style={styles.roleRadioDot} /> : null}
+                    </View>
+                    <Text
+                      style={[
+                        styles.roleOptionText,
+                        selected && styles.roleOptionTextSelected,
+                      ]}
+                    >
+                      {option.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+
+              <TouchableOpacity
+                style={[
+                  styles.roleOption,
+                  isCustomRole && styles.roleOptionSelected,
+                ]}
+                onPress={() => {
+                  setIsCustomRole(true);
+                  setRole((customRole.trim() as MemberRole) || null);
+                }}
+                activeOpacity={0.75}
+              >
+                <View
+                  style={[
+                    styles.roleRadio,
+                    isCustomRole && styles.roleRadioSelected,
+                  ]}
+                >
+                  {isCustomRole ? <View style={styles.roleRadioDot} /> : null}
+                </View>
+                <Text
+                  style={[
+                    styles.roleOptionText,
+                    isCustomRole && styles.roleOptionTextSelected,
+                  ]}
+                >
+                  Custom
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {isCustomRole ? (
+              <View style={styles.customRoleWrapper}>
+                <InputContainer
+                  icon="create-outline"
+                  error={!!fieldErrors.role}
+                >
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Enter custom role"
+                    placeholderTextColor="#9ca3af"
+                    value={customRole}
+                    onChangeText={(text) => {
+                      setCustomRole(text);
+                      setRole((text.trim() as MemberRole) || null);
+                      if (fieldErrors.role) {
+                        setFieldErrors({ ...fieldErrors, role: "" });
+                      }
+                    }}
+                  />
+                </InputContainer>
+              </View>
+            ) : null}
+
+            {fieldErrors.role ? <FieldError text={fieldErrors.role} /> : null}
           </View>
         )}
 
@@ -1886,6 +1685,102 @@ export default function EditMemberScreen() {
             {fieldErrors.monthlySalary ? (
               <FieldError text={fieldErrors.monthlySalary} />
             ) : null}
+
+            <FieldLabel label="Role" required error={fieldErrors.role} />
+            <View style={styles.roleGrid}>
+              {roleOptions.map((option) => {
+                const selected = role === option.role && !isCustomRole;
+                return (
+                  <TouchableOpacity
+                    key={option.role}
+                    style={[
+                      styles.roleOption,
+                      selected && styles.roleOptionSelected,
+                    ]}
+                    onPress={() => {
+                      setRole(option.role);
+                      setIsCustomRole(false);
+                      setCustomRole("");
+                      if (fieldErrors.role) {
+                        setFieldErrors({ ...fieldErrors, role: "" });
+                      }
+                    }}
+                    activeOpacity={0.75}
+                  >
+                    <View
+                      style={[
+                        styles.roleRadio,
+                        selected && styles.roleRadioSelected,
+                      ]}
+                    >
+                      {selected ? <View style={styles.roleRadioDot} /> : null}
+                    </View>
+                    <Text
+                      style={[
+                        styles.roleOptionText,
+                        selected && styles.roleOptionTextSelected,
+                      ]}
+                    >
+                      {option.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+
+              <TouchableOpacity
+                style={[
+                  styles.roleOption,
+                  isCustomRole && styles.roleOptionSelected,
+                ]}
+                onPress={() => {
+                  setIsCustomRole(true);
+                  setRole((customRole.trim() as MemberRole) || null);
+                }}
+                activeOpacity={0.75}
+              >
+                <View
+                  style={[
+                    styles.roleRadio,
+                    isCustomRole && styles.roleRadioSelected,
+                  ]}
+                >
+                  {isCustomRole ? <View style={styles.roleRadioDot} /> : null}
+                </View>
+                <Text
+                  style={[
+                    styles.roleOptionText,
+                    isCustomRole && styles.roleOptionTextSelected,
+                  ]}
+                >
+                  Custom
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {isCustomRole ? (
+              <View style={styles.customRoleWrapper}>
+                <InputContainer
+                  icon="create-outline"
+                  error={!!fieldErrors.role}
+                >
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Enter custom role"
+                    placeholderTextColor="#9ca3af"
+                    value={customRole}
+                    onChangeText={(text) => {
+                      setCustomRole(text);
+                      setRole((text.trim() as MemberRole) || null);
+                      if (fieldErrors.role) {
+                        setFieldErrors({ ...fieldErrors, role: "" });
+                      }
+                    }}
+                  />
+                </InputContainer>
+              </View>
+            ) : null}
+
+            {fieldErrors.role ? <FieldError text={fieldErrors.role} /> : null}
           </View>
         )}
 
@@ -2459,7 +2354,7 @@ export default function EditMemberScreen() {
                 <>
                   <Text style={styles.visSectionTitle}>Always visible</Text>
                   <Text style={styles.visSectionSubtitle}>
-                    Owners and admins can always see your phone number.
+                    Admins can always see your phone number.
                   </Text>
                   <View style={styles.visGroupCard}>
                     {lockedRows.map((row, index) => (
@@ -2487,11 +2382,7 @@ export default function EditMemberScreen() {
                             {row.name}
                           </Text>
                           <Text style={styles.visRowMeta}>
-                            {row.role === "owner"
-                              ? "Owner"
-                              : row.role === "admin"
-                                ? "Admin"
-                                : row.role}
+                            {row.role === "admin" ? "Admin" : row.role}
                             {row.note ? ` • ${row.note}` : ""}
                           </Text>
                         </View>
@@ -2629,157 +2520,6 @@ export default function EditMemberScreen() {
         </View>
       </Modal>
 
-      <Modal
-        visible={showContactPicker}
-        transparent
-        animationType="slide"
-        onRequestClose={closeContactPicker}
-      >
-        <TouchableWithoutFeedback onPress={closeContactPicker}>
-          <View style={styles.contactModalOverlay}>
-            <TouchableWithoutFeedback
-              onPress={(event) => event.stopPropagation()}
-            >
-              <View
-                style={[
-                  styles.contactModal,
-                  { paddingBottom: Math.max(insets.bottom, 12) },
-                ]}
-              >
-                <View style={styles.contactModalHandle} />
-                <View style={styles.contactModalHeader}>
-                  <View>
-                    <Text style={styles.contactModalTitle}>Select Contact</Text>
-                    <Text style={styles.contactModalSubtitle}>
-                      Choose a contact to use their phone number
-                    </Text>
-                  </View>
-                  <TouchableOpacity
-                    onPress={closeContactPicker}
-                    style={styles.contactCloseButton}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name="close" size={22} color="#374151" />
-                  </TouchableOpacity>
-                </View>
-
-                <View style={styles.contactSearchContainer}>
-                  <Ionicons name="search-outline" size={20} color="#9ca3af" />
-                  <TextInput
-                    style={styles.contactSearchInput}
-                    placeholder="Search contacts"
-                    placeholderTextColor="#9ca3af"
-                    value={contactSearch}
-                    onChangeText={setContactSearch}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                    returnKeyType="search"
-                  />
-                  {contactSearch.length > 0 ? (
-                    <TouchableOpacity
-                      onPress={() => setContactSearch("")}
-                      style={styles.clearSearchButton}
-                    >
-                      <Ionicons name="close-circle" size={20} color="#9ca3af" />
-                    </TouchableOpacity>
-                  ) : null}
-                </View>
-
-                {loadingContacts ? (
-                  <View style={styles.contactLoading}>
-                    <View style={styles.contactLoadingIcon}>
-                      <Ionicons
-                        name="people-outline"
-                        size={30}
-                        color="#2563eb"
-                      />
-                    </View>
-                    <Text style={styles.contactLoadingText}>
-                      Loading contacts...
-                    </Text>
-                  </View>
-                ) : (
-                  <View style={styles.contactListWrapper}>
-                    <ScrollView
-                      style={styles.contactListContainer}
-                      contentContainerStyle={styles.contactListContent}
-                      showsVerticalScrollIndicator
-                      keyboardShouldPersistTaps="handled"
-                      nestedScrollEnabled
-                      bounces
-                    >
-                      {filteredContacts.length > 0 ? (
-                        filteredContacts.map((contact) => (
-                          <TouchableOpacity
-                            key={contact.id}
-                            style={styles.contactItem}
-                            onPress={() => selectContact(contact)}
-                            activeOpacity={0.7}
-                          >
-                            <View style={styles.contactAvatar}>
-                              <Text style={styles.contactAvatarText}>
-                                {contact.name
-                                  ? contact.name.charAt(0).toUpperCase()
-                                  : "?"}
-                              </Text>
-                            </View>
-                            <View style={styles.contactInfo}>
-                              <Text
-                                style={styles.contactName}
-                                numberOfLines={1}
-                              >
-                                {contact.name || "Unknown"}
-                              </Text>
-                              {contact.phoneNumbers?.length > 0 ? (
-                                <Text
-                                  style={styles.contactPhone}
-                                  numberOfLines={1}
-                                >
-                                  {contact.phoneNumbers[0].number}
-                                </Text>
-                              ) : null}
-                            </View>
-                            <Ionicons
-                              name="chevron-forward"
-                              size={19}
-                              color="#9ca3af"
-                            />
-                          </TouchableOpacity>
-                        ))
-                      ) : (
-                        <View style={styles.noContactsContainer}>
-                          <View style={styles.noContactsIcon}>
-                            <Ionicons
-                              name="search-outline"
-                              size={30}
-                              color="#9ca3af"
-                            />
-                          </View>
-                          <Text style={styles.noContactsTitle}>
-                            No contacts found
-                          </Text>
-                          <Text style={styles.noContactsText}>
-                            Try another name or phone number.
-                          </Text>
-                        </View>
-                      )}
-                    </ScrollView>
-                  </View>
-                )}
-
-                <TouchableOpacity
-                  style={styles.contactCancelButton}
-                  onPress={closeContactPicker}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.contactCancelButtonText}>Cancel</Text>
-                </TouchableOpacity>
-              </View>
-            </TouchableWithoutFeedback>
-          </View>
-        </TouchableWithoutFeedback>
-      </Modal>
-
       <DatePickerModal
         visible={showDatePicker}
         value={dueDate || ""}
@@ -2802,7 +2542,7 @@ export default function EditMemberScreen() {
             <Text style={styles.confirmationMessage}>
               {groupType === "expense"
                 ? `Are you sure you want to delete ${name}? This action cannot be undone.`
-                : `Are you sure you want to remove ${name}? They will be removed from the list but their history is preserved.`}
+                : `Are you sure you want to remove this ${deleteNoun.toLowerCase()}? Their profile stays, but this record will be removed from the property.`}
             </Text>
             <View style={styles.confirmationActions}>
               <TouchableOpacity
@@ -3056,19 +2796,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#d7e6ff",
   },
-  cameraBadge: {
-    position: "absolute",
-    right: -2,
-    bottom: -2,
-    width: 27,
-    height: 27,
-    borderRadius: 14,
-    backgroundColor: "#2563eb",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 3,
-    borderColor: "#fff",
-  },
   profileInfo: { flex: 1, marginLeft: 16 },
   profileName: { fontSize: 18, fontWeight: "800", color: "#111827" },
   profileRole: { fontSize: 13, color: "#6b7280", marginTop: 4 },
@@ -3190,40 +2917,6 @@ const styles = StyleSheet.create({
     color: "#dc2626",
     marginLeft: 5,
     fontWeight: "600",
-  },
-
-  phoneContainer: {
-    height: 52,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#e2e8f0",
-    backgroundColor: "#fbfcfe",
-    flexDirection: "row",
-    alignItems: "center",
-    paddingLeft: 13,
-    paddingRight: 7,
-    marginBottom: 15,
-  },
-  countryCode: {
-    paddingRight: 12,
-    borderRightWidth: 1,
-    borderRightColor: "#e5e7eb",
-  },
-  countryCodeText: { fontSize: 14, color: "#374151", fontWeight: "700" },
-  phoneInput: {
-    flex: 1,
-    height: 50,
-    paddingHorizontal: 12,
-    fontSize: 15,
-    color: "#111827",
-  },
-  contactButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
-    backgroundColor: "#eaf2ff",
-    justifyContent: "center",
-    alignItems: "center",
   },
 
   roleGrid: {
@@ -3726,142 +3419,6 @@ const styles = StyleSheet.create({
   },
   visSaveButtonDisabled: { opacity: 0.7 },
   visSaveText: { fontSize: 14, fontWeight: "800", color: "#fff" },
-
-  contactModalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(15, 23, 42, 0.52)",
-    justifyContent: "flex-end",
-  },
-  contactModal: {
-    backgroundColor: "#fff",
-    borderTopLeftRadius: 25,
-    borderTopRightRadius: 25,
-    paddingHorizontal: 18,
-    paddingTop: 10,
-    maxHeight: "60%",
-    minHeight: "45%",
-  },
-  contactModalHandle: {
-    width: 42,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "#d1d5db",
-    alignSelf: "center",
-    marginBottom: 17,
-  },
-  contactModalHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 16,
-  },
-  contactModalTitle: { fontSize: 19, fontWeight: "800", color: "#111827" },
-  contactModalSubtitle: { fontSize: 11, color: "#8a94a6", marginTop: 3 },
-  contactCloseButton: {
-    width: 38,
-    height: 38,
-    borderRadius: 11,
-    backgroundColor: "#f3f4f6",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  contactSearchContainer: {
-    minHeight: 48,
-    borderRadius: 12,
-    backgroundColor: "#f4f6f9",
-    borderWidth: 1,
-    borderColor: "#e5e7eb",
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 12,
-    marginBottom: 12,
-  },
-  contactSearchInput: {
-    flex: 1,
-    height: 46,
-    fontSize: 14,
-    color: "#111827",
-    paddingHorizontal: 9,
-  },
-  clearSearchButton: { padding: 3 },
-  contactListWrapper: { flex: 1, minHeight: 200 },
-  contactListContainer: { flex: 1 },
-  contactListContent: { paddingBottom: 8 },
-  contactItem: {
-    minHeight: 64,
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f0f2f5",
-  },
-  contactAvatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#eaf2ff",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  contactAvatarText: { fontSize: 17, fontWeight: "800", color: "#2563eb" },
-  contactInfo: { flex: 1, marginHorizontal: 11 },
-  contactName: { fontSize: 14, color: "#1f2937", fontWeight: "700" },
-  contactPhone: { fontSize: 12, color: "#8a94a6", marginTop: 3 },
-  contactLoading: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 30,
-  },
-  contactLoadingIcon: {
-    width: 62,
-    height: 62,
-    borderRadius: 31,
-    backgroundColor: "#eaf2ff",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  contactLoadingText: {
-    fontSize: 14,
-    color: "#6b7280",
-    marginTop: 11,
-    fontWeight: "600",
-  },
-  noContactsContainer: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 45,
-    paddingHorizontal: 20,
-  },
-  noContactsIcon: {
-    width: 62,
-    height: 62,
-    borderRadius: 31,
-    backgroundColor: "#f3f4f6",
-    justifyContent: "center",
-    alignItems: "center",
-    marginBottom: 12,
-  },
-  noContactsTitle: { fontSize: 15, fontWeight: "800", color: "#374151" },
-  noContactsText: {
-    fontSize: 12,
-    color: "#9ca3af",
-    textAlign: "center",
-    marginTop: 5,
-  },
-  contactCancelButton: {
-    height: 48,
-    borderRadius: 12,
-    backgroundColor: "#f3f4f6",
-    justifyContent: "center",
-    alignItems: "center",
-    marginTop: 10,
-  },
-  contactCancelButtonText: {
-    fontSize: 14,
-    color: "#374151",
-    fontWeight: "800",
-  },
 
   modalOverlay: {
     flex: 1,

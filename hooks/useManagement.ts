@@ -1,4 +1,3 @@
-// @ts-nocheck
 // hooks/useManagement.ts
 import * as FileSystem from "expo-file-system/legacy";
 import * as SecureStore from "expo-secure-store";
@@ -14,9 +13,6 @@ import {
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
 
-// ---------------------------------------------------------------------------
-// Access-loss signal
-// ---------------------------------------------------------------------------
 type AccessLossListener = () => void;
 const accessLossListeners = new Set<AccessLossListener>();
 
@@ -37,14 +33,8 @@ function emitAccessLoss() {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Stable empty array
-// ---------------------------------------------------------------------------
 const EMPTY_MEMBERS: Member[] = [];
 
-// ---------------------------------------------------------------------------
-// Token
-// ---------------------------------------------------------------------------
 async function getToken(): Promise<string | null> {
   try {
     return await SecureStore.getItemAsync("auth_token");
@@ -53,9 +43,6 @@ async function getToken(): Promise<string | null> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Fetch wrapper
-// ---------------------------------------------------------------------------
 async function apiRequest<T>(
   path: string,
   options: RequestInit = {},
@@ -99,9 +86,6 @@ async function apiRequest<T>(
   return data as T;
 }
 
-// ---------------------------------------------------------------------------
-// Endpoint segment per type
-// ---------------------------------------------------------------------------
 function endpointFor(type: ManagementType): string {
   switch (type) {
     case "apartment":
@@ -113,9 +97,6 @@ function endpointFor(type: ManagementType): string {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Photo encoder
-// ---------------------------------------------------------------------------
 async function encodePhotoForServer(localUri: string): Promise<string> {
   if (!localUri) return localUri;
   if (localUri.startsWith("data:") || /^https?:\/\//i.test(localUri)) {
@@ -141,9 +122,6 @@ async function encodePhotoForServer(localUri: string): Promise<string> {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Timezone-safe date-only normalizer for server values.
-// ---------------------------------------------------------------------------
 function serverDateToLocalDateString(raw: unknown): string | undefined {
   if (raw === null || raw === undefined) return undefined;
 
@@ -175,9 +153,6 @@ function serverDateToLocalDateString(raw: unknown): string | undefined {
   return undefined;
 }
 
-// ---------------------------------------------------------------------------
-// Write path: local "YYYY-MM-DD" → ISO timestamp anchored at LOCAL noon.
-// ---------------------------------------------------------------------------
 function localDateStringToServerISO(local: unknown): string | null {
   if (local === null || local === undefined) return null;
   if (typeof local !== "string") return null;
@@ -194,8 +169,13 @@ function localDateStringToServerISO(local: unknown): string | null {
 }
 
 // ---------------------------------------------------------------------------
-// server row → frontend Member
+// server row -> frontend Member
+//
+// Members and staff rows now come joined to `users`, so `row.name`,
+// `row.phone`, and `row.photo_url` are the *user's* identity. `row.user_id`
+// is the FK to users.
 // ---------------------------------------------------------------------------
+
 function mapRowToMember(
   row: any,
   accountId: string,
@@ -206,6 +186,7 @@ function mapRowToMember(
 
   const base: any = {
     id: row.id,
+    userId: row.user_id ?? null,
     groupId,
     name: row.name ?? "",
     phone: row.phone ?? "",
@@ -231,8 +212,6 @@ function mapRowToMember(
     const wing = row.wing ?? undefined;
     const flatNumber = row.flat_number ?? undefined;
 
-    // Pre-computed display value used by the Home personal card.
-    // Falls back gracefully if only one of the two is present.
     let unit: string | undefined;
     if (wing && flatNumber) unit = `${wing} · ${flatNumber}`;
     else if (flatNumber) unit = String(flatNumber);
@@ -252,8 +231,6 @@ function mapRowToMember(
   }
 
   if (kind === "staff") {
-    // Server may expose either `joined_date` (dedicated column) or only
-    // `created_at`. Normalize both so the UI has a single field to read.
     const joinedDate =
       serverDateToLocalDateString(row.joined_date) ||
       serverDateToLocalDateString(row.created_at) ||
@@ -283,44 +260,39 @@ function mapRowToMember(
 }
 
 // ---------------------------------------------------------------------------
-// frontend input → server body (async so we can encode photos)
+// frontend input -> server body
+//
+// Members/staff no longer accept name / phone / photo_url on PATCH.
+// Those fields are accepted on POST (to create/seed the users row) and
+// on the /me endpoint for self-edits.
 // ---------------------------------------------------------------------------
+
 async function toServerBody(
   input: any,
   kind: ManagementType,
 ): Promise<Record<string, any>> {
   const body: Record<string, any> = {};
 
-  if (input.name !== undefined) body.name = input.name;
-  if (input.phone !== undefined)
-    body.phone = input.phone ? String(input.phone).replace(/^\+?91/, "") : null;
+  // `mode` — "new" or "existing" for members/staff create.
+  if (input.mode !== undefined) body.mode = input.mode;
+
+  // Identity fields (only honored by createMember / createStaff).
+  if (kind !== "expense") {
+    if (input.name !== undefined) body.name = input.name;
+    if (input.phone !== undefined)
+      body.phone = input.phone
+        ? String(input.phone).replace(/^\+?91/, "")
+        : null;
+    if (input.user_id !== undefined) body.user_id = input.user_id;
+
+    if (input.photoUri !== undefined) {
+      body.photo_url = input.photoUri
+        ? await encodePhotoForServer(String(input.photoUri))
+        : null;
+    }
+  }
+
   if (input.role !== undefined) body.role = input.role;
-  if (input.confirm_rename !== undefined)
-    body.confirm_rename = !!input.confirm_rename;
-  if (input.scoped_rename !== undefined)
-    body.scoped_rename = !!input.scoped_rename;
-
-  if (input.photoUri !== undefined) {
-    body.photo_url = input.photoUri
-      ? await encodePhotoForServer(String(input.photoUri))
-      : null;
-  }
-
-  if (kind === "apartment" || kind === "staff") {
-    if (input.paymentStatus !== undefined)
-      body.payment_status = input.paymentStatus ?? null;
-    if (input.paidDate !== undefined) body.paid_date = input.paidDate ?? null;
-    if (input.additionalAmount !== undefined)
-      body.additional_amount = input.additionalAmount ?? 0;
-    if (input.additionalNote !== undefined)
-      body.additional_note = input.additionalNote ?? null;
-    if (input.deductionAmount !== undefined)
-      body.deduction_amount = input.deductionAmount ?? 0;
-    if (input.deductionNote !== undefined)
-      body.deduction_note = input.deductionNote ?? null;
-    if (input.monthlyPayments !== undefined)
-      body.monthly_payments = input.monthlyPayments ?? null;
-  }
 
   if (kind === "apartment") {
     if (input.wing !== undefined) body.wing = input.wing ?? null;
@@ -338,8 +310,8 @@ async function toServerBody(
   }
 
   if (kind === "expense") {
-    if (input.role !== undefined) body.category = input.role;
     if (input.name !== undefined) body.title = input.name;
+    if (input.role !== undefined) body.category = input.role;
     if (input.amount !== undefined) body.amount = input.amount ?? 0;
     if (input.transactionType !== undefined)
       body.transaction_type = input.transactionType ?? "expense";
@@ -356,16 +328,34 @@ async function toServerBody(
     }
   }
 
+  // Payment fields (used by upsert endpoints, ignored by member/staff PATCH)
+  if (kind !== "expense") {
+    if (input.paymentStatus !== undefined)
+      body.payment_status = input.paymentStatus ?? null;
+    if (input.paidDate !== undefined) body.paid_date = input.paidDate ?? null;
+    if (input.additionalAmount !== undefined)
+      body.additional_amount = input.additionalAmount ?? 0;
+    if (input.additionalNote !== undefined)
+      body.additional_note = input.additionalNote ?? null;
+    if (input.deductionAmount !== undefined)
+      body.deduction_amount = input.deductionAmount ?? 0;
+    if (input.deductionNote !== undefined)
+      body.deduction_note = input.deductionNote ?? null;
+    if (input.monthlyPayments !== undefined)
+      body.monthly_payments = input.monthlyPayments ?? null;
+  }
+
   return body;
 }
 
 // ---------------------------------------------------------------------------
-// Types for phone visibility
+// Phone visibility
 // ---------------------------------------------------------------------------
+
 export interface PhoneVisibilityRow {
   user_id: string;
   name: string;
-  role: "owner" | "admin" | "member" | "staff" | string;
+  role: "admin" | "member_visibility" | "staff_visibility" | string;
   person_type: "member" | "staff" | "unknown" | string;
   member_id: string | null;
   staff_id: string | null;
@@ -375,8 +365,9 @@ export interface PhoneVisibilityRow {
 }
 
 // ---------------------------------------------------------------------------
-// Shared Zustand store
+// Store
 // ---------------------------------------------------------------------------
+
 interface ManagementState {
   byKindAndAccount: Record<ManagementType, Record<string, Member[]>>;
   setItems: (kind: ManagementType, accountId: string, items: Member[]) => void;
@@ -395,10 +386,10 @@ interface ManagementState {
   ) => void;
   removeItem: (kind: ManagementType, accountId: string, id: string) => void;
   clearAccount: (accountId: string) => void;
-  syncByIdentity: (
+  syncUserIdentity: (
     accountId: string,
-    phone: string,
-    patch: Partial<Member> & Record<string, any>,
+    userId: string,
+    patch: { name?: string | null; photoUri?: string | null },
   ) => void;
 }
 
@@ -506,19 +497,26 @@ export const useManagementStore = create<ManagementState>((set) => ({
       };
     }),
 
-  syncByIdentity: (accountId, phone, patch) =>
+  // Mirror the user's name / photo across every member and staff row
+  // that belongs to them, in one shot. Called after a successful
+  // updateProfile() so Home / People refresh without a refetch.
+  syncUserIdentity: (accountId, userId, patch) =>
     set((s) => {
-      const norm = (p?: string | null) =>
-        (p || "").replace(/\D/g, "").slice(-10);
-      const target = norm(phone);
-      if (!target || !accountId) return s;
+      if (!accountId || !userId) return s;
 
       const now = new Date().toISOString();
 
       const apply = (list: Member[] | undefined) =>
         (list ?? []).map((m) =>
-          norm((m as any).phone) === target
-            ? ({ ...(m as any), ...patch, updatedAt: now } as Member)
+          (m as any).userId === userId
+            ? ({
+                ...(m as any),
+                ...(patch.name !== undefined ? { name: patch.name ?? "" } : {}),
+                ...(patch.photoUri !== undefined
+                  ? { photoUri: patch.photoUri ?? undefined }
+                  : {}),
+                updatedAt: now,
+              } as Member)
             : m,
         );
 
@@ -550,6 +548,7 @@ export const useManagementStore = create<ManagementState>((set) => ({
 // ---------------------------------------------------------------------------
 // Hook factory
 // ---------------------------------------------------------------------------
+
 function createManagementHook(kind: ManagementType) {
   return function useManagement(
     accountId: string | null,
@@ -739,9 +738,6 @@ function createManagementHook(kind: ManagementType) {
   };
 }
 
-// ---------------------------------------------------------------------------
-// Public hooks
-// ---------------------------------------------------------------------------
 export const useMembers = createManagementHook("apartment");
 export const useStaff = createManagementHook("staff");
 export const useExpenses = createManagementHook("expense");

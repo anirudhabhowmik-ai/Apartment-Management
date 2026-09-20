@@ -20,12 +20,8 @@ import { useAccounts } from "../../hooks/useAccounts";
 import { useExpenses, useMembers, useStaff } from "../../hooks/useManagement";
 import { useUserRole } from "../../hooks/useUserRole";
 import { useAuthStore } from "../../store/useAuthStore";
-import type { FlatOwner, Member, Staff } from "../../types";
+import type { Member } from "../../types";
 import { PaymentCategory } from "../../types/payment";
-
-/* ========================================================================== */
-/* TYPES                                                                      */
-/* ========================================================================== */
 
 interface QuickAction {
   id: string;
@@ -65,10 +61,6 @@ type PendingAdminOffer = {
   invited_by_phone: string | null;
   created_at: string;
 };
-
-/* ========================================================================== */
-/* CONSTANTS                                                                  */
-/* ========================================================================== */
 
 const ADMIN_QUICK_ACTIONS: QuickAction[] = [
   {
@@ -150,10 +142,6 @@ const STATUS_COLORS: Record<
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
 const AUTH_TOKEN_KEY = "auth_token";
 const OPENING_BALANCE_PREFIX = "/opening-balance";
-
-/* ========================================================================== */
-/* HELPERS                                                                    */
-/* ========================================================================== */
 
 async function getAuthToken(): Promise<string | null> {
   try {
@@ -263,26 +251,6 @@ function getTransactionType(txn: any): TransactionType {
   return "expense";
 }
 
-/* -------------------------------------------------------------------------- */
-/* TYPE GUARDS                                                                 */
-/* -------------------------------------------------------------------------- */
-//
-// The `Member` union is FlatOwner | Staff | ExpenseEntry. The Home screen
-// only ever shows FlatOwner and Staff records, so we narrow with these
-// guards before reading owner-only / staff-only fields.
-
-function isFlatOwner(m: Member): m is FlatOwner {
-  return "maintenanceAmount" in m && "flatNumber" in m;
-}
-
-function isStaffMember(m: Member): m is Staff {
-  return "monthlySalary" in m;
-}
-
-/* -------------------------------------------------------------------------- */
-/* MEMBER paid entry collection                                                */
-/* -------------------------------------------------------------------------- */
-
 type PaidEntry = {
   category: PaymentCategory;
   amount: number;
@@ -334,10 +302,6 @@ function collectMemberPaidEntries(members: any[]): PaidEntry[] {
 
   return out;
 }
-
-/* -------------------------------------------------------------------------- */
-/* FINANCE calculations                                                        */
-/* -------------------------------------------------------------------------- */
 
 function computeMonthlyFinance(
   members: any[],
@@ -395,10 +359,6 @@ function computeAllTimeFinance(
   return { income, expense, net: income - expense };
 }
 
-/* -------------------------------------------------------------------------- */
-/* MOCK ATTENDANCE DATA                                                       */
-/* -------------------------------------------------------------------------- */
-
 function generateMockAttendance(
   year: number,
   month: number,
@@ -446,10 +406,6 @@ function generateMockAttendance(
   return result;
 }
 
-/* ========================================================================== */
-/* STAT CARD                                                                  */
-/* ========================================================================== */
-
 function StatCard({
   title,
   value,
@@ -478,10 +434,6 @@ function StatCard({
     </View>
   );
 }
-
-/* ========================================================================== */
-/* QUICK ACTION CARD                                                          */
-/* ========================================================================== */
 
 function QuickActionCard({
   action,
@@ -522,10 +474,6 @@ function QuickActionCard({
   );
 }
 
-/* ========================================================================== */
-/* FINANCIAL CARD                                                             */
-/* ========================================================================== */
-
 function FinancialCard({
   title,
   amount,
@@ -560,26 +508,17 @@ function FinancialCard({
   );
 }
 
-/* ========================================================================== */
-/* PROFILE CARD                                                               */
-/* ========================================================================== */
-
-function ProfileCard({
-  user,
-  fallbackName,
-  fallbackPhotoUri,
-}: {
-  user: any;
-  fallbackName?: string;
-  fallbackPhotoUri?: string | null;
-}) {
-  const displayName = fallbackName || "My Profile";
+function ProfileCard({ user, onEdit }: { user: any; onEdit: () => void }) {
+  const displayName = user?.name || "My Profile";
   const rawPhone = normalizePhone(user?.phone);
-  const photo = fallbackPhotoUri || null;
+  const photo = user?.photoUrl || null;
   const initial = displayName.charAt(0)?.toUpperCase() || "?";
 
   return (
-    <View style={styles.profileCard}>
+    <Pressable
+      onPress={onEdit}
+      style={({ pressed }) => [styles.profileCard, pressed && styles.pressed]}
+    >
       <View style={styles.profileHeader}>
         <View style={styles.profileAvatar}>
           {photo ? (
@@ -599,14 +538,14 @@ function ProfileCard({
             </Text>
           </View>
         </View>
+        <View style={styles.profileEditChip}>
+          <Ionicons name="create-outline" size={14} color="#2563EB" />
+          <Text style={styles.profileEditText}>Edit</Text>
+        </View>
       </View>
-    </View>
+    </Pressable>
   );
 }
-
-/* ========================================================================== */
-/* MY ROLE ROW                                                                */
-/* ========================================================================== */
 
 function MyRoleRow({
   icon,
@@ -643,10 +582,6 @@ function MyRoleRow({
     </Pressable>
   );
 }
-
-/* ========================================================================== */
-/* PENDING ADMIN OFFER BANNER                                                 */
-/* ========================================================================== */
 
 function PendingAdminOfferBanner({
   offer,
@@ -712,10 +647,6 @@ function PendingAdminOfferBanner({
     </View>
   );
 }
-
-/* ========================================================================== */
-/* MONTH / YEAR PICKER MODAL                                                  */
-/* ========================================================================== */
 
 function MonthYearPickerModal({
   visible,
@@ -849,10 +780,6 @@ function MonthYearPickerModal({
     </Modal>
   );
 }
-
-/* ========================================================================== */
-/* ATTENDANCE SLIDER + CALENDAR                                               */
-/* ========================================================================== */
 
 function AttendanceSection({
   year,
@@ -1036,10 +963,6 @@ function AttendanceSection({
   );
 }
 
-/* ========================================================================== */
-/* HOME SCREEN                                                                */
-/* ========================================================================== */
-
 export default function HomeScreen() {
   const router = useRouter();
   const isFocused = useIsFocused();
@@ -1065,7 +988,7 @@ export default function HomeScreen() {
     [apartmentMembers, staffMembers],
   );
 
-  const { user } = useAuthStore();
+  const { user, refreshProfile } = useAuthStore();
   const { isAdmin, isMember, isStaff } = useUserRole();
 
   const showQuickActions = isAdmin;
@@ -1166,9 +1089,6 @@ export default function HomeScreen() {
     }
   }, [isFocused, loadPendingAdminOffers]);
 
-  // Lightweight refresh of member/staff caches on focus, so the Home
-  // screen stays consistent with any edits made on other screens or by
-  // other admins. Drop `force: true` if you want to reduce network calls.
   useFocusEffect(
     useCallback(() => {
       if (!accountId) return;
@@ -1179,6 +1099,7 @@ export default function HomeScreen() {
             membersHook.refresh({ force: true }),
             staffHook.refresh({ force: true }),
           ]);
+          await refreshProfile();
         } catch (e) {
           if (!cancelled) {
             console.warn("[home] focus refresh failed:", e);
@@ -1270,52 +1191,18 @@ export default function HomeScreen() {
     };
   }, [selectedAccount?.id]);
 
-  /* ------------------------------------------------------------------ */
-  /* MATCH USER TO ALL MEMBER / STAFF PROFILES                          */
-  /* ------------------------------------------------------------------ */
-  //
-  // A single phone can belong to multiple member records (owns more than
-  // one flat) or multiple staff records (works multiple roles). We return
-  // ALL matches so each one renders its own role row.
-  //
-  // `apartmentMembers` and `staffMembers` are typed as `Member[]` (the
-  // union). We narrow to `FlatOwner[]` / `Staff[]` with type guards so
-  // owner-only / staff-only fields are safely accessible downstream.
-
-  const matchedMemberProfiles = useMemo<FlatOwner[]>(() => {
+  const matchedMemberProfiles = useMemo(() => {
     if (!user || !selectedAccount) return [];
-    const target = normalizePhone(user.phone);
-    if (!target) return [];
-
-    return apartmentMembers
-      .filter(isFlatOwner)
-      .filter((member) => normalizePhone(member.phone || "") === target);
+    return apartmentMembers.filter((m: any) => m.user_id === user.id);
   }, [user, selectedAccount, apartmentMembers]);
 
-  const matchedStaffProfiles = useMemo<Staff[]>(() => {
+  const matchedStaffProfiles = useMemo(() => {
     if (!user || !selectedAccount) return [];
-    const target = normalizePhone(user.phone);
-    if (!target) return [];
-
-    return staffMembers
-      .filter(isStaffMember)
-      .filter((staff) => normalizePhone(staff.phone || "") === target);
+    return staffMembers.filter((s: any) => s.user_id === user.id);
   }, [user, selectedAccount, staffMembers]);
 
   const hasAnyProfile =
     matchedMemberProfiles.length > 0 || matchedStaffProfiles.length > 0;
-
-  // Profile card derives its name/photo from the first matched row.
-  // If no rows match, the card falls back to a neutral label and the
-  // phone from the auth user.
-  const profileFallbackName =
-    matchedMemberProfiles[0]?.name ??
-    matchedStaffProfiles[0]?.name ??
-    undefined;
-  const profileFallbackPhotoUri =
-    matchedMemberProfiles[0]?.photoUri ??
-    matchedStaffProfiles[0]?.photoUri ??
-    null;
 
   const dashboardData = useMemo(() => {
     const emptyData = {
@@ -1384,6 +1271,7 @@ export default function HomeScreen() {
     setRefreshing(true);
     try {
       await loadPendingAdminOffers();
+      await refreshProfile();
       if (selectedAccount?.id) {
         try {
           const data = await openingBalanceRequest<OpeningBalanceResponse>(
@@ -1429,6 +1317,10 @@ export default function HomeScreen() {
         groupType: "apartment",
       },
     });
+  };
+
+  const handleOpenProfile = () => {
+    router.push("/(modals)/edit-profile");
   };
 
   if (accountsLoading) {
@@ -1535,18 +1427,10 @@ export default function HomeScreen() {
         ? "Staff Portal"
         : "Portal";
 
-  /* ------------------------------------------------------------------ */
-  /* Profile block — rendered identically on admin and non-admin views  */
-  /* ------------------------------------------------------------------ */
-
   const renderProfileBlock = () => {
     return (
       <>
-        <ProfileCard
-          user={user}
-          fallbackName={profileFallbackName}
-          fallbackPhotoUri={profileFallbackPhotoUri}
-        />
+        <ProfileCard user={user} onEdit={handleOpenProfile} />
 
         {hasAnyProfile ? (
           <View style={styles.rolesSection}>
@@ -1554,7 +1438,7 @@ export default function HomeScreen() {
               My Roles on this Property
             </Text>
 
-            {matchedMemberProfiles.map((member) => {
+            {matchedMemberProfiles.map((member: any) => {
               const unit =
                 member.unit ||
                 [member.wing, member.flatNumber].filter(Boolean).join(" · ") ||
@@ -1577,7 +1461,7 @@ export default function HomeScreen() {
               );
             })}
 
-            {matchedStaffProfiles.map((staff) => {
+            {matchedStaffProfiles.map((staff: any) => {
               const color = getRoleColor(staff.role);
               const label = getRoleLabel(staff.role);
               return (
@@ -1599,10 +1483,6 @@ export default function HomeScreen() {
       </>
     );
   };
-
-  /* ======================================================================== */
-  /* NON-ADMIN VIEW                                                           */
-  /* ======================================================================== */
 
   if (!isAdmin && (isMember || isStaff)) {
     return (
@@ -1759,10 +1639,6 @@ export default function HomeScreen() {
       </View>
     );
   }
-
-  /* ======================================================================== */
-  /* ADMIN VIEW                                                               */
-  /* ======================================================================== */
 
   return (
     <View style={styles.container}>
@@ -1993,15 +1869,10 @@ export default function HomeScreen() {
   );
 }
 
-/* ========================================================================== */
-/* STYLES                                                                     */
-/* ========================================================================== */
-
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#F8FAFC" },
   scrollContent: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 30 },
 
-  /* LOADING */
   loadingScreen: {
     flex: 1,
     backgroundColor: "#F8FAFC",
@@ -2026,7 +1897,6 @@ const styles = StyleSheet.create({
   },
   loadingSubtitle: { marginTop: 5, fontSize: 13, color: "#94A3B8" },
 
-  /* HEADER */
   header: { marginBottom: 16 },
   headerTop: { flexDirection: "row", alignItems: "center" },
   headerTextContainer: { flex: 1 },
@@ -2060,7 +1930,6 @@ const styles = StyleSheet.create({
   },
   monthText: { fontSize: 12, color: "#94A3B8" },
 
-  /* PROFILE CARD */
   profileCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 22,
@@ -2074,10 +1943,7 @@ const styles = StyleSheet.create({
     shadowRadius: 14,
     elevation: 2,
   },
-  profileHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
+  profileHeader: { flexDirection: "row", alignItems: "center" },
   profileAvatar: {
     width: 62,
     height: 62,
@@ -2099,8 +1965,19 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   profilePhone: { fontSize: 13, color: "#64748B", fontWeight: "500" },
+  profileEditChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    backgroundColor: "#EFF6FF",
+    borderWidth: 1,
+    borderColor: "#DBEAFE",
+  },
+  profileEditText: { fontSize: 12, fontWeight: "700", color: "#2563EB" },
 
-  /* ROLES LIST */
   rolesSection: { marginBottom: 22 },
   rolesSectionTitle: {
     fontSize: 13,
@@ -2133,7 +2010,6 @@ const styles = StyleSheet.create({
   roleRowTitle: { fontSize: 14, fontWeight: "700", color: "#0F172A" },
   roleRowSubtitle: { fontSize: 12, color: "#64748B", marginTop: 3 },
 
-  /* PENDING ADMIN OFFER BANNER */
   offersSection: { marginBottom: 14, gap: 10 },
   offerBanner: {
     backgroundColor: "#FFFFFF",
@@ -2173,10 +2049,7 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     marginTop: 4,
   },
-  offerBannerActions: {
-    flexDirection: "row",
-    gap: 8,
-  },
+  offerBannerActions: { flexDirection: "row", gap: 8 },
   offerBannerBtn: {
     flex: 1,
     minHeight: 42,
@@ -2196,16 +2069,13 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "700",
   },
-  offerBannerAccept: {
-    backgroundColor: "#7C3AED",
-  },
+  offerBannerAccept: { backgroundColor: "#7C3AED" },
   offerBannerAcceptText: {
     color: "#FFFFFF",
     fontSize: 13,
     fontWeight: "800",
   },
 
-  /* BALANCE */
   balanceCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 22,
@@ -2247,7 +2117,6 @@ const styles = StyleSheet.create({
   miniLabel: { fontSize: 11, color: "#94A3B8", marginBottom: 2 },
   miniValue: { fontSize: 13, fontWeight: "700", color: "#334155" },
 
-  /* SECTIONS */
   section: { marginBottom: 25 },
   sectionHeader: {
     flexDirection: "row",
@@ -2270,7 +2139,6 @@ const styles = StyleSheet.create({
     marginRight: 2,
   },
 
-  /* STATS */
   statsGrid: { flexDirection: "row", gap: 12 },
   statCard: {
     flex: 1,
@@ -2307,7 +2175,6 @@ const styles = StyleSheet.create({
   },
   statDescription: { fontSize: 11, color: "#94A3B8", marginTop: 2 },
 
-  /* QUICK ACTIONS */
   quickActions: { gap: 10 },
   quickActionCard: {
     flexDirection: "row",
@@ -2338,7 +2205,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  /* FINANCIAL */
   financialGrid: { flexDirection: "row", gap: 10 },
   financialCard: {
     flex: 1,
@@ -2361,7 +2227,6 @@ const styles = StyleSheet.create({
   financialAmount: { fontSize: 17, fontWeight: "800", marginTop: 5 },
   financialPeriod: { fontSize: 10, color: "#94A3B8", marginTop: 4 },
 
-  /* ATTENDANCE */
   attendanceCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 20,
@@ -2435,7 +2300,6 @@ const styles = StyleSheet.create({
   dayBubbleToday: { borderWidth: 2, borderColor: "#2563EB" },
   dayText: { fontSize: 12, fontWeight: "700" },
 
-  /* MONTH / YEAR PICKER */
   pickerBackdrop: {
     flex: 1,
     backgroundColor: "rgba(15, 23, 42, 0.5)",
@@ -2505,7 +2369,6 @@ const styles = StyleSheet.create({
   },
   pickerConfirmText: { fontSize: 15, fontWeight: "700", color: "#FFFFFF" },
 
-  /* FOOTER MESSAGE */
   footerMessage: {
     flexDirection: "row",
     alignItems: "center",
@@ -2515,7 +2378,6 @@ const styles = StyleSheet.create({
   },
   footerMessageText: { fontSize: 12, color: "#94A3B8" },
 
-  /* EMPTY ACCOUNT */
   emptyScrollContent: { flexGrow: 1, justifyContent: "center", padding: 24 },
   emptyStateContainer: {
     alignItems: "center",
