@@ -1191,14 +1191,19 @@ export default function HomeScreen() {
     };
   }, [selectedAccount?.id]);
 
+  // FIX: use `userId` (camelCase) not `user_id`. The `Member` objects
+  // produced by mapRowToMember in useManagement.ts set `userId`, so the
+  // snake_case lookup always returned undefined and this section never
+  // rendered.
   const matchedMemberProfiles = useMemo(() => {
     if (!user || !selectedAccount) return [];
-    return apartmentMembers.filter((m: any) => m.user_id === user.id);
+    return apartmentMembers.filter((m: any) => m.userId === user.id);
   }, [user, selectedAccount, apartmentMembers]);
 
+  // FIX: same change as above, for staff.
   const matchedStaffProfiles = useMemo(() => {
     if (!user || !selectedAccount) return [];
-    return staffMembers.filter((s: any) => s.user_id === user.id);
+    return staffMembers.filter((s: any) => s.userId === user.id);
   }, [user, selectedAccount, staffMembers]);
 
   const hasAnyProfile =

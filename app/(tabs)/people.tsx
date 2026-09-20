@@ -4,6 +4,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Dimensions,
   Image,
@@ -17,11 +18,12 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  View
+  View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import DatePickerModal from "../../components/DatePickerModal";
+import GenerateBillModal from "../../components/GenerateBillModal";
 import MonthYearPickerModal from "../../components/MonthYearPickerModal";
 import { useAccounts } from "../../hooks/useAccounts";
 import {
@@ -111,9 +113,145 @@ const COLORS = {
   purple: "#7C3AED",
   purpleLight: "#F5F3FF",
   purpleBorder: "#DDD6FE",
+
+  amber: "#D97706",
+  amberLight: "#FEF3C7",
+  amberBorder: "#FDE68A",
 };
 
 type PaymentFilter = "all" | "paid" | "due";
+
+// ---------------------------------------------------------------------------
+// Role styling maps
+// ---------------------------------------------------------------------------
+
+interface RoleStyle {
+  label: string;
+  bg: string;
+  text: string;
+  border: string;
+}
+
+const MEMBER_ROLE_STYLES: Record<string, RoleStyle> = {
+  flat: {
+    label: "Flat Owner",
+    bg: "#EFF6FF",
+    text: "#1D4ED8",
+    border: "#BFDBFE",
+  },
+  shop: {
+    label: "Shop Owner",
+    bg: "#F5F3FF",
+    text: "#6D28D9",
+    border: "#DDD6FE",
+  },
+  custom: {
+    label: "Custom",
+    bg: "#F1F5F9",
+    text: "#475569",
+    border: "#CBD5E1",
+  },
+  flat_owner: {
+    label: "Flat Owner",
+    bg: "#EFF6FF",
+    text: "#1D4ED8",
+    border: "#BFDBFE",
+  },
+  shop_owner: {
+    label: "Shop Owner",
+    bg: "#F5F3FF",
+    text: "#6D28D9",
+    border: "#DDD6FE",
+  },
+  owner: {
+    label: "Owner",
+    bg: "#EFF6FF",
+    text: "#1D4ED8",
+    border: "#BFDBFE",
+  },
+  secretary: {
+    label: "Secretary",
+    bg: "#F5F3FF",
+    text: "#6D28D9",
+    border: "#DDD6FE",
+  },
+  tenant: {
+    label: "Tenant",
+    bg: "#FEF3C7",
+    text: "#B45309",
+    border: "#FDE68A",
+  },
+};
+
+const STAFF_ROLE_STYLES: Record<string, RoleStyle> = {
+  accountant: {
+    label: "Accountant",
+    bg: "#ECFDF5",
+    text: "#047857",
+    border: "#A7F3D0",
+  },
+  security: {
+    label: "Security",
+    bg: "#FEF2F2",
+    text: "#B91C1C",
+    border: "#FECACA",
+  },
+  sweeper: {
+    label: "Sweeper",
+    bg: "#F5F3FF",
+    text: "#6D28D9",
+    border: "#DDD6FE",
+  },
+  maintenance: {
+    label: "Maintenance",
+    bg: "#FEF3C7",
+    text: "#B45309",
+    border: "#FDE68A",
+  },
+  gardener: {
+    label: "Gardener",
+    bg: "#F0FDF4",
+    text: "#15803D",
+    border: "#BBF7D0",
+  },
+  driver: {
+    label: "Driver",
+    bg: "#EFF6FF",
+    text: "#1D4ED8",
+    border: "#BFDBFE",
+  },
+  custom: {
+    label: "Custom",
+    bg: "#F1F5F9",
+    text: "#475569",
+    border: "#CBD5E1",
+  },
+};
+
+const DEFAULT_ROLE_STYLE: RoleStyle = {
+  label: "Role",
+  bg: "#F1F5F9",
+  text: "#475569",
+  border: "#CBD5E1",
+};
+
+function titleCaseRole(raw: string): string {
+  return raw.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function getMemberRoleStyle(role?: string | null): RoleStyle {
+  if (!role) return { ...DEFAULT_ROLE_STYLE, label: "Member" };
+  const key = String(role).toLowerCase().trim();
+  if (MEMBER_ROLE_STYLES[key]) return MEMBER_ROLE_STYLES[key];
+  return { ...DEFAULT_ROLE_STYLE, label: titleCaseRole(key) };
+}
+
+function getStaffRoleStyle(role?: string | null): RoleStyle {
+  if (!role) return { ...DEFAULT_ROLE_STYLE, label: "Staff" };
+  const key = String(role).toLowerCase().trim();
+  if (STAFF_ROLE_STYLES[key]) return STAFF_ROLE_STYLES[key];
+  return { ...DEFAULT_ROLE_STYLE, label: titleCaseRole(key) };
+}
 
 const CATEGORY_LABELS: Record<string, string> = {
   salary: "Salary",
@@ -412,10 +550,6 @@ const isActiveRow = (row: any): boolean => {
   return String(s).toLowerCase() === "active";
 };
 
-// ---------------------------------------------------------------------------
-// Grouping helper — one card per user_id within a tab.
-// ---------------------------------------------------------------------------
-
 interface GroupedCard {
   user_id: string;
   name: string;
@@ -427,13 +561,13 @@ interface GroupedCard {
 function groupRowsByUser(rows: any[]): GroupedCard[] {
   const map = new Map<string, GroupedCard>();
   for (const row of rows) {
-    const uid = row.user_id || `__orphan__:${row.id}`;
+    const uid = row.userId || row.user_id || `__orphan__:${row.id}`;
     if (!map.has(uid)) {
       map.set(uid, {
         user_id: uid,
         name: row.name || "",
         phone: row.phone || null,
-        photo_url: row.photo_url || null,
+        photo_url: row.photoUri || row.photo_url || null,
         records: [],
       });
     }
@@ -441,6 +575,18 @@ function groupRowsByUser(rows: any[]): GroupedCard[] {
   }
   return Array.from(map.values());
 }
+
+interface TemplateMissingState {
+  visible: boolean;
+  memberType: BillMemberType;
+  isApartment: boolean;
+}
+
+const EMPTY_TEMPLATE_MISSING: TemplateMissingState = {
+  visible: false,
+  memberType: "owner",
+  isApartment: true,
+};
 
 export default function PeopleScreen() {
   const router = useRouter();
@@ -509,6 +655,14 @@ export default function PeopleScreen() {
   const [refreshKey, setRefreshKey] = useState(0);
   const [saving, setSaving] = useState(false);
   const [generatingBill, setGeneratingBill] = useState<string | null>(null);
+
+  const [templateMissing, setTemplateMissing] = useState<TemplateMissingState>(
+    EMPTY_TEMPLATE_MISSING,
+  );
+
+  const [showGenerateBillModal, setShowGenerateBillModal] = useState(false);
+  const [generateBillMemberType, setGenerateBillMemberType] =
+    useState<BillMemberType>("owner");
 
   const [searchQuery, setSearchQuery] = useState<
     Record<ManagementType, string>
@@ -719,6 +873,28 @@ export default function PeopleScreen() {
         groupType: type,
       },
     });
+  };
+
+  const openTemplateMissingModal = (
+    memberType: BillMemberType,
+    isApartment: boolean,
+  ) => {
+    setTemplateMissing({
+      visible: true,
+      memberType,
+      isApartment,
+    });
+  };
+
+  const closeTemplateMissingModal = () => {
+    setTemplateMissing(EMPTY_TEMPLATE_MISSING);
+  };
+
+  const handleGoToBillSetup = () => {
+    const { memberType } = templateMissing;
+    setGenerateBillMemberType(memberType);
+    closeTemplateMissingModal();
+    setShowGenerateBillModal(true);
   };
 
   if (!selectedAccountId) {
@@ -1019,25 +1195,8 @@ export default function PeopleScreen() {
       const billConfig = getBillConfig(memberType);
 
       if (!billConfig) {
-        Alert.alert(
-          "Bill Template Not Set Up",
-          `You haven't set up the ${
-            isApartmentTab ? "owner bill" : "staff slip"
-          } template yet. Set it up now to generate this bill.`,
-          [
-            { text: "Cancel", style: "cancel" },
-            {
-              text: "Generate Bill",
-              onPress: () => {
-                router.push({
-                  pathname: "/(modals)/generate-bill",
-                  params: { memberType },
-                });
-              },
-            },
-          ],
-        );
         setGeneratingBill(null);
+        openTemplateMissingModal(memberType, isApartmentTab);
         return;
       }
 
@@ -1046,11 +1205,11 @@ export default function PeopleScreen() {
         billTemplates[0];
 
       if (!selectedTemplate) {
+        setGeneratingBill(null);
         Alert.alert(
           "Template Error",
           "Could not find the saved template. Please re-save it in Profile → Generate Bill.",
         );
-        setGeneratingBill(null);
         return;
       }
 
@@ -1683,89 +1842,244 @@ export default function PeopleScreen() {
                                 ? monthlyPaymentData.paidDate
                                 : null;
 
-                            const recordTitle = isApartmentTab
+                            const roleStyle = isApartmentTab
+                              ? getMemberRoleStyle(record.role)
+                              : getStaffRoleStyle(record.role);
+
+                            const locationTitle = isApartmentTab
                               ? `${record.wing ? `${record.wing} · ` : ""}${
                                   record.flatNumber
                                     ? `Flat ${record.flatNumber}`
                                     : "Apartment"
-                                } · ${(record.role || "member").charAt(0).toUpperCase() + (record.role || "member").slice(1)}`
-                              : `${(record.role || "staff").charAt(0).toUpperCase() + (record.role || "staff").slice(1)}`;
+                                }`
+                              : null;
 
                             const recordSubtitle = isApartmentTab
                               ? `₹${record.maintenanceAmount || 0} /month`
                               : `₹${record.monthlySalary || 0} /month`;
 
                             return (
-                              <Pressable
-                                key={record.id}
-                                style={({ pressed }) => [
-                                  styles.recordRow,
-                                  pressed && styles.recordRowPressed,
-                                ]}
-                                onPress={(event) => {
-                                  event.stopPropagation();
-                                  Keyboard.dismiss();
-                                  if (canEdit) {
-                                    router.push({
-                                      pathname: "/(modals)/edit-member",
-                                      params: {
-                                        memberId: record.id,
-                                        accountId: selectedAccountId || "",
-                                        groupType: activeTab,
-                                      },
-                                    });
-                                  }
-                                }}
-                              >
-                                <View style={styles.recordInfo}>
-                                  <Text
-                                    style={styles.recordTitle}
-                                    numberOfLines={1}
-                                  >
-                                    {recordTitle}
-                                  </Text>
-                                  <Text style={styles.recordSubtitle}>
-                                    {recordSubtitle}
-                                  </Text>
-                                </View>
+                              <View key={record.id} style={styles.recordBlock}>
+                                <Pressable
+                                  style={({ pressed }) => [
+                                    styles.recordRow,
+                                    pressed && styles.recordRowPressed,
+                                  ]}
+                                  onPress={(event) => {
+                                    event.stopPropagation();
+                                    Keyboard.dismiss();
+                                    if (canEdit) {
+                                      router.push({
+                                        pathname: "/(modals)/edit-member",
+                                        params: {
+                                          memberId: record.id,
+                                          accountId: selectedAccountId || "",
+                                          groupType: activeTab,
+                                        },
+                                      });
+                                    }
+                                  }}
+                                >
+                                  <View style={styles.recordInfo}>
+                                    <View style={styles.recordTitleRow}>
+                                      {locationTitle ? (
+                                        <Text
+                                          style={styles.recordLocation}
+                                          numberOfLines={1}
+                                        >
+                                          {locationTitle}
+                                        </Text>
+                                      ) : null}
 
-                                {showFinancialInfo ? (
-                                  <View
-                                    style={[
-                                      styles.paymentBadge,
-                                      isPaidThisMonth
-                                        ? styles.paymentBadgePaid
-                                        : styles.paymentBadgeDue,
-                                    ]}
-                                  >
-                                    <View
-                                      style={[
-                                        styles.paymentDot,
-                                        isPaidThisMonth
-                                          ? styles.paymentDotPaid
-                                          : styles.paymentDotDue,
-                                      ]}
-                                    />
-                                    <Text
-                                      style={[
-                                        styles.paymentBadgeText,
-                                        isPaidThisMonth
-                                          ? styles.paymentTextPaid
-                                          : styles.paymentTextDue,
-                                      ]}
-                                      numberOfLines={1}
-                                    >
-                                      {isPaidThisMonth
-                                        ? paidDateForMonth
-                                          ? `Paid ₹${statusPaymentAmount} · ${formatBadgeDate(
-                                              paidDateForMonth,
-                                            )}`
-                                          : `Paid ₹${statusPaymentAmount}`
-                                        : `Due ₹${statusPaymentAmount}`}
+                                      <View
+                                        style={[
+                                          styles.roleBadge,
+                                          {
+                                            backgroundColor: roleStyle.bg,
+                                            borderColor: roleStyle.border,
+                                          },
+                                        ]}
+                                      >
+                                        <Text
+                                          style={[
+                                            styles.roleBadgeText,
+                                            { color: roleStyle.text },
+                                          ]}
+                                          numberOfLines={1}
+                                        >
+                                          {roleStyle.label}
+                                        </Text>
+                                      </View>
+                                    </View>
+                                    <Text style={styles.recordSubtitle}>
+                                      {recordSubtitle}
                                     </Text>
                                   </View>
+
+                                  {showFinancialInfo ? (
+                                    <View
+                                      style={[
+                                        styles.paymentBadge,
+                                        isPaidThisMonth
+                                          ? styles.paymentBadgePaid
+                                          : styles.paymentBadgeDue,
+                                      ]}
+                                    >
+                                      <View
+                                        style={[
+                                          styles.paymentDot,
+                                          isPaidThisMonth
+                                            ? styles.paymentDotPaid
+                                            : styles.paymentDotDue,
+                                        ]}
+                                      />
+                                      <Text
+                                        style={[
+                                          styles.paymentBadgeText,
+                                          isPaidThisMonth
+                                            ? styles.paymentTextPaid
+                                            : styles.paymentTextDue,
+                                        ]}
+                                        numberOfLines={1}
+                                      >
+                                        {isPaidThisMonth
+                                          ? paidDateForMonth
+                                            ? `Paid ₹${statusPaymentAmount} · ${formatBadgeDate(
+                                                paidDateForMonth,
+                                              )}`
+                                            : `Paid ₹${statusPaymentAmount}`
+                                          : `Due ₹${statusPaymentAmount}`}
+                                      </Text>
+                                    </View>
+                                  ) : null}
+                                </Pressable>
+
+                                {canEdit ? (
+                                  <View style={styles.recordActionsRow}>
+                                    {isApartmentTab && showFinancialInfo ? (
+                                      <Pressable
+                                        style={({ pressed }) => [
+                                          styles.recordActionButton,
+                                          pressed &&
+                                            styles.recordActionButtonPressed,
+                                        ]}
+                                        onPress={(event) => {
+                                          event.stopPropagation();
+                                          Keyboard.dismiss();
+                                          openPaymentModal(record);
+                                        }}
+                                      >
+                                        <Ionicons
+                                          name="cash-outline"
+                                          size={14}
+                                          color={COLORS.primary}
+                                        />
+                                        <Text style={styles.recordActionText}>
+                                          Mark Payment
+                                        </Text>
+                                      </Pressable>
+                                    ) : null}
+
+                                    {isStaffTab ? (
+                                      <Pressable
+                                        style={({ pressed }) => [
+                                          styles.recordActionButton,
+                                          pressed &&
+                                            styles.recordActionButtonPressed,
+                                        ]}
+                                        onPress={(event) => {
+                                          event.stopPropagation();
+                                          Keyboard.dismiss();
+                                          router.push({
+                                            pathname:
+                                              "/(modals)/mark-attendance",
+                                            params: {
+                                              memberId: record.id,
+                                              accountId:
+                                                selectedAccountId || "",
+                                              month: selectedMonth || "",
+                                            },
+                                          });
+                                        }}
+                                      >
+                                        <Ionicons
+                                          name="calendar-outline"
+                                          size={14}
+                                          color={COLORS.purple}
+                                        />
+                                        <Text style={styles.recordActionText}>
+                                          Mark Attendance
+                                        </Text>
+                                      </Pressable>
+                                    ) : null}
+
+                                    {isStaffTab && showFinancialInfo ? (
+                                      <Pressable
+                                        style={({ pressed }) => [
+                                          styles.recordActionButton,
+                                          pressed &&
+                                            styles.recordActionButtonPressed,
+                                        ]}
+                                        onPress={(event) => {
+                                          event.stopPropagation();
+                                          Keyboard.dismiss();
+                                          openPaymentModal(record);
+                                        }}
+                                      >
+                                        <Ionicons
+                                          name="cash-outline"
+                                          size={14}
+                                          color={COLORS.primary}
+                                        />
+                                        <Text style={styles.recordActionText}>
+                                          Mark Payment
+                                        </Text>
+                                      </Pressable>
+                                    ) : null}
+
+                                    {!isExpenseTab &&
+                                    showFinancialInfo &&
+                                    isPaidThisMonth ? (
+                                      <Pressable
+                                        style={({ pressed }) => [
+                                          styles.recordActionButton,
+                                          styles.recordActionButtonPrimary,
+                                          pressed &&
+                                            styles.recordActionButtonPressed,
+                                        ]}
+                                        onPress={(event) => {
+                                          event.stopPropagation();
+                                          Keyboard.dismiss();
+                                          handleDownloadBill(record);
+                                        }}
+                                        disabled={generatingBill === record.id}
+                                      >
+                                        {generatingBill === record.id ? (
+                                          <ActivityIndicator
+                                            size="small"
+                                            color="#fff"
+                                          />
+                                        ) : (
+                                          <>
+                                            <Ionicons
+                                              name="download-outline"
+                                              size={14}
+                                              color="#fff"
+                                            />
+                                            <Text
+                                              style={
+                                                styles.recordActionTextPrimary
+                                              }
+                                            >
+                                              Bill
+                                            </Text>
+                                          </>
+                                        )}
+                                      </Pressable>
+                                    ) : null}
+                                  </View>
                                 ) : null}
-                              </Pressable>
+                              </View>
                             );
                           })}
                         </View>
@@ -2222,6 +2536,74 @@ export default function PeopleScreen() {
         </Modal>
       )}
 
+      {/* ============================ TEMPLATE NOT SET UP ============================ */}
+      <Modal
+        transparent
+        animationType="fade"
+        visible={templateMissing.visible}
+        onRequestClose={closeTemplateMissingModal}
+      >
+        <Pressable
+          style={styles.templateBackdrop}
+          onPress={closeTemplateMissingModal}
+        >
+          <Pressable
+            style={styles.templateCard}
+            onPress={(event) => event.stopPropagation()}
+          >
+            <View style={styles.templateIconWrap}>
+              <Ionicons
+                name="document-text-outline"
+                size={30}
+                color="#D97706"
+              />
+            </View>
+
+            <Text style={styles.templateTitle}>Set up the bill template</Text>
+
+            <Text style={styles.templateMessage}>
+              {templateMissing.isApartment
+                ? "You haven't configured the owner bill template yet. Set it up once and you'll be able to download a bill for every paid month."
+                : "You haven't configured the staff payslip template yet. Set it up once and you'll be able to download a payslip for every paid month."}
+            </Text>
+
+            <View style={styles.templateActions}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.templateCancelButton,
+                  pressed && styles.templateButtonPressed,
+                ]}
+                onPress={closeTemplateMissingModal}
+              >
+                <Text style={styles.templateCancelText}>Not now</Text>
+              </Pressable>
+
+              <Pressable
+                style={({ pressed }) => [
+                  styles.templatePrimaryButton,
+                  pressed && styles.templateButtonPressed,
+                ]}
+                onPress={handleGoToBillSetup}
+              >
+                <Ionicons name="settings-outline" size={16} color="#fff" />
+                <Text style={styles.templatePrimaryText}>Set up now</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
+
+      {/* ============================ GENERATE BILL MODAL (inline) ============================ */}
+      <GenerateBillModal
+        visible={showGenerateBillModal}
+        memberType={generateBillMemberType}
+        onMemberTypeChange={setGenerateBillMemberType}
+        onClose={() => setShowGenerateBillModal(false)}
+        onSaved={() => {
+          setShowGenerateBillModal(false);
+        }}
+      />
+
       <DatePickerModal
         visible={showPaidDatePicker}
         value={paidDate}
@@ -2604,6 +2986,9 @@ const styles = StyleSheet.create({
     borderTopColor: COLORS.borderLight,
     gap: 6,
   },
+  recordBlock: {
+    marginBottom: 8,
+  },
   recordRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -2616,8 +3001,66 @@ const styles = StyleSheet.create({
   },
   recordRowPressed: { opacity: 0.75 },
   recordInfo: { flex: 1, minWidth: 0, marginRight: 8 },
-  recordTitle: { fontSize: 12.5, fontWeight: "700", color: COLORS.text },
-  recordSubtitle: { fontSize: 11, color: COLORS.secondary, marginTop: 2 },
+  recordTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  recordLocation: {
+    fontSize: 12.5,
+    fontWeight: "700",
+    color: COLORS.text,
+  },
+  roleBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  roleBadgeText: {
+    fontSize: 10.5,
+    fontWeight: "800",
+    letterSpacing: 0.2,
+  },
+  recordSubtitle: { fontSize: 11, color: COLORS.secondary, marginTop: 3 },
+
+  recordActionsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 6,
+    paddingLeft: 4,
+    paddingRight: 4,
+  },
+  recordActionButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: COLORS.primaryLight,
+    borderWidth: 1,
+    borderColor: COLORS.primarySoft,
+  },
+  recordActionButtonPressed: {
+    opacity: 0.75,
+  },
+  recordActionButtonPrimary: {
+    backgroundColor: COLORS.success,
+    borderColor: COLORS.success,
+  },
+  recordActionText: {
+    fontSize: 11.5,
+    fontWeight: "700",
+    color: COLORS.primary,
+  },
+  recordActionTextPrimary: {
+    fontSize: 11.5,
+    fontWeight: "700",
+    color: "#fff",
+  },
 
   paymentBadge: {
     flexDirection: "row",
@@ -2991,5 +3434,85 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "700",
     color: COLORS.white,
+  },
+
+  /* ============================ TEMPLATE MISSING MODAL ============================ */
+  templateBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 24,
+  },
+  templateCard: {
+    width: "100%",
+    maxWidth: 400,
+    backgroundColor: "#fff",
+    borderRadius: 22,
+    paddingHorizontal: 22,
+    paddingTop: 26,
+    paddingBottom: 20,
+    alignItems: "center",
+  },
+  templateIconWrap: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    backgroundColor: "#FEF3C7",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 16,
+  },
+  templateTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#0F172A",
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  templateMessage: {
+    fontSize: 13,
+    lineHeight: 20,
+    color: "#64748B",
+    textAlign: "center",
+  },
+  templateActions: {
+    flexDirection: "row",
+    width: "100%",
+    gap: 10,
+    marginTop: 22,
+  },
+  templateCancelButton: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 13,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    backgroundColor: "#F8FAFC",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  templateCancelText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#475569",
+  },
+  templatePrimaryButton: {
+    flex: 1.3,
+    minHeight: 48,
+    borderRadius: 13,
+    backgroundColor: "#D97706",
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    gap: 6,
+  },
+  templatePrimaryText: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#fff",
+  },
+  templateButtonPressed: {
+    opacity: 0.8,
   },
 });

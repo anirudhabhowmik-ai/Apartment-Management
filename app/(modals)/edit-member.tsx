@@ -69,15 +69,17 @@ const RED = "#DC2626";
 const GREEN = "#16A34A";
 
 const FLAT_ROLES: RoleOption[] = [
-  { role: "owner", label: "Owner", icon: "home-outline" },
-  { role: "secretary", label: "Secretary", icon: "shield-checkmark-outline" },
-  { role: "tenant", label: "Tenant", icon: "person-outline" },
+  { role: "flat", label: "Flat Owner", icon: "business-outline" },
+  { role: "shop", label: "Shop Owner", icon: "storefront-outline" },
 ];
 
 const SERVANT_ROLES: RoleOption[] = [
   { role: "sweeper", label: "Sweeper", icon: "sparkles-outline" },
   { role: "security", label: "Security", icon: "shield-outline" },
   { role: "maintenance", label: "Maintenance", icon: "construct-outline" },
+  { role: "gardener", label: "Gardener", icon: "leaf-outline" },
+  { role: "driver", label: "Driver", icon: "car-outline" },
+  { role: "accountant", label: "Accountant", icon: "calculator-outline" },
 ];
 
 const EXPENSE_ROLES: RoleOption[] = [

@@ -75,14 +75,17 @@ const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
 const AUTH_TOKEN_KEY = "auth_token";
 
 const APARTMENT_ROLES: RoleOption[] = [
-  { role: "owner", label: "Owner", icon: "home-outline" },
-  { role: "manager", label: "Manager", icon: "briefcase-outline" },
+  { role: "flat", label: "Flat Owner", icon: "business-outline" },
+  { role: "shop", label: "Shop Owner", icon: "storefront-outline" },
 ];
 
 const STAFF_ROLES: RoleOption[] = [
   { role: "sweeper", label: "Sweeper", icon: "sparkles-outline" },
   { role: "security", label: "Security", icon: "shield-outline" },
   { role: "maintenance", label: "Maintenance", icon: "construct-outline" },
+  { role: "gardener", label: "Gardener", icon: "leaf-outline" },
+  { role: "driver", label: "Driver", icon: "car-outline" },
+  { role: "accountant", label: "Accountant", icon: "calculator-outline" },
 ];
 
 const EXPENSE_ROLES: RoleOption[] = [
@@ -1855,7 +1858,7 @@ export default function AddMemberScreen() {
               </>
             )}
 
-            {mode === "new" && (
+            {(groupType === "apartment" || groupType === "staff") && (
               <View style={styles.fieldContainer}>
                 <View style={styles.labelRow}>
                   <Text
