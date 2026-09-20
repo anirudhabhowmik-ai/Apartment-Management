@@ -66,10 +66,8 @@ function clampNumber(value: number, min: number, max: number) {
 
 function normalizePhoneInput(raw?: string | null): string {
   if (!raw) return "";
-
   const digits = String(raw).replace(/\D/g, "");
   const ten = digits.length > 10 ? digits.slice(-10) : digits;
-
   return ten;
 }
 
@@ -125,7 +123,6 @@ function PhotoAdjustModal({
 
   const baseScale = useMemo(() => {
     if (!image || !image.width || !image.height) return 1;
-
     return VIEWPORT / Math.min(image.width, image.height);
   }, [image]);
 
@@ -135,14 +132,11 @@ function PhotoAdjustModal({
 
   const clampTranslate = (t: { x: number; y: number }, currentZoom: number) => {
     if (!image) return { x: 0, y: 0 };
-
     const scale = baseScale * currentZoom;
     const dW = image.width * scale;
     const dH = image.height * scale;
-
     const maxX = Math.max(0, (dW - VIEWPORT) / 2);
     const maxY = Math.max(0, (dH - VIEWPORT) / 2);
-
     return {
       x: clampNumber(t.x, -maxX, maxX),
       y: clampNumber(t.y, -maxY, maxY),
@@ -162,15 +156,12 @@ function PhotoAdjustModal({
   useEffect(() => {
     zoomRef.current = zoom;
   }, [zoom]);
-
   useEffect(() => {
     translateRef.current = translate;
   }, [translate]);
-
   useEffect(() => {
     imageRef.current = image;
   }, [image]);
-
   useEffect(() => {
     baseScaleRef.current = baseScale;
   }, [baseScale]);
@@ -180,16 +171,12 @@ function PhotoAdjustModal({
     currentZoom: number,
   ) => {
     const img = imageRef.current;
-
     if (!img) return { x: 0, y: 0 };
-
     const scale = baseScaleRef.current * currentZoom;
     const dW = img.width * scale;
     const dH = img.height * scale;
-
     const maxX = Math.max(0, (dW - VIEWPORT) / 2);
     const maxY = Math.max(0, (dH - VIEWPORT) / 2);
-
     return {
       x: clampNumber(t.x, -maxX, maxX),
       y: clampNumber(t.y, -maxY, maxY),
@@ -223,13 +210,10 @@ function PhotoAdjustModal({
 
   const beginGesture = (touches: any[]) => {
     const pts = getSortedTouches(touches);
-
     if (pts.length >= 2) {
       const [a, b] = pts;
-
       const dx = a.pageX - b.pageX;
       const dy = a.pageY - b.pageY;
-
       gestureRef.current = {
         mode: "pinch",
         touchIds: [a.identifier, b.identifier],
@@ -240,13 +224,8 @@ function PhotoAdjustModal({
       gestureRef.current = {
         mode: "pan",
         touchId: pts[0].identifier,
-        startTouch: {
-          x: pts[0].pageX,
-          y: pts[0].pageY,
-        },
-        startTranslate: {
-          ...translateRef.current,
-        },
+        startTouch: { x: pts[0].pageX, y: pts[0].pageY },
+        startTranslate: { ...translateRef.current },
       };
     } else {
       gestureRef.current = null;
@@ -278,21 +257,17 @@ function PhotoAdjustModal({
         }
 
         const g = gestureRef.current;
-
         if (!g) return;
 
         if (g.mode === "pinch" && touches.length >= 2) {
           const sorted = getSortedTouches(touches);
-
           const tracked = sorted.filter((p) =>
             g.touchIds.includes(p.identifier),
           );
-
           const [a, b] = tracked.length >= 2 ? tracked : sorted.slice(0, 2);
 
           const dx = a.pageX - b.pageX;
           const dy = a.pageY - b.pageY;
-
           const distance = Math.sqrt(dx * dx + dy * dy);
 
           if (g.startDistance > 0) {
@@ -301,24 +276,17 @@ function PhotoAdjustModal({
               MIN_ZOOM,
               MAX_ZOOM,
             );
-
             zoomRef.current = nextZoom;
             setZoom(nextZoom);
           }
         } else if (g.mode === "pan" && touches.length === 1) {
           const touch = touches[0];
-
           const dx = touch.pageX - g.startTouch.x;
           const dy = touch.pageY - g.startTouch.y;
-
           const next = clampTranslateFromRefs(
-            {
-              x: g.startTranslate.x + dx,
-              y: g.startTranslate.y + dy,
-            },
+            { x: g.startTranslate.x + dx, y: g.startTranslate.y + dy },
             zoomRef.current,
           );
-
           translateRef.current = next;
           setTranslate(next);
         }
@@ -326,18 +294,15 @@ function PhotoAdjustModal({
 
       onPanResponderRelease: (evt: GestureResponderEvent) => {
         const remaining = evt.nativeEvent.touches;
-
         if (remaining.length > 0) {
           beginGesture(remaining);
         } else {
           gestureRef.current = null;
         }
-
         const clamped = clampTranslateFromRefs(
           translateRef.current,
           zoomRef.current,
         );
-
         translateRef.current = clamped;
         setTranslate(clamped);
       },
@@ -355,40 +320,26 @@ function PhotoAdjustModal({
 
   const handleConfirm = async () => {
     if (!image) return;
-
     setProcessing(true);
-
     try {
       const scale = baseScale * zoom;
       const cropSize = VIEWPORT / scale;
 
       let originX =
         image.width / 2 - VIEWPORT / (2 * scale) - translate.x / scale;
-
       let originY =
         image.height / 2 - VIEWPORT / (2 * scale) - translate.y / scale;
 
       originX = clampNumber(originX, 0, Math.max(0, image.width - cropSize));
-
       originY = clampNumber(originY, 0, Math.max(0, image.height - cropSize));
 
       const result = await ImageManipulator.manipulateAsync(
         image.uri,
         [
           {
-            crop: {
-              originX,
-              originY,
-              width: cropSize,
-              height: cropSize,
-            },
+            crop: { originX, originY, width: cropSize, height: cropSize },
           },
-          {
-            resize: {
-              width: 500,
-              height: 500,
-            },
-          },
+          { resize: { width: 500, height: 500 } },
         ],
         {
           compress: 0.8,
@@ -417,7 +368,6 @@ function PhotoAdjustModal({
       <View style={adjustStyles.backdrop}>
         <View style={adjustStyles.card}>
           <Text style={adjustStyles.title}>Adjust Photo</Text>
-
           <Text style={adjustStyles.subtitle}>
             Pinch to zoom • Drag to reposition
           </Text>
@@ -426,10 +376,7 @@ function PhotoAdjustModal({
             <View
               style={[
                 adjustStyles.viewport,
-                {
-                  width: VIEWPORT,
-                  height: VIEWPORT,
-                },
+                { width: VIEWPORT, height: VIEWPORT },
               ]}
               {...panResponder.panHandlers}
             >
@@ -444,11 +391,9 @@ function PhotoAdjustModal({
                 }}
                 resizeMode="cover"
               />
-
               <View
                 style={[adjustStyles.circleGuide, { pointerEvents: "none" }]}
               />
-
               <View style={adjustStyles.zoomLevelBadge}>
                 <Text style={adjustStyles.zoomLevelText}>
                   {Math.round(zoom * 100)}%
@@ -463,7 +408,6 @@ function PhotoAdjustModal({
             activeOpacity={0.7}
           >
             <Ionicons name="refresh" size={14} color="#64748b" />
-
             <Text style={adjustStyles.resetText}>Reset Position & Zoom</Text>
           </TouchableOpacity>
 
@@ -488,7 +432,6 @@ function PhotoAdjustModal({
               ) : (
                 <>
                   <Ionicons name="checkmark" size={18} color="#fff" />
-
                   <Text style={adjustStyles.confirmText}>Use Photo</Text>
                 </>
               )}
@@ -508,7 +451,6 @@ const adjustStyles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 20,
   },
-
   card: {
     backgroundColor: "#ffffff",
     borderRadius: 22,
@@ -517,32 +459,15 @@ const adjustStyles = StyleSheet.create({
     maxWidth: 420,
     alignItems: "center",
   },
-
-  title: {
-    fontSize: 17,
-    fontWeight: "800",
-    color: "#0f172a",
-    marginBottom: 2,
-  },
-
-  subtitle: {
-    fontSize: 12.5,
-    color: "#64748b",
-    marginBottom: 16,
-  },
-
-  viewportWrapper: {
-    alignItems: "center",
-    justifyContent: "center",
-  },
-
+  title: { fontSize: 17, fontWeight: "800", color: "#0f172a", marginBottom: 2 },
+  subtitle: { fontSize: 12.5, color: "#64748b", marginBottom: 16 },
+  viewportWrapper: { alignItems: "center", justifyContent: "center" },
   viewport: {
     backgroundColor: "#0f172a",
     borderRadius: 16,
     overflow: "hidden",
     position: "relative",
   },
-
   circleGuide: {
     position: "absolute",
     top: 0,
@@ -553,7 +478,6 @@ const adjustStyles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "rgba(255,255,255,0.3)",
   },
-
   zoomLevelBadge: {
     position: "absolute",
     top: 12,
@@ -563,13 +487,7 @@ const adjustStyles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 8,
   },
-
-  zoomLevelText: {
-    color: "#ffffff",
-    fontSize: 12,
-    fontWeight: "600",
-  },
-
+  zoomLevelText: { color: "#ffffff", fontSize: 12, fontWeight: "600" },
   resetButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -578,20 +496,8 @@ const adjustStyles = StyleSheet.create({
     paddingVertical: 4,
     paddingHorizontal: 10,
   },
-
-  resetText: {
-    fontSize: 12.5,
-    fontWeight: "600",
-    color: "#64748b",
-  },
-
-  actionRow: {
-    flexDirection: "row",
-    gap: 10,
-    width: "100%",
-    marginTop: 16,
-  },
-
+  resetText: { fontSize: 12.5, fontWeight: "600", color: "#64748b" },
+  actionRow: { flexDirection: "row", gap: 10, width: "100%", marginTop: 16 },
   cancelButton: {
     flex: 1,
     paddingVertical: 13,
@@ -601,13 +507,7 @@ const adjustStyles = StyleSheet.create({
     backgroundColor: "#f8fafc",
     alignItems: "center",
   },
-
-  cancelText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#475569",
-  },
-
+  cancelText: { fontSize: 14, fontWeight: "700", color: "#475569" },
   confirmButton: {
     flex: 1,
     flexDirection: "row",
@@ -618,12 +518,7 @@ const adjustStyles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: "#1a73e8",
   },
-
-  confirmText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#ffffff",
-  },
+  confirmText: { fontSize: 14, fontWeight: "700", color: "#ffffff" },
 });
 
 // ============================================================
@@ -640,48 +535,38 @@ export default function EditProfileScreen() {
   const [photoUri, setPhotoUri] = useState<string | null>(null);
 
   const [showPhotoOptions, setShowPhotoOptions] = useState(false);
-
   const [rawImage, setRawImage] = useState<RawImage | null>(null);
-
   const [showAdjustModal, setShowAdjustModal] = useState(false);
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
 
   const [showPhoneModal, setShowPhoneModal] = useState(false);
-
   const [phoneStep, setPhoneStep] = useState<"enter" | "otp">("enter");
-
   const [newPhone, setNewPhone] = useState("");
   const [otp, setOtp] = useState("");
   const [phoneError, setPhoneError] = useState("");
   const [phoneLoading, setPhoneLoading] = useState(false);
 
   const [showContactPicker, setShowContactPicker] = useState(false);
-
   const [contactsList, setContactsList] = useState<ContactData[]>([]);
-
   const [contactSearch, setContactSearch] = useState("");
   const [loadingContacts, setLoadingContacts] = useState(false);
 
   useEffect(() => {
     refreshProfile();
-
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
     if (!user) return;
-
     setName(user.name ?? "");
     setPhotoUri(user.photoUrl ?? null);
   }, [user]);
 
   const takePhoto = async () => {
     setShowPhotoOptions(false);
-
     const permission = await ImagePicker.requestCameraPermissionsAsync();
-
     if (!permission.granted) {
       setError("Permission to access camera is required");
       return;
@@ -695,22 +580,18 @@ export default function EditProfileScreen() {
 
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];
-
       setRawImage({
         uri: asset.uri,
         width: asset.width,
         height: asset.height,
       });
-
       setShowAdjustModal(true);
     }
   };
 
   const choosePhoto = async () => {
     setShowPhotoOptions(false);
-
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-
     if (!permission.granted) {
       setError("Permission to access photos is required");
       return;
@@ -724,13 +605,11 @@ export default function EditProfileScreen() {
 
     if (!result.canceled && result.assets[0]) {
       const asset = result.assets[0];
-
       setRawImage({
         uri: asset.uri,
         width: asset.width,
         height: asset.height,
       });
-
       setShowAdjustModal(true);
     }
   };
@@ -741,13 +620,11 @@ export default function EditProfileScreen() {
         "Not Available",
         "Contact picker is only available on mobile devices.",
       );
-
       return;
     }
 
     try {
       setLoadingContacts(true);
-
       const { status } = await requestPermissionsAsync();
 
       if (status !== "granted") {
@@ -756,24 +633,19 @@ export default function EditProfileScreen() {
           "We need access to your contacts to help you pick a phone number.",
           [{ text: "OK" }],
         );
-
         return;
       }
 
       const contacts = await Contact.getAllDetails(
         [ContactField.FULL_NAME, ContactField.PHONES],
-        {
-          sortOrder: ContactsSortOrder.GivenName,
-        },
+        { sortOrder: ContactsSortOrder.GivenName },
       );
 
       const mapped: ContactData[] = (contacts || [])
         .filter((c: any) => c.phones && c.phones.length > 0)
         .map((c: any) => ({
           id: c.id ?? `${c.fullName ?? "unknown"}-${Math.random()}`,
-
           name: c.fullName || "Unknown",
-
           phoneNumbers: (c.phones ?? []).map((p: any) => ({
             number: p.number || "",
             label: p.label || undefined,
@@ -785,7 +657,6 @@ export default function EditProfileScreen() {
       setShowContactPicker(true);
     } catch (err) {
       console.error("Error fetching contacts:", err);
-
       Alert.alert("Error", "Failed to fetch contacts.");
     } finally {
       setLoadingContacts(false);
@@ -794,36 +665,26 @@ export default function EditProfileScreen() {
 
   const filteredContacts = useMemo(() => {
     const q = contactSearch.toLowerCase().trim();
-
     if (!q) return contactsList;
-
     return contactsList.filter((c) => {
       const nameMatch = c.name.toLowerCase().includes(q);
-
       const phoneMatch = c.phoneNumbers.some((p) =>
         p.number.toLowerCase().includes(q),
       );
-
       return nameMatch || phoneMatch;
     });
   }, [contactsList, contactSearch]);
 
   const selectContact = (contact: ContactData) => {
-    if (!contact.phoneNumbers || contact.phoneNumbers.length === 0) {
-      return;
-    }
-
+    if (!contact.phoneNumbers || contact.phoneNumbers.length === 0) return;
     const value = normalizePhoneInput(contact.phoneNumbers[0].number);
-
     if (value.length !== 10) {
       Alert.alert(
         "Invalid number",
         "That contact doesn't have a valid 10-digit number.",
       );
-
       return;
     }
-
     setNewPhone(value);
     setPhoneError("");
     setShowContactPicker(false);
@@ -844,13 +705,11 @@ export default function EditProfileScreen() {
     }
 
     setLoading(true);
-
     try {
       await updateProfile({
         name: trimmed || null,
         photoUrl: photoUri,
       });
-
       router.back();
     } catch (e: any) {
       setError(e?.message || "Failed to update profile.");
@@ -869,7 +728,6 @@ export default function EditProfileScreen() {
 
   const closePhoneModal = () => {
     if (phoneLoading) return;
-
     setShowPhoneModal(false);
     setPhoneStep("enter");
     setNewPhone("");
@@ -881,26 +739,20 @@ export default function EditProfileScreen() {
     setPhoneError("");
 
     const ten = normalizePhoneInput(newPhone);
-
     if (ten.length !== 10) {
       setPhoneError("Please enter a valid 10-digit phone number.");
-
       return;
     }
 
     const currentTen = normalizePhoneInput(user?.phone ?? "");
-
     if (ten === currentTen) {
       setPhoneError("This is already your current phone number.");
-
       return;
     }
 
     setPhoneLoading(true);
-
     try {
       const token = await getToken();
-
       if (!token) {
         setPhoneError("You're not signed in.");
         return;
@@ -908,13 +760,10 @@ export default function EditProfileScreen() {
 
       const pre = await authedFetch("/auth/request-phone-change", token, {
         method: "POST",
-        body: JSON.stringify({
-          newPhone: ten,
-        }),
+        body: JSON.stringify({ newPhone: ten }),
       });
 
       let preData: any = null;
-
       try {
         preData = await pre.json();
       } catch {
@@ -925,22 +774,18 @@ export default function EditProfileScreen() {
         setPhoneError(
           preData?.message || "This number cannot be used right now.",
         );
-
         return;
       }
 
       const otpResult = await sendOtp(ten);
-
       if (!otpResult.success) {
         setPhoneError(otpResult.message || "Failed to send OTP.");
-
         return;
       }
 
       setPhoneStep("otp");
     } catch (e: any) {
       console.error("handleSendOtp error:", e);
-
       setPhoneError(e?.message || "Failed to start phone change.");
     } finally {
       setPhoneLoading(false);
@@ -951,29 +796,22 @@ export default function EditProfileScreen() {
     setPhoneError("");
 
     const ten = normalizePhoneInput(newPhone);
-
     if (otp.length !== 6) {
       setPhoneError("Enter the 6-digit OTP.");
-
       return;
     }
 
     setPhoneLoading(true);
-
     try {
       const verify = await verifyOtpOnly(ten, otp);
-
       if (!verify.success || !verify.accessToken) {
         setPhoneError(verify.message || "OTP verification failed.");
-
         return;
       }
 
       const token = await getToken();
-
       if (!token) {
         setPhoneError("You're not signed in.");
-
         return;
       }
 
@@ -986,7 +824,6 @@ export default function EditProfileScreen() {
       });
 
       let data: any = null;
-
       try {
         data = await res.json();
       } catch {
@@ -995,25 +832,18 @@ export default function EditProfileScreen() {
 
       if (!res.ok) {
         setPhoneError(data?.message || "Failed to update phone number.");
-
         return;
       }
 
-      // ======================================================
-      // PHONE NUMBER CHANGED SUCCESSFULLY
-      //
-      // Do NOT show an alert or confirmation modal.
-      // Clear the current session immediately and redirect
-      // directly to login.
-      // ======================================================
-
+      // Success. Close the OTP modal, then sign out with session
+      // revocation and send the user to login. The auth store's
+      // logout() also clears the account store so no stale data
+      // leaks into the next login.
       setShowPhoneModal(false);
       setPhoneLoading(false);
 
       try {
-        await logout({
-          revokeAllSessions: true,
-        });
+        await logout({ revokeAllSessions: true });
       } catch (logoutError) {
         console.warn("Logout after phone change failed:", logoutError);
       }
@@ -1021,7 +851,6 @@ export default function EditProfileScreen() {
       router.replace("/(auth)/login");
     } catch (e: any) {
       console.error("handleConfirmOtp error:", e);
-
       setPhoneError(e?.message || "Failed to update phone number.");
     } finally {
       setPhoneLoading(false);
@@ -1038,11 +867,7 @@ export default function EditProfileScreen() {
 
   return (
     <View style={styles.container}>
-      <Stack.Screen
-        options={{
-          title: "Edit Profile",
-        }}
-      />
+      <Stack.Screen options={{ title: "Edit Profile" }} />
 
       <KeyboardAvoidingView
         style={styles.flex}
@@ -1052,9 +877,7 @@ export default function EditProfileScreen() {
         <ScrollView
           contentContainerStyle={[
             styles.scrollContent,
-            {
-              paddingBottom: Math.max(insets.bottom, 24) + 80,
-            },
+            { paddingBottom: Math.max(insets.bottom, 24) + 80 },
           ]}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="none"
@@ -1069,35 +892,26 @@ export default function EditProfileScreen() {
               activeOpacity={0.8}
             >
               {photoUri ? (
-                <Image
-                  source={{
-                    uri: photoUri,
-                  }}
-                  style={styles.photoImage}
-                />
+                <Image source={{ uri: photoUri }} style={styles.photoImage} />
               ) : (
                 <>
                   <Ionicons name="camera-outline" size={28} color={BLUE} />
-
                   <View style={styles.photoPlus}>
                     <Ionicons name="add" size={12} color="#fff" />
                   </View>
                 </>
               )}
             </TouchableOpacity>
-
             <View style={styles.photoTextContainer}>
               <Text style={styles.photoTitle}>
                 {photoUri ? "Profile photo" : "Add profile photo"}
               </Text>
-
               <Text style={styles.photoSubtitle}>
                 {photoUri
                   ? "Tap the photo to change it"
                   : "Optional • Shows on your profile card"}
               </Text>
             </View>
-
             {photoUri && (
               <TouchableOpacity
                 onPress={handleRemovePhoto}
@@ -1111,10 +925,8 @@ export default function EditProfileScreen() {
 
           <View style={styles.card}>
             <Text style={styles.fieldLabel}>Name</Text>
-
             <View style={styles.inputContainer}>
               <Ionicons name="person-outline" size={20} color="#94A3B8" />
-
               <TextInput
                 style={styles.textInput}
                 placeholder="e.g. Ramesh Kumar"
@@ -1134,7 +946,6 @@ export default function EditProfileScreen() {
                 <View style={styles.phoneIconWrap}>
                   <Ionicons name="call-outline" size={18} color={BLUE} />
                 </View>
-
                 <Text style={styles.phoneValue} numberOfLines={1}>
                   {currentPhoneDisplay}
                 </Text>
@@ -1146,7 +957,6 @@ export default function EditProfileScreen() {
                 activeOpacity={0.85}
               >
                 <Ionicons name="swap-horizontal" size={14} color="#fff" />
-
                 <Text style={styles.changePhoneText}>Change</Text>
               </TouchableOpacity>
             </View>
@@ -1160,7 +970,6 @@ export default function EditProfileScreen() {
           {error ? (
             <View style={styles.errorCard}>
               <Ionicons name="alert-circle" size={19} color={RED} />
-
               <Text style={styles.errorText}>{error}</Text>
             </View>
           ) : null}
@@ -1180,7 +989,6 @@ export default function EditProfileScreen() {
                   size={20}
                   color="#fff"
                 />
-
                 <Text style={styles.saveButtonText}>Save Changes</Text>
               </>
             )}
@@ -1188,10 +996,7 @@ export default function EditProfileScreen() {
         </ScrollView>
       </KeyboardAvoidingView>
 
-      {/* ====================================================== */}
-      {/* PHOTO OPTIONS */}
-      {/* ====================================================== */}
-
+      {/* ============================ PHOTO OPTIONS ============================ */}
       <Modal
         visible={showPhotoOptions}
         transparent
@@ -1204,9 +1009,7 @@ export default function EditProfileScreen() {
         >
           <Pressable style={styles.photoOptionsModal} onPress={() => {}}>
             <View style={styles.modalHandle} />
-
             <Text style={styles.photoOptionsTitle}>Upload Photo</Text>
-
             <Text style={styles.photoOptionsSubtitle}>
               Choose how you want to add a photo
             </Text>
@@ -1219,15 +1022,12 @@ export default function EditProfileScreen() {
               <View style={styles.photoOptionIcon}>
                 <Ionicons name="camera" size={24} color={BLUE} />
               </View>
-
               <View style={styles.photoOptionTextContainer}>
                 <Text style={styles.photoOptionTitle}>Take Photo</Text>
-
                 <Text style={styles.photoOptionDescription}>
                   Capture a photo using your camera
                 </Text>
               </View>
-
               <Ionicons name="chevron-forward" size={20} color="#ccc" />
             </TouchableOpacity>
 
@@ -1237,24 +1037,16 @@ export default function EditProfileScreen() {
               activeOpacity={0.7}
             >
               <View
-                style={[
-                  styles.photoOptionIcon,
-                  {
-                    backgroundColor: "#ecfdf5",
-                  },
-                ]}
+                style={[styles.photoOptionIcon, { backgroundColor: "#ecfdf5" }]}
               >
                 <Ionicons name="images" size={24} color="#059669" />
               </View>
-
               <View style={styles.photoOptionTextContainer}>
                 <Text style={styles.photoOptionTitle}>Choose from Gallery</Text>
-
                 <Text style={styles.photoOptionDescription}>
                   Select a photo from your device
                 </Text>
               </View>
-
               <Ionicons name="chevron-forward" size={20} color="#ccc" />
             </TouchableOpacity>
 
@@ -1269,10 +1061,7 @@ export default function EditProfileScreen() {
         </Pressable>
       </Modal>
 
-      {/* ====================================================== */}
-      {/* PHONE CHANGE MODAL */}
-      {/* ====================================================== */}
-
+      {/* ============================ PHONE CHANGE MODAL ============================ */}
       <Modal
         visible={showPhoneModal}
         transparent
@@ -1283,7 +1072,7 @@ export default function EditProfileScreen() {
         <KeyboardAvoidingView
           style={styles.phoneModalBackdrop}
           behavior={Platform.OS === "ios" ? "padding" : "height"}
-          keyboardVerticalOffset={Platform.OS === "ios" ? 0 : 0}
+          keyboardVerticalOffset={0}
         >
           <View style={styles.phoneModal}>
             <View style={styles.phoneModalHeader}>
@@ -1296,19 +1085,16 @@ export default function EditProfileScreen() {
                   color={BLUE}
                 />
               </View>
-
               <View style={{ flex: 1 }}>
                 <Text style={styles.phoneModalTitle}>
                   {phoneStep === "enter" ? "Change Phone Number" : "Verify OTP"}
                 </Text>
-
                 <Text style={styles.phoneModalSubtitle}>
                   {phoneStep === "enter"
                     ? "We'll send an OTP to the new number."
                     : `Enter the code sent to +91 ${newPhone}`}
                 </Text>
               </View>
-
               <TouchableOpacity
                 onPress={closePhoneModal}
                 style={styles.closeModalButton}
@@ -1333,7 +1119,6 @@ export default function EditProfileScreen() {
                       size={18}
                       color="#B45309"
                     />
-
                     <Text style={styles.noteText}>
                       Changing your phone signs you out of every account on this
                       device. The new number becomes your login. If you're
@@ -1343,7 +1128,6 @@ export default function EditProfileScreen() {
                   </View>
 
                   <Text style={styles.modalFieldLabel}>New Phone Number</Text>
-
                   <View
                     style={[
                       styles.phoneInputRow,
@@ -1353,7 +1137,6 @@ export default function EditProfileScreen() {
                     <View style={styles.countryCode}>
                       <Text style={styles.countryCodeText}>+91</Text>
                     </View>
-
                     <TextInput
                       style={styles.phoneInput}
                       placeholder="9876543210"
@@ -1363,11 +1146,9 @@ export default function EditProfileScreen() {
                       value={newPhone}
                       onChangeText={(text) => {
                         setNewPhone(text.replace(/[^0-9]/g, ""));
-
                         setPhoneError("");
                       }}
                     />
-
                     <TouchableOpacity
                       onPress={openContactPicker}
                       style={styles.contactButton}
@@ -1389,7 +1170,6 @@ export default function EditProfileScreen() {
                   {phoneError ? (
                     <View style={styles.inlineError}>
                       <Ionicons name="alert-circle" size={14} color={RED} />
-
                       <Text style={styles.inlineErrorText}>{phoneError}</Text>
                     </View>
                   ) : null}
@@ -1403,13 +1183,10 @@ export default function EditProfileScreen() {
                     >
                       <Text style={styles.phoneCancelText}>Cancel</Text>
                     </TouchableOpacity>
-
                     <TouchableOpacity
                       style={[
                         styles.phonePrimaryBtn,
-                        phoneLoading && {
-                          opacity: 0.6,
-                        },
+                        phoneLoading && { opacity: 0.6 },
                       ]}
                       onPress={handleSendOtp}
                       activeOpacity={0.85}
@@ -1424,7 +1201,6 @@ export default function EditProfileScreen() {
                             size={16}
                             color="#fff"
                           />
-
                           <Text style={styles.phonePrimaryText}>Send OTP</Text>
                         </>
                       )}
@@ -1434,7 +1210,6 @@ export default function EditProfileScreen() {
               ) : (
                 <>
                   <Text style={styles.modalFieldLabel}>Enter 6-digit OTP</Text>
-
                   <TextInput
                     style={styles.otpInput}
                     placeholder="● ● ● ● ● ●"
@@ -1444,7 +1219,6 @@ export default function EditProfileScreen() {
                     value={otp}
                     onChangeText={(text) => {
                       setOtp(text.replace(/[^0-9]/g, ""));
-
                       setPhoneError("");
                     }}
                     autoFocus
@@ -1453,7 +1227,6 @@ export default function EditProfileScreen() {
                   {phoneError ? (
                     <View style={styles.inlineError}>
                       <Ionicons name="alert-circle" size={14} color={RED} />
-
                       <Text style={styles.inlineErrorText}>{phoneError}</Text>
                     </View>
                   ) : null}
@@ -1477,13 +1250,10 @@ export default function EditProfileScreen() {
                     >
                       <Text style={styles.phoneCancelText}>Cancel</Text>
                     </TouchableOpacity>
-
                     <TouchableOpacity
                       style={[
                         styles.phonePrimaryBtn,
-                        phoneLoading && {
-                          opacity: 0.6,
-                        },
+                        phoneLoading && { opacity: 0.6 },
                       ]}
                       onPress={handleConfirmOtp}
                       activeOpacity={0.85}
@@ -1494,7 +1264,6 @@ export default function EditProfileScreen() {
                       ) : (
                         <>
                           <Ionicons name="checkmark" size={16} color="#fff" />
-
                           <Text style={styles.phonePrimaryText}>Verify</Text>
                         </>
                       )}
@@ -1507,10 +1276,7 @@ export default function EditProfileScreen() {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* ====================================================== */}
-      {/* CONTACT PICKER */}
-      {/* ====================================================== */}
-
+      {/* ============================ CONTACT PICKER ============================ */}
       <Modal
         visible={showContactPicker}
         transparent
@@ -1523,16 +1289,12 @@ export default function EditProfileScreen() {
               <View
                 style={[
                   styles.contactModal,
-                  {
-                    paddingBottom: Math.max(insets.bottom, 8),
-                  },
+                  { paddingBottom: Math.max(insets.bottom, 8) },
                 ]}
               >
                 <View style={styles.contactModalHandle} />
-
                 <View style={styles.contactModalHeader}>
                   <Text style={styles.contactModalTitle}>Select Contact</Text>
-
                   <TouchableOpacity
                     onPress={() => setShowContactPicker(false)}
                     style={styles.contactCloseButton}
@@ -1544,7 +1306,6 @@ export default function EditProfileScreen() {
 
                 <View style={styles.contactSearchContainer}>
                   <Ionicons name="search-outline" size={20} color="#9ca3af" />
-
                   <TextInput
                     style={styles.contactSearchInput}
                     placeholder="Search contacts"
@@ -1554,7 +1315,6 @@ export default function EditProfileScreen() {
                     autoCapitalize="none"
                     autoCorrect={false}
                   />
-
                   {contactSearch.length > 0 ? (
                     <TouchableOpacity onPress={() => setContactSearch("")}>
                       <Ionicons name="close-circle" size={20} color="#9ca3af" />
@@ -1564,9 +1324,7 @@ export default function EditProfileScreen() {
 
                 <ScrollView
                   style={{ flex: 1 }}
-                  contentContainerStyle={{
-                    paddingBottom: 4,
-                  }}
+                  contentContainerStyle={{ paddingBottom: 4 }}
                   keyboardShouldPersistTaps="handled"
                   nestedScrollEnabled
                 >
@@ -1577,7 +1335,6 @@ export default function EditProfileScreen() {
                         size={34}
                         color="#9ca3af"
                       />
-
                       <Text style={styles.noContactsText}>
                         No contacts found.
                       </Text>
@@ -1597,24 +1354,16 @@ export default function EditProfileScreen() {
                               : "?"}
                           </Text>
                         </View>
-
-                        <View
-                          style={{
-                            flex: 1,
-                            minWidth: 0,
-                          }}
-                        >
+                        <View style={{ flex: 1, minWidth: 0 }}>
                           <Text style={styles.contactName} numberOfLines={1}>
                             {contact.name || "Unknown"}
                           </Text>
-
                           {contact.phoneNumbers[0] ? (
                             <Text style={styles.contactPhone} numberOfLines={1}>
                               {contact.phoneNumbers[0].number}
                             </Text>
                           ) : null}
                         </View>
-
                         <Ionicons
                           name="chevron-forward"
                           size={18}
@@ -1660,20 +1409,9 @@ export default function EditProfileScreen() {
 // ============================================================
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: BACKGROUND,
-  },
-
-  flex: {
-    flex: 1,
-  },
-
-  scrollContent: {
-    paddingHorizontal: 16,
-    paddingTop: 18,
-    flexGrow: 1,
-  },
+  container: { flex: 1, backgroundColor: BACKGROUND },
+  flex: { flex: 1 },
+  scrollContent: { paddingHorizontal: 16, paddingTop: 18, flexGrow: 1 },
 
   photoCard: {
     backgroundColor: "#fff",
@@ -1685,7 +1423,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 14,
   },
-
   photoButton: {
     width: 66,
     height: 66,
@@ -1697,12 +1434,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#DBEAFE",
   },
-
-  photoImage: {
-    width: 66,
-    height: 66,
-  },
-
+  photoImage: { width: 66, height: 66 },
   photoPlus: {
     position: "absolute",
     right: 2,
@@ -1716,25 +1448,14 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: "#fff",
   },
-
-  photoTextContainer: {
-    flex: 1,
-    marginLeft: 14,
-  },
-
-  photoTitle: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: TEXT,
-  },
-
+  photoTextContainer: { flex: 1, marginLeft: 14 },
+  photoTitle: { fontSize: 15, fontWeight: "700", color: TEXT },
   photoSubtitle: {
     fontSize: 12,
     color: TEXT_SECONDARY,
     marginTop: 4,
     lineHeight: 17,
   },
-
   removePhotoButton: {
     width: 38,
     height: 38,
@@ -1752,14 +1473,12 @@ const styles = StyleSheet.create({
     padding: 16,
     marginBottom: 14,
   },
-
   fieldLabel: {
     fontSize: 13,
     fontWeight: "600",
     color: "#374151",
     marginBottom: 8,
   },
-
   inputContainer: {
     minHeight: 52,
     borderWidth: 1,
@@ -1771,24 +1490,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     gap: 10,
   },
-
-  inputError: {
-    borderColor: "#FCA5A5",
-    backgroundColor: "#FFF7F7",
-  },
-
-  textInput: {
-    flex: 1,
-    minHeight: 50,
-    fontSize: 15,
-    color: TEXT,
-  },
-
-  helperText: {
-    fontSize: 11,
-    color: "#94A3B8",
-    marginTop: 8,
-  },
+  inputError: { borderColor: "#FCA5A5", backgroundColor: "#FFF7F7" },
+  textInput: { flex: 1, minHeight: 50, fontSize: 15, color: TEXT },
+  helperText: { fontSize: 11, color: "#94A3B8", marginTop: 8 },
 
   phoneRow: {
     minHeight: 52,
@@ -1802,14 +1506,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
-
   phoneLeft: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
     minWidth: 0,
   },
-
   phoneIconWrap: {
     width: 38,
     height: 38,
@@ -1819,14 +1521,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginRight: 10,
   },
-
-  phoneValue: {
-    flex: 1,
-    fontSize: 15,
-    fontWeight: "600",
-    color: TEXT,
-  },
-
+  phoneValue: { flex: 1, fontSize: 15, fontWeight: "600", color: TEXT },
   changePhoneButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -1836,12 +1531,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     backgroundColor: BLUE,
   },
-
-  changePhoneText: {
-    color: "#fff",
-    fontSize: 12,
-    fontWeight: "700",
-  },
+  changePhoneText: { color: "#fff", fontSize: 12, fontWeight: "700" },
 
   phoneInputRow: {
     minHeight: 52,
@@ -1854,19 +1544,12 @@ const styles = StyleSheet.create({
     paddingLeft: 12,
     paddingRight: 6,
   },
-
   countryCode: {
     paddingRight: 10,
     borderRightWidth: 1,
     borderRightColor: BORDER,
   },
-
-  countryCodeText: {
-    fontSize: 14,
-    color: "#475569",
-    fontWeight: "600",
-  },
-
+  countryCodeText: { fontSize: 14, color: "#475569", fontWeight: "600" },
   phoneInput: {
     flex: 1,
     height: 50,
@@ -1874,7 +1557,6 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: TEXT,
   },
-
   contactButton: {
     width: 38,
     height: 38,
@@ -1896,13 +1578,7 @@ const styles = StyleSheet.create({
     gap: 9,
     marginBottom: 12,
   },
-
-  errorText: {
-    flex: 1,
-    fontSize: 12,
-    color: "#B91C1C",
-    fontWeight: "500",
-  },
+  errorText: { flex: 1, fontSize: 12, color: "#B91C1C", fontWeight: "500" },
 
   saveButton: {
     minHeight: 54,
@@ -1914,20 +1590,8 @@ const styles = StyleSheet.create({
     gap: 9,
     marginTop: 6,
   },
-
-  saveButtonDisabled: {
-    opacity: 0.65,
-  },
-
-  saveButtonText: {
-    color: "#fff",
-    fontSize: 15,
-    fontWeight: "700",
-  },
-
-  // ==========================================================
-  // PHOTO OPTIONS
-  // ==========================================================
+  saveButtonDisabled: { opacity: 0.65 },
+  saveButtonText: { color: "#fff", fontSize: 15, fontWeight: "700" },
 
   modalBackdrop: {
     flex: 1,
@@ -1935,7 +1599,6 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
     alignItems: "center",
   },
-
   modalHandle: {
     width: 42,
     height: 4,
@@ -1944,7 +1607,6 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     marginBottom: 18,
   },
-
   photoOptionsModal: {
     backgroundColor: "#ffffff",
     borderTopLeftRadius: 24,
@@ -1954,7 +1616,6 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 480,
   },
-
   photoOptionsTitle: {
     fontSize: 20,
     fontWeight: "700",
@@ -1962,14 +1623,12 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     textAlign: "center",
   },
-
   photoOptionsSubtitle: {
     fontSize: 13,
     color: "#64748b",
     textAlign: "center",
     marginBottom: 20,
   },
-
   photoOptionButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -1981,7 +1640,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e2e8f0",
   },
-
   photoOptionIcon: {
     width: 44,
     height: 44,
@@ -1991,23 +1649,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginRight: 14,
   },
-
-  photoOptionTextContainer: {
-    flex: 1,
-  },
-
-  photoOptionTitle: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#0f172a",
-  },
-
-  photoOptionDescription: {
-    fontSize: 12,
-    color: "#64748b",
-    marginTop: 1,
-  },
-
+  photoOptionTextContainer: { flex: 1 },
+  photoOptionTitle: { fontSize: 15, fontWeight: "600", color: "#0f172a" },
+  photoOptionDescription: { fontSize: 12, color: "#64748b", marginTop: 1 },
   photoOptionsCancel: {
     paddingVertical: 14,
     alignItems: "center",
@@ -2015,16 +1659,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#f8fafc",
     borderRadius: 12,
   },
-
   photoOptionsCancelText: {
     fontSize: 15,
     fontWeight: "700",
     color: "#dc2626",
   },
-
-  // ==========================================================
-  // PHONE CHANGE MODAL
-  // ==========================================================
 
   phoneModalBackdrop: {
     flex: 1,
@@ -2034,7 +1673,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 24,
   },
-
   phoneModal: {
     width: "100%",
     maxWidth: 420,
@@ -2044,18 +1682,13 @@ const styles = StyleSheet.create({
     maxHeight: "88%",
     overflow: "hidden",
   },
-
-  phoneModalScrollContent: {
-    paddingBottom: 4,
-  },
-
+  phoneModalScrollContent: { paddingBottom: 4 },
   phoneModalHeader: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
     marginBottom: 16,
   },
-
   phoneModalIcon: {
     width: 44,
     height: 44,
@@ -2064,19 +1697,8 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-
-  phoneModalTitle: {
-    fontSize: 17,
-    fontWeight: "800",
-    color: TEXT,
-  },
-
-  phoneModalSubtitle: {
-    fontSize: 12,
-    color: TEXT_SECONDARY,
-    marginTop: 3,
-  },
-
+  phoneModalTitle: { fontSize: 17, fontWeight: "800", color: TEXT },
+  phoneModalSubtitle: { fontSize: 12, color: TEXT_SECONDARY, marginTop: 3 },
   closeModalButton: {
     width: 34,
     height: 34,
@@ -2096,13 +1718,7 @@ const styles = StyleSheet.create({
     borderColor: "#FDE68A",
     marginBottom: 16,
   },
-
-  noteText: {
-    flex: 1,
-    fontSize: 12,
-    lineHeight: 17,
-    color: "#92400E",
-  },
+  noteText: { flex: 1, fontSize: 12, lineHeight: 17, color: "#92400E" },
 
   modalFieldLabel: {
     fontSize: 13,
@@ -2117,13 +1733,7 @@ const styles = StyleSheet.create({
     gap: 6,
     marginTop: 10,
   },
-
-  inlineErrorText: {
-    fontSize: 12,
-    color: RED,
-    fontWeight: "500",
-    flex: 1,
-  },
+  inlineErrorText: { fontSize: 12, color: RED, fontWeight: "500", flex: 1 },
 
   phoneModalActions: {
     flexDirection: "row",
@@ -2131,7 +1741,6 @@ const styles = StyleSheet.create({
     marginTop: 20,
     marginBottom: 8,
   },
-
   phoneCancelBtn: {
     flex: 1,
     height: 50,
@@ -2140,13 +1749,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-
-  phoneCancelText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#475569",
-  },
-
+  phoneCancelText: { fontSize: 14, fontWeight: "700", color: "#475569" },
   phonePrimaryBtn: {
     flex: 1.4,
     height: 50,
@@ -2157,12 +1760,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 6,
   },
-
-  phonePrimaryText: {
-    color: "#fff",
-    fontSize: 14,
-    fontWeight: "800",
-  },
+  phonePrimaryText: { color: "#fff", fontSize: 14, fontWeight: "800" },
 
   otpInput: {
     minHeight: 58,
@@ -2177,28 +1775,14 @@ const styles = StyleSheet.create({
     color: TEXT,
   },
 
-  resendRow: {
-    alignItems: "center",
-    paddingVertical: 10,
-    marginTop: 6,
-  },
-
-  resendText: {
-    fontSize: 12,
-    color: BLUE,
-    fontWeight: "600",
-  },
-
-  // ==========================================================
-  // CONTACT PICKER
-  // ==========================================================
+  resendRow: { alignItems: "center", paddingVertical: 10, marginTop: 6 },
+  resendText: { fontSize: 12, color: BLUE, fontWeight: "600" },
 
   contactModalOverlay: {
     flex: 1,
     backgroundColor: "rgba(15, 23, 42, 0.52)",
     justifyContent: "flex-end",
   },
-
   contactModal: {
     backgroundColor: "#fff",
     borderTopLeftRadius: 25,
@@ -2208,7 +1792,6 @@ const styles = StyleSheet.create({
     maxHeight: "75%",
     minHeight: "60%",
   },
-
   contactModalHandle: {
     width: 42,
     height: 4,
@@ -2217,20 +1800,13 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     marginBottom: 14,
   },
-
   contactModalHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 10,
   },
-
-  contactModalTitle: {
-    fontSize: 19,
-    fontWeight: "800",
-    color: "#111827",
-  },
-
+  contactModalTitle: { fontSize: 19, fontWeight: "800", color: "#111827" },
   contactCloseButton: {
     width: 38,
     height: 38,
@@ -2239,7 +1815,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-
   contactSearchContainer: {
     minHeight: 48,
     borderRadius: 12,
@@ -2251,7 +1826,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     marginBottom: 10,
   },
-
   contactSearchInput: {
     flex: 1,
     height: 46,
@@ -2259,7 +1833,6 @@ const styles = StyleSheet.create({
     color: "#111827",
     paddingHorizontal: 9,
   },
-
   contactRow: {
     minHeight: 64,
     flexDirection: "row",
@@ -2268,7 +1841,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#f0f2f5",
   },
-
   contactAvatar: {
     width: 44,
     height: 44,
@@ -2278,37 +1850,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginRight: 11,
   },
-
-  contactAvatarText: {
-    fontSize: 17,
-    fontWeight: "800",
-    color: "#2563eb",
-  },
-
-  contactName: {
-    fontSize: 14,
-    color: "#1f2937",
-    fontWeight: "700",
-  },
-
-  contactPhone: {
-    fontSize: 12,
-    color: "#8a94a6",
-    marginTop: 3,
-  },
-
+  contactAvatarText: { fontSize: 17, fontWeight: "800", color: "#2563eb" },
+  contactName: { fontSize: 14, color: "#1f2937", fontWeight: "700" },
+  contactPhone: { fontSize: 12, color: "#8a94a6", marginTop: 3 },
   noContacts: {
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 40,
     gap: 8,
   },
-
-  noContactsText: {
-    fontSize: 13,
-    color: "#9ca3af",
-  },
-
+  noContactsText: { fontSize: 13, color: "#9ca3af" },
   contactCancelBtn: {
     height: 48,
     borderRadius: 12,
@@ -2317,10 +1868,5 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 8,
   },
-
-  contactCancelText: {
-    fontSize: 14,
-    color: "#374151",
-    fontWeight: "800",
-  },
+  contactCancelText: { fontSize: 14, color: "#374151", fontWeight: "800" },
 });

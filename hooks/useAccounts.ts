@@ -1,7 +1,7 @@
 // hooks/useAccounts.ts
 import * as FileSystem from "expo-file-system/legacy";
 import * as SecureStore from "expo-secure-store";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect } from "react";
 import { AppState } from "react-native";
 import { useAccountStore } from "../store/accountStore";
 import { useAuthStore } from "../store/useAuthStore";
@@ -19,7 +19,6 @@ const inflightByUserId: Record<
   string,
   Promise<FetchAccountsResult> | undefined
 > = {};
-const loadedUserIds = new Set<string>();
 
 async function getToken(): Promise<string | null> {
   try {
@@ -87,20 +86,17 @@ async function fetchAccountsDeduped(
   userId: string,
   force = false,
 ): Promise<FetchAccountsResult> {
-  if (!force && loadedUserIds.has(userId)) {
-    const state = useAccountStore.getState();
-    return {
-      accounts: state.accounts,
-      lastAccountId: state.selectedAccountId,
-    };
-  }
-
   const existing = inflightByUserId[userId];
-  if (existing) return existing;
+  if (existing && !force) return existing;
 
   const promise = (async () => {
     try {
       const result = await doFetchAccounts(userId);
+
+      // Mark the account list as loaded for THIS user id. This drives
+      // the derived `hasLoaded` value returned by the hook, which
+      // resets when the user changes (or on logout).
+      useAccountStore.getState().setLoadedForUserId(userId);
 
       const current = useAccountStore.getState().selectedAccountId;
       const serverPick = result.lastAccountId;
@@ -121,7 +117,6 @@ async function fetchAccountsDeduped(
       //  - clears selection to null if there are no accounts left
       useAccountStore.getState().reconcileAccounts(result.accounts);
 
-      loadedUserIds.add(userId);
       return result;
     } finally {
       delete inflightByUserId[userId];
@@ -132,26 +127,15 @@ async function fetchAccountsDeduped(
   return promise;
 }
 
-/**
- * Encode a device-local file:// URI as a base64 data: URI.
- */
 async function uploadAccountPhoto(localUri: string): Promise<string> {
-  console.log(
-    "[uploadAccountPhoto] ENTER, localUri =",
-    localUri ? localUri.slice(0, 80) : "(empty)",
-  );
-
   if (localUri.startsWith("data:") || /^https?:\/\//i.test(localUri)) {
-    console.log("[uploadAccountPhoto] already portable, skipping encode");
     return localUri;
   }
 
   try {
-    console.log("[uploadAccountPhoto] reading file as base64...");
     const base64 = await FileSystem.readAsStringAsync(localUri, {
       encoding: FileSystem.EncodingType.Base64,
     });
-    console.log("[uploadAccountPhoto] base64 length =", base64.length);
 
     const lower = localUri.toLowerCase();
     const mime = lower.endsWith(".png")
@@ -160,12 +144,7 @@ async function uploadAccountPhoto(localUri: string): Promise<string> {
         ? "image/webp"
         : "image/jpeg";
 
-    const dataUri = `data:${mime};base64,${base64}`;
-    console.log(
-      "[uploadAccountPhoto] returning data: URI, length =",
-      dataUri.length,
-    );
-    return dataUri;
+    return `data:${mime};base64,${base64}`;
   } catch (error) {
     console.error("[uploadAccountPhoto] failed to encode image:", error);
     return localUri;
@@ -220,12 +199,6 @@ async function updateAccountApi(
 ): Promise<any> {
   const token = await getToken();
 
-  console.log(
-    "[updateAccountApi] PATCH /accounts/" + accountId,
-    "body keys =",
-    Object.keys(updates),
-  );
-
   const res = await fetch(`${BASE_URL}/accounts/${accountId}`, {
     method: "PATCH",
     headers: {
@@ -234,8 +207,6 @@ async function updateAccountApi(
     },
     body: JSON.stringify(updates),
   });
-
-  console.log("[updateAccountApi] HTTP status =", res.status);
 
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -259,15 +230,17 @@ export function useAccounts() {
   const selectedAccountId = useAccountStore((s) => s.selectedAccountId);
   const isLoading = useAccountStore((s) => s.isLoading);
   const hasHydrated = useAccountStore((s) => s.hasHydrated);
+  const loadedForUserId = useAccountStore((s) => s.loadedForUserId);
   const addAccount = useAccountStore((s) => s.addAccount);
   const updateAccount = useAccountStore((s) => s.updateAccount);
   const selectAccount = useAccountStore((s) => s.selectAccount);
   const setIsLoading = useAccountStore((s) => s.setIsLoading);
   const getSelectedAccount = useAccountStore((s) => s.getSelectedAccount);
 
-  const [hasLoaded, setHasLoaded] = useState(
-    user?.id ? loadedUserIds.has(user.id) : false,
-  );
+  // Derived — true only when the accounts have been fetched for the
+  // CURRENT user id, in this session. Resets automatically on logout
+  // (accountStore.reset clears loadedForUserId) and on user switch.
+  const hasLoaded = !!user?.id && loadedForUserId === user.id;
 
   const refresh = useCallback(async () => {
     const uid = user?.id;
@@ -278,37 +251,27 @@ export function useAccounts() {
     } catch (e) {
       console.error("[useAccounts] refresh failed:", e);
     } finally {
-      setHasLoaded(true);
       setIsLoading(false);
     }
   }, [user?.id, setIsLoading]);
 
   useEffect(() => {
     const uid = user?.id;
-    if (!uid || !hasHydrated) {
-      setHasLoaded(false);
-      return;
-    }
+    if (!uid || !hasHydrated) return;
 
     let cancelled = false;
 
-    if (loadedUserIds.has(uid)) {
-      setHasLoaded(true);
+    // Already loaded for this user this session? Skip the fetch.
+    if (useAccountStore.getState().loadedForUserId === uid) {
       return;
     }
 
-    setHasLoaded(false);
     setIsLoading(true);
 
     fetchAccountsDeduped(uid)
-      .then(() => {
-        if (cancelled) return;
-        setHasLoaded(true);
-      })
       .catch((e) => {
         if (cancelled) return;
         console.error("[useAccounts] initial load failed:", e);
-        setHasLoaded(true);
       })
       .finally(() => {
         if (cancelled) return;
@@ -364,13 +327,6 @@ export function useAccounts() {
 
   const editAccount = useCallback(
     async (id: string, updates: { name?: string; photoUri?: string }) => {
-      console.log(
-        "[editAccount] called. id =",
-        id,
-        "has photo =",
-        !!updates.photoUri,
-      );
-
       let photoUrl = updates.photoUri;
       if (
         photoUrl &&
@@ -387,14 +343,7 @@ export function useAccounts() {
       }
 
       try {
-        console.log(
-          "[editAccount] PATCH payload, photo_url starts with:",
-          serverPayload.photo_url
-            ? serverPayload.photo_url.slice(0, 40)
-            : "(none)",
-        );
         await updateAccountApi(id, serverPayload);
-        console.log("[editAccount] PATCH succeeded");
       } catch (e) {
         console.error("[useAccounts] editAccount server sync failed:", e);
       }

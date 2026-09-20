@@ -19,6 +19,7 @@ import { useAccounts } from "../../hooks/useAccounts";
 import { useMaintenance } from "../../hooks/useMaintenance";
 import { usePayments } from "../../hooks/usePayments";
 import { useUserRole } from "../../hooks/useUserRole";
+import { useAuthStore } from "../../store/useAuthStore";
 
 const COLORS = {
   primary: "#2563EB",
@@ -40,6 +41,7 @@ export default function TabsLayout() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
+  const authUser = useAuthStore((s) => s.user);
   const { selectedAccount, accounts, hasLoaded, isLoading, refresh } =
     useAccounts();
   const { isAdmin, isMember, isStaff } = useUserRole();
@@ -51,14 +53,9 @@ export default function TabsLayout() {
     string[]
   >([]);
 
-  const hasRedirectedRef = useRef(false);
+  const hasRedirectedRef = useRef<"add" | "select" | null>(null);
   const lastRefreshRef = useRef<number>(0);
 
-  /*
-   * REFRESH ACCOUNTS ON FOCUS
-   * Single source of truth: this layout is the only component that
-   * triggers a refresh of the account list.
-   */
   useFocusEffect(
     useCallback(() => {
       const now = Date.now();
@@ -68,11 +65,6 @@ export default function TabsLayout() {
     }, [refresh]),
   );
 
-  /*
-   * REFRESH ACCOUNTS ON APP RESUME
-   * Also throttled — catches the case where the app was backgrounded
-   * while the owner revoked access.
-   */
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
       if (state !== "active") return;
@@ -85,20 +77,42 @@ export default function TabsLayout() {
   }, [refresh]);
 
   /*
-   * REDIRECT WHEN NO ACCOUNTS REMAIN
-   * Fires once per empty-state. Reset when the user has accounts again.
+   * REDIRECT ON INVALID STATE
+   *
+   * Guard: while there is no signed-in user, do nothing. During a
+   * phone-change logout, this component is still mounted behind the
+   * edit-profile modal. Without the guard, step 4b of logout()
+   * (which empties the account store) makes this effect fire while
+   * the user is being torn down, producing a redirect to add-account
+   * that the app then carries into the next login.
    */
   useEffect(() => {
+    if (!authUser) return;
     if (!hasLoaded || isLoading) return;
 
     if (accounts.length === 0) {
-      if (hasRedirectedRef.current) return;
-      hasRedirectedRef.current = true;
+      if (hasRedirectedRef.current === "add") return;
+      hasRedirectedRef.current = "add";
       router.replace("/(modals)/add-account");
-    } else {
-      hasRedirectedRef.current = false;
+      return;
     }
-  }, [accounts.length, hasLoaded, isLoading, router]);
+
+    if (!selectedAccount?.id) {
+      if (hasRedirectedRef.current === "select") return;
+      hasRedirectedRef.current = "select";
+      router.replace("/(modals)/select-account");
+      return;
+    }
+
+    hasRedirectedRef.current = null;
+  }, [
+    authUser,
+    accounts.length,
+    selectedAccount?.id,
+    hasLoaded,
+    isLoading,
+    router,
+  ]);
 
   const canSeeFinance = isAdmin || isMember;
   const canSeeCalendar = isAdmin || isMember;

@@ -12,8 +12,8 @@ interface AccountState {
   selectedAccountId: string | null;
   isAccountSwitcherOpen: boolean;
   isLoading: boolean;
-  /** True once AsyncStorage has been read and state restored. */
   hasHydrated: boolean;
+  loadedForUserId: string | null;
 
   setAccounts: (accounts: Account[]) => void;
   reconcileAccounts: (freshAccounts: Account[]) => boolean;
@@ -24,38 +24,24 @@ interface AccountState {
   setAccountSwitcherOpen: (open: boolean) => void;
   setIsLoading: (loading: boolean) => void;
   setHasHydrated: (v: boolean) => void;
+  setLoadedForUserId: (id: string | null) => void;
+  reset: () => void;
   getSelectedAccount: () => Account | null;
 }
 
-// ---------------------------------------------------------------------------
-// Fire-and-forget PATCH so the server remembers the selection.
-// The DB is the source of truth; local storage is just a cache.
-// ---------------------------------------------------------------------------
 async function persistLastAccountToServer(accountId: string | null) {
   try {
     const token = await SecureStore.getItemAsync("auth_token");
-    if (!token) {
-      console.warn("[accountStore] no token, skipping persist");
-      return;
-    }
+    if (!token) return;
 
-    console.log("[accountStore] PATCH last-account →", accountId);
-
-    const res = await fetch(`${BASE_URL}/accounts/me/last-account`, {
+    await fetch(`${BASE_URL}/accounts/me/last-account`, {
       method: "PATCH",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({ accountId }),
-    });
-
-    console.log("[accountStore] PATCH status:", res.status);
-
-    if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      console.error("[accountStore] PATCH failed:", res.status, text);
-    }
+    }).catch(() => undefined);
   } catch (e) {
     console.error("[accountStore] failed to persist last account:", e);
   }
@@ -69,23 +55,17 @@ export const useAccountStore = create<AccountState>()(
       isAccountSwitcherOpen: false,
       isLoading: true,
       hasHydrated: false,
+      loadedForUserId: null,
 
       setAccounts: (accounts) => {
         const { selectedAccountId, hasHydrated } = get();
 
-        console.log("[store] setAccounts", {
-          hasHydrated,
-          selectedAccountId,
-          incomingIds: accounts.map((a) => a.id),
-        });
-
-        // Hydration not done yet — just store the list.
         if (!hasHydrated) {
           set({ accounts });
           return;
         }
 
-        // Keep the current selection if it still exists.
+        // Keep the current selection if it still exists in the fresh list.
         if (
           selectedAccountId &&
           accounts.some((a) => a.id === selectedAccountId)
@@ -94,29 +74,13 @@ export const useAccountStore = create<AccountState>()(
           return;
         }
 
-        // No local selection — fall back to the first account.
-        if (!selectedAccountId && accounts.length > 0) {
-          const firstId = accounts[0].id;
-          set({ accounts, selectedAccountId: firstId });
-          persistLastAccountToServer(firstId);
-          return;
-        }
-
-        // Selection refers to an account that no longer exists → reset.
+        // Do NOT auto-select accounts[0] here. The selection is decided
+        // by fetchAccountsDeduped, which honors the server's
+        // last_account_id. If the server has no preference, selection
+        // stays null and the UI routes the user to select-account.
         set({ accounts, selectedAccountId: null });
       },
 
-      /**
-       * Reconcile the locally-cached account list against a fresh list
-       * from the server.
-       *
-       * Short-circuits when nothing has actually changed: same account
-       * ids, same selection. This is what prevents the store from
-       * emitting a new `accounts` array identity on every forced fetch,
-       * which was driving an infinite re-render loop.
-       *
-       * Returns `true` if the previously-selected account was dropped.
-       */
       reconcileAccounts: (freshAccounts) => {
         const { accounts: oldAccounts, selectedAccountId } = get();
 
@@ -130,17 +94,14 @@ export const useAccountStore = create<AccountState>()(
         const lostSelection =
           !!selectedAccountId && !freshIds.has(selectedAccountId);
 
-        const nextSelectedId = lostSelection
-          ? (freshAccounts[0]?.id ?? null)
-          : selectedAccountId;
+        // If the selection no longer exists, clear it. Don't silently
+        // jump to a different account — that hides the select-account
+        // screen and misleads the user about which account they're in.
+        const nextSelectedId = lostSelection ? null : selectedAccountId;
 
-        // Nothing changed → don't touch state, don't create a new
-        // array identity, don't re-render subscribers.
         if (idsEqual && nextSelectedId === selectedAccountId) {
           return false;
         }
-
-        const lostIds = [...oldIds].filter((id) => !freshIds.has(id));
 
         set({
           accounts: freshAccounts,
@@ -148,22 +109,23 @@ export const useAccountStore = create<AccountState>()(
         });
 
         if (lostSelection) {
-          persistLastAccountToServer(nextSelectedId);
-        }
-
-        if (lostIds.length > 0) {
-          console.log("[accountStore] reconcile: lost accounts", lostIds);
+          persistLastAccountToServer(null);
         }
 
         return lostSelection;
       },
 
       addAccount: (account) => {
+        // Keep the previously-selected account; only auto-select the
+        // new one if there was no selection to begin with. This makes
+        // creating an account from the switcher non-disruptive.
         set((state) => ({
           accounts: [...state.accounts, account],
-          selectedAccountId: account.id,
+          selectedAccountId: state.selectedAccountId ?? account.id,
         }));
-        persistLastAccountToServer(account.id);
+        if (!get().selectedAccountId) {
+          persistLastAccountToServer(account.id);
+        }
       },
 
       updateAccount: (id, updates) =>
@@ -177,12 +139,12 @@ export const useAccountStore = create<AccountState>()(
         set((state) => {
           const remaining = state.accounts.filter((a) => a.id !== id);
           const wasSelected = state.selectedAccountId === id;
-          const nextId = wasSelected
-            ? (remaining[0]?.id ?? null)
-            : state.selectedAccountId;
+          // Clear the selection rather than jump to remaining[0]. The
+          // user will be routed to select-account by the tabs layout.
+          const nextId = wasSelected ? null : state.selectedAccountId;
 
           if (wasSelected) {
-            persistLastAccountToServer(nextId);
+            persistLastAccountToServer(null);
           }
 
           return {
@@ -193,7 +155,6 @@ export const useAccountStore = create<AccountState>()(
 
       selectAccount: (id, opts) => {
         set({ selectedAccountId: id });
-
         if (opts?.persist !== false) {
           persistLastAccountToServer(id);
         }
@@ -205,6 +166,17 @@ export const useAccountStore = create<AccountState>()(
       setIsLoading: (isLoading) => set({ isLoading }),
 
       setHasHydrated: (hasHydrated) => set({ hasHydrated }),
+
+      setLoadedForUserId: (loadedForUserId) => set({ loadedForUserId }),
+
+      reset: () =>
+        set({
+          accounts: [],
+          selectedAccountId: null,
+          isAccountSwitcherOpen: false,
+          isLoading: false,
+          loadedForUserId: null,
+        }),
 
       getSelectedAccount: () => {
         const { accounts, selectedAccountId } = get();
@@ -220,8 +192,6 @@ export const useAccountStore = create<AccountState>()(
       }),
       onRehydrateStorage: () => (state) => {
         state?.setHasHydrated(true);
-        // isLoading starts true; nothing else will flip it back for
-        // screens that only read from the store (e.g. AccountGate).
         state?.setIsLoading(false);
       },
     },
