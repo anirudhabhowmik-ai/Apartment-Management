@@ -5,6 +5,7 @@ import * as SecureStore from "expo-secure-store";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Image,
   Modal,
   Pressable,
@@ -60,6 +61,12 @@ type PendingAdminOffer = {
   invited_name: string | null;
   invited_by_phone: string | null;
   created_at: string;
+};
+
+type MyRole = {
+  role: "admin" | "member_visibility" | "staff_visibility";
+  grantId: string;
+  accepted_by: string | null;
 };
 
 const ADMIN_QUICK_ACTIONS: QuickAction[] = [
@@ -242,10 +249,6 @@ function getStaffRoleLabel(role?: string) {
   );
 }
 
-// =============================================================================
-// NEW helper — pluralize "account(s)" for badges and labels.
-// A "member record" is always one account, whether it's flat / shop / custom.
-// =============================================================================
 function pluralizeAccounts(count: number): string {
   return count === 1 ? "1 account" : `${count} accounts`;
 }
@@ -631,6 +634,72 @@ function ProfileCard({ user, onEdit }: { user: any; onEdit: () => void }) {
         </View>
       </View>
     </Pressable>
+  );
+}
+
+function MyRolesCard({
+  roles,
+  isOwner,
+  onWithdraw,
+  busy,
+}: {
+  roles: MyRole[];
+  isOwner: boolean;
+  onWithdraw: () => void;
+  busy: boolean;
+}) {
+  if (roles.length === 0) return null;
+
+  const roleMeta = (role: MyRole["role"]) =>
+    role === "admin"
+      ? { label: "Admin", bg: "#EDE9FE", color: "#7C3AED" }
+      : role === "member_visibility"
+        ? { label: "Member", bg: "#DCFCE7", color: "#16A34A" }
+        : { label: "Staff", bg: "#E0F2FE", color: "#0284C7" };
+
+  const canWithdraw = !isOwner;
+
+  return (
+    <View style={styles.myRolesCard}>
+      <View style={styles.myRolesHeader}>
+        <Text style={styles.myRolesTitle}>My Access</Text>
+        <Text style={styles.myRolesSubtitle}>
+          {isOwner
+            ? "You are the owner of this property"
+            : "Your roles on this property"}
+        </Text>
+      </View>
+
+      <View style={styles.myRolesChipRow}>
+        {roles.map((r) => {
+          const meta = roleMeta(r.role);
+          return (
+            <View
+              key={r.role}
+              style={[styles.myRoleChip, { backgroundColor: meta.bg }]}
+            >
+              <Text style={[styles.myRoleChipText, { color: meta.color }]}>
+                {meta.label.toUpperCase()}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+
+      {canWithdraw && (
+        <TouchableOpacity
+          style={styles.withdrawAdminRow}
+          onPress={onWithdraw}
+          activeOpacity={0.75}
+          disabled={busy}
+        >
+          <Ionicons name="exit-outline" size={16} color="#DC2626" />
+          <Text style={styles.withdrawAdminRowText}>
+            {busy ? "Withdrawing…" : "Withdraw my access"}
+          </Text>
+        </TouchableOpacity>
+      )}
+    </View>
   );
 }
 
@@ -1061,6 +1130,12 @@ export default function HomeScreen() {
   const [offersLoading, setOffersLoading] = useState(false);
   const [busyOfferId, setBusyOfferId] = useState<string | null>(null);
 
+  // ── My roles on the selected account + withdraw modal ──
+  const [myRoles, setMyRoles] = useState<MyRole[]>([]);
+  const [myRolesLoading, setMyRolesLoading] = useState(false);
+  const [withdrawingAccess, setWithdrawingAccess] = useState(false);
+  const [showWithdrawModal, setShowWithdrawModal] = useState(false);
+
   const accountIdsKey = useMemo(
     () =>
       accounts
@@ -1154,6 +1229,61 @@ export default function HomeScreen() {
     }
   }, [isFocused, loadPendingAdminOffers]);
 
+  // ── Load the current user's grants for this account ──
+  const loadMyRoles = useCallback(async () => {
+    if (!selectedAccount?.id || !user?.id) {
+      setMyRoles([]);
+      return;
+    }
+    const token = await getAuthToken();
+    if (!token) return;
+    setMyRolesLoading(true);
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/accounts/${selectedAccount.id}/invitations`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!res.ok) {
+        setMyRoles([]);
+        return;
+      }
+      const data: any = await res.json();
+      const rows: any[] = Array.isArray(data?.invitations)
+        ? data.invitations
+        : Array.isArray(data)
+          ? data
+          : [];
+
+      const mine: MyRole[] = rows
+        .filter(
+          (r) =>
+            r?.status === "accepted" &&
+            r?.accepted_by === user.id &&
+            (r.role === "admin" ||
+              r.role === "member_visibility" ||
+              r.role === "staff_visibility"),
+        )
+        .map((r) => ({
+          role: r.role,
+          grantId: r.id,
+          accepted_by: r.accepted_by ?? null,
+        }));
+
+      setMyRoles(mine);
+    } catch (e) {
+      console.warn("[home] loadMyRoles failed:", e);
+      setMyRoles([]);
+    } finally {
+      setMyRolesLoading(false);
+    }
+  }, [selectedAccount?.id, user?.id]);
+
+  useEffect(() => {
+    if (isFocused) {
+      loadMyRoles();
+    }
+  }, [isFocused, loadMyRoles]);
+
   useFocusEffect(
     useCallback(() => {
       if (!accountId) return;
@@ -1163,6 +1293,7 @@ export default function HomeScreen() {
           await Promise.all([
             membersHook.refresh({ force: true }),
             staffHook.refresh({ force: true }),
+            loadMyRoles(),
           ]);
           await refreshProfile();
         } catch (e) {
@@ -1196,6 +1327,7 @@ export default function HomeScreen() {
       }
       setPendingAdminOffers((prev) => prev.filter((o) => o.id !== offer.id));
       await refreshAccounts();
+      await loadMyRoles();
     } catch (e) {
       console.warn("[home] accept offer failed:", e);
     } finally {
@@ -1224,6 +1356,46 @@ export default function HomeScreen() {
       console.warn("[home] reject offer failed:", e);
     } finally {
       setBusyOfferId(null);
+    }
+  };
+
+  // ── Withdraw ALL of my access on this account ──
+  const handleWithdrawAccess = async () => {
+    if (!selectedAccount?.id || !user?.id) return;
+    const token = await getAuthToken();
+    if (!token) return;
+
+    setWithdrawingAccess(true);
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/accounts/${selectedAccount.id}/access/${user.id}?role=all`,
+        {
+          method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({}),
+        },
+      );
+
+      if (!res.ok) {
+        Alert.alert("Error", "Failed to withdraw your access.");
+        return;
+      }
+
+      setShowWithdrawModal(false);
+      await Promise.all([loadMyRoles(), refreshAccounts()]);
+
+      Alert.alert(
+        "Access withdrawn",
+        "You no longer have access to this property.",
+      );
+    } catch (e) {
+      console.error("[home] withdraw access failed:", e);
+      Alert.alert("Error", "Network error. Please try again.");
+    } finally {
+      setWithdrawingAccess(false);
     }
   };
 
@@ -1323,7 +1495,6 @@ export default function HomeScreen() {
   const stats = dashboardData.stats;
   const allTime = dashboardData.allTime;
 
-  // Every member row (flat / shop / custom) counts as one account.
   const totalMemberRecords = apartmentMembers.length;
 
   const monthlyNet =
@@ -1339,6 +1510,7 @@ export default function HomeScreen() {
     setRefreshing(true);
     try {
       await loadPendingAdminOffers();
+      await loadMyRoles();
       await refreshProfile();
       if (selectedAccount?.id) {
         try {
@@ -1390,6 +1562,56 @@ export default function HomeScreen() {
   const handleOpenProfile = () => {
     router.push("/(modals)/edit-profile");
   };
+
+  const renderWithdrawModal = () => (
+    <Modal
+      visible={showWithdrawModal}
+      transparent
+      animationType="fade"
+      onRequestClose={() => !withdrawingAccess && setShowWithdrawModal(false)}
+    >
+      <Pressable
+        style={styles.modalBackdrop}
+        onPress={() => !withdrawingAccess && setShowWithdrawModal(false)}
+      >
+        <Pressable style={styles.withdrawModalCard} onPress={() => {}}>
+          <View style={styles.withdrawModalIcon}>
+            <Ionicons name="exit-outline" size={26} color="#DC2626" />
+          </View>
+          <Text style={styles.withdrawModalTitle}>Withdraw my access?</Text>
+          <Text style={styles.withdrawModalDesc}>
+            You will lose all of your access to this property (admin, member,
+            and staff). You can ask the owner to invite you again later.
+          </Text>
+          <View style={styles.withdrawModalActions}>
+            <TouchableOpacity
+              style={styles.withdrawCancelBtn}
+              onPress={() => setShowWithdrawModal(false)}
+              disabled={withdrawingAccess}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.withdrawCancelText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.withdrawConfirmBtn}
+              onPress={handleWithdrawAccess}
+              disabled={withdrawingAccess}
+              activeOpacity={0.85}
+            >
+              {withdrawingAccess ? (
+                <ActivityIndicator color="#FFFFFF" size="small" />
+              ) : (
+                <>
+                  <Ionicons name="exit-outline" size={16} color="#FFFFFF" />
+                  <Text style={styles.withdrawConfirmText}>Withdraw</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
 
   if (accountsLoading) {
     return (
@@ -1498,10 +1720,18 @@ export default function HomeScreen() {
   const renderProfileBlock = () => {
     const hasMembers = matchedMemberProfiles.length > 0;
     const hasStaff = matchedStaffProfiles.length > 0;
+    const accountIsOwner = selectedAccount?.ownerId === user?.id;
 
     return (
       <>
         <ProfileCard user={user} onEdit={handleOpenProfile} />
+
+        <MyRolesCard
+          roles={myRoles}
+          isOwner={accountIsOwner}
+          busy={withdrawingAccess}
+          onWithdraw={() => setShowWithdrawModal(true)}
+        />
 
         {hasAnyProfile ? (
           <View style={styles.rolesSection}>
@@ -1509,7 +1739,7 @@ export default function HomeScreen() {
               My Roles on this Property
             </Text>
 
-            {/* ===================== MEMBER GROUP ===================== */}
+            {/* MEMBER GROUP */}
             {hasMembers ? (
               <View style={styles.groupCard}>
                 <Pressable
@@ -1532,8 +1762,6 @@ export default function HomeScreen() {
                   </View>
                   <View style={styles.groupCardHeaderRight}>
                     <View style={styles.groupCardHeaderBadge}>
-                      {/* "accounts" instead of "flats" — a member row
-                          can be flat, shop, or custom. */}
                       <Text style={styles.groupCardHeaderBadgeText}>
                         {pluralizeAccounts(matchedMemberProfiles.length)}
                       </Text>
@@ -1613,7 +1841,8 @@ export default function HomeScreen() {
               </View>
             ) : null}
 
-            {/* ===================== STAFF GROUP ===================== */}
+            {/* STAFF GROUP */}
+            {/* STAFF GROUP */}
             {hasStaff ? (
               <View style={styles.groupCard}>
                 <Pressable
@@ -1669,32 +1898,33 @@ export default function HomeScreen() {
                         ]}
                       >
                         <View style={styles.groupRowInfo}>
-                          <View style={styles.groupRowTitleLine}>
-                            <View
-                              style={[
-                                styles.roleChip,
-                                {
-                                  backgroundColor: "#F5F3FF",
-                                  borderColor: "#DDD6FE",
-                                },
-                              ]}
-                            >
-                              <Text
-                                style={[
-                                  styles.roleChipText,
-                                  { color: "#6D28D9" },
-                                ]}
-                                numberOfLines={1}
-                              >
-                                {roleLabel}
-                              </Text>
-                            </View>
-                          </View>
+                          <Text style={styles.groupRowTitle} numberOfLines={1}>
+                            {staff.name || "Staff"}
+                          </Text>
                           <Text style={styles.groupRowSubtitle}>
                             Salary {formatCurrency(staff.monthlySalary || 0)} /
                             month
                           </Text>
                         </View>
+
+                        <View
+                          style={[
+                            styles.roleChip,
+                            {
+                              backgroundColor: "#F5F3FF",
+                              borderColor: "#DDD6FE",
+                              marginRight: 8,
+                            },
+                          ]}
+                        >
+                          <Text
+                            style={[styles.roleChipText, { color: "#6D28D9" }]}
+                            numberOfLines={1}
+                          >
+                            {roleLabel}
+                          </Text>
+                        </View>
+
                         <Ionicons
                           name="chevron-forward"
                           size={16}
@@ -1870,6 +2100,8 @@ export default function HomeScreen() {
 
           <View style={styles.bottomSpace} />
         </ScrollView>
+
+        {renderWithdrawModal()}
       </View>
     );
   }
@@ -2042,7 +2274,7 @@ export default function HomeScreen() {
           </View>
         ) : null}
 
-        {/* ===================== OVERVIEW (clickable) ===================== */}
+        {/* OVERVIEW */}
         <View style={styles.section}>
           <View style={styles.sectionHeader}>
             <View>
@@ -2102,6 +2334,8 @@ export default function HomeScreen() {
 
         <View style={styles.bottomSpace} />
       </ScrollView>
+
+      {renderWithdrawModal()}
     </View>
   );
 }
@@ -2215,6 +2449,139 @@ const styles = StyleSheet.create({
   },
   profileEditText: { fontSize: 12, fontWeight: "700", color: "#2563EB" },
 
+  /* ======================= MY ACCESS CARD ======================= */
+  myRolesCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    marginBottom: 14,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
+    elevation: 1,
+  },
+  myRolesHeader: { marginBottom: 10 },
+  myRolesTitle: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#0F172A",
+  },
+  myRolesSubtitle: {
+    fontSize: 11.5,
+    color: "#94A3B8",
+    marginTop: 3,
+  },
+  myRolesChipRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  myRoleChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+  },
+  myRoleChipText: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.4,
+  },
+  withdrawAdminRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    marginTop: 12,
+    paddingVertical: 11,
+    borderRadius: 12,
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1,
+    borderColor: "#FECACA",
+  },
+  withdrawAdminRowText: {
+    color: "#DC2626",
+    fontSize: 12.5,
+    fontWeight: "800",
+  },
+
+  /* ======================= WITHDRAW MODAL ======================= */
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.58)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 20,
+  },
+  withdrawModalCard: {
+    width: "100%",
+    maxWidth: 400,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    padding: 22,
+    alignItems: "center",
+  },
+  withdrawModalIcon: {
+    width: 55,
+    height: 55,
+    borderRadius: 18,
+    backgroundColor: "#FEF2F2",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 13,
+  },
+  withdrawModalTitle: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: "#0F172A",
+    textAlign: "center",
+  },
+  withdrawModalDesc: {
+    fontSize: 12.5,
+    lineHeight: 18,
+    color: "#64748B",
+    textAlign: "center",
+    marginTop: 8,
+    maxWidth: 320,
+  },
+  withdrawModalActions: {
+    flexDirection: "row",
+    width: "100%",
+    gap: 9,
+    marginTop: 20,
+  },
+  withdrawCancelBtn: {
+    flex: 1,
+    minHeight: 45,
+    borderRadius: 12,
+    backgroundColor: "#F1F5F9",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  withdrawCancelText: {
+    color: "#475569",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  withdrawConfirmBtn: {
+    flex: 1,
+    minHeight: 45,
+    borderRadius: 12,
+    backgroundColor: "#DC2626",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+  },
+  withdrawConfirmText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+
   rolesSection: { marginBottom: 22 },
   rolesSectionTitle: {
     fontSize: 13,
@@ -2226,7 +2593,6 @@ const styles = StyleSheet.create({
     marginLeft: 2,
   },
 
-  /* ============================ GROUPED CARDS ============================ */
   groupCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 18,
@@ -2329,7 +2695,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
 
-  /* ============================ OVERVIEW CARDS ============================ */
   groupOverviewGrid: {
     flexDirection: "row",
     gap: 12,
