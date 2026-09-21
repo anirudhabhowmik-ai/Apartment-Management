@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Image, // ✅ NEW
   Linking,
   Modal,
   Platform,
@@ -67,6 +68,16 @@ type CarriedForwardResponse = {
   transaction_expense: number;
   previous_net: number;
   carried_forward: number;
+};
+
+// ✅ NEW — grouped card shape (mirrors People tab)
+type FinanceGroupedCard = {
+  user_id: string;
+  name: string;
+  phone: string | null;
+  photo_url: string | null;
+  records: PeopleTransaction[];
+  isExpenseGroup: boolean;
 };
 
 // ============================================================
@@ -231,13 +242,6 @@ const callNumber = async (raw?: string | null) => {
 // Soft-delete helpers
 // ------------------------------------------------------------
 
-/**
- * Returns the month key (YYYY-MM) in which a member/staff row was
- * soft-deleted, or null if the row is still active.
- *
- * The backend sets `status = 'inactive'` and bumps `updated_at` when a
- * member/staff is deleted. We use `updated_at` as the deletion month.
- */
 const getInactiveMonth = (row: any): string | null => {
   const status = String(row?.status ?? "").toLowerCase();
   if (status !== "inactive") return null;
@@ -251,16 +255,6 @@ const getInactiveMonth = (row: any): string | null => {
   return month || null;
 };
 
-/**
- * Whether the row is inactive for the given month (i.e. was deleted
- * before or during that month).
- *
- * Examples:
- *   deletedMonth = "2025-03"
- *   monthKey     = "2025-02"  → false (still active in Feb)
- *   monthKey     = "2025-03"  → true  (deleted in March)
- *   monthKey     = "2025-04"  → true  (deleted in March, still inactive)
- */
 const isRowInactiveForMonth = (row: any, monthKey: string): boolean => {
   const deletedMonth = getInactiveMonth(row);
   if (!deletedMonth) return false;
@@ -543,6 +537,57 @@ function hasDueInMonth(member: any, month: string): boolean {
   return false;
 }
 
+// ✅ NEW — group helper (mirrors People tab's groupRowsByUser)
+function groupFinanceRowsByUser(
+  rows: PeopleTransaction[],
+): FinanceGroupedCard[] {
+  const map = new Map<string, FinanceGroupedCard>();
+
+  for (const row of rows) {
+    const anyRow = row as any;
+
+    // Expense rows have no person — keep them as 1-record groups.
+    if (anyRow.__isExpenseRow) {
+      map.set(`expense-${row.id}`, {
+        user_id: `expense-${row.id}`,
+        name: anyRow.title || anyRow.name || "Transaction",
+        phone: null,
+        photo_url: null,
+        records: [row],
+        isExpenseGroup: true,
+      });
+      continue;
+    }
+
+    // Members & staff: group by userId (fallback to memberId).
+    const uid =
+      anyRow.userId ||
+      anyRow.user_id ||
+      anyRow.memberId ||
+      `__orphan__:${row.id}`;
+
+    if (!map.has(uid)) {
+      map.set(uid, {
+        user_id: uid,
+        name: anyRow.memberName || anyRow.name || "",
+        phone: anyRow.phone || null,
+        // ✅ Photo sync — same precedence as People tab
+        photo_url:
+          anyRow.photoUri ||
+          anyRow.photo_url ||
+          anyRow.photo ||
+          anyRow.avatar ||
+          null,
+        records: [],
+        isExpenseGroup: false,
+      });
+    }
+    map.get(uid)!.records.push(row);
+  }
+
+  return Array.from(map.values());
+}
+
 // ============================================================
 // TRANSACTION DETAIL MODAL
 // ============================================================
@@ -654,9 +699,11 @@ function TransactionDetailModal({
 function TransactionItem({
   payment,
   onShowDetails,
+  isGrouped = false, // ✅ NEW — suppress repeated person title
 }: {
   payment: PeopleTransaction;
   onShowDetails: (payment: PeopleTransaction) => void;
+  isGrouped?: boolean; // ✅ NEW
 }) {
   const getIcon = (key: string): keyof typeof Ionicons.glyphMap => {
     const icons: Record<string, keyof typeof Ionicons.glyphMap> = {
@@ -723,8 +770,20 @@ function TransactionItem({
         ? anyPayment.name
         : "";
 
+  // ✅ When grouped, don't repeat the person name as title — show flat/role instead.
   let title = "";
-  if (isMaintenance) {
+  if (isGrouped && (isMaintenance || isSalary)) {
+    if (isMaintenance) {
+      const wing = anyPayment.wing ? `${anyPayment.wing} Wing` : "";
+      const flat = anyPayment.flatNumber ? `Flat ${anyPayment.flatNumber}` : "";
+      title = [wing, flat].filter(Boolean).join(" · ") || "Maintenance";
+    } else {
+      title = anyPayment.memberRole
+        ? anyPayment.memberRole.charAt(0).toUpperCase() +
+          anyPayment.memberRole.slice(1)
+        : "Staff";
+    }
+  } else if (isMaintenance) {
     title = anyPayment.memberName || rawTitle || "Maintenance";
   } else if (isSalary) {
     title = anyPayment.memberName || rawTitle || "Staff Salary";
@@ -752,8 +811,9 @@ function TransactionItem({
   const phoneDigits = rawPhone
     ? String(rawPhone).replace(/\D/g, "").slice(-10)
     : "";
+  // ✅ Hide the phone pill inside a group (already in the group header)
   const hasCallablePhone =
-    (isMaintenance || isSalary) && phoneDigits.length === 10;
+    !isGrouped && (isMaintenance || isSalary) && phoneDigits.length === 10;
 
   let metaLine1 = "";
   let metaIcon1: keyof typeof Ionicons.glyphMap = "pricetag-outline";
@@ -792,6 +852,8 @@ function TransactionItem({
       style={[
         styles.transactionItem,
         isInactive && styles.transactionItemInactive,
+        // ✅ Compact styling when nested inside a group
+        isGrouped && styles.transactionItemGrouped,
       ]}
     >
       <View style={[styles.transactionIcon, { backgroundColor: `${color}15` }]}>
@@ -965,6 +1027,93 @@ function TransactionItem({
 }
 
 // ============================================================
+// GROUPED CARD (person header + nested transactions)
+// ============================================================
+
+function GroupedCard({
+  card,
+  onShowDetails,
+}: {
+  card: FinanceGroupedCard;
+  onShowDetails: (payment: PeopleTransaction) => void;
+}) {
+  // Expense groups have no person header — just render items.
+  if (card.isExpenseGroup) {
+    return (
+      <View style={styles.groupWrapper}>
+        {card.records.map((payment) => (
+          <TransactionItem
+            key={payment.id}
+            payment={payment}
+            onShowDetails={onShowDetails}
+          />
+        ))}
+      </View>
+    );
+  }
+
+  const isStaff = card.records[0]?.category === "salary";
+  const count = card.records.length;
+
+  return (
+    <View style={styles.groupCard}>
+      {/* Person header */}
+      <View style={styles.groupHeader}>
+        <View style={[styles.groupAvatar, isStaff && styles.groupAvatarStaff]}>
+          {card.photo_url ? (
+            <Image source={{ uri: card.photo_url }} style={styles.groupPhoto} />
+          ) : (
+            <Text style={styles.groupInitial}>
+              {card.name?.charAt(0)?.toUpperCase() || "?"}
+            </Text>
+          )}
+        </View>
+
+        <View style={styles.groupInfo}>
+          <Text style={styles.groupName} numberOfLines={1}>
+            {card.name || "Unnamed"}
+          </Text>
+          <Text style={styles.groupSubline} numberOfLines={1}>
+            {[
+              card.phone ? formatPhoneForDisplay(card.phone) : null,
+              count > 1 ? `${count} ${isStaff ? "roles" : "flats"}` : null,
+            ]
+              .filter(Boolean)
+              .join("  ·  ")}
+          </Text>
+        </View>
+
+        {card.phone ? (
+          <TouchableOpacity
+            style={styles.groupCallButton}
+            onPress={(event) => {
+              event.stopPropagation();
+              callNumber(card.phone);
+            }}
+            hitSlop={6}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="call" size={18} color="#2563EB" />
+          </TouchableOpacity>
+        ) : null}
+      </View>
+
+      {/* Nested records */}
+      <View style={styles.groupRecords}>
+        {card.records.map((payment) => (
+          <TransactionItem
+            key={payment.id}
+            payment={payment}
+            onShowDetails={onShowDetails}
+            isGrouped
+          />
+        ))}
+      </View>
+    </View>
+  );
+}
+
+// ============================================================
 // SUMMARY CARD
 // ============================================================
 
@@ -1090,6 +1239,12 @@ export default function FinanceScreen() {
   const [filter, setFilter] = useState<FilterType>("all");
   const [filteredPayments, setFilteredPayments] = useState<PeopleTransaction[]>(
     [],
+  );
+
+  // ✅ NEW — grouped view of filtered payments
+  const groupedCards = useMemo(
+    () => groupFinanceRowsByUser(filteredPayments),
+    [filteredPayments],
   );
 
   const [summary, setSummary] = useState({
@@ -1232,10 +1387,6 @@ export default function FinanceScreen() {
     const peopleRows: PeopleTransaction[] = [];
     const seenIds = new Set<string>();
 
-    // Every member/staff appears in every month. Whether they count
-    // toward the totals is decided by `__isInactive`. The row itself
-    // stays visible with an "Inactive" badge from the deletion month
-    // onward.
     for (const member of members as any[]) {
       const category: PaymentCategory =
         member?.monthlySalary !== undefined ? "salary" : "maintenance";
@@ -1254,6 +1405,9 @@ export default function FinanceScreen() {
           wing: member.wing,
           flatNumber: member.flatNumber,
           phone: member.phone,
+          // ✅ CHANGED — carry grouping + photo keys
+          userId: member.userId || member.user_id,
+          photoUri: member.photoUri || member.photo_url,
           amount: isSalary
             ? Number(member.monthlySalary) || 0
             : Number(member.maintenanceAmount) || 0,
@@ -1298,6 +1452,9 @@ export default function FinanceScreen() {
           wing: member.wing,
           flatNumber: member.flatNumber,
           phone: member.phone,
+          // ✅ CHANGED — carry grouping + photo keys
+          userId: member.userId || member.user_id,
+          photoUri: member.photoUri || member.photo_url,
           amount: isSalary
             ? Number(member.monthlySalary) || 0
             : Number(member.maintenanceAmount) || 0,
@@ -1404,7 +1561,6 @@ export default function FinanceScreen() {
   const loadFinanceData = () => {
     const { transactions: accountPayments } = getSelectedMonthTransactions();
 
-    // Totals: only paid + non-inactive rows count.
     const counted = accountPayments.filter((p) => !(p as any).__isInactive);
     const paidTransactions = counted.filter((p) => p.status === "paid");
 
@@ -1430,10 +1586,6 @@ export default function FinanceScreen() {
           },
     );
 
-    // ── List filters ──
-    // Inactive rows stay visible in every filter so the user can see
-    // why the totals changed. The "Inactive" badge, dimmed style, and
-    // strikethrough amount make it clear they aren't counted.
     let filtered: PeopleTransaction[] = [];
 
     switch (filter) {
@@ -1514,9 +1666,6 @@ export default function FinanceScreen() {
 
   const getReportData = () => {
     const { monthKey, transactions } = getSelectedMonthTransactions();
-    // Summary numbers exclude inactive rows (same rule as the on-screen
-    // totals). The raw transactions array keeps them so a reader of the
-    // PDF/Excel can see the inactive entries with their "Inactive" tag.
     const counted = transactions.filter((t) => !(t as any).__isInactive);
     const reportSummary = getPeopleSummary(counted);
     return { monthKey, reportSummary, transactions };
@@ -2038,10 +2187,11 @@ export default function FinanceScreen() {
               </Text>
             </View>
           ) : (
-            filteredPayments.map((payment) => (
-              <TransactionItem
-                key={payment.id}
-                payment={payment}
+            // ✅ CHANGED — grouped cards instead of flat list
+            groupedCards.map((card) => (
+              <GroupedCard
+                key={card.user_id}
+                card={card}
                 onShowDetails={openDetails}
               />
             ))
@@ -2616,6 +2766,83 @@ const styles = StyleSheet.create({
 
   transactionsSection: { marginBottom: 20 },
 
+  // ✅ NEW — wrapper for expense-only groups
+  groupWrapper: {
+    marginBottom: 0,
+  },
+
+  // ✅ NEW — card that wraps a person + their records
+  groupCard: {
+    backgroundColor: "#fff",
+    borderRadius: 17,
+    padding: 13,
+    marginBottom: 10,
+    borderWidth: 1,
+    borderColor: "#E8EDF5",
+  },
+
+  // ✅ NEW — person header
+  groupHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingBottom: 11,
+    marginBottom: 4,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F1F5F9",
+  },
+
+  groupAvatar: {
+    width: 46,
+    height: 46,
+    borderRadius: 14,
+    backgroundColor: "#2563EB",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 11,
+    overflow: "hidden",
+  },
+
+  groupAvatarStaff: {
+    backgroundColor: "#7C3AED",
+  },
+
+  groupPhoto: { width: "100%", height: "100%" },
+
+  groupInitial: {
+    color: "#fff",
+    fontSize: 18,
+    fontWeight: "800",
+  },
+
+  groupInfo: { flex: 1, minWidth: 0 },
+
+  groupName: {
+    color: "#111827",
+    fontSize: 15,
+    fontWeight: "800",
+    letterSpacing: -0.2,
+  },
+
+  groupSubline: {
+    color: "#64748B",
+    fontSize: 12,
+    marginTop: 2,
+  },
+
+  groupCallButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#EFF6FF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 8,
+  },
+
+  groupRecords: {
+    // container for nested TransactionItem rows
+  },
+
   transactionItem: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -2625,6 +2852,18 @@ const styles = StyleSheet.create({
     marginBottom: 9,
     borderWidth: 1,
     borderColor: "#E8EDF5",
+  },
+
+  // ✅ NEW — flat/nested items inside a group have no outer card chrome
+  transactionItemGrouped: {
+    backgroundColor: "transparent",
+    borderWidth: 0,
+    borderRadius: 0,
+    paddingHorizontal: 0,
+    paddingVertical: 10,
+    marginBottom: 0,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F1F5F9",
   },
 
   transactionItemInactive: {
