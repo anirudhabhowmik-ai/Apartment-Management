@@ -33,7 +33,7 @@ import {
 import { useMembers, useStaff } from "../../hooks/useManagement";
 import { useAccountStore } from "../../store/accountStore";
 import { useAuthStore } from "../../store/useAuthStore";
-import type { AccountAccessRole, Member } from "../../types";
+import type { AccountAccessRole } from "../../types";
 import { ACCESS_ROLE_LABEL } from "../../types";
 
 const API_URL = (process.env.EXPO_PUBLIC_API_URL ?? "").replace(
@@ -97,11 +97,6 @@ const isActiveRow = (row: any): boolean => {
   return s === "" || s === "active";
 };
 
-/**
- * Extract a photo URL from a Member/Staff row, whatever the field name.
- * Backend rows may expose the photo under any of these keys depending on
- * which endpoint produced them.
- */
 const getRowPhotoUrl = (row: any): string | null => {
   if (!row) return null;
   const candidates = [
@@ -171,6 +166,133 @@ const FEEDBACK_TONE_META: Record<
   },
 };
 
+// ─── Person-level grouping ─────────────────────────────────────────────
+//
+// The backend returns one row per flat (members) or per role (staff). A
+// single person can hold multiple flats/roles, so they appear more than
+// once. For granting access we only care about the person, so we collapse
+// rows by (userId || normalized phone) into one entry that carries a
+// summary of every flat / role they hold.
+
+interface GroupedPerson {
+  id: string;
+  userId: string | null;
+  phone: string;
+  name: string;
+  photoUri: string | null;
+  memberIds: string[];
+  memberSummary: string;
+  staffIds: string[];
+  staffSummary: string;
+}
+
+function summarizeMemberUnits(rows: any[]): string {
+  const units: string[] = [];
+  for (const r of rows) {
+    const wing = (r?.wing ?? "").toString().trim();
+    const apt = (r?.apartmentNumber ?? r?.flatNumber ?? "").toString().trim();
+    const parts: string[] = [];
+    if (wing) parts.push(`Wing ${wing}`);
+    if (apt) parts.push(`${apt}`);
+    const unit = parts.join(" ");
+    if (unit && !units.includes(unit)) units.push(unit);
+  }
+  return units.join("  •  ");
+}
+
+function summarizeStaffRoles(rows: any[]): string {
+  const roles: string[] = [];
+  for (const r of rows) {
+    const role = String(r?.role ?? "").trim();
+    if (!role) continue;
+    const pretty = role.charAt(0).toUpperCase() + role.slice(1);
+    if (!roles.includes(pretty)) roles.push(pretty);
+  }
+  return roles.join("  •  ");
+}
+
+function groupMembersByPerson(rows: any[]): GroupedPerson[] {
+  const byKey = new Map<string, GroupedPerson>();
+
+  for (const r of rows) {
+    const ten = normalizePhone(r?.phone);
+    if (!ten) continue;
+
+    const key = r?.userId ? `u:${r.userId}` : `p:${ten}`;
+    const existing = byKey.get(key);
+
+    if (existing) {
+      if (!existing.memberIds.includes(r.id)) existing.memberIds.push(r.id);
+      continue;
+    }
+
+    byKey.set(key, {
+      id: key,
+      userId: r?.userId ?? null,
+      phone: ten,
+      name: r?.name ?? "",
+      photoUri: getRowPhotoUrl(r),
+      memberIds: [r.id],
+      memberSummary: "",
+      staffIds: [],
+      staffSummary: "",
+    });
+  }
+
+  const grouped = Array.from(byKey.values());
+  for (const person of grouped) {
+    const rowsForPerson = rows.filter((r) => {
+      const ten = normalizePhone(r?.phone);
+      if (!ten || ten !== person.phone) return false;
+      if (person.userId) return r?.userId === person.userId;
+      return !r?.userId;
+    });
+    person.memberSummary = summarizeMemberUnits(rowsForPerson);
+  }
+  return grouped;
+}
+
+function groupStaffByPerson(rows: any[]): GroupedPerson[] {
+  const byKey = new Map<string, GroupedPerson>();
+
+  for (const r of rows) {
+    const ten = normalizePhone(r?.phone);
+    if (!ten) continue;
+
+    const key = r?.userId ? `u:${r.userId}` : `p:${ten}`;
+    const existing = byKey.get(key);
+
+    if (existing) {
+      if (!existing.staffIds.includes(r.id)) existing.staffIds.push(r.id);
+      continue;
+    }
+
+    byKey.set(key, {
+      id: key,
+      userId: r?.userId ?? null,
+      phone: ten,
+      name: r?.name ?? "",
+      photoUri: getRowPhotoUrl(r),
+      memberIds: [],
+      memberSummary: "",
+      staffIds: [r.id],
+      staffSummary: "",
+    });
+  }
+
+  const grouped = Array.from(byKey.values());
+  for (const person of grouped) {
+    const rowsForPerson = rows.filter((r) => {
+      const ten = normalizePhone(r?.phone);
+      if (!ten || ten !== person.phone) return false;
+      if (person.userId) return r?.userId === person.userId;
+      return !r?.userId;
+    });
+    person.staffSummary = summarizeStaffRoles(rowsForPerson);
+  }
+  return grouped;
+}
+
 export default function GrantAccessScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -186,11 +308,17 @@ export default function GrantAccessScreen() {
   const accounts = useAccountStore((state) => state.accounts);
   const account = accounts.find((a) => a.id === accountId);
 
-  const { items: rawApartmentMembers, renameByPhone: renameMemberByPhone } =
-    useMembers(accountId ?? null);
-  const { items: rawStaffList, renameByPhone: renameStaffByPhone } = useStaff(
-    accountId ?? null,
-  );
+  const {
+    items: rawApartmentMembers,
+    renameByPhone: renameMemberByPhone,
+    isLoading: membersLoading,
+  } = useMembers(accountId ?? null);
+
+  const {
+    items: rawStaffList,
+    renameByPhone: renameStaffByPhone,
+    isLoading: staffLoading,
+  } = useStaff(accountId ?? null);
 
   const [source, setSource] = useState<RecipientSource>("new");
   const [name, setName] = useState("");
@@ -215,6 +343,10 @@ export default function GrantAccessScreen() {
     new Set(),
   );
 
+  // Gate: nothing in the candidate list renders until we know who is
+  // already blocked (owner / active admins / pending invites).
+  const [invitationsReady, setInvitationsReady] = useState(false);
+
   const [feedback, setFeedback] = useState<FeedbackState>(EMPTY_FEEDBACK);
 
   const showFeedback = (next: Omit<FeedbackState, "visible">) => {
@@ -236,6 +368,9 @@ export default function GrantAccessScreen() {
     closeFeedback();
     if (cb) cb();
   };
+
+  const listsReady = !membersLoading && !staffLoading;
+  const pageReady = listsReady && invitationsReady;
 
   // ============================================================
   // FLOW
@@ -260,32 +395,55 @@ export default function GrantAccessScreen() {
       : ACCESS_ROLE_LABEL[role || "member_visibility"];
 
   // ============================================================
-  // MEMBERS / STAFF
+  // MEMBERS / STAFF ROWS → GROUP BY PERSON
   // ============================================================
 
-  const apartmentMembersList = useMemo(
+  const apartmentRowsActive = useMemo(
     () => rawApartmentMembers.filter(isActiveRow),
     [rawApartmentMembers],
   );
 
-  const staffMembersList = useMemo(
+  const staffRowsActive = useMemo(
     () => rawStaffList.filter(isActiveRow),
     [rawStaffList],
   );
 
+  const apartmentPeople = useMemo(
+    () => groupMembersByPerson(apartmentRowsActive),
+    [apartmentRowsActive],
+  );
+
+  const staffPeople = useMemo(
+    () => groupStaffByPerson(staffRowsActive),
+    [staffRowsActive],
+  );
+
+  // ── Invitations fetch — populates the blocked-phone sets ──
   useEffect(() => {
     let cancelled = false;
-    if (!accountId) return;
+
+    if (!accountId) {
+      setInvitationsReady(true);
+      return;
+    }
+
+    setInvitationsReady(false);
 
     (async () => {
       try {
         const token = await SecureStore.getItemAsync("auth_token");
-        if (!token) return;
+        if (!token) {
+          if (!cancelled) setInvitationsReady(true);
+          return;
+        }
         const res = await fetch(
           `${API_URL}/api/accounts/${accountId}/invitations`,
           { headers: { Authorization: `Bearer ${token}` } },
         );
-        if (!res.ok) return;
+        if (!res.ok) {
+          if (!cancelled) setInvitationsReady(true);
+          return;
+        }
         const data = await res.json();
         const rows: ApiInvitation[] = data?.invitations ?? [];
         const excluded: string[] = Array.isArray(data?.excluded_phones)
@@ -317,6 +475,8 @@ export default function GrantAccessScreen() {
         }
       } catch (e) {
         console.warn("[grant-access] invitation load failed:", e);
+      } finally {
+        if (!cancelled) setInvitationsReady(true);
       }
     })();
 
@@ -325,60 +485,69 @@ export default function GrantAccessScreen() {
     };
   }, [accountId]);
 
-  const visibilityCandidateMembers = useMemo(() => {
-    if (!isVisibilityFlow) return apartmentMembersList;
-    return apartmentMembersList.filter((m) => {
-      const ten = normalizePhone(m.phone);
-      if (!ten) return false;
-      if (blockedMemberPhones.has(ten)) return false;
-      if (blockedAdminPhones.has(ten)) return false;
+  // ── Candidate lists ──
+  // Each returns an EMPTY array while invitations haven't loaded, so
+  // nothing flashes on screen before the block sets are known.
+
+  const visibilityCandidates = useMemo(() => {
+    if (!invitationsReady) return [];
+    if (!isVisibilityFlow) return apartmentPeople;
+    return apartmentPeople.filter((p) => {
+      if (!p.phone) return false;
+      if (blockedMemberPhones.has(p.phone)) return false;
+      if (blockedAdminPhones.has(p.phone)) return false;
       return true;
     });
   }, [
-    apartmentMembersList,
+    invitationsReady,
+    apartmentPeople,
     blockedMemberPhones,
     blockedAdminPhones,
     isVisibilityFlow,
   ]);
 
-  const adminCandidateMembers = useMemo(() => {
-    return apartmentMembersList.filter((m) => {
-      const ten = normalizePhone(m.phone);
-      return ten.length > 0 && !blockedAdminPhones.has(ten);
+  const adminCandidates = useMemo(() => {
+    if (!invitationsReady) return [];
+    return apartmentPeople.filter((p) => {
+      return p.phone.length > 0 && !blockedAdminPhones.has(p.phone);
     });
-  }, [apartmentMembersList, blockedAdminPhones]);
+  }, [invitationsReady, apartmentPeople, blockedAdminPhones]);
 
   const activeMembers = useMemo(() => {
-    if (isVisibilityFlow) return visibilityCandidateMembers;
-    if (!isVisibilityFlow && !isStaffFlow) return adminCandidateMembers;
-    return apartmentMembersList;
+    if (isVisibilityFlow) return visibilityCandidates;
+    if (!isVisibilityFlow && !isStaffFlow) return adminCandidates;
+    return apartmentPeople;
   }, [
     isVisibilityFlow,
     isStaffFlow,
-    visibilityCandidateMembers,
-    adminCandidateMembers,
-    apartmentMembersList,
+    visibilityCandidates,
+    adminCandidates,
+    apartmentPeople,
   ]);
 
   const staffCandidates = useMemo(() => {
-    if (!isStaffFlow) return staffMembersList;
-    return staffMembersList.filter((s) => {
-      const ten = normalizePhone(s.phone);
-      if (!ten) return false;
-      if (blockedStaffPhones.has(ten)) return false;
-      if (blockedAdminPhones.has(ten)) return false;
+    if (!invitationsReady) return [];
+    if (!isStaffFlow) return staffPeople;
+    return staffPeople.filter((p) => {
+      if (!p.phone) return false;
+      if (blockedStaffPhones.has(p.phone)) return false;
+      if (blockedAdminPhones.has(p.phone)) return false;
       return true;
     });
-  }, [staffMembersList, blockedStaffPhones, blockedAdminPhones, isStaffFlow]);
+  }, [
+    invitationsReady,
+    staffPeople,
+    blockedStaffPhones,
+    blockedAdminPhones,
+    isStaffFlow,
+  ]);
 
   const currentUserMember = useMemo(() => {
     if (!currentUser?.phone) return null;
     const mine = normalizePhone(currentUser.phone);
     if (!mine) return null;
-    return (
-      apartmentMembersList.find((m) => normalizePhone(m.phone) === mine) ?? null
-    );
-  }, [currentUser?.phone, apartmentMembersList]);
+    return apartmentPeople.find((p) => p.phone === mine) ?? null;
+  }, [currentUser?.phone, apartmentPeople]);
 
   const isAccountCreator =
     !!account && !!currentUser && account.ownerId === currentUser.id;
@@ -393,7 +562,7 @@ export default function GrantAccessScreen() {
   const inviterPhone = currentUser?.phone || "";
 
   // ============================================================
-  // LIVE PHONE LOOKUP (admin New Phone flow only)
+  // LIVE PHONE LOOKUP — gated on invitationsReady
   // ============================================================
 
   const typedPhone10 =
@@ -402,7 +571,7 @@ export default function GrantAccessScreen() {
       : "";
 
   const phoneLookup = useMemo(() => {
-    if (!typedPhone10) {
+    if (!invitationsReady || !typedPhone10) {
       return {
         matched: false as const,
         existingName: "",
@@ -411,12 +580,9 @@ export default function GrantAccessScreen() {
     }
 
     const memberMatch =
-      apartmentMembersList.find(
-        (m) => normalizePhone(m.phone) === typedPhone10,
-      ) ?? null;
+      apartmentPeople.find((p) => p.phone === typedPhone10) ?? null;
     const staffMatch =
-      staffMembersList.find((s) => normalizePhone(s.phone) === typedPhone10) ??
-      null;
+      staffPeople.find((p) => p.phone === typedPhone10) ?? null;
 
     if (!memberMatch && !staffMatch) {
       return {
@@ -436,7 +602,7 @@ export default function GrantAccessScreen() {
       existingName,
       existingKind: kind,
     };
-  }, [typedPhone10, apartmentMembersList, staffMembersList]);
+  }, [invitationsReady, typedPhone10, apartmentPeople, staffPeople]);
 
   // ============================================================
   // SEARCH
@@ -445,52 +611,40 @@ export default function GrantAccessScreen() {
   const searchLower = search.trim().toLowerCase();
 
   const filteredMembers = useMemo(() => {
-    if (!searchLower) return visibilityCandidateMembers;
-    return visibilityCandidateMembers.filter((member) => {
-      const apt = ((member as any).apartmentNumber ?? "")
-        .toString()
-        .toLowerCase();
-      const wing = ((member as any).wing ?? "").toString().toLowerCase();
+    if (!searchLower) return visibilityCandidates;
+    return visibilityCandidates.filter((p) => {
       return (
-        member.name.toLowerCase().includes(searchLower) ||
-        member.phone.toLowerCase().includes(searchLower) ||
-        apt.includes(searchLower) ||
-        wing.includes(searchLower)
+        p.name.toLowerCase().includes(searchLower) ||
+        p.phone.includes(searchLower) ||
+        p.memberSummary.toLowerCase().includes(searchLower)
       );
     });
-  }, [visibilityCandidateMembers, searchLower]);
+  }, [visibilityCandidates, searchLower]);
 
   const filteredStaff = useMemo(() => {
     if (!searchLower) return staffCandidates;
-    return staffCandidates.filter((member) => {
+    return staffCandidates.filter((p) => {
       return (
-        member.name.toLowerCase().includes(searchLower) ||
-        member.phone.toLowerCase().includes(searchLower) ||
-        String((member as any).role ?? "")
-          .toLowerCase()
-          .includes(searchLower)
+        p.name.toLowerCase().includes(searchLower) ||
+        p.phone.includes(searchLower) ||
+        p.staffSummary.toLowerCase().includes(searchLower)
       );
     });
   }, [staffCandidates, searchLower]);
 
   const filteredActiveMembers = useMemo(() => {
     if (!searchLower) return activeMembers;
-    return activeMembers.filter((member) => {
-      const apt = ((member as any).apartmentNumber ?? "")
-        .toString()
-        .toLowerCase();
-      const wing = ((member as any).wing ?? "").toString().toLowerCase();
+    return activeMembers.filter((p) => {
       return (
-        member.name.toLowerCase().includes(searchLower) ||
-        member.phone.toLowerCase().includes(searchLower) ||
-        apt.includes(searchLower) ||
-        wing.includes(searchLower)
+        p.name.toLowerCase().includes(searchLower) ||
+        p.phone.includes(searchLower) ||
+        p.memberSummary.toLowerCase().includes(searchLower)
       );
     });
   }, [activeMembers, searchLower]);
 
   const selectableIds = useMemo(
-    () => filteredActiveMembers.map((member) => member.id),
+    () => filteredActiveMembers.map((p) => p.id),
     [filteredActiveMembers],
   );
 
@@ -498,11 +652,11 @@ export default function GrantAccessScreen() {
     selectableIds.length > 0 &&
     selectableIds.every((id) => selectedMemberIds.includes(id));
 
-  const toggleMember = (memberId: string) => {
+  const toggleMember = (personId: string) => {
     setSelectedMemberIds((current) =>
-      current.includes(memberId)
-        ? current.filter((id) => id !== memberId)
-        : [...current, memberId],
+      current.includes(personId)
+        ? current.filter((id) => id !== personId)
+        : [...current, personId],
     );
     setError("");
   };
@@ -522,7 +676,7 @@ export default function GrantAccessScreen() {
   };
 
   const staffSelectableIds = useMemo(
-    () => filteredStaff.map((s) => s.id),
+    () => filteredStaff.map((p) => p.id),
     [filteredStaff],
   );
 
@@ -530,11 +684,11 @@ export default function GrantAccessScreen() {
     staffSelectableIds.length > 0 &&
     staffSelectableIds.every((id) => selectedStaffIds.includes(id));
 
-  const toggleStaff = (staffId: string) => {
+  const toggleStaff = (personId: string) => {
     setSelectedStaffIds((current) =>
-      current.includes(staffId)
-        ? current.filter((id) => id !== staffId)
-        : [...current, staffId],
+      current.includes(personId)
+        ? current.filter((id) => id !== personId)
+        : [...current, personId],
     );
     setError("");
   };
@@ -990,27 +1144,24 @@ export default function GrantAccessScreen() {
         return;
       }
       let allOk = true;
-      for (const staffId of selectedStaffIds) {
-        const staffMember = staffMembersList.find((s) => s.id === staffId);
-        if (!staffMember) continue;
-        const tenDigit = (staffMember.phone || "")
-          .replace(/[^0-9]/g, "")
-          .slice(-10);
-        if (tenDigit.length !== 10) {
+      for (const personId of selectedStaffIds) {
+        const person = staffPeople.find((p) => p.id === personId);
+        if (!person) continue;
+        if (person.phone.length !== 10) {
           showFeedback({
             tone: "warning",
             title: "Missing phone",
-            message: `${staffMember.name} doesn't have a valid phone number on file.`,
+            message: `${person.name} doesn't have a valid phone number on file.`,
             primaryLabel: "OK",
           });
           allOk = false;
           break;
         }
         const ok = await sendInviteWithAlerts({
-          phone: tenDigit,
-          name: staffMember.name,
+          phone: person.phone,
+          name: person.name,
           role: "staff_visibility",
-          targetStaffId: staffMember.id,
+          targetStaffId: person.staffIds[0],
         });
         if (!ok) {
           allOk = false;
@@ -1040,17 +1191,14 @@ export default function GrantAccessScreen() {
         return;
       }
       let allOk = true;
-      for (const memberId of selectedMemberIds) {
-        const member = visibilityCandidateMembers.find(
-          (m) => m.id === memberId,
-        );
-        if (!member) continue;
-        const tenDigit = (member.phone || "").replace(/[^0-9]/g, "").slice(-10);
+      for (const personId of selectedMemberIds) {
+        const person = visibilityCandidates.find((p) => p.id === personId);
+        if (!person) continue;
         const ok = await sendInviteWithAlerts({
-          phone: tenDigit,
-          name: member.name,
+          phone: person.phone,
+          name: person.name,
           role: "member_visibility",
-          targetMemberId: member.id,
+          targetMemberId: person.memberIds[0],
         });
         if (!ok) {
           allOk = false;
@@ -1109,15 +1257,14 @@ export default function GrantAccessScreen() {
       return;
     }
     let allOk = true;
-    for (const memberId of selectedMemberIds) {
-      const member = apartmentMembersList.find((m) => m.id === memberId);
-      if (!member) continue;
-      const tenDigit = (member.phone || "").replace(/[^0-9]/g, "").slice(-10);
+    for (const personId of selectedMemberIds) {
+      const person = apartmentPeople.find((p) => p.id === personId);
+      if (!person) continue;
       const ok = await sendInviteWithAlerts({
-        phone: tenDigit,
-        name: member.name,
+        phone: person.phone,
+        name: person.name,
         role: grantRole,
-        targetMemberId: member.id,
+        targetMemberId: person.memberIds[0],
       });
       if (!ok) {
         allOk = false;
@@ -1140,25 +1287,20 @@ export default function GrantAccessScreen() {
   };
 
   // ============================================================
-  // MEMBER ROW
+  // PERSON ROW (used for both members and staff)
   // ============================================================
 
-  const renderMemberRow = (member: Member) => {
-    const apt = (member as any).apartmentNumber as string | undefined;
-    const wing = (member as any).wing as string | undefined;
-    const parts: string[] = [];
-    if (wing) parts.push(`Wing ${wing}`);
-    if (apt) parts.push(`Apt ${apt}`);
-    const meta = parts.join("  •  ");
-    const selected = selectedMemberIds.includes(member.id);
-    const photoUrl = getRowPhotoUrl(member);
+  const renderMemberRow = (person: GroupedPerson) => {
+    const meta = person.memberSummary;
+    const selected = selectedMemberIds.includes(person.id);
+    const photoUrl = person.photoUri;
 
     return (
       <TouchableOpacity
-        key={member.id}
+        key={person.id}
         activeOpacity={0.8}
         style={[styles.memberCard, selected && styles.memberCardSelected]}
-        onPress={() => toggleMember(member.id)}
+        onPress={() => toggleMember(person.id)}
       >
         <View
           style={[styles.memberAvatar, selected && styles.memberAvatarSelected]}
@@ -1176,24 +1318,26 @@ export default function GrantAccessScreen() {
                 selected && styles.memberAvatarTextSelected,
               ]}
             >
-              {member.name.charAt(0).toUpperCase()}
+              {(person.name || "?").charAt(0).toUpperCase()}
             </Text>
           )}
         </View>
         <View style={styles.memberContent}>
           <Text style={styles.memberName} numberOfLines={1}>
-            {member.name}
+            {person.name || "Unnamed"}
           </Text>
           <View style={styles.memberPhoneRow}>
             <Ionicons name="call-outline" size={13} color="#64748B" />
             <Text style={styles.memberPhone} numberOfLines={1}>
-              {member.phone}
+              +91 {person.phone}
             </Text>
           </View>
           {meta ? (
             <View style={styles.memberMetaRow}>
               <Ionicons name="home-outline" size={13} color="#2563EB" />
-              <Text style={styles.memberMeta}>{meta}</Text>
+              <Text style={styles.memberMeta} numberOfLines={1}>
+                {meta}
+              </Text>
             </View>
           ) : null}
         </View>
@@ -1206,21 +1350,17 @@ export default function GrantAccessScreen() {
     );
   };
 
-  // ============================================================
-  // STAFF ROW
-  // ============================================================
-
-  const renderStaffRow = (member: Member) => {
-    const roleLabel = String((member as any).role ?? "").trim();
-    const selected = selectedStaffIds.includes(member.id);
-    const photoUrl = getRowPhotoUrl(member);
+  const renderStaffRow = (person: GroupedPerson) => {
+    const meta = person.staffSummary;
+    const selected = selectedStaffIds.includes(person.id);
+    const photoUrl = person.photoUri;
 
     return (
       <TouchableOpacity
-        key={member.id}
+        key={person.id}
         activeOpacity={0.8}
         style={[styles.memberCard, selected && styles.memberCardSelected]}
-        onPress={() => toggleStaff(member.id)}
+        onPress={() => toggleStaff(person.id)}
       >
         <View
           style={[
@@ -1242,25 +1382,25 @@ export default function GrantAccessScreen() {
                 selected && styles.memberAvatarTextSelected,
               ]}
             >
-              {member.name.charAt(0).toUpperCase()}
+              {(person.name || "?").charAt(0).toUpperCase()}
             </Text>
           )}
         </View>
         <View style={styles.memberContent}>
           <Text style={styles.memberName} numberOfLines={1}>
-            {member.name}
+            {person.name || "Unnamed"}
           </Text>
           <View style={styles.memberPhoneRow}>
             <Ionicons name="call-outline" size={13} color="#64748B" />
             <Text style={styles.memberPhone} numberOfLines={1}>
-              {member.phone}
+              +91 {person.phone}
             </Text>
           </View>
-          {roleLabel ? (
+          {meta ? (
             <View style={styles.memberMetaRow}>
               <Ionicons name="briefcase-outline" size={13} color="#7C3AED" />
-              <Text style={styles.memberStaffMeta}>
-                {roleLabel.charAt(0).toUpperCase() + roleLabel.slice(1)}
+              <Text style={styles.memberStaffMeta} numberOfLines={1}>
+                {meta}
               </Text>
             </View>
           ) : null}
@@ -1499,7 +1639,7 @@ export default function GrantAccessScreen() {
   // EMPTY STATE
   // ============================================================
 
-  const hasMembers = visibilityCandidateMembers.length > 0;
+  const hasMembers = visibilityCandidates.length > 0;
   const hasStaff = staffCandidates.length > 0;
 
   const getEmptyStateText = () => {
@@ -1511,6 +1651,7 @@ export default function GrantAccessScreen() {
 
   const saveButtonDisabled =
     submitting ||
+    !pageReady ||
     (isStaffFlow && selectedStaffIds.length === 0) ||
     (!isStaffFlow &&
       !isVisibilityFlow &&
@@ -1575,237 +1716,281 @@ export default function GrantAccessScreen() {
           </View>
         </View>
 
-        {!isVisibilityFlow && !isStaffFlow ? (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>RECIPIENT</Text>
-            <View style={styles.sourceRow}>
-              <TouchableOpacity
-                style={[
-                  styles.sourceTile,
-                  source === "new" && styles.sourceTileActive,
-                ]}
-                onPress={() => {
-                  setSource("new");
-                  setSelectedMemberIds([]);
-                  setError("");
-                }}
-                activeOpacity={0.8}
-              >
-                <View
-                  style={[
-                    styles.sourceTileIcon,
-                    source === "new" && styles.sourceTileIconActive,
-                  ]}
-                >
-                  <Ionicons
-                    name="call-outline"
-                    size={22}
-                    color={source === "new" ? "#2563EB" : "#64748B"}
-                  />
-                </View>
-                <Text
-                  style={[
-                    styles.sourceTileTitle,
-                    source === "new" && styles.sourceTileTitleActive,
-                  ]}
-                  numberOfLines={1}
-                >
-                  New phone
-                </Text>
-                <Text style={styles.sourceTileDescription} numberOfLines={2}>
-                  Invite by phone number
-                </Text>
-                {source === "new" ? (
-                  <View style={styles.sourceTileCheck}>
-                    <Ionicons name="checkmark" size={13} color="#FFFFFF" />
-                  </View>
-                ) : null}
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.sourceTile,
-                  source === "existing" && styles.sourceTileActive,
-                ]}
-                onPress={() => {
-                  setSource("existing");
-                  setName("");
-                  setPhone("");
-                  setError("");
-                }}
-                activeOpacity={0.8}
-              >
-                <View
-                  style={[
-                    styles.sourceTileIcon,
-                    source === "existing" && styles.sourceTileIconActive,
-                  ]}
-                >
-                  <Ionicons
-                    name="people-outline"
-                    size={22}
-                    color={source === "existing" ? "#2563EB" : "#64748B"}
-                  />
-                </View>
-                <Text
-                  style={[
-                    styles.sourceTileTitle,
-                    source === "existing" && styles.sourceTileTitleActive,
-                  ]}
-                  numberOfLines={1}
-                >
-                  Existing person
-                </Text>
-                <Text style={styles.sourceTileDescription} numberOfLines={2}>
-                  Pick from members
-                </Text>
-                {source === "existing" ? (
-                  <View style={styles.sourceTileCheck}>
-                    <Ionicons name="checkmark" size={13} color="#FFFFFF" />
-                  </View>
-                ) : null}
-              </TouchableOpacity>
-            </View>
+        {!pageReady ? (
+          <View style={styles.loadingBlock}>
+            <ActivityIndicator size="small" color="#2563EB" />
+            <Text style={styles.loadingText}>Loading people…</Text>
           </View>
-        ) : null}
-
-        {!isVisibilityFlow && !isStaffFlow && source === "new" ? (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>PERSON DETAILS</Text>
-            <View style={styles.formCard}>
-              <Text style={styles.inputLabel}>Full name</Text>
-              <View style={styles.inputWrapper}>
-                <Ionicons name="person-outline" size={19} color="#64748B" />
-                <TextInput
-                  style={styles.input}
-                  value={name}
-                  onChangeText={(value) => {
-                    setName(value);
-                    setError("");
-                  }}
-                  placeholder="Enter full name"
-                  placeholderTextColor="#94A3B8"
-                  autoCapitalize="words"
-                />
-              </View>
-
-              <Text style={[styles.inputLabel, styles.phoneLabel]}>
-                Phone number
-              </Text>
-
-              <View style={styles.phoneRow}>
-                <View style={styles.phoneWrapper}>
-                  <View style={styles.countryCode}>
-                    <Text style={styles.countryCodeText}>+91</Text>
-                  </View>
-                  <TextInput
-                    style={styles.phoneInput}
-                    value={phone}
-                    onChangeText={(value) => {
-                      setPhone(value.replace(/[^0-9]/g, "").slice(0, 10));
+        ) : (
+          <>
+            {!isVisibilityFlow && !isStaffFlow ? (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>RECIPIENT</Text>
+                <View style={styles.sourceRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.sourceTile,
+                      source === "new" && styles.sourceTileActive,
+                    ]}
+                    onPress={() => {
+                      setSource("new");
+                      setSelectedMemberIds([]);
                       setError("");
                     }}
-                    keyboardType="phone-pad"
-                    maxLength={10}
-                    placeholder="98765 43210"
-                    placeholderTextColor="#94A3B8"
-                  />
-                </View>
-
-                <TouchableOpacity
-                  onPress={pickContact}
-                  style={styles.contactButton}
-                  activeOpacity={0.75}
-                >
-                  <Ionicons
-                    name="person-add-outline"
-                    size={20}
-                    color="#2563EB"
-                  />
-                </TouchableOpacity>
-              </View>
-
-              {phone.length > 0 && phone.length !== 10 ? (
-                <View style={styles.phoneHintRow}>
-                  <Ionicons
-                    name="information-circle-outline"
-                    size={14}
-                    color="#DC2626"
-                  />
-                  <Text style={styles.phoneHint}>Enter all 10 digits</Text>
-                </View>
-              ) : null}
-            </View>
-          </View>
-        ) : null}
-
-        {!isVisibilityFlow && !isStaffFlow && source === "existing" ? (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>SELECT PEOPLE</Text>
-            {activeMembers.length > 0 ? (
-              <>
-                <View style={styles.selectControlsRow}>
-                  <View style={styles.searchBoxInline}>
-                    <Ionicons name="search-outline" size={19} color="#64748B" />
-                    <TextInput
-                      style={styles.searchInput}
-                      value={search}
-                      onChangeText={(value) => {
-                        setSearch(value);
-                        setError("");
-                      }}
-                      placeholder="Search name or phone no."
-                      placeholderTextColor="#94A3B8"
-                      autoCapitalize="none"
-                    />
-                    {search.length > 0 ? (
-                      <TouchableOpacity
-                        onPress={() => setSearch("")}
-                        activeOpacity={0.7}
-                      >
-                        <Ionicons
-                          name="close-circle"
-                          size={19}
-                          color="#94A3B8"
-                        />
-                      </TouchableOpacity>
-                    ) : null}
-                  </View>
-
-                  <TouchableOpacity
-                    style={styles.selectAllButton}
-                    onPress={allSelected ? handleClearAll : handleSelectAll}
                     activeOpacity={0.8}
                   >
-                    <Ionicons
-                      name={
-                        allSelected ? "close-circle-outline" : "checkmark-done"
-                      }
-                      size={16}
-                      color={allSelected ? "#DC2626" : "#2563EB"}
-                    />
-                    <Text
+                    <View
                       style={[
-                        styles.selectAllText,
-                        allSelected && styles.clearAllText,
+                        styles.sourceTileIcon,
+                        source === "new" && styles.sourceTileIconActive,
                       ]}
                     >
-                      {allSelected ? "Clear all" : "Select all"}
+                      <Ionicons
+                        name="call-outline"
+                        size={22}
+                        color={source === "new" ? "#2563EB" : "#64748B"}
+                      />
+                    </View>
+                    <Text
+                      style={[
+                        styles.sourceTileTitle,
+                        source === "new" && styles.sourceTileTitleActive,
+                      ]}
+                      numberOfLines={1}
+                    >
+                      New phone
                     </Text>
+                    <Text
+                      style={styles.sourceTileDescription}
+                      numberOfLines={2}
+                    >
+                      Invite by phone number
+                    </Text>
+                    {source === "new" ? (
+                      <View style={styles.sourceTileCheck}>
+                        <Ionicons name="checkmark" size={13} color="#FFFFFF" />
+                      </View>
+                    ) : null}
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.sourceTile,
+                      source === "existing" && styles.sourceTileActive,
+                    ]}
+                    onPress={() => {
+                      setSource("existing");
+                      setName("");
+                      setPhone("");
+                      setError("");
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <View
+                      style={[
+                        styles.sourceTileIcon,
+                        source === "existing" && styles.sourceTileIconActive,
+                      ]}
+                    >
+                      <Ionicons
+                        name="people-outline"
+                        size={22}
+                        color={source === "existing" ? "#2563EB" : "#64748B"}
+                      />
+                    </View>
+                    <Text
+                      style={[
+                        styles.sourceTileTitle,
+                        source === "existing" && styles.sourceTileTitleActive,
+                      ]}
+                      numberOfLines={1}
+                    >
+                      Existing person
+                    </Text>
+                    <Text
+                      style={styles.sourceTileDescription}
+                      numberOfLines={2}
+                    >
+                      Pick from members
+                    </Text>
+                    {source === "existing" ? (
+                      <View style={styles.sourceTileCheck}>
+                        <Ionicons name="checkmark" size={13} color="#FFFFFF" />
+                      </View>
+                    ) : null}
                   </TouchableOpacity>
                 </View>
+              </View>
+            ) : null}
 
-                <View style={styles.groupHeader}>
-                  <View style={styles.groupTitleRow}>
-                    <Ionicons name="home-outline" size={17} color="#2563EB" />
-                    <Text style={styles.groupTitle}>Members</Text>
+            {!isVisibilityFlow && !isStaffFlow && source === "new" ? (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>PERSON DETAILS</Text>
+                <View style={styles.formCard}>
+                  <Text style={styles.inputLabel}>Full name</Text>
+                  <View style={styles.inputWrapper}>
+                    <Ionicons name="person-outline" size={19} color="#64748B" />
+                    <TextInput
+                      style={styles.input}
+                      value={name}
+                      onChangeText={(value) => {
+                        setName(value);
+                        setError("");
+                      }}
+                      placeholder="Enter full name"
+                      placeholderTextColor="#94A3B8"
+                      autoCapitalize="words"
+                    />
                   </View>
-                  <Text style={styles.groupCount}>
-                    {filteredActiveMembers.length}
+
+                  <Text style={[styles.inputLabel, styles.phoneLabel]}>
+                    Phone number
                   </Text>
-                </View>
 
-                {filteredActiveMembers.length === 0 ? (
+                  <View style={styles.phoneRow}>
+                    <View style={styles.phoneWrapper}>
+                      <View style={styles.countryCode}>
+                        <Text style={styles.countryCodeText}>+91</Text>
+                      </View>
+                      <TextInput
+                        style={styles.phoneInput}
+                        value={phone}
+                        onChangeText={(value) => {
+                          setPhone(value.replace(/[^0-9]/g, "").slice(0, 10));
+                          setError("");
+                        }}
+                        keyboardType="phone-pad"
+                        maxLength={10}
+                        placeholder="98765 43210"
+                        placeholderTextColor="#94A3B8"
+                      />
+                    </View>
+
+                    <TouchableOpacity
+                      onPress={pickContact}
+                      style={styles.contactButton}
+                      activeOpacity={0.75}
+                    >
+                      <Ionicons
+                        name="person-add-outline"
+                        size={20}
+                        color="#2563EB"
+                      />
+                    </TouchableOpacity>
+                  </View>
+
+                  {phone.length > 0 && phone.length !== 10 ? (
+                    <View style={styles.phoneHintRow}>
+                      <Ionicons
+                        name="information-circle-outline"
+                        size={14}
+                        color="#DC2626"
+                      />
+                      <Text style={styles.phoneHint}>Enter all 10 digits</Text>
+                    </View>
+                  ) : null}
+                </View>
+              </View>
+            ) : null}
+
+            {!isVisibilityFlow && !isStaffFlow && source === "existing" ? (
+              <View style={styles.section}>
+                <Text style={styles.sectionTitle}>SELECT PEOPLE</Text>
+                {activeMembers.length > 0 ? (
+                  <>
+                    <View style={styles.selectControlsRow}>
+                      <View style={styles.searchBoxInline}>
+                        <Ionicons
+                          name="search-outline"
+                          size={19}
+                          color="#64748B"
+                        />
+                        <TextInput
+                          style={styles.searchInput}
+                          value={search}
+                          onChangeText={(value) => {
+                            setSearch(value);
+                            setError("");
+                          }}
+                          placeholder="Search name or phone no."
+                          placeholderTextColor="#94A3B8"
+                          autoCapitalize="none"
+                        />
+                        {search.length > 0 ? (
+                          <TouchableOpacity
+                            onPress={() => setSearch("")}
+                            activeOpacity={0.7}
+                          >
+                            <Ionicons
+                              name="close-circle"
+                              size={19}
+                              color="#94A3B8"
+                            />
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
+
+                      <TouchableOpacity
+                        style={styles.selectAllButton}
+                        onPress={allSelected ? handleClearAll : handleSelectAll}
+                        activeOpacity={0.8}
+                      >
+                        <Ionicons
+                          name={
+                            allSelected
+                              ? "close-circle-outline"
+                              : "checkmark-done"
+                          }
+                          size={16}
+                          color={allSelected ? "#DC2626" : "#2563EB"}
+                        />
+                        <Text
+                          style={[
+                            styles.selectAllText,
+                            allSelected && styles.clearAllText,
+                          ]}
+                        >
+                          {allSelected ? "Clear all" : "Select all"}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    <View style={styles.groupHeader}>
+                      <View style={styles.groupTitleRow}>
+                        <Ionicons
+                          name="home-outline"
+                          size={17}
+                          color="#2563EB"
+                        />
+                        <Text style={styles.groupTitle}>Members</Text>
+                      </View>
+                      <Text style={styles.groupCount}>
+                        {filteredActiveMembers.length}
+                      </Text>
+                    </View>
+
+                    {filteredActiveMembers.length === 0 ? (
+                      <View style={styles.emptyCard}>
+                        <View style={styles.emptyIcon}>
+                          <Ionicons
+                            name="people-outline"
+                            size={28}
+                            color="#64748B"
+                          />
+                        </View>
+                        <Text style={styles.emptyTitle}>
+                          No matching members
+                        </Text>
+                        <Text style={styles.emptyDescription}>
+                          Try searching with another name, phone number, or
+                          apartment.
+                        </Text>
+                      </View>
+                    ) : (
+                      filteredActiveMembers.map(renderMemberRow)
+                    )}
+                  </>
+                ) : (
                   <View style={styles.emptyCard}>
                     <View style={styles.emptyIcon}>
                       <Ionicons
@@ -1814,86 +1999,101 @@ export default function GrantAccessScreen() {
                         color="#64748B"
                       />
                     </View>
-                    <Text style={styles.emptyTitle}>No matching members</Text>
+                    <Text style={styles.emptyTitle}>No people available</Text>
                     <Text style={styles.emptyDescription}>
-                      Try searching with another name, phone number, or
-                      apartment.
+                      {getEmptyStateText()}
                     </Text>
                   </View>
-                ) : (
-                  filteredActiveMembers.map(renderMemberRow)
                 )}
-              </>
-            ) : (
-              <View style={styles.emptyCard}>
-                <View style={styles.emptyIcon}>
-                  <Ionicons name="people-outline" size={28} color="#64748B" />
-                </View>
-                <Text style={styles.emptyTitle}>No people available</Text>
-                <Text style={styles.emptyDescription}>
-                  {getEmptyStateText()}
-                </Text>
               </View>
-            )}
-          </View>
-        ) : null}
+            ) : null}
 
-        {isVisibilityFlow ? (
-          <View style={styles.section}>
-            {hasMembers ? (
-              <>
-                <View style={styles.selectControlsRow}>
-                  <View style={styles.searchBoxInline}>
-                    <Ionicons name="search-outline" size={19} color="#64748B" />
-                    <TextInput
-                      style={styles.searchInput}
-                      value={search}
-                      onChangeText={(value) => {
-                        setSearch(value);
-                        setError("");
-                      }}
-                      placeholder="Search name or phone no."
-                      placeholderTextColor="#94A3B8"
-                      autoCapitalize="none"
-                    />
-                    {search.length > 0 ? (
+            {isVisibilityFlow ? (
+              <View style={styles.section}>
+                {hasMembers ? (
+                  <>
+                    <View style={styles.selectControlsRow}>
+                      <View style={styles.searchBoxInline}>
+                        <Ionicons
+                          name="search-outline"
+                          size={19}
+                          color="#64748B"
+                        />
+                        <TextInput
+                          style={styles.searchInput}
+                          value={search}
+                          onChangeText={(value) => {
+                            setSearch(value);
+                            setError("");
+                          }}
+                          placeholder="Search name or phone no."
+                          placeholderTextColor="#94A3B8"
+                          autoCapitalize="none"
+                        />
+                        {search.length > 0 ? (
+                          <TouchableOpacity
+                            onPress={() => setSearch("")}
+                            activeOpacity={0.7}
+                          >
+                            <Ionicons
+                              name="close-circle"
+                              size={19}
+                              color="#94A3B8"
+                            />
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
+
                       <TouchableOpacity
-                        onPress={() => setSearch("")}
-                        activeOpacity={0.7}
+                        style={styles.selectAllButton}
+                        onPress={allSelected ? handleClearAll : handleSelectAll}
+                        activeOpacity={0.8}
                       >
                         <Ionicons
-                          name="close-circle"
-                          size={19}
-                          color="#94A3B8"
+                          name={
+                            allSelected
+                              ? "close-circle-outline"
+                              : "checkmark-done"
+                          }
+                          size={16}
+                          color={allSelected ? "#DC2626" : "#2563EB"}
                         />
+                        <Text
+                          style={[
+                            styles.selectAllText,
+                            allSelected && styles.clearAllText,
+                          ]}
+                        >
+                          {allSelected ? "Clear all" : "Select all"}
+                        </Text>
                       </TouchableOpacity>
-                    ) : null}
-                  </View>
+                    </View>
 
-                  <TouchableOpacity
-                    style={styles.selectAllButton}
-                    onPress={allSelected ? handleClearAll : handleSelectAll}
-                    activeOpacity={0.8}
-                  >
-                    <Ionicons
-                      name={
-                        allSelected ? "close-circle-outline" : "checkmark-done"
-                      }
-                      size={16}
-                      color={allSelected ? "#DC2626" : "#2563EB"}
-                    />
-                    <Text
-                      style={[
-                        styles.selectAllText,
-                        allSelected && styles.clearAllText,
-                      ]}
-                    >
-                      {allSelected ? "Clear all" : "Select all"}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-
-                {filteredMembers.length === 0 ? (
+                    {filteredMembers.length === 0 ? (
+                      <View style={styles.emptyCard}>
+                        <View style={styles.emptyIcon}>
+                          <Ionicons
+                            name="people-outline"
+                            size={28}
+                            color="#64748B"
+                          />
+                        </View>
+                        <Text style={styles.emptyTitle}>
+                          {visibilityCandidates.length === 0
+                            ? "No apartment owners available"
+                            : "No matching apartment owners"}
+                        </Text>
+                        <Text style={styles.emptyDescription}>
+                          {visibilityCandidates.length === 0
+                            ? "Every apartment owner already has a pending or active visibility invitation."
+                            : "Try searching with another name, phone number, apartment or wing."}
+                        </Text>
+                      </View>
+                    ) : (
+                      filteredMembers.map(renderMemberRow)
+                    )}
+                  </>
+                ) : (
                   <View style={styles.emptyCard}>
                     <View style={styles.emptyIcon}>
                       <Ionicons
@@ -1902,97 +2102,120 @@ export default function GrantAccessScreen() {
                         color="#64748B"
                       />
                     </View>
-                    <Text style={styles.emptyTitle}>
-                      {visibilityCandidateMembers.length === 0
-                        ? "No apartment owners available"
-                        : "No matching apartment owners"}
-                    </Text>
+                    <Text style={styles.emptyTitle}>No people available</Text>
                     <Text style={styles.emptyDescription}>
-                      {visibilityCandidateMembers.length === 0
-                        ? "Every apartment owner already has a pending or active visibility invitation."
-                        : "Try searching with another name, phone number, apartment or wing."}
+                      {getEmptyStateText()}
                     </Text>
                   </View>
-                ) : (
-                  filteredMembers.map(renderMemberRow)
                 )}
-              </>
-            ) : (
-              <View style={styles.emptyCard}>
-                <View style={styles.emptyIcon}>
-                  <Ionicons name="people-outline" size={28} color="#64748B" />
-                </View>
-                <Text style={styles.emptyTitle}>No people available</Text>
-                <Text style={styles.emptyDescription}>
-                  {getEmptyStateText()}
-                </Text>
               </View>
-            )}
-          </View>
-        ) : null}
+            ) : null}
 
-        {isStaffFlow ? (
-          <View style={styles.section}>
-            {hasStaff ? (
-              <>
-                <View style={styles.selectControlsRow}>
-                  <View style={styles.searchBoxInline}>
-                    <Ionicons name="search-outline" size={19} color="#64748B" />
-                    <TextInput
-                      style={styles.searchInput}
-                      value={search}
-                      onChangeText={(value) => {
-                        setSearch(value);
-                        setError("");
-                      }}
-                      placeholder="Search staff name, phone or role"
-                      placeholderTextColor="#94A3B8"
-                      autoCapitalize="none"
-                    />
-                    {search.length > 0 ? (
+            {isStaffFlow ? (
+              <View style={styles.section}>
+                {hasStaff ? (
+                  <>
+                    <View style={styles.selectControlsRow}>
+                      <View style={styles.searchBoxInline}>
+                        <Ionicons
+                          name="search-outline"
+                          size={19}
+                          color="#64748B"
+                        />
+                        <TextInput
+                          style={styles.searchInput}
+                          value={search}
+                          onChangeText={(value) => {
+                            setSearch(value);
+                            setError("");
+                          }}
+                          placeholder="Search staff name, phone or role"
+                          placeholderTextColor="#94A3B8"
+                          autoCapitalize="none"
+                        />
+                        {search.length > 0 ? (
+                          <TouchableOpacity
+                            onPress={() => setSearch("")}
+                            activeOpacity={0.7}
+                          >
+                            <Ionicons
+                              name="close-circle"
+                              size={19}
+                              color="#94A3B8"
+                            />
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
+
                       <TouchableOpacity
-                        onPress={() => setSearch("")}
-                        activeOpacity={0.7}
+                        style={styles.selectAllButton}
+                        onPress={
+                          allStaffSelected
+                            ? handleClearAllStaff
+                            : handleSelectAllStaff
+                        }
+                        activeOpacity={0.8}
                       >
                         <Ionicons
-                          name="close-circle"
-                          size={19}
-                          color="#94A3B8"
+                          name={
+                            allStaffSelected
+                              ? "close-circle-outline"
+                              : "checkmark-done"
+                          }
+                          size={16}
+                          color={allStaffSelected ? "#DC2626" : "#2563EB"}
                         />
+                        <Text
+                          style={[
+                            styles.selectAllText,
+                            allStaffSelected && styles.clearAllText,
+                          ]}
+                        >
+                          {allStaffSelected ? "Clear all" : "Select all"}
+                        </Text>
                       </TouchableOpacity>
-                    ) : null}
-                  </View>
+                    </View>
 
-                  <TouchableOpacity
-                    style={styles.selectAllButton}
-                    onPress={
-                      allStaffSelected
-                        ? handleClearAllStaff
-                        : handleSelectAllStaff
-                    }
-                    activeOpacity={0.8}
-                  >
-                    <Ionicons
-                      name={
-                        allStaffSelected
-                          ? "close-circle-outline"
-                          : "checkmark-done"
-                      }
-                      size={16}
-                      color={allStaffSelected ? "#DC2626" : "#2563EB"}
-                    />
-                    <Text
-                      style={[
-                        styles.selectAllText,
-                        allStaffSelected && styles.clearAllText,
-                      ]}
-                    >
-                      {allStaffSelected ? "Clear all" : "Select all"}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-
-                {filteredStaff.length === 0 ? (
+                    {filteredStaff.length === 0 ? (
+                      <View style={styles.emptyCard}>
+                        <View style={styles.emptyIcon}>
+                          <Ionicons
+                            name="briefcase-outline"
+                            size={28}
+                            color="#64748B"
+                          />
+                        </View>
+                        <Text style={styles.emptyTitle}>
+                          {staffCandidates.length === 0
+                            ? "No staff available"
+                            : "No matching staff"}
+                        </Text>
+                        <Text style={styles.emptyDescription}>
+                          {staffCandidates.length === 0
+                            ? "Every staff member already has a pending or active visibility invitation."
+                            : "Try searching with another name, phone number, or role."}
+                        </Text>
+                      </View>
+                    ) : (
+                      <>
+                        <View style={styles.groupHeader}>
+                          <View style={styles.groupTitleRow}>
+                            <Ionicons
+                              name="briefcase-outline"
+                              size={17}
+                              color="#7C3AED"
+                            />
+                            <Text style={styles.groupTitle}>Staff</Text>
+                          </View>
+                          <Text style={styles.groupCount}>
+                            {filteredStaff.length}
+                          </Text>
+                        </View>
+                        {filteredStaff.map(renderStaffRow)}
+                      </>
+                    )}
+                  </>
+                ) : (
                   <View style={styles.emptyCard}>
                     <View style={styles.emptyIcon}>
                       <Ionicons
@@ -2001,102 +2224,69 @@ export default function GrantAccessScreen() {
                         color="#64748B"
                       />
                     </View>
-                    <Text style={styles.emptyTitle}>
-                      {staffCandidates.length === 0
-                        ? "No staff available"
-                        : "No matching staff"}
-                    </Text>
+                    <Text style={styles.emptyTitle}>No staff available</Text>
                     <Text style={styles.emptyDescription}>
-                      {staffCandidates.length === 0
-                        ? "Every staff member already has a pending or active visibility invitation."
-                        : "Try searching with another name, phone number, or role."}
+                      Add staff in the management tab first, then come back to
+                      grant them visibility.
                     </Text>
                   </View>
+                )}
+              </View>
+            ) : null}
+
+            {error ? (
+              <View style={styles.errorBox}>
+                <Ionicons
+                  name="alert-circle-outline"
+                  size={19}
+                  color="#DC2626"
+                />
+                <Text style={styles.errorText}>{error}</Text>
+              </View>
+            ) : null}
+
+            <View style={styles.bottomAction}>
+              <TouchableOpacity
+                style={[
+                  styles.saveButton,
+                  saveButtonDisabled ? styles.saveButtonDisabled : null,
+                ]}
+                onPress={handleSave}
+                activeOpacity={0.85}
+                disabled={saveButtonDisabled}
+              >
+                {submitting ? (
+                  <ActivityIndicator color="#FFFFFF" size="small" />
                 ) : (
                   <>
-                    <View style={styles.groupHeader}>
-                      <View style={styles.groupTitleRow}>
-                        <Ionicons
-                          name="briefcase-outline"
-                          size={17}
-                          color="#7C3AED"
-                        />
-                        <Text style={styles.groupTitle}>Staff</Text>
-                      </View>
-                      <Text style={styles.groupCount}>
-                        {filteredStaff.length}
-                      </Text>
-                    </View>
-                    {filteredStaff.map(renderStaffRow)}
+                    <Ionicons
+                      name="shield-checkmark-outline"
+                      size={20}
+                      color="#FFFFFF"
+                    />
+                    <Text style={styles.saveText}>
+                      {isStaffFlow
+                        ? `Grant ${visibilityTitle.replace("Manage ", "")}`
+                        : isVisibilityFlow
+                          ? `Grant ${visibilityTitle.replace("Manage ", "")}`
+                          : `Grant ${title} Access`}
+                    </Text>
                   </>
                 )}
-              </>
-            ) : (
-              <View style={styles.emptyCard}>
-                <View style={styles.emptyIcon}>
-                  <Ionicons
-                    name="briefcase-outline"
-                    size={28}
-                    color="#64748B"
-                  />
-                </View>
-                <Text style={styles.emptyTitle}>No staff available</Text>
-                <Text style={styles.emptyDescription}>
-                  Add staff in the management tab first, then come back to grant
-                  them visibility.
-                </Text>
-              </View>
-            )}
-          </View>
-        ) : null}
+              </TouchableOpacity>
 
-        {error ? (
-          <View style={styles.errorBox}>
-            <Ionicons name="alert-circle-outline" size={19} color="#DC2626" />
-            <Text style={styles.errorText}>{error}</Text>
-          </View>
-        ) : null}
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={() => router.back()}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.cancelText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
 
-        <View style={styles.bottomAction}>
-          <TouchableOpacity
-            style={[
-              styles.saveButton,
-              saveButtonDisabled ? styles.saveButtonDisabled : null,
-            ]}
-            onPress={handleSave}
-            activeOpacity={0.85}
-            disabled={saveButtonDisabled}
-          >
-            {submitting ? (
-              <ActivityIndicator color="#FFFFFF" size="small" />
-            ) : (
-              <>
-                <Ionicons
-                  name="shield-checkmark-outline"
-                  size={20}
-                  color="#FFFFFF"
-                />
-                <Text style={styles.saveText}>
-                  {isStaffFlow
-                    ? `Grant ${visibilityTitle.replace("Manage ", "")}`
-                    : isVisibilityFlow
-                      ? `Grant ${visibilityTitle.replace("Manage ", "")}`
-                      : `Grant ${title} Access`}
-                </Text>
-              </>
-            )}
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.cancelButton}
-            onPress={() => router.back()}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.cancelText}>Cancel</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.bottomSpace} />
+            <View style={styles.bottomSpace} />
+          </>
+        )}
       </ScrollView>
 
       {renderContactPickerModal()}
@@ -2140,6 +2330,19 @@ const styles = StyleSheet.create({
     fontSize: 13,
     lineHeight: 19,
     marginTop: 4,
+  },
+
+  loadingBlock: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 40,
+    gap: 10,
+  },
+  loadingText: {
+    color: "#64748B",
+    fontSize: 13,
+    fontWeight: "600",
   },
 
   section: { marginBottom: 20 },
@@ -2425,15 +2628,6 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     textAlign: "center",
     marginTop: 5,
-  },
-  emptySmall: {
-    color: "#64748B",
-    fontSize: 13,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#E2E8F0",
-    borderRadius: 12,
-    padding: 14,
   },
 
   errorBox: {
