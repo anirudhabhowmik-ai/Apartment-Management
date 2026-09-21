@@ -60,6 +60,14 @@ interface ContactData {
   phoneNumbers: { number: string; label?: string }[];
 }
 
+interface MergeTarget {
+  userId: string;
+  name: string | null;
+  phone: string;
+  accountCount: number;
+  accountNames: string[];
+}
+
 function clampNumber(value: number, min: number, max: number) {
   return Math.min(Math.max(value, min), max);
 }
@@ -548,6 +556,11 @@ export default function EditProfileScreen() {
   const [phoneError, setPhoneError] = useState("");
   const [phoneLoading, setPhoneLoading] = useState(false);
 
+  // Merge confirmation state
+  const [mergeTarget, setMergeTarget] = useState<MergeTarget | null>(null);
+  const [showMergeAlert, setShowMergeAlert] = useState(false);
+  const [mergeConfirmed, setMergeConfirmed] = useState(false);
+
   const [showContactPicker, setShowContactPicker] = useState(false);
   const [contactsList, setContactsList] = useState<ContactData[]>([]);
   const [contactSearch, setContactSearch] = useState("");
@@ -723,6 +736,9 @@ export default function EditProfileScreen() {
     setNewPhone("");
     setOtp("");
     setPhoneError("");
+    setMergeTarget(null);
+    setShowMergeAlert(false);
+    setMergeConfirmed(false);
     setShowPhoneModal(true);
   };
 
@@ -733,6 +749,30 @@ export default function EditProfileScreen() {
     setNewPhone("");
     setOtp("");
     setPhoneError("");
+    setMergeTarget(null);
+    setShowMergeAlert(false);
+    setMergeConfirmed(false);
+  };
+
+  /**
+   * Actually send the OTP and move to the OTP step. Called either
+   * directly (no merge) or after the user accepted the merge alert.
+   */
+  const actuallySendOtp = async (ten: string) => {
+    setPhoneLoading(true);
+    try {
+      const otpResult = await sendOtp(ten);
+      if (!otpResult.success) {
+        setPhoneError(otpResult.message || "Failed to send OTP.");
+        return;
+      }
+      setPhoneStep("otp");
+    } catch (e: any) {
+      console.error("actuallySendOtp error:", e);
+      setPhoneError(e?.message || "Failed to send OTP.");
+    } finally {
+      setPhoneLoading(false);
+    }
   };
 
   const handleSendOtp = async () => {
@@ -777,19 +817,49 @@ export default function EditProfileScreen() {
         return;
       }
 
-      const otpResult = await sendOtp(ten);
-      if (!otpResult.success) {
-        setPhoneError(otpResult.message || "Failed to send OTP.");
+      // If the backend says the new number already belongs to another
+      // login, stop here and show the merge alert. Only after the user
+      // accepts do we actually send the OTP.
+      if (preData?.willMerge === true) {
+        const target: MergeTarget = {
+          userId: preData?.mergeTarget?.userId ?? "",
+          name: preData?.mergeTarget?.name ?? null,
+          phone: ten,
+          accountCount: preData?.mergeTarget?.accountCount ?? 0,
+          accountNames: Array.isArray(preData?.mergeTarget?.accountNames)
+            ? preData.mergeTarget.accountNames
+            : [],
+        };
+        setMergeTarget(target);
+        setMergeConfirmed(false);
+        setShowMergeAlert(true);
         return;
       }
 
-      setPhoneStep("otp");
+      // No merge — proceed to OTP.
+      await actuallySendOtp(ten);
     } catch (e: any) {
       console.error("handleSendOtp error:", e);
       setPhoneError(e?.message || "Failed to start phone change.");
     } finally {
       setPhoneLoading(false);
     }
+  };
+
+  const handleCancelMerge = () => {
+    setShowMergeAlert(false);
+    setMergeTarget(null);
+    setMergeConfirmed(false);
+  };
+
+  const handleConfirmMerge = async () => {
+    setMergeConfirmed(true);
+    setShowMergeAlert(false);
+
+    const ten = normalizePhoneInput(newPhone);
+    // Keep mergeTarget in state so confirm-phone-change can rely on it
+    // if needed; the actual merge decision is sent as a flag.
+    await actuallySendOtp(ten);
   };
 
   const handleConfirmOtp = async () => {
@@ -820,6 +890,7 @@ export default function EditProfileScreen() {
         body: JSON.stringify({
           newPhone: ten,
           accessToken: verify.accessToken,
+          mergeConfirmed,
         }),
       });
 
@@ -835,10 +906,6 @@ export default function EditProfileScreen() {
         return;
       }
 
-      // Success. Close the OTP modal, then sign out with session
-      // revocation and send the user to login. The auth store's
-      // logout() also clears the account store so no stale data
-      // leaks into the next login.
       setShowPhoneModal(false);
       setPhoneLoading(false);
 
@@ -1274,6 +1341,109 @@ export default function EditProfileScreen() {
             </ScrollView>
           </View>
         </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ============================ MERGE CONFIRM MODAL ============================ */}
+      <Modal
+        visible={showMergeAlert}
+        transparent
+        animationType="fade"
+        onRequestClose={handleCancelMerge}
+        statusBarTranslucent
+      >
+        <View style={styles.mergeBackdrop}>
+          <View style={styles.mergeCard}>
+            <View style={styles.mergeIconWrap}>
+              <Ionicons name="git-merge-outline" size={30} color="#7C3AED" />
+            </View>
+
+            <Text style={styles.mergeTitle}>Number already linked</Text>
+
+            <Text style={styles.mergeDescription}>
+              The number you entered is already linked with another login. Do
+              you want to merge your current account into this number?
+            </Text>
+
+            <View style={styles.mergeNumberBox}>
+              <Ionicons name="call" size={16} color="#7C3AED" />
+              <Text style={styles.mergeNumberText}>
+                +91 {mergeTarget?.phone ?? newPhone}
+              </Text>
+            </View>
+
+            <View style={styles.mergeUserRow}>
+              <View style={styles.mergeAvatar}>
+                <Text style={styles.mergeAvatarText}>
+                  {(mergeTarget?.name || "?").trim().charAt(0).toUpperCase() ||
+                    "?"}
+                </Text>
+              </View>
+              <View style={styles.mergeUserInfo}>
+                <Text style={styles.mergeUserName} numberOfLines={1}>
+                  {mergeTarget?.name?.trim()
+                    ? mergeTarget.name
+                    : "Existing user"}
+                </Text>
+                <Text style={styles.mergeUserMeta}>
+                  Linked with {mergeTarget?.accountCount ?? 0}{" "}
+                  {(mergeTarget?.accountCount ?? 0) === 1
+                    ? "account"
+                    : "accounts"}
+                </Text>
+                {(mergeTarget?.accountNames?.length ?? 0) > 0 ? (
+                  <Text style={styles.mergeAccountList} numberOfLines={2}>
+                    {mergeTarget!.accountNames.join("  •  ")}
+                  </Text>
+                ) : null}
+              </View>
+            </View>
+
+            <View style={styles.mergeHint}>
+              <Ionicons
+                name="information-circle-outline"
+                size={14}
+                color="#92400E"
+              />
+              <Text style={styles.mergeHintText}>
+                After merging you'll sign in with this number and see all linked
+                accounts in one place.
+              </Text>
+            </View>
+
+            <View style={styles.mergeActions}>
+              <TouchableOpacity
+                style={styles.mergeCancelBtn}
+                onPress={handleCancelMerge}
+                activeOpacity={0.85}
+                disabled={phoneLoading}
+              >
+                <Text style={styles.mergeCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.mergeConfirmBtn,
+                  phoneLoading && { opacity: 0.6 },
+                ]}
+                onPress={handleConfirmMerge}
+                activeOpacity={0.85}
+                disabled={phoneLoading}
+              >
+                {phoneLoading ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <>
+                    <Ionicons
+                      name="checkmark-circle-outline"
+                      size={17}
+                      color="#fff"
+                    />
+                    <Text style={styles.mergeConfirmText}>Yes, merge</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
       </Modal>
 
       {/* ============================ CONTACT PICKER ============================ */}
@@ -1777,6 +1947,159 @@ const styles = StyleSheet.create({
 
   resendRow: { alignItems: "center", paddingVertical: 10, marginTop: 6 },
   resendText: { fontSize: 12, color: BLUE, fontWeight: "600" },
+
+  // Merge alert
+  mergeBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 20,
+  },
+  mergeCard: {
+    width: "100%",
+    maxWidth: 420,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    padding: 22,
+    alignItems: "center",
+  },
+  mergeIconWrap: {
+    width: 60,
+    height: 60,
+    borderRadius: 20,
+    backgroundColor: "#F5F3FF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+  mergeTitle: {
+    color: "#0F172A",
+    fontSize: 17,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  mergeDescription: {
+    color: "#64748B",
+    fontSize: 12.5,
+    lineHeight: 18,
+    textAlign: "center",
+    marginTop: 8,
+    maxWidth: 340,
+  },
+  mergeNumberBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 12,
+    backgroundColor: "#F5F3FF",
+    borderWidth: 1,
+    borderColor: "#DDD6FE",
+  },
+  mergeNumberText: {
+    color: "#5B21B6",
+    fontSize: 15,
+    fontWeight: "800",
+    letterSpacing: 0.3,
+  },
+  mergeUserRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    width: "100%",
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    borderRadius: 14,
+    padding: 12,
+    marginTop: 14,
+    gap: 12,
+  },
+  mergeAvatar: {
+    width: 46,
+    height: 46,
+    borderRadius: 14,
+    backgroundColor: "#EDE9FE",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  mergeAvatarText: {
+    color: "#6D28D9",
+    fontSize: 18,
+    fontWeight: "800",
+  },
+  mergeUserInfo: { flex: 1, minWidth: 0 },
+  mergeUserName: {
+    color: "#0F172A",
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  mergeUserMeta: {
+    color: "#7C3AED",
+    fontSize: 11.5,
+    fontWeight: "700",
+    marginTop: 3,
+  },
+  mergeAccountList: {
+    color: "#64748B",
+    fontSize: 11,
+    marginTop: 3,
+    lineHeight: 15,
+  },
+  mergeHint: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
+    width: "100%",
+    backgroundColor: "#FEF3C7",
+    borderWidth: 1,
+    borderColor: "#FDE68A",
+    borderRadius: 11,
+    padding: 10,
+    marginTop: 14,
+  },
+  mergeHintText: {
+    flex: 1,
+    color: "#92400E",
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  mergeActions: {
+    flexDirection: "row",
+    width: "100%",
+    gap: 9,
+    marginTop: 18,
+  },
+  mergeCancelBtn: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 13,
+    backgroundColor: "#F1F5F9",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  mergeCancelText: {
+    color: "#475569",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  mergeConfirmBtn: {
+    flex: 1.3,
+    minHeight: 48,
+    borderRadius: 13,
+    backgroundColor: "#7C3AED",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+  },
+  mergeConfirmText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "800",
+  },
 
   contactModalOverlay: {
     flex: 1,
