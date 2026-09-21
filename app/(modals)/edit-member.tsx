@@ -102,6 +102,17 @@ const INCOME_SOURCES: RoleOption[] = [
   },
 ];
 
+// ---------------------------------------------------------------------------
+// Free-form role normalization. Mirrors the backend `normalizeRole()`.
+// Keeps create/edit/list round-trips stable.
+// ---------------------------------------------------------------------------
+function normalizeRoleInput(raw: string): string {
+  return String(raw || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
 function normalizePhone(raw?: string): string {
   if (!raw) return "";
   const digits = String(raw).replace(/\D/g, "");
@@ -899,7 +910,7 @@ export default function EditMemberScreen() {
     phone: phone.replace(/\D/g, "").slice(-10),
     role: role ?? "",
     isCustomRole,
-    customRole: isCustomRole ? customRole.trim() : "",
+    customRole: isCustomRole ? normalizeRoleInput(customRole) : "",
     photoUri: photoUri ?? "",
     wing: wing.trim(),
     flatNumber: flatNumber.trim(),
@@ -934,18 +945,24 @@ export default function EditMemberScreen() {
     setPhone(memberPhoneValue);
     setPhotoUri(member.photoUri || null);
 
+    // Normalize the stored role before comparing to the standard options.
+    // This ensures a custom-typed "Accountant" on the Add screen (stored as
+    // "accountant") is correctly detected as the standard Accountant chip.
+    const normalizedMemberRole = normalizeRoleInput(member.role ?? "");
+
     const isStandardRole = roleOptions.some(
-      (option) => option.role === member.role,
+      (option) =>
+        normalizeRoleInput(String(option.role)) === normalizedMemberRole,
     );
 
     if (isStandardRole) {
-      setRole((member.role as MemberRole) ?? null);
+      setRole((normalizedMemberRole as MemberRole) ?? null);
       setIsCustomRole(false);
       setCustomRole("");
     } else {
       setIsCustomRole(true);
-      setRole((member.role as MemberRole) || null);
-      setCustomRole(member.role || "");
+      setRole((normalizedMemberRole as MemberRole) || null);
+      setCustomRole(normalizedMemberRole || "");
     }
 
     if (groupType === "apartment" && "flatNumber" in member) {
@@ -985,9 +1002,6 @@ export default function EditMemberScreen() {
   const openIdentityEditor = () => {
     if (groupType === "expense") return;
 
-    // Self-edits always go through the edit-profile screen because
-    // phone changes there are OTP-gated. That's the only safe way for
-    // a signed-in user to change their own login identifier.
     if (isSelf) {
       router.push("/(modals)/edit-profile");
       return;
@@ -998,8 +1012,6 @@ export default function EditMemberScreen() {
       return;
     }
 
-    // Owner/admin editing someone who has NOT joined the app → direct
-    // edit, no OTP needed.
     setIdentityName(name);
     setIdentityPhone(phone);
     setIdentityPhotoUri(photoUri);
@@ -1248,7 +1260,9 @@ export default function EditMemberScreen() {
     if (groupType === "expense") {
       if (!name.trim()) errors.name = "Name is required";
     } else if (isCustomRole) {
-      if (!customRole.trim()) errors.role = "Please enter a custom role name";
+      if (!normalizeRoleInput(customRole)) {
+        errors.role = "Please enter a custom role name";
+      }
     } else {
       if (!role) errors.role = "Please select a role";
     }
@@ -1310,8 +1324,11 @@ export default function EditMemberScreen() {
     setFieldErrors({});
     setLoading(true);
 
+    // Free-form role: normalize before sending.
+    const effectiveRole = isCustomRole ? normalizeRoleInput(customRole) : role;
+
     const updateData: any = {
-      role: isCustomRole ? customRole.trim() : role,
+      role: effectiveRole,
     };
 
     if (!identityLocked && groupType !== "expense") {
@@ -1603,7 +1620,15 @@ export default function EditMemberScreen() {
             <FieldLabel label="Role" required error={fieldErrors.role} />
             <View style={styles.roleGrid}>
               {roleOptions.map((option) => {
-                const selected = role === option.role && !isCustomRole;
+                const normalizedOptionRole = normalizeRoleInput(
+                  String(option.role),
+                );
+                const normalizedCurrentRole = normalizeRoleInput(
+                  String(role ?? ""),
+                );
+                const selected =
+                  !isCustomRole &&
+                  normalizedCurrentRole === normalizedOptionRole;
                 return (
                   <TouchableOpacity
                     key={option.role}
@@ -1648,11 +1673,8 @@ export default function EditMemberScreen() {
                 ]}
                 onPress={() => {
                   setIsCustomRole(true);
-                  setRole(
-                    customRole.trim()
-                      ? (customRole.trim() as MemberRole)
-                      : null,
-                  );
+                  const normalized = normalizeRoleInput(customRole);
+                  setRole(normalized ? (normalized as MemberRole) : null);
                 }}
                 activeOpacity={0.75}
               >
@@ -1688,7 +1710,8 @@ export default function EditMemberScreen() {
                     value={customRole}
                     onChangeText={(text) => {
                       setCustomRole(text);
-                      setRole(text.trim() ? (text.trim() as MemberRole) : null);
+                      const normalized = normalizeRoleInput(text);
+                      setRole(normalized ? (normalized as MemberRole) : null);
                       if (fieldErrors.role) {
                         setFieldErrors({ ...fieldErrors, role: "" });
                       }
@@ -1741,7 +1764,15 @@ export default function EditMemberScreen() {
             <FieldLabel label="Role" required error={fieldErrors.role} />
             <View style={styles.roleGrid}>
               {roleOptions.map((option) => {
-                const selected = role === option.role && !isCustomRole;
+                const normalizedOptionRole = normalizeRoleInput(
+                  String(option.role),
+                );
+                const normalizedCurrentRole = normalizeRoleInput(
+                  String(role ?? ""),
+                );
+                const selected =
+                  !isCustomRole &&
+                  normalizedCurrentRole === normalizedOptionRole;
                 return (
                   <TouchableOpacity
                     key={option.role}
@@ -1786,11 +1817,8 @@ export default function EditMemberScreen() {
                 ]}
                 onPress={() => {
                   setIsCustomRole(true);
-                  setRole(
-                    customRole.trim()
-                      ? (customRole.trim() as MemberRole)
-                      : null,
-                  );
+                  const normalized = normalizeRoleInput(customRole);
+                  setRole(normalized ? (normalized as MemberRole) : null);
                 }}
                 activeOpacity={0.75}
               >
@@ -1826,7 +1854,8 @@ export default function EditMemberScreen() {
                     value={customRole}
                     onChangeText={(text) => {
                       setCustomRole(text);
-                      setRole(text.trim() ? (text.trim() as MemberRole) : null);
+                      const normalized = normalizeRoleInput(text);
+                      setRole(normalized ? (normalized as MemberRole) : null);
                       if (fieldErrors.role) {
                         setFieldErrors({ ...fieldErrors, role: "" });
                       }
@@ -3380,7 +3409,6 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
 
-  /* ── Delete button — properly designed danger card ────── */
   deleteButton: {
     marginTop: 18,
     flexDirection: "row",

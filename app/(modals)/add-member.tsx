@@ -111,6 +111,16 @@ const INCOME_SOURCES: RoleOption[] = [
   },
 ];
 
+// ---------------------------------------------------------------------------
+// Free-form role normalization. Mirrors backend `normalizeRole()`.
+// ---------------------------------------------------------------------------
+function normalizeRoleInput(raw: string): string {
+  return String(raw || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase();
+}
+
 async function getAuthToken(): Promise<string | null> {
   try {
     return await SecureStore.getItemAsync(AUTH_TOKEN_KEY);
@@ -986,12 +996,6 @@ export default function AddMemberScreen() {
     setShowContactPicker(false);
   };
 
-  // =========================================================================
-  // handleAdd
-  //
-  // For custom roles, the typed label is sent AS `role`.
-  // The backend stores whatever string arrives in the single `role` column.
-  // =========================================================================
   const handleAdd = async () => {
     setError("");
     setFieldErrors({});
@@ -1021,10 +1025,8 @@ export default function AddMemberScreen() {
         errors.person = "Please select a person";
       }
 
-      // Role is required in both modes. For custom, the effective role is
-      // whatever the user typed — validate that it's non-empty.
       if (isCustomRole) {
-        if (!customRole.trim()) {
+        if (!normalizeRoleInput(customRole)) {
           errors.role = "Please enter a custom role name";
         }
       } else if (!role) {
@@ -1084,9 +1086,8 @@ export default function AddMemberScreen() {
     } else {
       payload.mode = mode;
 
-      // Send the effective role. For a custom role, that's the typed label
-      // itself — the backend stores it in the same `role` column.
-      payload.role = isCustomRole ? customRole.trim() : role;
+      // Free-form role: normalize before sending.
+      payload.role = isCustomRole ? normalizeRoleInput(customRole) : role;
 
       if (mode === "existing") {
         payload.user_id = selectedUserId;
@@ -1934,14 +1935,9 @@ export default function AddMemberScreen() {
                       isCustomRole && styles.roleCardSelected,
                     ]}
                     onPress={() => {
-                      // Custom: the typed label will be the effective role.
-                      // Until the user types, treat the role as empty.
                       setIsCustomRole(true);
-                      setRole(
-                        customRole.trim()
-                          ? (customRole.trim() as MemberRole)
-                          : null,
-                      );
+                      const normalized = normalizeRoleInput(customRole);
+                      setRole(normalized ? (normalized as MemberRole) : null);
                       clearFieldError("role");
                     }}
                     activeOpacity={0.8}
@@ -1983,10 +1979,8 @@ export default function AddMemberScreen() {
                       value={customRole}
                       onChangeText={(text) => {
                         setCustomRole(text);
-                        // The effective role IS the typed label.
-                        setRole(
-                          text.trim() ? (text.trim() as MemberRole) : null,
-                        );
+                        const normalized = normalizeRoleInput(text);
+                        setRole(normalized ? (normalized as MemberRole) : null);
                         clearFieldError("role");
                       }}
                     />
