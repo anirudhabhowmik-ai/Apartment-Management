@@ -2374,7 +2374,6 @@ export default function AccountProfileScreen() {
             </View>
           )}
 
-          {/* MEMBERS (ACCEPTED) */}
           {acceptedMembers.length > 0 && (
             <View style={styles.accessGroup}>
               <Text style={styles.accessHeading}>Members</Text>
@@ -2416,21 +2415,18 @@ export default function AccountProfileScreen() {
                       +91{inv.invited_phone}
                     </Text>
                   </View>
-                  {inv.can_dismiss ? (
-                    <TouchableOpacity
-                      style={styles.closeIconButton}
-                      onPress={() => handleDismissInvitation(inv.id)}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons name="close" size={16} color="#64748B" />
-                    </TouchableOpacity>
-                  ) : null}
+                  <TouchableOpacity
+                    style={styles.closeIconButton}
+                    onPress={() => handleDismissInvitation(inv.id)}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="close" size={16} color="#64748B" />
+                  </TouchableOpacity>
                 </View>
               ))}
             </View>
           )}
 
-          {/* STAFF (ACCEPTED) */}
           {acceptedStaff.length > 0 && (
             <View style={styles.accessGroup}>
               <Text style={styles.accessHeading}>Staff</Text>
@@ -2471,15 +2467,13 @@ export default function AccountProfileScreen() {
                       +91{inv.invited_phone}
                     </Text>
                   </View>
-                  {inv.can_dismiss ? (
-                    <TouchableOpacity
-                      style={styles.closeIconButton}
-                      onPress={() => handleDismissInvitation(inv.id)}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons name="close" size={16} color="#64748B" />
-                    </TouchableOpacity>
-                  ) : null}
+                  <TouchableOpacity
+                    style={styles.closeIconButton}
+                    onPress={() => handleDismissInvitation(inv.id)}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="close" size={16} color="#64748B" />
+                  </TouchableOpacity>
                 </View>
               ))}
             </View>
