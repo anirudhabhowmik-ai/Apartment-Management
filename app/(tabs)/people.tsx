@@ -487,6 +487,18 @@ const getCalculatedStaffSalary = (
   return Math.round((salary / daysInMonth) * paidDays);
 };
 
+// ---------------------------------------------------------------------------
+// resolveDueAmount — FIXED
+//
+// Previous bug: the early return on `payment.netAmount` short-circuited the
+// attendance adjustment for staff, so a staff member with an additional
+// amount stored in `monthlyPayments[month].netAmount` always showed the raw
+// (base + additional) amount even after marking absences.
+//
+// New logic: resolve the attendance-adjusted base FIRST. Only trust the
+// stored `netAmount` when there is no attendance adjustment to apply (i.e.
+// apartment tabs, or staff with no attendance record for the month).
+// ---------------------------------------------------------------------------
 const resolveDueAmount = (
   member: any,
   month: string | null,
@@ -506,25 +518,34 @@ const resolveDueAmount = (
 ): number => {
   const payment = getPaymentForMonth(member, month);
 
-  if (
-    payment?.netAmount != null &&
-    Number.isFinite(Number(payment.netAmount))
-  ) {
-    return Number(payment.netAmount);
-  }
-
   const base = opts.isApartmentTab
     ? Number(member?.maintenanceAmount) || 0
     : Number(member?.monthlySalary) || 0;
 
+  // Resolve the attendance-adjusted base FIRST (staff only).
   let effectiveBase = base;
+  let hasAttendanceAdjustment = false;
+
   if (opts.isStaffTab && month) {
     const att = opts.getAttendanceRecord(member.id, month);
     if (att?.calculatedSalary != null) {
       effectiveBase = att.calculatedSalary;
+      hasAttendanceAdjustment = true;
     } else if (att?.statuses && Object.keys(att.statuses).length > 0) {
       effectiveBase = getCalculatedStaffSalary(base, month, att.statuses);
+      hasAttendanceAdjustment = true;
     }
+  }
+
+  // Only trust the stored netAmount when there is nothing to re-adjust
+  // locally. Otherwise the stored value is stale — it was computed from the
+  // un-adjusted base salary at save time.
+  if (
+    !hasAttendanceAdjustment &&
+    payment?.netAmount != null &&
+    Number.isFinite(Number(payment.netAmount))
+  ) {
+    return Number(payment.netAmount);
   }
 
   const additional = Number(payment?.additionalAmount) || 0;
@@ -1138,6 +1159,31 @@ export default function PeopleScreen() {
       deductionNote: showDeduction ? deductionNote.trim() || null : null,
     };
 
+    // Compute the netAmount we should cache locally, taking attendance into
+    // account for staff. We deliberately do NOT persist this to the server
+    // as the server's own netAmount (if any) will be recomputed on refresh.
+    const baseForNet = isApartmentTab
+      ? Number(paymentMember?.maintenanceAmount) || 0
+      : Number(paymentMember?.monthlySalary) || 0;
+
+    let effectiveBaseForNet = baseForNet;
+    if (isStaffTab) {
+      const att = getAttendanceRecord(paymentMember.id, saveMonth);
+      if (att?.calculatedSalary != null) {
+        effectiveBaseForNet = att.calculatedSalary;
+      } else if (att?.statuses && Object.keys(att.statuses).length > 0) {
+        effectiveBaseForNet = getCalculatedStaffSalary(
+          baseForNet,
+          saveMonth,
+          att.statuses,
+        );
+      }
+    }
+    const localNetAmount = Math.max(
+      0,
+      effectiveBaseForNet + additionalAmt - deductionAmt,
+    );
+
     const kind: "apartment" | "staff" = isApartmentTab ? "apartment" : "staff";
     if (selectedAccountId) {
       const store = useManagementStore.getState();
@@ -1165,6 +1211,7 @@ export default function PeopleScreen() {
             additionalNote: payload.additionalNote ?? undefined,
             deductionAmount: payload.deductionAmount ?? undefined,
             deductionNote: payload.deductionNote ?? undefined,
+            netAmount: localNetAmount,
           },
         },
       });
@@ -1255,9 +1302,27 @@ export default function PeopleScreen() {
         layoutVariant: selectedTemplate.layoutVariant ?? "bold",
       };
 
+      // -----------------------------------------------------------------
+      // FIXED: for staff, use the attendance-adjusted base salary so the
+      // printed bill matches what the People tab shows as due/paid.
+      // -----------------------------------------------------------------
+      let staffAdjustedBase = Number(member.monthlySalary) || 0;
+      if (!isApartmentTab && m) {
+        const att = getAttendanceRecord(member.id, m);
+        if (att?.calculatedSalary != null) {
+          staffAdjustedBase = att.calculatedSalary;
+        } else if (att?.statuses && Object.keys(att.statuses).length > 0) {
+          staffAdjustedBase = getCalculatedStaffSalary(
+            Number(member.monthlySalary) || 0,
+            m,
+            att.statuses as Record<string, AttendanceStatus>,
+          );
+        }
+      }
+
       const baseAmount = isApartmentTab
         ? member.maintenanceAmount || 0
-        : member.monthlySalary || 0;
+        : staffAdjustedBase;
 
       const additionalAmount = monthlyPayment.additionalAmount || 0;
       const deductionAmount = monthlyPayment.deductionAmount || 0;
