@@ -2,8 +2,10 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
-import { useEffect, useMemo, useState } from "react";
+import * as SecureStore from "expo-secure-store";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   Modal,
   ScrollView,
@@ -24,10 +26,33 @@ import SubscriptionPlanModal, {
 import { useAccounts } from "../../hooks/useAccounts";
 import { useUserRole } from "../../hooks/useUserRole";
 import { startRazorpayPayment } from "../../services/paymentService";
-import { useAccessStore } from "../../store/accessStore";
 import { useAccountStore } from "../../store/accountStore";
 import { BillMemberType, SavedBillConfig } from "../../store/billStore";
 import { useAuthStore } from "../../store/useAuthStore";
+
+// ============================================================================
+// API
+// ============================================================================
+
+const API_URL = (
+  process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000"
+).replace(/\/api\/?$/, "");
+
+interface AccountPerson {
+  user_id: string;
+  name: string;
+  phone: string | null;
+  photo_url: string | null;
+}
+
+interface AccountPeopleResponse {
+  owner: AccountPerson | null;
+  admins: AccountPerson[];
+}
+
+// ============================================================================
+// TYPES
+// ============================================================================
 
 interface MenuItem {
   id: string;
@@ -380,6 +405,22 @@ const styles = StyleSheet.create({
     fontSize: 9,
     fontWeight: "800",
     letterSpacing: 0.3,
+  },
+
+  /* Withdraw admin button */
+  withdrawAdminButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 10,
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1,
+    borderColor: "#FECACA",
+    marginLeft: 8,
+  },
+  withdrawAdminButtonText: {
+    color: "#DC2626",
+    fontSize: 11,
+    fontWeight: "800",
   },
 
   /* ---------- LOGOUT BUTTON ---------- */
@@ -751,6 +792,68 @@ const styles = StyleSheet.create({
     marginTop: 4,
     lineHeight: 18,
   },
+
+  /* ---------- WITHDRAW ADMIN MODAL ---------- */
+  withdrawModal: {
+    width: "100%",
+    maxWidth: 400,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    padding: 22,
+    alignItems: "center",
+  },
+  withdrawIcon: {
+    width: 55,
+    height: 55,
+    borderRadius: 18,
+    backgroundColor: "#FEF2F2",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 13,
+  },
+  withdrawModalTitle: {
+    color: "#0F172A",
+    fontSize: 17,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  withdrawModalDescription: {
+    color: "#64748B",
+    fontSize: 12.5,
+    lineHeight: 18,
+    textAlign: "center",
+    marginTop: 8,
+    maxWidth: 320,
+  },
+  withdrawModalActions: {
+    flexDirection: "row",
+    width: "100%",
+    justifyContent: "center",
+    marginTop: 20,
+    gap: 9,
+  },
+  withdrawCancelButton: {
+    flex: 1,
+    minHeight: 45,
+    paddingHorizontal: 17,
+    borderRadius: 12,
+    backgroundColor: "#F1F5F9",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  withdrawCancelText: { color: "#475569", fontSize: 13, fontWeight: "700" },
+  withdrawConfirmButton: {
+    flex: 1,
+    minHeight: 45,
+    paddingHorizontal: 17,
+    borderRadius: 12,
+    backgroundColor: "#DC2626",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+  },
+  withdrawConfirmText: { color: "#FFFFFF", fontSize: 13, fontWeight: "700" },
 });
 
 // ============================================================================
@@ -762,9 +865,6 @@ export default function ProfileTabScreen() {
   const { user, logout, refreshProfile } = useAuthStore();
   const { selectedAccount } = useAccounts();
   const { isAdmin, isMember } = useUserRole();
-
-  // Access grants store (for admin list on non-owner view)
-  const grants = useAccessStore((s) => s.grants);
 
   const isOwner = selectedAccount?.ownerId === user?.id;
   const showAdminDirectory = !isOwner;
@@ -789,6 +889,15 @@ export default function ProfileTabScreen() {
     useState<BillingPeriod>("monthly");
   const plans = DEFAULT_PLANS;
 
+  // ── Account people (owner + admins) fetched from API ──
+  const [accountPeople, setAccountPeople] =
+    useState<AccountPeopleResponse | null>(null);
+  const [peopleLoading, setPeopleLoading] = useState(false);
+
+  // ── Withdraw admin modal ──
+  const [showWithdrawModal, setShowWithdrawModal] = useState(false);
+  const [withdrawSubmitting, setWithdrawSubmitting] = useState(false);
+
   // Refresh the user's own profile (name + photo) whenever this screen
   // mounts or regains focus, so `user.photoUrl` stays current.
   useEffect(() => {
@@ -804,24 +913,66 @@ export default function ProfileTabScreen() {
       setShowPhoneTooltip(false);
       setShowGenerateBill(false);
       setShowPlansModal(false);
+      setShowWithdrawModal(false);
     }
   }, [isSwitcherOpen]);
 
+  // ── Auth token helper ──
+  const getAuthToken = useCallback(async (): Promise<string | null> => {
+    try {
+      return await SecureStore.getItemAsync("auth_token");
+    } catch (err) {
+      console.warn("[profile] SecureStore read failed:", err);
+      return null;
+    }
+  }, []);
+
+  // ── Load owner + admins from API (non-owners only) ──
+  const loadAccountPeople = useCallback(async () => {
+    if (!selectedAccount?.id || isOwner) {
+      setAccountPeople(null);
+      return;
+    }
+    setPeopleLoading(true);
+    try {
+      const token = await getAuthToken();
+      if (!token) return;
+      const res = await fetch(
+        `${API_URL}/api/accounts/${selectedAccount.id}/people`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!res.ok) {
+        setAccountPeople(null);
+        return;
+      }
+      const data: AccountPeopleResponse = await res.json();
+      setAccountPeople({
+        owner: data?.owner ?? null,
+        admins: Array.isArray(data?.admins) ? data.admins : [],
+      });
+    } catch (err) {
+      console.warn("[profile] loadAccountPeople error:", err);
+      setAccountPeople(null);
+    } finally {
+      setPeopleLoading(false);
+    }
+  }, [selectedAccount?.id, isOwner, getAuthToken]);
+
+  useEffect(() => {
+    loadAccountPeople();
+  }, [loadAccountPeople]);
+
   // ── Admin directory (for non-owners) ─────────────────────────
   const adminDirectory = useMemo(() => {
-    const accountGrants = grants.filter(
-      (g) => g.accountId === selectedAccount?.id,
-    );
-    const admins = accountGrants.filter(
-      (g) => g.acceptedAt && g.role === "admin",
-    );
-    return admins.map((g) => ({
-      id: g.id,
-      name: g.name,
-      phone: g.phone,
-      isOwner: false,
+    if (!accountPeople?.admins) return [];
+    return accountPeople.admins.map((a) => ({
+      id: a.user_id,
+      name: a.name,
+      phone: a.phone,
+      photoUrl: a.photo_url,
+      isSelf: a.user_id === user?.id,
     }));
-  }, [grants, selectedAccount?.id]);
+  }, [accountPeople, user?.id]);
 
   const addHistoryEntry = (
     type: HistoryEntry["type"],
@@ -1122,6 +1273,60 @@ export default function ProfileTabScreen() {
     }
   };
 
+  // ── Withdraw own admin access ──
+  const confirmWithdrawAdmin = async () => {
+    if (!selectedAccount?.id || !user?.id) return;
+    const token = await getAuthToken();
+    if (!token) {
+      Alert.alert("Error", "You're not signed in. Please log in again.");
+      return;
+    }
+
+    setWithdrawSubmitting(true);
+    try {
+      const res = await fetch(
+        `${API_URL}/api/accounts/${selectedAccount.id}/access/${user.id}?role=admin`,
+        {
+          method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            keepMemberVisibility: true,
+            keepStaffVisibility: true,
+          }),
+        },
+      );
+
+      if (!res.ok) {
+        let data: any = null;
+        try {
+          data = await res.json();
+        } catch {}
+        Alert.alert(
+          "Error",
+          data?.message || "Failed to withdraw admin access.",
+        );
+        return;
+      }
+
+      setShowWithdrawModal(false);
+      await loadAccountPeople();
+
+      Alert.alert(
+        "Admin Access Withdrawn",
+        "You are no longer an admin of this account.",
+        [{ text: "OK" }],
+      );
+    } catch (err) {
+      console.error("withdrawAdmin error:", err);
+      Alert.alert("Error", "Network error. Please check your connection.");
+    } finally {
+      setWithdrawSubmitting(false);
+    }
+  };
+
   const menuItems: MenuItem[] = [
     {
       id: "generate_bill",
@@ -1357,19 +1562,25 @@ export default function ProfileTabScreen() {
   const goToAccountProfile = () => router.push("/(modals)/account-profile");
 
   const accountName = selectedAccount?.name || "Apartment";
-  const ownerPhone = user?.phone || "—";
-  const ownerName = (user as any)?.name || "You";
 
-  // ---- PHOTO RESOLUTION ----
-  // The hero avatar (top-left) is the *account's* photo — the society
-  // banner/logo managed from Manage Account Profile.
-  // The owner mini-avatar (in the row below) is the *owner's personal*
-  // photo (users.photo_url).
-  //
-  // We keep them separate so uploading an account photo doesn't
-  // accidentally overwrite the owner's personal avatar, and vice versa.
+  // ---- OWNER / SELF RESOLUTION ----
+  // For an owner viewing their own account, `user` IS the owner.
+  // For an admin/member/staff viewing someone else's account, we need
+  // the actual owner's data from the `/people` endpoint.
+  const selfName = (user as any)?.name || "You";
+  const selfPhone = user?.phone || "—";
+  const selfPhotoUri = user?.photoUrl ?? null;
+
+  const ownerName = isOwner
+    ? selfName
+    : (accountPeople?.owner?.name ?? "Owner");
+  const ownerPhone = isOwner ? selfPhone : (accountPeople?.owner?.phone ?? "—");
+  const ownerPhotoUri = isOwner
+    ? selfPhotoUri
+    : (accountPeople?.owner?.photo_url ?? null);
+
+  // Account hero avatar = account's own photo (society logo)
   const accountPhotoUri: string | null = selectedAccount?.photoUri ?? null;
-  const ownerPhotoUri: string | null = user?.photoUrl ?? null;
 
   return (
     <View style={styles.container}>
@@ -1424,7 +1635,7 @@ export default function ProfileTabScreen() {
                 />
               ) : (
                 <Text style={styles.ownerMiniAvatarText}>
-                  {getInitials(ownerName) || "Y"}
+                  {getInitials(ownerName) || "O"}
                 </Text>
               )}
             </View>
@@ -1432,6 +1643,7 @@ export default function ProfileTabScreen() {
               <Text style={styles.ownerMiniLabel}>Account Owner</Text>
               <Text style={styles.ownerMiniValue} numberOfLines={1}>
                 {ownerName}
+                {isOwner ? " (You)" : ""}
               </Text>
               <TouchableOpacity
                 onPress={handlePhoneRowPress}
@@ -1445,6 +1657,7 @@ export default function ProfileTabScreen() {
             </View>
           </View>
 
+          {/* Manage Account Profile CTA — OWNER ONLY */}
           {isOwner && (
             <TouchableOpacity
               style={styles.manageCta}
@@ -1469,7 +1682,7 @@ export default function ProfileTabScreen() {
           )}
         </View>
 
-        {/* ADMIN & OWNERS — for non-owners */}
+        {/* ADMIN & OWNERS — for non-owners only */}
         {showAdminDirectory && (
           <View style={styles.adminCard}>
             <View style={styles.adminCardHeader}>
@@ -1484,6 +1697,7 @@ export default function ProfileTabScreen() {
               </View>
             </View>
 
+            {/* Owner row */}
             <View
               style={[
                 styles.adminRow,
@@ -1520,19 +1734,40 @@ export default function ProfileTabScreen() {
               </View>
             </View>
 
-            {adminDirectory.length > 0
-              ? adminDirectory.map((admin, index) => (
+            {/* Admins */}
+            {peopleLoading && adminDirectory.length === 0 ? (
+              <View style={[styles.adminRow, styles.adminRowLast]}>
+                <ActivityIndicator size="small" color="#2563EB" />
+                <Text
+                  style={[
+                    styles.adminRowPhone,
+                    { marginLeft: 10, marginTop: 0 },
+                  ]}
+                >
+                  Loading admins…
+                </Text>
+              </View>
+            ) : (
+              adminDirectory.map((admin, index) => (
+                <View
+                  key={admin.id}
+                  style={[
+                    styles.adminRow,
+                    index === adminDirectory.length - 1 && styles.adminRowLast,
+                  ]}
+                >
                   <View
-                    key={admin.id}
-                    style={[
-                      styles.adminRow,
-                      index === adminDirectory.length - 1 &&
-                        styles.adminRowLast,
-                    ]}
+                    style={[styles.adminRowAvatar, styles.adminRowAvatarBg]}
                   >
-                    <View
-                      style={[styles.adminRowAvatar, styles.adminRowAvatarBg]}
-                    >
+                    {admin.photoUrl ? (
+                      <Image
+                        source={{ uri: admin.photoUrl }}
+                        style={styles.adminRowAvatarImage}
+                        contentFit="cover"
+                        cachePolicy="memory-disk"
+                        transition={120}
+                      />
+                    ) : (
                       <Text
                         style={[
                           styles.adminRowAvatarText,
@@ -1541,25 +1776,40 @@ export default function ProfileTabScreen() {
                       >
                         {getInitials(admin.name) || "A"}
                       </Text>
-                    </View>
-                    <View style={styles.adminRowContent}>
-                      <View style={styles.adminRowNameRow}>
-                        <Text style={styles.adminRowName} numberOfLines={1}>
-                          {admin.name}
-                        </Text>
-                      </View>
-                      <Text style={styles.adminRowPhone} numberOfLines={1}>
-                        {admin.phone}
+                    )}
+                  </View>
+                  <View style={styles.adminRowContent}>
+                    <View style={styles.adminRowNameRow}>
+                      <Text style={styles.adminRowName} numberOfLines={1}>
+                        {admin.name}
+                        {admin.isSelf ? " (You)" : ""}
                       </Text>
                     </View>
+                    <Text style={styles.adminRowPhone} numberOfLines={1}>
+                      {admin.phone ?? "—"}
+                    </Text>
+                  </View>
+
+                  {admin.isSelf ? (
+                    <TouchableOpacity
+                      style={styles.withdrawAdminButton}
+                      onPress={() => setShowWithdrawModal(true)}
+                      activeOpacity={0.75}
+                    >
+                      <Text style={styles.withdrawAdminButtonText}>
+                        Withdraw
+                      </Text>
+                    </TouchableOpacity>
+                  ) : (
                     <View
                       style={[styles.adminRowBadge, styles.adminRowBadgeBg]}
                     >
                       <Text style={styles.adminRowBadgeText}>ADMIN</Text>
                     </View>
-                  </View>
-                ))
-              : null}
+                  )}
+                </View>
+              ))
+            )}
           </View>
         )}
 
@@ -1836,6 +2086,74 @@ export default function ProfileTabScreen() {
                   >
                     <Text style={styles.tooltipActionText}>Got it</Text>
                   </TouchableOpacity>
+                </View>
+              </TouchableWithoutFeedback>
+            </View>
+          </TouchableWithoutFeedback>
+        </Modal>
+      )}
+
+      {/* WITHDRAW ADMIN ACCESS MODAL */}
+      {showWithdrawModal && (
+        <Modal
+          transparent
+          animationType="fade"
+          visible={showWithdrawModal}
+          onRequestClose={() => {
+            if (!withdrawSubmitting) setShowWithdrawModal(false);
+          }}
+        >
+          <TouchableWithoutFeedback
+            onPress={() => {
+              if (!withdrawSubmitting) setShowWithdrawModal(false);
+            }}
+          >
+            <View style={styles.tooltipOverlay}>
+              <TouchableWithoutFeedback onPress={() => {}}>
+                <View style={styles.withdrawModal}>
+                  <View style={styles.withdrawIcon}>
+                    <Ionicons name="shield-outline" size={26} color="#DC2626" />
+                  </View>
+                  <Text style={styles.withdrawModalTitle}>
+                    Withdraw Admin Access?
+                  </Text>
+                  <Text style={styles.withdrawModalDescription}>
+                    You will lose administrator privileges on this account. If
+                    you also have a member or staff profile here, that access
+                    will be kept.
+                  </Text>
+
+                  <View style={styles.withdrawModalActions}>
+                    <TouchableOpacity
+                      style={styles.withdrawCancelButton}
+                      onPress={() => setShowWithdrawModal(false)}
+                      activeOpacity={0.8}
+                      disabled={withdrawSubmitting}
+                    >
+                      <Text style={styles.withdrawCancelText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.withdrawConfirmButton}
+                      onPress={confirmWithdrawAdmin}
+                      activeOpacity={0.85}
+                      disabled={withdrawSubmitting}
+                    >
+                      {withdrawSubmitting ? (
+                        <ActivityIndicator color="#FFFFFF" size="small" />
+                      ) : (
+                        <>
+                          <Ionicons
+                            name="shield-outline"
+                            size={17}
+                            color="#FFFFFF"
+                          />
+                          <Text style={styles.withdrawConfirmText}>
+                            Withdraw
+                          </Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  </View>
                 </View>
               </TouchableWithoutFeedback>
             </View>

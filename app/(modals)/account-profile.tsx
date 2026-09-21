@@ -106,6 +106,8 @@ interface ApiInvitation {
   // Live invitee identity (matched by phone, even before accept)
   invitee_user_name?: string | null;
   invitee_user_photo_url?: string | null;
+  // "Dismiss alert" flag — TRUE only for fresh member/staff accepts
+  can_dismiss?: boolean;
 }
 
 interface RevokePreview {
@@ -587,8 +589,7 @@ function MenuRow({
 }
 
 // ============================================================================
-// GRANT AVATAR — shows the accepted user's photo when available,
-// otherwise falls back to initials.
+// GRANT AVATAR
 // ============================================================================
 
 function GrantAvatar({
@@ -632,6 +633,605 @@ function GrantAvatar({
 }
 
 // ============================================================================
+// REVOKE ACCESS MODAL
+// ============================================================================
+
+type RevokeTab = "admin" | "member" | "staff";
+
+interface RevokeAccessModalProps {
+  visible: boolean;
+  onClose: () => void;
+  accountId: string | null;
+  acceptedAdmins: ApiInvitation[];
+  acceptedMembers: ApiInvitation[];
+  acceptedStaff: ApiInvitation[];
+  getAuthToken: () => Promise<string | null>;
+  onRevoked: () => Promise<void> | void;
+}
+
+function RevokeAccessModal({
+  visible,
+  onClose,
+  accountId,
+  acceptedAdmins,
+  acceptedMembers,
+  acceptedStaff,
+  getAuthToken,
+  onRevoked,
+}: RevokeAccessModalProps) {
+  const [tab, setTab] = useState<RevokeTab>("admin");
+  const [search, setSearch] = useState("");
+
+  const [target, setTarget] = useState<ApiInvitation | null>(null);
+  const [preview, setPreview] = useState<RevokePreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [keepMemberVisibility, setKeepMemberVisibility] = useState(true);
+  const [keepStaffVisibility, setKeepStaffVisibility] = useState(true);
+
+  useEffect(() => {
+    if (visible) {
+      setTab("admin");
+      setSearch("");
+      setTarget(null);
+      setPreview(null);
+      setPreviewLoading(false);
+      setSubmitting(false);
+      setKeepMemberVisibility(true);
+      setKeepStaffVisibility(true);
+    }
+  }, [visible]);
+
+  const activeList =
+    tab === "admin"
+      ? acceptedAdmins
+      : tab === "member"
+        ? acceptedMembers
+        : acceptedStaff;
+
+  const filtered = useMemo(() => {
+    const s = search.toLowerCase().trim();
+    if (!s) return activeList;
+    return activeList.filter((inv) => {
+      const name =
+        inv.accepted_user_name ??
+        inv.invitee_user_name ??
+        inv.invited_name ??
+        "";
+      const phone = inv.invited_phone ?? "";
+      return name.toLowerCase().includes(s) || phone.toLowerCase().includes(s);
+    });
+  }, [activeList, search]);
+
+  const roleLabel = (role: InvitationRole) => {
+    if (role === "admin") return "Admin";
+    if (role === "member_visibility") return "Member";
+    return "Staff";
+  };
+
+  const displayName = (inv: ApiInvitation) =>
+    inv.accepted_user_name ??
+    inv.invitee_user_name ??
+    inv.invited_name ??
+    roleLabel(inv.role);
+
+  const photoUrl = (inv: ApiInvitation) =>
+    inv.accepted_user_photo_url ?? inv.invitee_user_photo_url ?? null;
+
+  const openRevoke = async (inv: ApiInvitation) => {
+    const targetUserId = inv.accepted_by ?? null;
+    if (!targetUserId) {
+      Alert.alert("Error", "Missing user reference on invitation.");
+      return;
+    }
+
+    setTarget(inv);
+    setPreview(null);
+    setPreviewLoading(true);
+    setKeepMemberVisibility(true);
+    setKeepStaffVisibility(true);
+
+    try {
+      const token = await getAuthToken();
+      if (!token) {
+        setPreviewLoading(false);
+        return;
+      }
+
+      const res = await fetch(
+        `${API_URL}/api/accounts/${accountId}/access/${targetUserId}/preview-revoke`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+
+      if (!res.ok) {
+        setPreview(null);
+        return;
+      }
+
+      const data: RevokePreview = await res.json();
+      setPreview(data);
+    } catch (err) {
+      console.warn("previewRevoke error:", err);
+      setPreview(null);
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  const closeRevokeConfirm = () => {
+    if (submitting) return;
+    setTarget(null);
+    setPreview(null);
+    setPreviewLoading(false);
+    setKeepMemberVisibility(true);
+    setKeepStaffVisibility(true);
+  };
+
+  const confirmRevoke = async () => {
+    if (!target) return;
+    const token = await getAuthToken();
+    if (!token) return;
+
+    const targetUserId = target.accepted_by ?? null;
+    if (!targetUserId) {
+      Alert.alert("Error", "Missing user reference on invitation.");
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      // Only send the keep-*-visibility flags when revoking an admin.
+      // For member/staff revokes the toggles are not applicable.
+      const payload =
+        target.role === "admin"
+          ? {
+              keepMemberVisibility:
+                preview?.memberProfile != null ? keepMemberVisibility : false,
+              keepStaffVisibility:
+                preview?.staffProfile != null ? keepStaffVisibility : false,
+            }
+          : {};
+
+      const res = await fetch(
+        `${API_URL}/api/accounts/${accountId}/access/${targetUserId}?role=${target.role}`,
+        {
+          method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(payload),
+        },
+      );
+
+      if (!res.ok) {
+        Alert.alert("Error", "Failed to revoke access.");
+        return;
+      }
+
+      closeRevokeConfirm();
+      await onRevoked();
+    } catch (err) {
+      console.error("revoke error:", err);
+      Alert.alert("Error", "Network error.");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  // Toggles are ONLY meaningful when revoking an admin.
+  const hasRevokeToggles =
+    target?.role === "admin" &&
+    (!!preview?.memberProfile || !!preview?.staffProfile);
+
+  const formatMemberContext = () => {
+    if (!preview?.memberProfile) return "";
+    const { wing, flatNumber, role } = preview.memberProfile;
+    const parts: string[] = [];
+    if (wing) parts.push(`Wing ${wing}`);
+    if (flatNumber) parts.push(`Flat ${flatNumber}`);
+    if (role) parts.push(role.charAt(0).toUpperCase() + role.slice(1));
+    return parts.join(" • ");
+  };
+
+  const formatStaffContext = () => {
+    if (!preview?.staffProfile) return "";
+    const { role } = preview.staffProfile;
+    if (!role) return "";
+    return role.charAt(0).toUpperCase() + role.slice(1);
+  };
+
+  const tabs: { key: RevokeTab; label: string; count: number }[] = [
+    { key: "admin", label: "Admin", count: acceptedAdmins.length },
+    { key: "member", label: "Member", count: acceptedMembers.length },
+    { key: "staff", label: "Staff", count: acceptedStaff.length },
+  ];
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      <View style={styles.revokeAccessOverlay}>
+        <View style={styles.revokeAccessContainer}>
+          <View style={styles.revokeAccessHeader}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.revokeAccessTitle}>Revoke Access</Text>
+              <Text style={styles.revokeAccessSubtitle}>
+                Remove admin, member, or staff access from this account
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={styles.revokeAccessCloseButton}
+              onPress={onClose}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="close" size={21} color="#475569" />
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.revokeAccessSearchContainer}>
+            <Ionicons name="search-outline" size={19} color="#64748B" />
+            <TextInput
+              style={styles.revokeAccessSearchInput}
+              placeholder="Search by name or phone"
+              placeholderTextColor="#94A3B8"
+              value={search}
+              onChangeText={setSearch}
+              autoCapitalize="none"
+              autoCorrect={false}
+              returnKeyType="search"
+            />
+            {search.length > 0 ? (
+              <TouchableOpacity
+                onPress={() => setSearch("")}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="close-circle" size={19} color="#94A3B8" />
+              </TouchableOpacity>
+            ) : null}
+          </View>
+
+          <View style={styles.revokeAccessTabs}>
+            {tabs.map((t) => {
+              const isActive = tab === t.key;
+              return (
+                <TouchableOpacity
+                  key={t.key}
+                  style={[
+                    styles.revokeAccessTab,
+                    isActive && styles.revokeAccessTabActive,
+                  ]}
+                  onPress={() => setTab(t.key)}
+                  activeOpacity={0.8}
+                >
+                  <Text
+                    style={[
+                      styles.revokeAccessTabText,
+                      isActive && styles.revokeAccessTabTextActive,
+                    ]}
+                  >
+                    {t.label}
+                  </Text>
+                  <View
+                    style={[
+                      styles.revokeAccessTabCount,
+                      isActive && styles.revokeAccessTabCountActive,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.revokeAccessTabCountText,
+                        isActive && styles.revokeAccessTabCountTextActive,
+                      ]}
+                    >
+                      {t.count}
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          <View style={styles.revokeAccessListWrapper}>
+            <ScrollView
+              style={{ flex: 1 }}
+              contentContainerStyle={{ paddingBottom: 8 }}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              nestedScrollEnabled
+            >
+              {filtered.length === 0 ? (
+                <View style={styles.revokeAccessEmpty}>
+                  <View style={styles.revokeAccessEmptyIcon}>
+                    <Ionicons name="people-outline" size={26} color="#64748B" />
+                  </View>
+                  <Text style={styles.revokeAccessEmptyTitle}>
+                    {search ? "No matches" : "No access to revoke"}
+                  </Text>
+                  <Text style={styles.revokeAccessEmptyText}>
+                    {search
+                      ? "Try another name or phone number."
+                      : `No accepted ${roleLabel(
+                          tab === "admin"
+                            ? "admin"
+                            : tab === "member"
+                              ? "member_visibility"
+                              : "staff_visibility",
+                        ).toLowerCase()}s yet.`}
+                  </Text>
+                </View>
+              ) : (
+                filtered.map((inv) => {
+                  const name = displayName(inv);
+                  const pUrl = photoUrl(inv);
+                  const avatarStyle =
+                    inv.role === "admin"
+                      ? styles.adminAvatar
+                      : inv.role === "member_visibility"
+                        ? styles.memberAvatar
+                        : styles.staffAvatar;
+                  const avatarTextStyle =
+                    inv.role === "member_visibility"
+                      ? styles.memberAvatarText
+                      : inv.role === "staff_visibility"
+                        ? styles.staffAvatarText
+                        : undefined;
+
+                  return (
+                    <View key={inv.id} style={styles.revokeAccessRow}>
+                      <GrantAvatar
+                        photoUrl={pUrl}
+                        name={name}
+                        style={avatarStyle}
+                        textStyle={avatarTextStyle}
+                      />
+                      <View style={styles.revokeAccessInfo}>
+                        <Text style={styles.revokeAccessName} numberOfLines={1}>
+                          {name}
+                        </Text>
+                        <View style={styles.revokeAccessSubRow}>
+                          <Text
+                            style={styles.revokeAccessPhone}
+                            numberOfLines={1}
+                          >
+                            +91{inv.invited_phone}
+                          </Text>
+                          <View
+                            style={[
+                              styles.accessBadge,
+                              inv.role === "admin"
+                                ? styles.adminBadge
+                                : inv.role === "member_visibility"
+                                  ? styles.memberBadge
+                                  : styles.staffBadge,
+                            ]}
+                          >
+                            <Text
+                              style={
+                                inv.role === "admin"
+                                  ? styles.adminBadgeText
+                                  : inv.role === "member_visibility"
+                                    ? styles.memberBadgeText
+                                    : styles.staffBadgeText
+                              }
+                            >
+                              {roleLabel(inv.role).toUpperCase()}
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+                      <TouchableOpacity
+                        style={styles.revokeAccessButton}
+                        onPress={() => openRevoke(inv)}
+                        activeOpacity={0.8}
+                        disabled={submitting}
+                      >
+                        <Ionicons
+                          name="remove-circle-outline"
+                          size={15}
+                          color="#DC2626"
+                        />
+                        <Text style={styles.revokeAccessButtonText}>
+                          Revoke
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  );
+                })
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </View>
+
+      {target && (
+        <Modal
+          transparent
+          animationType="fade"
+          visible={Boolean(target)}
+          onRequestClose={closeRevokeConfirm}
+        >
+          <TouchableWithoutFeedback onPress={closeRevokeConfirm}>
+            <View style={styles.modalOverlay}>
+              <TouchableWithoutFeedback
+                onPress={(event) => event.stopPropagation()}
+              >
+                <View style={styles.revokeModal}>
+                  <View style={styles.revokeIcon}>
+                    <Ionicons name="shield-outline" size={25} color="#7C3AED" />
+                  </View>
+                  <Text style={styles.revokeModalTitle}>
+                    Revoke {roleLabel(target.role)} Access?
+                  </Text>
+
+                  {previewLoading ? (
+                    <View style={{ paddingVertical: 12 }}>
+                      <ActivityIndicator color="#7C3AED" />
+                    </View>
+                  ) : (
+                    <>
+                      <Text style={styles.revokeModalDescription}>
+                        {displayName(target)} will lose{" "}
+                        {roleLabel(target.role).toLowerCase()} access.
+                        {hasRevokeToggles
+                          ? " They still have another profile on this property — choose which access to keep below."
+                          : ""}
+                      </Text>
+
+                      {/* Member toggle — only when revoking an admin
+                          who also has a member profile. */}
+                      {target.role === "admin" && preview?.memberProfile && (
+                        <TouchableOpacity
+                          style={styles.revokeToggleRow}
+                          onPress={() => setKeepMemberVisibility((v) => !v)}
+                          activeOpacity={0.8}
+                        >
+                          <View
+                            style={[
+                              styles.revokeToggleIconWrap,
+                              { backgroundColor: "#DCFCE7" },
+                            ]}
+                          >
+                            <Ionicons name="person" size={18} color="#16A34A" />
+                          </View>
+                          <View style={styles.revokeToggleContent}>
+                            <Text style={styles.revokeToggleTitle}>
+                              Keep Member visibility
+                            </Text>
+                            <Text
+                              style={styles.revokeToggleSubtitle}
+                              numberOfLines={1}
+                            >
+                              {preview.memberProfile.name}
+                              {formatMemberContext()
+                                ? `  •  ${formatMemberContext()}`
+                                : ""}
+                            </Text>
+                          </View>
+                          <View
+                            style={[
+                              styles.revokeCheckbox,
+                              keepMemberVisibility &&
+                                styles.revokeCheckboxChecked,
+                            ]}
+                          >
+                            {keepMemberVisibility ? (
+                              <Ionicons
+                                name="checkmark"
+                                size={16}
+                                color="#FFFFFF"
+                              />
+                            ) : null}
+                          </View>
+                        </TouchableOpacity>
+                      )}
+
+                      {/* Staff toggle — only when revoking an admin
+                          who also has a staff profile. */}
+                      {target.role === "admin" && preview?.staffProfile && (
+                        <TouchableOpacity
+                          style={styles.revokeToggleRow}
+                          onPress={() => setKeepStaffVisibility((v) => !v)}
+                          activeOpacity={0.8}
+                        >
+                          <View
+                            style={[
+                              styles.revokeToggleIconWrap,
+                              { backgroundColor: "#E0F2FE" },
+                            ]}
+                          >
+                            <Ionicons
+                              name="briefcase"
+                              size={18}
+                              color="#0284C7"
+                            />
+                          </View>
+                          <View style={styles.revokeToggleContent}>
+                            <Text style={styles.revokeToggleTitle}>
+                              Keep Staff visibility
+                            </Text>
+                            <Text
+                              style={styles.revokeToggleSubtitle}
+                              numberOfLines={1}
+                            >
+                              {preview.staffProfile.name}
+                              {formatStaffContext()
+                                ? `  •  ${formatStaffContext()}`
+                                : ""}
+                            </Text>
+                          </View>
+                          <View
+                            style={[
+                              styles.revokeCheckbox,
+                              keepStaffVisibility &&
+                                styles.revokeCheckboxChecked,
+                            ]}
+                          >
+                            {keepStaffVisibility ? (
+                              <Ionicons
+                                name="checkmark"
+                                size={16}
+                                color="#FFFFFF"
+                              />
+                            ) : null}
+                          </View>
+                        </TouchableOpacity>
+                      )}
+
+                      {hasRevokeToggles && (
+                        <Text style={styles.revokeHint}>
+                          Unchecked roles will be revoked along with{" "}
+                          {roleLabel(target.role).toLowerCase()}.
+                        </Text>
+                      )}
+                    </>
+                  )}
+
+                  <View style={styles.revokeModalActions}>
+                    <TouchableOpacity
+                      style={styles.cancelModalButton}
+                      onPress={closeRevokeConfirm}
+                      activeOpacity={0.8}
+                      disabled={submitting}
+                    >
+                      <Text style={styles.cancelButtonText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.revokeConfirmButton}
+                      onPress={confirmRevoke}
+                      activeOpacity={0.8}
+                      disabled={submitting}
+                    >
+                      {submitting ? (
+                        <ActivityIndicator color="#FFFFFF" size="small" />
+                      ) : (
+                        <>
+                          <Ionicons
+                            name="shield-outline"
+                            size={17}
+                            color="#FFFFFF"
+                          />
+                          <Text style={styles.revokeConfirmText}>
+                            Revoke {roleLabel(target.role)}
+                          </Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </TouchableWithoutFeedback>
+            </View>
+          </TouchableWithoutFeedback>
+        </Modal>
+      )}
+    </Modal>
+  );
+}
+
+// ============================================================================
 // SCREEN
 // ============================================================================
 
@@ -651,7 +1251,6 @@ export default function AccountProfileScreen() {
   const [rawImage, setRawImage] = useState<RawImage | null>(null);
   const [showAdjustModal, setShowAdjustModal] = useState(false);
 
-  // Phone modal
   const [showPhoneModal, setShowPhoneModal] = useState(false);
   const [showPhoneTooltip, setShowPhoneTooltip] = useState(false);
   const [phone, setPhone] = useState("");
@@ -673,7 +1272,6 @@ export default function AccountProfileScreen() {
 
   const [processingChange, setProcessingChange] = useState(false);
 
-  // Invitations state
   const [invitations, setInvitations] = useState<ApiInvitation[]>([]);
   const [invitationsLoading, setInvitationsLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -681,14 +1279,6 @@ export default function AccountProfileScreen() {
     null,
   );
   const [deletingInvitation, setDeletingInvitation] = useState(false);
-  const [revokeSubmitting, setRevokeSubmitting] = useState(false);
-  const [revokeTarget, setRevokeTarget] = useState<ApiInvitation | null>(null);
-  const [revokePreview, setRevokePreview] = useState<RevokePreview | null>(
-    null,
-  );
-  const [revokePreviewLoading, setRevokePreviewLoading] = useState(false);
-  const [keepMemberVisibility, setKeepMemberVisibility] = useState(true);
-  const [keepStaffVisibility, setKeepStaffVisibility] = useState(true);
 
   const [resendingInvitationId, setResendingInvitationId] = useState<
     string | null
@@ -697,6 +1287,8 @@ export default function AccountProfileScreen() {
   const [showContactPicker, setShowContactPicker] = useState(false);
   const [contactsList, setContactsList] = useState<ContactData[]>([]);
   const [contactSearch, setContactSearch] = useState("");
+
+  const [showRevokeAccessModal, setShowRevokeAccessModal] = useState(false);
 
   // ============================================================
   // DERIVED
@@ -735,6 +1327,11 @@ export default function AccountProfileScreen() {
     pendingInvitations.length +
     rejectedInvitations.length +
     (selectedAccount?.ownerId === user?.id ? 1 : 0);
+
+  const totalRevocable =
+    acceptedAdmins.length + acceptedMembers.length + acceptedStaff.length;
+
+  const isOwner = selectedAccount?.ownerId === user?.id;
 
   // ============================================================
   // TIMER
@@ -775,12 +1372,6 @@ export default function AccountProfileScreen() {
       return null;
     }
   }, []);
-
-  const normalizePhone = (raw?: string | null) => {
-    if (!raw) return null;
-    const digits = String(raw).replace(/\D/g, "");
-    return digits.length > 10 ? digits.slice(-10) : digits;
-  };
 
   // ============================================================
   // LOAD INVITATIONS
@@ -839,6 +1430,7 @@ export default function AccountProfileScreen() {
             accepted_user_photo_url: r.accepted_user_photo_url ?? null,
             invitee_user_name: r.invitee_user_name ?? null,
             invitee_user_photo_url: r.invitee_user_photo_url ?? null,
+            can_dismiss: r.can_dismiss === true,
           };
         });
 
@@ -1322,6 +1914,8 @@ export default function AccountProfileScreen() {
         },
       );
       if (!res.ok) return;
+      // Remove the dismissed row from local state so the UI updates
+      // immediately without waiting for a full refetch.
       setInvitations((prev) => prev.filter((i) => i.id !== invitationId));
     } catch (err) {
       console.warn("dismissInvitation error:", err);
@@ -1329,105 +1923,7 @@ export default function AccountProfileScreen() {
   };
 
   // ============================================================
-  // REVOKE ADMIN (with preview + keep toggles)
-  // ============================================================
-
-  const openRevokeModal = async (inv: ApiInvitation) => {
-    const targetUserId = inv.accepted_by ?? null;
-    if (!targetUserId) {
-      Alert.alert("Error", "Missing user reference on invitation.");
-      return;
-    }
-
-    setRevokeTarget(inv);
-    setRevokePreview(null);
-    setRevokePreviewLoading(true);
-    setKeepMemberVisibility(true);
-    setKeepStaffVisibility(true);
-
-    try {
-      const authToken = await getAuthToken();
-      if (!authToken) {
-        setRevokePreviewLoading(false);
-        return;
-      }
-
-      const res = await fetch(
-        `${API_URL}/api/accounts/${selectedAccount?.id}/access/${targetUserId}/preview-revoke`,
-        { headers: { Authorization: `Bearer ${authToken}` } },
-      );
-
-      if (!res.ok) {
-        setRevokePreview(null);
-        return;
-      }
-
-      const data: RevokePreview = await res.json();
-      setRevokePreview(data);
-    } catch (err) {
-      console.warn("previewRevoke error:", err);
-      setRevokePreview(null);
-    } finally {
-      setRevokePreviewLoading(false);
-    }
-  };
-
-  const closeRevokeModal = () => {
-    if (revokeSubmitting) return;
-    setRevokeTarget(null);
-    setRevokePreview(null);
-    setRevokePreviewLoading(false);
-    setKeepMemberVisibility(true);
-    setKeepStaffVisibility(true);
-  };
-
-  const confirmRevokeAdmin = async () => {
-    if (!revokeTarget) return;
-    const authToken = await getAuthToken();
-    if (!authToken) return;
-
-    const targetUserId = revokeTarget.accepted_by ?? null;
-    if (!targetUserId) {
-      Alert.alert("Error", "Missing user reference on invitation.");
-      return;
-    }
-
-    setRevokeSubmitting(true);
-    try {
-      const res = await fetch(
-        `${API_URL}/api/accounts/${selectedAccount?.id}/access/${targetUserId}?role=admin`,
-        {
-          method: "DELETE",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${authToken}`,
-          },
-          body: JSON.stringify({
-            keepMemberVisibility:
-              revokePreview?.memberProfile != null
-                ? keepMemberVisibility
-                : false,
-            keepStaffVisibility:
-              revokePreview?.staffProfile != null ? keepStaffVisibility : false,
-          }),
-        },
-      );
-      if (!res.ok) {
-        Alert.alert("Error", "Failed to revoke admin access.");
-        return;
-      }
-      closeRevokeModal();
-      await loadInvitations({ silent: true });
-    } catch (err) {
-      console.error("revoke error:", err);
-      Alert.alert("Error", "Network error.");
-    } finally {
-      setRevokeSubmitting(false);
-    }
-  };
-
-  // ============================================================
-  // RESEND INVITATION — delete old rejected + create a new one
+  // RESEND INVITATION
   // ============================================================
 
   const handleResendInvite = async (invitation: ApiInvitation) => {
@@ -1531,26 +2027,6 @@ export default function AccountProfileScreen() {
           text: styles.staffBadgeText,
         };
     }
-  };
-
-  const hasRevokeToggles =
-    !!revokePreview?.memberProfile || !!revokePreview?.staffProfile;
-
-  const formatMemberContext = () => {
-    if (!revokePreview?.memberProfile) return "";
-    const { wing, flatNumber, role } = revokePreview.memberProfile;
-    const parts: string[] = [];
-    if (wing) parts.push(`Wing ${wing}`);
-    if (flatNumber) parts.push(`Flat ${flatNumber}`);
-    if (role) parts.push(role.charAt(0).toUpperCase() + role.slice(1));
-    return parts.join(" • ");
-  };
-
-  const formatStaffContext = () => {
-    if (!revokePreview?.staffProfile) return "";
-    const { role } = revokePreview.staffProfile;
-    if (!role) return "";
-    return role.charAt(0).toUpperCase() + role.slice(1);
   };
 
   return (
@@ -1736,6 +2212,57 @@ export default function AccountProfileScreen() {
                 isLast
               />
             </View>
+
+            {/* REVOKE ACCESS — owner only */}
+            {isOwner && (
+              <>
+                <Text style={styles.sectionTitle}>REVOKE ACCESS</Text>
+                <View style={styles.menuCard}>
+                  <TouchableOpacity
+                    style={[styles.menuItem, styles.menuItemLast]}
+                    onPress={() => setShowRevokeAccessModal(true)}
+                    activeOpacity={0.75}
+                  >
+                    <View style={styles.menuItemLeft}>
+                      <View
+                        style={[
+                          styles.menuIcon,
+                          { backgroundColor: "#FEF2F214" },
+                        ]}
+                      >
+                        <Ionicons
+                          name="remove-circle-outline"
+                          size={20}
+                          color="#DC2626"
+                        />
+                      </View>
+                      <View style={styles.menuItemContent}>
+                        <Text style={styles.menuItemTitle}>
+                          Revoke Admin, Member & Staff Access
+                        </Text>
+                        <Text
+                          style={styles.menuItemDescription}
+                          numberOfLines={1}
+                        >
+                          {totalRevocable > 0
+                            ? `${totalRevocable} ${
+                                totalRevocable === 1
+                                  ? "person has"
+                                  : "people have"
+                              } access — tap to manage`
+                            : "No one has additional access"}
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={styles.revokeAccessCountBadge}>
+                      <Text style={styles.revokeAccessCountText}>
+                        {totalRevocable}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
           </>
         )}
 
@@ -1759,7 +2286,7 @@ export default function AccountProfileScreen() {
             </View>
           </View>
 
-          {/* OWNER — shows user's photo */}
+          {/* OWNER */}
           {selectedAccount?.ownerId === user?.id && (
             <View style={styles.accessGroup}>
               <Text style={styles.accessHeading}>Account Owner</Text>
@@ -1797,7 +2324,7 @@ export default function AccountProfileScreen() {
             </View>
           )}
 
-          {/* ADMINS (ACCEPTED) — Revoke button */}
+          {/* ADMINS (ACCEPTED) */}
           {acceptedAdmins.length > 0 && (
             <View style={styles.accessGroup}>
               <Text style={styles.accessHeading}>Admins</Text>
@@ -1839,14 +2366,9 @@ export default function AccountProfileScreen() {
                       +91{inv.invited_phone}
                     </Text>
                   </View>
-                  <TouchableOpacity
-                    style={styles.revokeTextButton}
-                    onPress={() => openRevokeModal(inv)}
-                    activeOpacity={0.7}
-                    disabled={revokeSubmitting}
-                  >
-                    <Text style={styles.revokeTextButtonLabel}>Revoke</Text>
-                  </TouchableOpacity>
+                  <View style={[styles.accessBadge, styles.adminBadge]}>
+                    <Text style={styles.adminBadgeText}>ADMIN</Text>
+                  </View>
                 </View>
               ))}
             </View>
@@ -1856,9 +2378,6 @@ export default function AccountProfileScreen() {
           {acceptedMembers.length > 0 && (
             <View style={styles.accessGroup}>
               <Text style={styles.accessHeading}>Members</Text>
-              <Text style={styles.accessHeadingHint}>
-                Manage in the Management tab. × hides from this list only.
-              </Text>
               {acceptedMembers.map((inv, index) => (
                 <View
                   key={inv.id}
@@ -1897,13 +2416,15 @@ export default function AccountProfileScreen() {
                       +91{inv.invited_phone}
                     </Text>
                   </View>
-                  <TouchableOpacity
-                    style={styles.closeIconButton}
-                    onPress={() => handleDismissInvitation(inv.id)}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name="close" size={16} color="#64748B" />
-                  </TouchableOpacity>
+                  {inv.can_dismiss ? (
+                    <TouchableOpacity
+                      style={styles.closeIconButton}
+                      onPress={() => handleDismissInvitation(inv.id)}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="close" size={16} color="#64748B" />
+                    </TouchableOpacity>
+                  ) : null}
                 </View>
               ))}
             </View>
@@ -1913,9 +2434,6 @@ export default function AccountProfileScreen() {
           {acceptedStaff.length > 0 && (
             <View style={styles.accessGroup}>
               <Text style={styles.accessHeading}>Staff</Text>
-              <Text style={styles.accessHeadingHint}>
-                Manage in the Management tab. × hides from this list only.
-              </Text>
               {acceptedStaff.map((inv, index) => (
                 <View
                   key={inv.id}
@@ -1953,19 +2471,21 @@ export default function AccountProfileScreen() {
                       +91{inv.invited_phone}
                     </Text>
                   </View>
-                  <TouchableOpacity
-                    style={styles.closeIconButton}
-                    onPress={() => handleDismissInvitation(inv.id)}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name="close" size={16} color="#64748B" />
-                  </TouchableOpacity>
+                  {inv.can_dismiss ? (
+                    <TouchableOpacity
+                      style={styles.closeIconButton}
+                      onPress={() => handleDismissInvitation(inv.id)}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="close" size={16} color="#64748B" />
+                    </TouchableOpacity>
+                  ) : null}
                 </View>
               ))}
             </View>
           )}
 
-          {/* PENDING — now shows photo via GrantAvatar */}
+          {/* PENDING */}
           {pendingInvitations.length > 0 && (
             <View style={styles.accessGroup}>
               <View style={styles.pendingHeader}>
@@ -2740,182 +3260,19 @@ export default function AccountProfileScreen() {
         </Modal>
       )}
 
-      {/* REVOKE ADMIN — with keep-member / keep-staff toggles */}
-      {revokeTarget && (
-        <Modal
-          transparent
-          animationType="fade"
-          visible={Boolean(revokeTarget)}
-          onRequestClose={closeRevokeModal}
-        >
-          <TouchableWithoutFeedback onPress={closeRevokeModal}>
-            <View style={styles.modalOverlay}>
-              <TouchableWithoutFeedback
-                onPress={(event) => event.stopPropagation()}
-              >
-                <View style={styles.revokeModal}>
-                  <View style={styles.revokeIcon}>
-                    <Ionicons name="shield-outline" size={25} color="#7C3AED" />
-                  </View>
-                  <Text style={styles.revokeModalTitle}>
-                    Revoke Admin Access?
-                  </Text>
-
-                  {revokePreviewLoading ? (
-                    <View style={{ paddingVertical: 12 }}>
-                      <ActivityIndicator color="#7C3AED" />
-                    </View>
-                  ) : (
-                    <>
-                      <Text style={styles.revokeModalDescription}>
-                        {revokeTarget.invited_name || "This person"} will lose
-                        admin access.
-                        {hasRevokeToggles
-                          ? " They still have a profile on this property — choose which access to keep below."
-                          : ""}
-                      </Text>
-
-                      {revokePreview?.memberProfile && (
-                        <TouchableOpacity
-                          style={styles.revokeToggleRow}
-                          onPress={() => setKeepMemberVisibility((v) => !v)}
-                          activeOpacity={0.8}
-                        >
-                          <View
-                            style={[
-                              styles.revokeToggleIconWrap,
-                              { backgroundColor: "#DCFCE7" },
-                            ]}
-                          >
-                            <Ionicons name="person" size={18} color="#16A34A" />
-                          </View>
-                          <View style={styles.revokeToggleContent}>
-                            <Text style={styles.revokeToggleTitle}>
-                              Keep Member visibility
-                            </Text>
-                            <Text
-                              style={styles.revokeToggleSubtitle}
-                              numberOfLines={1}
-                            >
-                              {revokePreview.memberProfile.name}
-                              {formatMemberContext()
-                                ? `  •  ${formatMemberContext()}`
-                                : ""}
-                            </Text>
-                          </View>
-                          <View
-                            style={[
-                              styles.revokeCheckbox,
-                              keepMemberVisibility &&
-                                styles.revokeCheckboxChecked,
-                            ]}
-                          >
-                            {keepMemberVisibility ? (
-                              <Ionicons
-                                name="checkmark"
-                                size={16}
-                                color="#FFFFFF"
-                              />
-                            ) : null}
-                          </View>
-                        </TouchableOpacity>
-                      )}
-
-                      {revokePreview?.staffProfile && (
-                        <TouchableOpacity
-                          style={styles.revokeToggleRow}
-                          onPress={() => setKeepStaffVisibility((v) => !v)}
-                          activeOpacity={0.8}
-                        >
-                          <View
-                            style={[
-                              styles.revokeToggleIconWrap,
-                              { backgroundColor: "#E0F2FE" },
-                            ]}
-                          >
-                            <Ionicons
-                              name="briefcase"
-                              size={18}
-                              color="#0284C7"
-                            />
-                          </View>
-                          <View style={styles.revokeToggleContent}>
-                            <Text style={styles.revokeToggleTitle}>
-                              Keep Staff visibility
-                            </Text>
-                            <Text
-                              style={styles.revokeToggleSubtitle}
-                              numberOfLines={1}
-                            >
-                              {revokePreview.staffProfile.name}
-                              {formatStaffContext()
-                                ? `  •  ${formatStaffContext()}`
-                                : ""}
-                            </Text>
-                          </View>
-                          <View
-                            style={[
-                              styles.revokeCheckbox,
-                              keepStaffVisibility &&
-                                styles.revokeCheckboxChecked,
-                            ]}
-                          >
-                            {keepStaffVisibility ? (
-                              <Ionicons
-                                name="checkmark"
-                                size={16}
-                                color="#FFFFFF"
-                              />
-                            ) : null}
-                          </View>
-                        </TouchableOpacity>
-                      )}
-
-                      {hasRevokeToggles && (
-                        <Text style={styles.revokeHint}>
-                          Unchecked roles will be revoked along with admin.
-                        </Text>
-                      )}
-                    </>
-                  )}
-
-                  <View style={styles.revokeModalActions}>
-                    <TouchableOpacity
-                      style={styles.cancelModalButton}
-                      onPress={closeRevokeModal}
-                      activeOpacity={0.8}
-                      disabled={revokeSubmitting}
-                    >
-                      <Text style={styles.cancelButtonText}>Cancel</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.revokeConfirmButton}
-                      onPress={confirmRevokeAdmin}
-                      activeOpacity={0.8}
-                      disabled={revokeSubmitting}
-                    >
-                      {revokeSubmitting ? (
-                        <ActivityIndicator color="#FFFFFF" size="small" />
-                      ) : (
-                        <>
-                          <Ionicons
-                            name="shield-outline"
-                            size={17}
-                            color="#FFFFFF"
-                          />
-                          <Text style={styles.revokeConfirmText}>
-                            Revoke Admin
-                          </Text>
-                        </>
-                      )}
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              </TouchableWithoutFeedback>
-            </View>
-          </TouchableWithoutFeedback>
-        </Modal>
-      )}
+      {/* REVOKE ACCESS MODAL */}
+      <RevokeAccessModal
+        visible={showRevokeAccessModal}
+        onClose={() => setShowRevokeAccessModal(false)}
+        accountId={selectedAccount?.id ?? null}
+        acceptedAdmins={acceptedAdmins}
+        acceptedMembers={acceptedMembers}
+        acceptedStaff={acceptedStaff}
+        getAuthToken={getAuthToken}
+        onRevoked={async () => {
+          await loadInvitations({ silent: true });
+        }}
+      />
 
       {/* CONTACT PICKER */}
       {showContactPicker && (
@@ -3246,6 +3603,17 @@ const styles = StyleSheet.create({
   menuItemContent: { flex: 1, minWidth: 0 },
   menuItemTitle: { color: "#1E293B", fontSize: 14, fontWeight: "600" },
   menuItemDescription: { color: "#94A3B8", fontSize: 10, marginTop: 3 },
+
+  revokeAccessCountBadge: {
+    minWidth: 34,
+    height: 34,
+    borderRadius: 12,
+    backgroundColor: "#FEF2F2",
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 8,
+  },
+  revokeAccessCountText: { color: "#DC2626", fontSize: 13, fontWeight: "800" },
 
   accessOverview: {
     backgroundColor: "#FFFFFF",
@@ -3926,6 +4294,178 @@ const styles = StyleSheet.create({
     gap: 7,
   },
   revokeConfirmText: { color: "#FFFFFF", fontSize: 13, fontWeight: "700" },
+
+  revokeAccessOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.58)",
+    justifyContent: "flex-end",
+  },
+  revokeAccessContainer: {
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 26,
+    borderTopRightRadius: 26,
+    paddingHorizontal: 18,
+    paddingTop: 19,
+    maxHeight: "90%",
+    minHeight: "62%",
+    paddingBottom: 16,
+  },
+  revokeAccessHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 14,
+  },
+  revokeAccessTitle: {
+    color: "#0F172A",
+    fontSize: 18,
+    fontWeight: "800",
+  },
+  revokeAccessSubtitle: {
+    color: "#64748B",
+    fontSize: 11.5,
+    marginTop: 3,
+  },
+  revokeAccessCloseButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 11,
+    backgroundColor: "#F1F5F9",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  revokeAccessSearchContainer: {
+    height: 48,
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    borderRadius: 13,
+    paddingHorizontal: 12,
+  },
+  revokeAccessSearchInput: {
+    flex: 1,
+    height: "100%",
+    color: "#0F172A",
+    fontSize: 13,
+    paddingHorizontal: 8,
+    ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as any) : {}),
+  },
+  revokeAccessTabs: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 12,
+    marginBottom: 4,
+  },
+  revokeAccessTab: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 12,
+    backgroundColor: "#F1F5F9",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  revokeAccessTabActive: {
+    backgroundColor: "#EFF6FF",
+    borderColor: "#BFDBFE",
+  },
+  revokeAccessTabText: {
+    color: "#475569",
+    fontSize: 12.5,
+    fontWeight: "700",
+  },
+  revokeAccessTabTextActive: { color: "#1D4ED8" },
+  revokeAccessTabCount: {
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: "#E2E8F0",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 5,
+  },
+  revokeAccessTabCountActive: { backgroundColor: "#DBEAFE" },
+  revokeAccessTabCountText: {
+    color: "#475569",
+    fontSize: 10,
+    fontWeight: "800",
+  },
+  revokeAccessTabCountTextActive: { color: "#1D4ED8" },
+  revokeAccessListWrapper: {
+    flex: 1,
+    minHeight: 240,
+    marginTop: 8,
+  },
+  revokeAccessEmpty: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 42,
+    paddingHorizontal: 25,
+  },
+  revokeAccessEmptyIcon: {
+    width: 58,
+    height: 58,
+    borderRadius: 18,
+    backgroundColor: "#F1F5F9",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 11,
+  },
+  revokeAccessEmptyTitle: {
+    color: "#334155",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  revokeAccessEmptyText: {
+    color: "#94A3B8",
+    fontSize: 11,
+    lineHeight: 17,
+    textAlign: "center",
+    marginTop: 4,
+    maxWidth: 260,
+  },
+  revokeAccessRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F1F5F9",
+  },
+  revokeAccessInfo: { flex: 1, minWidth: 0, marginLeft: 4 },
+  revokeAccessName: {
+    color: "#0F172A",
+    fontSize: 13.5,
+    fontWeight: "700",
+  },
+  revokeAccessSubRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 3,
+  },
+  revokeAccessPhone: { color: "#94A3B8", fontSize: 11 },
+  revokeAccessButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 11,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1,
+    borderColor: "#FECACA",
+    marginLeft: 8,
+  },
+  revokeAccessButtonText: {
+    color: "#DC2626",
+    fontSize: 11.5,
+    fontWeight: "800",
+  },
 
   contactModalOverlay: {
     flex: 1,

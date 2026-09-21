@@ -29,17 +29,13 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import DatePickerModal from "../../components/DatePickerModal";
-import {
-  PhoneVisibilityRow,
-  useExpenses,
-  useMembers,
-  useStaff,
-} from "../../hooks/useManagement";
+import { useExpenses, useMembers, useStaff } from "../../hooks/useManagement";
 import { useAuthStore } from "../../store/useAuthStore";
 import type { BillAttachment, ManagementType, MemberRole } from "../../types";
 
@@ -782,14 +778,15 @@ export default function EditMemberScreen() {
         ? expensesHook
         : membersHook;
 
-  const { getById, update, remove, fetchPhoneVisibility, savePhoneVisibility } =
-    activeHook;
+  const { getById, update, remove } = activeHook;
 
   const member = getById(memberId);
 
   const { user } = useAuthStore();
 
   const isSelf = !!user?.id && !!member?.userId && user.id === member.userId;
+
+  const identityLocked = !isSelf && !!(member as any)?.hasAccess;
 
   let roleOptions: RoleOption[] = [];
   if (groupType === "apartment") roleOptions = FLAT_ROLES;
@@ -833,6 +830,14 @@ export default function EditMemberScreen() {
 
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
 
+  const [showIdentityModal, setShowIdentityModal] = useState(false);
+  const [identityName, setIdentityName] = useState("");
+  const [identityPhone, setIdentityPhone] = useState("");
+  const [identityPhotoUri, setIdentityPhotoUri] = useState<string | null>(null);
+  const [identityError, setIdentityError] = useState("");
+
+  const [showLockedInfo, setShowLockedInfo] = useState(false);
+
   const [showPhotoOptions, setShowPhotoOptions] = useState(false);
   const [rawImage, setRawImage] = useState<RawImage | null>(null);
   const [showAdjustModal, setShowAdjustModal] = useState(false);
@@ -843,24 +848,30 @@ export default function EditMemberScreen() {
   const [contactSearch, setContactSearch] = useState("");
   const [loadingContacts, setLoadingContacts] = useState(false);
 
-  const [showVisibility, setShowVisibility] = useState(false);
-  const [visibilityRows, setVisibilityRows] = useState<PhoneVisibilityRow[]>(
-    [],
-  );
-  const [visibilityLoading, setVisibilityLoading] = useState(false);
-  const [visibilitySaving, setVisibilitySaving] = useState(false);
-  const [visibilityError, setVisibilityError] = useState("");
-
   const hasFieldErrors = Object.values(fieldErrors).some(Boolean);
 
   const originalRef = useRef<Record<string, any> | null>(null);
 
-  const deleteNoun =
+  const deleteButtonLabel =
     groupType === "expense"
-      ? "Expense"
+      ? "Delete Expense"
       : groupType === "staff"
-        ? "Staff"
-        : "Member";
+        ? "Delete Staff Role"
+        : "Delete Member Property";
+
+  const deleteTitle =
+    groupType === "expense"
+      ? "Delete Expense?"
+      : groupType === "staff"
+        ? "Delete Staff Role?"
+        : "Delete Member Property?";
+
+  const deleteConfirmText =
+    groupType === "expense"
+      ? "Delete"
+      : groupType === "staff"
+        ? "Delete Staff Role"
+        : "Delete Member Property";
 
   const getHeaderTitle = () => {
     if (groupType === "expense")
@@ -921,16 +932,20 @@ export default function EditMemberScreen() {
       memberPhoneValue = memberPhoneValue.slice(-10);
     }
     setPhone(memberPhoneValue);
-
-    setRole((member.role as MemberRole) ?? null);
     setPhotoUri(member.photoUri || null);
 
-    if (!roleOptions.some((option) => option.role === member.role)) {
-      setIsCustomRole(true);
-      setCustomRole(member.role || "");
-    } else {
+    const isStandardRole = roleOptions.some(
+      (option) => option.role === member.role,
+    );
+
+    if (isStandardRole) {
+      setRole((member.role as MemberRole) ?? null);
       setIsCustomRole(false);
       setCustomRole("");
+    } else {
+      setIsCustomRole(true);
+      setRole((member.role as MemberRole) || null);
+      setCustomRole(member.role || "");
     }
 
     if (groupType === "apartment" && "flatNumber" in member) {
@@ -964,6 +979,63 @@ export default function EditMemberScreen() {
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [member, groupType]);
+
+  // ── IDENTITY EDITOR ─────────────────────────────────────────
+
+  const openIdentityEditor = () => {
+    if (groupType === "expense") return;
+
+    // Self-edits always go through the edit-profile screen because
+    // phone changes there are OTP-gated. That's the only safe way for
+    // a signed-in user to change their own login identifier.
+    if (isSelf) {
+      router.push("/(modals)/edit-profile");
+      return;
+    }
+
+    if (identityLocked) {
+      setShowLockedInfo(true);
+      return;
+    }
+
+    // Owner/admin editing someone who has NOT joined the app → direct
+    // edit, no OTP needed.
+    setIdentityName(name);
+    setIdentityPhone(phone);
+    setIdentityPhotoUri(photoUri);
+    setIdentityError("");
+    setShowIdentityModal(true);
+  };
+
+  const closeIdentityEditor = () => {
+    setShowIdentityModal(false);
+    setIdentityError("");
+  };
+
+  const saveIdentityEditor = () => {
+    const trimmedName = identityName.trim();
+    const cleanPhone = identityPhone.replace(/\D/g, "").slice(-10);
+
+    if (!trimmedName) {
+      setIdentityError("Name is required");
+      return;
+    }
+    if (cleanPhone.length !== 10) {
+      setIdentityError("Phone number must be 10 digits");
+      return;
+    }
+
+    setName(trimmedName);
+    setPhone(cleanPhone);
+    setPhotoUri(identityPhotoUri);
+    setShowIdentityModal(false);
+    setIdentityError("");
+  };
+
+  const openIdentityPhotoPicker = () => {
+    setIsBillPhotoMode(false);
+    setShowPhotoOptions(true);
+  };
 
   const showPhotoSelectionOptions = (forBill: boolean = false) => {
     setIsBillPhotoMode(forBill);
@@ -1048,6 +1120,7 @@ export default function EditMemberScreen() {
 
   const handleAdjustConfirm = (uri: string) => {
     setPhotoUri(uri);
+    setIdentityPhotoUri(uri);
     setShowAdjustModal(false);
     setRawImage(null);
   };
@@ -1137,8 +1210,15 @@ export default function EditMemberScreen() {
       return;
     }
 
-    setPhone(value);
-    if (!name.trim() && contact.name) setName(contact.name);
+    if (showIdentityModal) {
+      setIdentityPhone(value);
+      if (!identityName.trim() && contact.name) {
+        setIdentityName(contact.name);
+      }
+    } else {
+      setPhone(value);
+      if (!name.trim() && contact.name) setName(contact.name);
+    }
 
     setFieldErrors((cur) => ({ ...cur, phone: "" }));
     setError("");
@@ -1151,90 +1231,24 @@ export default function EditMemberScreen() {
     setShowContactPicker(false);
   };
 
-  const openVisibilityModal = async () => {
-    if (!isSelf || !memberId) return;
-
-    setShowVisibility(true);
-    setVisibilityLoading(true);
-    setVisibilityError("");
-    setVisibilityRows([]);
-
-    try {
-      const rows = await fetchPhoneVisibility(memberId);
-      setVisibilityRows(rows);
-    } catch (e: any) {
-      console.error("fetchPhoneVisibility failed:", e);
-      setVisibilityError(
-        e?.message || "Failed to load phone visibility settings.",
-      );
-    } finally {
-      setVisibilityLoading(false);
-    }
-  };
-
-  const closeVisibilityModal = () => {
-    setShowVisibility(false);
-    setVisibilityRows([]);
-    setVisibilityError("");
-  };
-
-  const toggleVisibilityRow = (userId: string) => {
-    setVisibilityRows((rows) =>
-      rows.map((r) =>
-        r.user_id === userId && !r.locked ? { ...r, enabled: !r.enabled } : r,
-      ),
-    );
-  };
-
-  const selectAllVisibility = () => {
-    setVisibilityRows((rows) =>
-      rows.map((r) => (r.locked ? r : { ...r, enabled: true })),
-    );
-  };
-
-  const clearAllVisibility = () => {
-    setVisibilityRows((rows) =>
-      rows.map((r) => (r.locked ? r : { ...r, enabled: false })),
-    );
-  };
-
-  const handleSaveVisibility = async () => {
-    if (!memberId) return;
-
-    setVisibilitySaving(true);
-    setVisibilityError("");
-
-    try {
-      const viewerUserIds = visibilityRows
-        .filter((r) => r.enabled && !r.locked)
-        .map((r) => r.user_id);
-
-      await savePhoneVisibility(memberId, viewerUserIds);
-      closeVisibilityModal();
-    } catch (e: any) {
-      console.error("savePhoneVisibility failed:", e);
-      setVisibilityError(e?.message || "Failed to save. Please try again.");
-    } finally {
-      setVisibilitySaving(false);
-    }
-  };
-
-  const lockedRows = visibilityRows.filter((r) => r.locked);
-  const selectableRows = visibilityRows.filter((r) => !r.locked);
-  const allSelectableOn =
-    selectableRows.length > 0 && selectableRows.every((r) => r.enabled);
-
-  const handleOpenProfile = () => {
-    router.push("/(modals)/edit-profile");
-  };
-
   const handleUpdate = async () => {
     setError("");
 
     const errors: Record<string, string> = {};
 
+    if (!identityLocked && groupType !== "expense") {
+      if (!name.trim()) errors.name = "Name is required";
+      if (!phone.trim()) {
+        errors.phone = "Phone number is required";
+      } else if (phone.replace(/\D/g, "").length !== 10) {
+        errors.phone = "Phone number must be 10 digits";
+      }
+    }
+
     if (groupType === "expense") {
       if (!name.trim()) errors.name = "Name is required";
+    } else if (isCustomRole) {
+      if (!customRole.trim()) errors.role = "Please enter a custom role name";
     } else {
       if (!role) errors.role = "Please select a role";
     }
@@ -1297,8 +1311,23 @@ export default function EditMemberScreen() {
     setLoading(true);
 
     const updateData: any = {
-      role,
+      role: isCustomRole ? customRole.trim() : role,
     };
+
+    if (!identityLocked && groupType !== "expense") {
+      const trimmedName = name.trim();
+      const cleanPhone = phone.replace(/\D/g, "").slice(-10);
+
+      if (trimmedName && trimmedName !== (member?.name ?? "")) {
+        updateData.name = trimmedName;
+      }
+      if (cleanPhone && cleanPhone !== normalizePhone(member?.phone)) {
+        updateData.phone = cleanPhone;
+      }
+      if (photoUri && photoUri !== (member?.photoUri ?? null)) {
+        updateData.photoUri = photoUri;
+      }
+    }
 
     if (groupType === "apartment") {
       if (wing && wing.trim()) updateData.wing = wing.trim();
@@ -1308,20 +1337,10 @@ export default function EditMemberScreen() {
       }
       updateData.parkingAvailable = parkingAvailable;
       updateData.maintenanceAmount = Number(maintenanceAmount);
-
-      // Send the photo so updateMember writes it to users.photo_url.
-      if (photoUri) {
-        updateData.photoUri = photoUri;
-      }
     }
 
     if (groupType === "staff") {
       updateData.monthlySalary = Number(monthlySalary);
-
-      // Same for staff.
-      if (photoUri) {
-        updateData.photoUri = photoUri;
-      }
     }
 
     if (groupType === "expense") {
@@ -1342,7 +1361,16 @@ export default function EditMemberScreen() {
       router.back();
     } catch (e: any) {
       console.error("[edit-member] update failed:", e);
-      setError(e?.message || `Failed to update ${deleteNoun.toLowerCase()}`);
+      setError(
+        e?.message ||
+          `Failed to update ${
+            groupType === "staff"
+              ? "staff"
+              : groupType === "expense"
+                ? "expense"
+                : "member"
+          }`,
+      );
     } finally {
       setLoading(false);
     }
@@ -1362,10 +1390,7 @@ export default function EditMemberScreen() {
       router.back();
     } catch (e: any) {
       console.error("Delete error:", e);
-      setError(
-        e.message ||
-          `Failed to delete ${deleteNoun.toLowerCase()}. Please try again.`,
-      );
+      setError(e.message || `Failed to delete. Please try again.`);
       setLoading(false);
     }
   };
@@ -1378,9 +1403,16 @@ export default function EditMemberScreen() {
           <View style={styles.notFoundIcon}>
             <Ionicons name="person-outline" size={34} color="#2563eb" />
           </View>
-          <Text style={styles.notFoundTitle}>{deleteNoun} not found</Text>
+          <Text style={styles.notFoundTitle}>
+            {groupType === "staff"
+              ? "Staff"
+              : groupType === "expense"
+                ? "Expense"
+                : "Member"}{" "}
+            not found
+          </Text>
           <Text style={styles.notFoundSubtitle}>
-            This {deleteNoun.toLowerCase()} may have already been removed.
+            This record may have already been removed.
           </Text>
           <TouchableOpacity
             style={styles.backButton}
@@ -1412,54 +1444,56 @@ export default function EditMemberScreen() {
         bounces={false}
       >
         {groupType !== "expense" && (
-          <View style={styles.profileCard}>
-            <View style={styles.profileAvatarWrapper}>
+          <TouchableOpacity
+            style={styles.identityCard}
+            onPress={openIdentityEditor}
+            activeOpacity={0.85}
+          >
+            <View style={styles.identityAvatarWrapper}>
               {photoUri ? (
-                <Image source={{ uri: photoUri }} style={styles.profileImage} />
+                <Image
+                  source={{ uri: photoUri }}
+                  style={styles.identityAvatarImage}
+                />
               ) : (
-                <View style={styles.profilePlaceholder}>
+                <View style={styles.identityAvatarPlaceholder}>
                   <Ionicons name="person" size={34} color="#2563eb" />
                 </View>
               )}
+              {!identityLocked && !isSelf ? (
+                <View style={styles.identityAvatarBadge}>
+                  <Ionicons name="camera" size={14} color="#fff" />
+                </View>
+              ) : null}
             </View>
 
-            <View style={styles.profileInfo}>
-              <Text style={styles.profileName} numberOfLines={1}>
-                {name || "Member"}
+            <View style={styles.identityInfo}>
+              <Text style={styles.identityName} numberOfLines={1}>
+                {name || (groupType === "staff" ? "Staff" : "Member")}
               </Text>
-              <Text style={styles.profileRole}>
-                {isCustomRole
-                  ? customRole || "Custom role"
-                  : roleOptions.find((item) => item.role === role)?.label ||
-                    "Member"}
-              </Text>
-              <TouchableOpacity onPress={handleOpenProfile} activeOpacity={0.7}>
-                <Text style={styles.changePhotoText}>
-                  Edit name & photo in your profile
+              <View style={styles.identityPhoneRow}>
+                <Ionicons name="call-outline" size={13} color="#64748B" />
+                <Text style={styles.identityPhone} numberOfLines={1}>
+                  {phone ? `+91 ${phone}` : "—"}
                 </Text>
-              </TouchableOpacity>
+              </View>
+              {identityLocked ? (
+                <View style={styles.lockedRow}>
+                  <Ionicons name="lock-closed" size={12} color="#64748B" />
+                  <Text style={styles.lockedRowText}>
+                    Managed by the {groupType === "staff" ? "staff" : "member"}
+                  </Text>
+                </View>
+              ) : null}
             </View>
-          </View>
-        )}
 
-        {isSelf ? (
-          <TouchableOpacity
-            style={styles.visibilityCard}
-            onPress={openVisibilityModal}
-            activeOpacity={0.85}
-          >
-            <View style={styles.visibilityIcon}>
-              <Ionicons name="eye-outline" size={22} color="#2563eb" />
-            </View>
-            <View style={styles.visibilityTextWrap}>
-              <Text style={styles.visibilityTitle}>Phone Visibility</Text>
-              <Text style={styles.visibilitySubtitle}>
-                Choose who can see your phone number
-              </Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color="#94a3b8" />
+            <Ionicons
+              name={identityLocked ? "lock-closed" : "chevron-forward"}
+              size={identityLocked ? 18 : 20}
+              color={identityLocked ? "#CBD5E1" : "#94A3B8"}
+            />
           </TouchableOpacity>
-        ) : null}
+        )}
 
         {groupType === "apartment" && (
           <View style={styles.card}>
@@ -1614,7 +1648,11 @@ export default function EditMemberScreen() {
                 ]}
                 onPress={() => {
                   setIsCustomRole(true);
-                  setRole((customRole.trim() as MemberRole) || null);
+                  setRole(
+                    customRole.trim()
+                      ? (customRole.trim() as MemberRole)
+                      : null,
+                  );
                 }}
                 activeOpacity={0.75}
               >
@@ -1650,7 +1688,7 @@ export default function EditMemberScreen() {
                     value={customRole}
                     onChangeText={(text) => {
                       setCustomRole(text);
-                      setRole((text.trim() as MemberRole) || null);
+                      setRole(text.trim() ? (text.trim() as MemberRole) : null);
                       if (fieldErrors.role) {
                         setFieldErrors({ ...fieldErrors, role: "" });
                       }
@@ -1748,7 +1786,11 @@ export default function EditMemberScreen() {
                 ]}
                 onPress={() => {
                   setIsCustomRole(true);
-                  setRole((customRole.trim() as MemberRole) || null);
+                  setRole(
+                    customRole.trim()
+                      ? (customRole.trim() as MemberRole)
+                      : null,
+                  );
                 }}
                 activeOpacity={0.75}
               >
@@ -1784,7 +1826,7 @@ export default function EditMemberScreen() {
                     value={customRole}
                     onChangeText={(text) => {
                       setCustomRole(text);
-                      setRole((text.trim() as MemberRole) || null);
+                      setRole(text.trim() ? (text.trim() as MemberRole) : null);
                       if (fieldErrors.role) {
                         setFieldErrors({ ...fieldErrors, role: "" });
                       }
@@ -2225,268 +2267,247 @@ export default function EditMemberScreen() {
           </Text>
         </TouchableOpacity>
 
+        {/* DELETE BUTTON — outlined danger card */}
         <TouchableOpacity
-          style={styles.deleteTextButton}
+          style={[styles.deleteButton, loading && styles.buttonDisabled]}
           onPress={handleDelete}
           disabled={loading}
-          activeOpacity={0.7}
+          activeOpacity={0.85}
         >
-          <Ionicons name="trash-outline" size={18} color="#dc2626" />
-          <Text style={styles.deleteTextButtonText}>Delete {deleteNoun}</Text>
+          <View style={styles.deleteButtonIconWrap}>
+            <Ionicons name="trash-outline" size={18} color={RED} />
+          </View>
+          <View style={styles.deleteButtonTextWrap}>
+            <Text style={styles.deleteButtonLabel}>{deleteButtonLabel}</Text>
+            <Text style={styles.deleteButtonHint} numberOfLines={1}>
+              {groupType === "expense"
+                ? "Permanently remove this transaction"
+                : groupType === "staff"
+                  ? "Remove this staff role from the property"
+                  : "Remove this member from the property"}
+            </Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color={RED} />
         </TouchableOpacity>
 
         <View style={{ height: Math.max(40, insets.bottom + 20) }} />
       </ScrollView>
 
+      {/* ── IDENTITY EDITOR MODAL ─────────────────────────────── */}
       <Modal
-        visible={showVisibility}
-        animationType="slide"
-        transparent={false}
-        onRequestClose={closeVisibilityModal}
+        visible={showIdentityModal}
+        transparent
+        animationType="fade"
+        onRequestClose={closeIdentityEditor}
       >
-        <View style={[styles.visScreen, { paddingTop: insets.top + 8 }]}>
-          <View style={styles.visHeader}>
-            <TouchableOpacity
-              style={styles.visCloseButton}
-              onPress={closeVisibilityModal}
-              activeOpacity={0.7}
-              disabled={visibilitySaving}
+        <TouchableWithoutFeedback onPress={closeIdentityEditor}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback
+              onPress={(event) => event.stopPropagation()}
             >
-              <Ionicons name="close" size={22} color="#374151" />
-            </TouchableOpacity>
-            <View style={styles.visHeaderTextWrap}>
-              <Text style={styles.visTitle}>Phone Visibility</Text>
-              <Text style={styles.visSubtitle}>
-                Who can see your phone number
-              </Text>
-            </View>
-            <View style={{ width: 40 }} />
-          </View>
-
-          <View style={styles.visBulkRow}>
-            <TouchableOpacity
-              style={[
-                styles.visBulkButton,
-                allSelectableOn && styles.visBulkButtonActive,
-              ]}
-              onPress={selectAllVisibility}
-              disabled={visibilityLoading || visibilitySaving}
-              activeOpacity={0.75}
-            >
-              <Ionicons
-                name="checkmark-done"
-                size={16}
-                color={allSelectableOn ? "#fff" : "#2563eb"}
-              />
-              <Text
-                style={[
-                  styles.visBulkText,
-                  allSelectableOn && { color: "#fff" },
-                ]}
+              <KeyboardAvoidingView
+                behavior={Platform.OS === "ios" ? "padding" : "height"}
+                style={styles.keyboardView}
               >
-                Select All
-              </Text>
-            </TouchableOpacity>
+                <View style={styles.editModal}>
+                  <View style={styles.modalTopRow}>
+                    <View style={styles.modalTitleIcon}>
+                      <Ionicons
+                        name="person-outline"
+                        size={20}
+                        color="#2563EB"
+                      />
+                    </View>
+                    <View style={styles.modalTitleContent}>
+                      <Text style={styles.editModalTitle}>
+                        Edit {groupType === "staff" ? "Staff" : "Member"}
+                      </Text>
+                      <Text style={styles.modalSubtitle}>
+                        Update name, photo and phone number
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.modalCloseButton}
+                      onPress={closeIdentityEditor}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="close" size={21} color="#475569" />
+                    </TouchableOpacity>
+                  </View>
 
-            <TouchableOpacity
-              style={styles.visBulkButton}
-              onPress={clearAllVisibility}
-              disabled={visibilityLoading || visibilitySaving}
-              activeOpacity={0.75}
-            >
-              <Ionicons name="close-circle-outline" size={16} color="#dc2626" />
-              <Text style={[styles.visBulkText, { color: "#dc2626" }]}>
-                Clear All
-              </Text>
-            </TouchableOpacity>
-          </View>
-
-          {visibilityLoading ? (
-            <View style={styles.visCentered}>
-              <ActivityIndicator size="small" color="#2563eb" />
-              <Text style={styles.visLoadingText}>Loading people...</Text>
-            </View>
-          ) : visibilityError ? (
-            <View style={styles.visCentered}>
-              <Ionicons name="alert-circle-outline" size={34} color="#dc2626" />
-              <Text style={styles.visErrorText}>{visibilityError}</Text>
-            </View>
-          ) : (
-            <ScrollView
-              style={styles.visScroll}
-              contentContainerStyle={styles.visScrollContent}
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-            >
-              {lockedRows.length > 0 ? (
-                <>
-                  <Text style={styles.visSectionTitle}>Always visible</Text>
-                  <Text style={styles.visSectionSubtitle}>
-                    Admins can always see your phone number.
-                  </Text>
-                  <View style={styles.visGroupCard}>
-                    {lockedRows.map((row, index) => (
-                      <View
-                        key={row.user_id}
-                        style={[
-                          styles.visRow,
-                          index === lockedRows.length - 1 && styles.visRowLast,
-                        ]}
+                  <ScrollView
+                    keyboardShouldPersistTaps="handled"
+                    showsVerticalScrollIndicator={false}
+                  >
+                    <View style={styles.identityModalAvatarRow}>
+                      <TouchableOpacity
+                        style={styles.identityModalAvatar}
+                        onPress={openIdentityPhotoPicker}
+                        activeOpacity={0.85}
                       >
-                        <View
-                          style={[
-                            styles.visAvatar,
-                            { backgroundColor: "#dbeafe" },
-                          ]}
-                        >
-                          <Text
-                            style={[styles.visAvatarText, { color: "#1d4ed8" }]}
-                          >
-                            {(row.name || "?").charAt(0).toUpperCase()}
-                          </Text>
-                        </View>
-                        <View style={styles.visRowInfo}>
-                          <Text style={styles.visRowName} numberOfLines={1}>
-                            {row.name}
-                          </Text>
-                          <Text style={styles.visRowMeta}>
-                            {row.role === "admin" ? "Admin" : row.role}
-                            {row.note ? ` • ${row.note}` : ""}
-                          </Text>
-                        </View>
-                        <View style={styles.visLockedBadge}>
-                          <Ionicons
-                            name="lock-closed"
-                            size={13}
-                            color="#1d4ed8"
+                        {identityPhotoUri ? (
+                          <Image
+                            source={{ uri: identityPhotoUri }}
+                            style={styles.identityModalAvatarImage}
                           />
-                          <Text style={styles.visLockedText}>ON</Text>
+                        ) : (
+                          <View style={styles.identityModalAvatarPlaceholder}>
+                            <Ionicons name="person" size={34} color="#2563eb" />
+                          </View>
+                        )}
+                        <View style={styles.identityModalAvatarBadge}>
+                          <Ionicons name="camera" size={13} color="#fff" />
                         </View>
+                      </TouchableOpacity>
+                      <View style={styles.identityModalAvatarText}>
+                        <Text style={styles.identityModalAvatarTitle}>
+                          {identityPhotoUri ? "Change photo" : "Add photo"}
+                        </Text>
+                        <Text style={styles.identityModalAvatarSubtitle}>
+                          Tap the avatar to pick from camera or gallery
+                        </Text>
                       </View>
-                    ))}
-                  </View>
-                </>
-              ) : null}
+                    </View>
 
-              {selectableRows.length > 0 ? (
-                <>
-                  <Text style={styles.visSectionTitle}>Choose who can see</Text>
-                  <Text style={styles.visSectionSubtitle}>
-                    Tap to toggle. Only selected people will see your number.
-                  </Text>
-                  <View style={styles.visGroupCard}>
-                    {selectableRows.map((row, index) => {
-                      const initial = (row.name || "?").charAt(0).toUpperCase();
-                      return (
-                        <TouchableOpacity
-                          key={row.user_id}
-                          style={[
-                            styles.visRow,
-                            index === selectableRows.length - 1 &&
-                              styles.visRowLast,
-                          ]}
-                          onPress={() => toggleVisibilityRow(row.user_id)}
-                          activeOpacity={0.7}
-                          disabled={visibilitySaving}
-                        >
-                          <View
-                            style={[
-                              styles.visAvatar,
-                              {
-                                backgroundColor: row.enabled
-                                  ? "#dcfce7"
-                                  : "#f1f5f9",
-                              },
-                            ]}
-                          >
-                            <Text
-                              style={[
-                                styles.visAvatarText,
-                                {
-                                  color: row.enabled ? "#16a34a" : "#64748b",
-                                },
-                              ]}
-                            >
-                              {initial}
-                            </Text>
-                          </View>
-                          <View style={styles.visRowInfo}>
-                            <Text style={styles.visRowName} numberOfLines={1}>
-                              {row.name}
-                            </Text>
-                            <Text style={styles.visRowMeta}>
-                              {row.person_type === "staff"
-                                ? "Staff"
-                                : row.person_type === "member"
-                                  ? "Member"
-                                  : row.role}
-                            </Text>
-                          </View>
-                          <View
-                            style={[
-                              styles.visCheckbox,
-                              row.enabled && styles.visCheckboxOn,
-                            ]}
-                          >
-                            {row.enabled ? (
-                              <Ionicons
-                                name="checkmark"
-                                size={15}
-                                color="#fff"
-                              />
-                            ) : null}
-                          </View>
-                        </TouchableOpacity>
-                      );
-                    })}
+                    <Text style={styles.fieldLabel}>Full Name</Text>
+                    <View style={styles.identityFieldRow}>
+                      <Ionicons
+                        name="person-outline"
+                        size={18}
+                        color="#94A3B8"
+                        style={styles.identityFieldIcon}
+                      />
+                      <TextInput
+                        style={styles.identityFieldInput}
+                        value={identityName}
+                        onChangeText={(t) => {
+                          setIdentityName(t);
+                          setIdentityError("");
+                        }}
+                        placeholder="e.g. Ramesh Kumar"
+                        placeholderTextColor="#94A3B8"
+                        autoCapitalize="words"
+                      />
+                    </View>
+
+                    <Text style={styles.fieldLabel}>Phone Number</Text>
+                    <View style={styles.identityFieldRow}>
+                      <View style={styles.identityPhonePrefix}>
+                        <Text style={styles.identityPhonePrefixText}>+91</Text>
+                      </View>
+                      <TextInput
+                        style={styles.identityFieldInput}
+                        value={identityPhone}
+                        onChangeText={(t) => {
+                          setIdentityPhone(
+                            t.replace(/[^0-9]/g, "").slice(0, 10),
+                          );
+                          setIdentityError("");
+                        }}
+                        keyboardType="number-pad"
+                        maxLength={10}
+                        placeholder="9876543210"
+                        placeholderTextColor="#94A3B8"
+                      />
+                      <TouchableOpacity
+                        style={styles.identityContactButton}
+                        onPress={pickContact}
+                        activeOpacity={0.75}
+                      >
+                        {loadingContacts ? (
+                          <ActivityIndicator size="small" color="#2563EB" />
+                        ) : (
+                          <Ionicons
+                            name="people-outline"
+                            size={18}
+                            color="#2563EB"
+                          />
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                    <Text style={styles.identityFreeHint}>
+                      No OTP needed — this person hasn't joined the app yet.
+                    </Text>
+
+                    {identityError ? (
+                      <View style={styles.validationBox}>
+                        <Ionicons
+                          name="alert-circle-outline"
+                          size={17}
+                          color="#DC2626"
+                        />
+                        <Text style={styles.validationText}>
+                          {identityError}
+                        </Text>
+                      </View>
+                    ) : null}
+                  </ScrollView>
+
+                  <View style={styles.modalActions}>
+                    <TouchableOpacity
+                      style={styles.cancelModalButton}
+                      onPress={closeIdentityEditor}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={styles.cancelButtonText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.saveButton}
+                      onPress={saveIdentityEditor}
+                      activeOpacity={0.85}
+                    >
+                      <Ionicons
+                        name="checkmark-circle-outline"
+                        size={18}
+                        color="#FFFFFF"
+                      />
+                      <Text style={styles.saveButtonText}>Apply</Text>
+                    </TouchableOpacity>
                   </View>
-                </>
-              ) : !visibilityLoading && !visibilityError ? (
-                <View style={styles.visCentered}>
-                  <Ionicons name="people-outline" size={34} color="#94a3b8" />
-                  <Text style={styles.visEmptyText}>
-                    No one else is on this account yet.
-                  </Text>
                 </View>
-              ) : null}
-            </ScrollView>
-          )}
-
-          <View
-            style={[
-              styles.visFooter,
-              { paddingBottom: Math.max(insets.bottom, 16) },
-            ]}
-          >
-            <TouchableOpacity
-              style={styles.visCancelButton}
-              onPress={closeVisibilityModal}
-              disabled={visibilitySaving}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.visCancelText}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.visSaveButton,
-                visibilitySaving && styles.visSaveButtonDisabled,
-              ]}
-              onPress={handleSaveVisibility}
-              disabled={visibilityLoading || visibilitySaving}
-              activeOpacity={0.85}
-            >
-              {visibilitySaving ? (
-                <ActivityIndicator size="small" color="#fff" />
-              ) : (
-                <>
-                  <Ionicons name="checkmark" size={18} color="#fff" />
-                  <Text style={styles.visSaveText}>Save</Text>
-                </>
-              )}
-            </TouchableOpacity>
+              </KeyboardAvoidingView>
+            </TouchableWithoutFeedback>
           </View>
-        </View>
+        </TouchableWithoutFeedback>
       </Modal>
+
+      {/* ── LOCKED INFO MODAL ─────────────────────────────────── */}
+      {showLockedInfo && (
+        <Modal
+          transparent
+          animationType="fade"
+          visible={showLockedInfo}
+          onRequestClose={() => setShowLockedInfo(false)}
+        >
+          <TouchableWithoutFeedback onPress={() => setShowLockedInfo(false)}>
+            <View style={styles.modalOverlay}>
+              <TouchableWithoutFeedback
+                onPress={(event) => event.stopPropagation()}
+              >
+                <View style={styles.tooltipCard}>
+                  <View style={styles.tooltipIconCircle}>
+                    <Ionicons name="lock-closed" size={26} color="#2563EB" />
+                  </View>
+                  <Text style={styles.tooltipTitle}>
+                    Managed by the {groupType === "staff" ? "staff" : "member"}
+                  </Text>
+                  <Text style={styles.tooltipSubtitle}>
+                    This person has joined the app. Their name, phone number and
+                    photo can only be changed by them from their own profile.
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.tooltipActionButton}
+                    onPress={() => setShowLockedInfo(false)}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={styles.tooltipActionText}>Got it</Text>
+                  </TouchableOpacity>
+                </View>
+              </TouchableWithoutFeedback>
+            </View>
+          </TouchableWithoutFeedback>
+        </Modal>
+      )}
 
       <DatePickerModal
         visible={showDatePicker}
@@ -2495,6 +2516,7 @@ export default function EditMemberScreen() {
         onSelect={(next: unknown) => setDueDate(toDateInput(next))}
       />
 
+      {/* ── DELETE CONFIRMATION ───────────────────────────────── */}
       <Modal
         transparent
         animationType="fade"
@@ -2506,11 +2528,39 @@ export default function EditMemberScreen() {
             <View style={styles.deleteWarningIcon}>
               <Ionicons name="trash-outline" size={25} color="#dc2626" />
             </View>
-            <Text style={styles.confirmationTitle}>Delete {deleteNoun}?</Text>
+            <Text style={styles.confirmationTitle}>{deleteTitle}</Text>
             <Text style={styles.confirmationMessage}>
-              {groupType === "expense"
-                ? `Are you sure you want to delete ${name}? This action cannot be undone.`
-                : `Are you sure you want to remove this ${deleteNoun.toLowerCase()}? Their profile stays, but this record will be removed from the property.`}
+              {groupType === "expense" ? (
+                <>
+                  This will permanently delete{" "}
+                  <Text style={styles.confirmationName}>
+                    {name || "this expense"}
+                  </Text>
+                  . This action cannot be undone.
+                </>
+              ) : groupType === "staff" ? (
+                <>
+                  This will remove{" "}
+                  <Text style={styles.confirmationName}>
+                    {name || "this staff member"}
+                  </Text>
+                  {phone ? ` (+91 ${phone})` : ""} from the staff list of this
+                  property. Their profile stays, but their staff role (salary,
+                  attendance and payment history) will no longer be part of this
+                  society. This action cannot be undone.
+                </>
+              ) : (
+                <>
+                  This will remove{" "}
+                  <Text style={styles.confirmationName}>
+                    {name || "this member"}
+                  </Text>
+                  {phone ? ` (+91 ${phone})` : ""} from this property. Their
+                  profile stays, but this flat's record (wing, flat number,
+                  maintenance and payment history) will no longer be part of
+                  this society. This action cannot be undone.
+                </>
+              )}
             </Text>
             <View style={styles.confirmationActions}>
               <TouchableOpacity
@@ -2528,10 +2578,16 @@ export default function EditMemberScreen() {
                 onPress={confirmDelete}
                 disabled={loading}
               >
-                <Ionicons name="trash-outline" size={17} color="#fff" />
-                <Text style={styles.confirmDeleteButtonText}>
-                  {loading ? "Deleting..." : "Delete"}
-                </Text>
+                {loading ? (
+                  <ActivityIndicator color="#fff" size="small" />
+                ) : (
+                  <>
+                    <Ionicons name="trash-outline" size={17} color="#fff" />
+                    <Text style={styles.confirmDeleteButtonText}>
+                      {deleteConfirmText}
+                    </Text>
+                  </>
+                )}
               </TouchableOpacity>
             </View>
           </View>
@@ -2608,6 +2664,106 @@ export default function EditMemberScreen() {
             </TouchableOpacity>
           </Pressable>
         </Pressable>
+      </Modal>
+
+      <Modal
+        visible={showContactPicker}
+        transparent
+        animationType="slide"
+        onRequestClose={closeContactPicker}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.contactPickerModal}>
+            <View style={styles.modalHandle} />
+            <View style={styles.modalHeader}>
+              <View>
+                <Text style={styles.modalTitle}>Select Contact</Text>
+                <Text style={styles.modalSubtitle}>
+                  Choose a contact to fill the phone number
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={styles.modalCloseButton}
+                onPress={closeContactPicker}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="close" size={22} color="#111827" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.modalSearchContainer}>
+              <Ionicons name="search-outline" size={20} color="#94a3b8" />
+              <TextInput
+                style={styles.modalSearchInput}
+                placeholder="Search name or phone"
+                placeholderTextColor="#94a3b8"
+                value={contactSearch}
+                onChangeText={setContactSearch}
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="search"
+              />
+              {contactSearch.length > 0 && (
+                <TouchableOpacity
+                  onPress={() => setContactSearch("")}
+                  style={styles.clearSearchButton}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="close-circle" size={19} color="#94a3b8" />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            <ScrollView
+              style={styles.contactList}
+              contentContainerStyle={styles.contactListContent}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+            >
+              {filteredContacts.length > 0 ? (
+                filteredContacts.map((contact) => (
+                  <TouchableOpacity
+                    key={contact.id}
+                    style={styles.contactRow}
+                    onPress={() => selectContact(contact)}
+                    activeOpacity={0.7}
+                  >
+                    <View style={styles.contactAvatar}>
+                      <Text style={styles.contactAvatarText}>
+                        {contact.name
+                          ? contact.name.charAt(0).toUpperCase()
+                          : "?"}
+                      </Text>
+                    </View>
+                    <View style={styles.contactInfo}>
+                      <Text style={styles.contactName} numberOfLines={1}>
+                        {contact.name || "Unknown"}
+                      </Text>
+                      {contact.phoneNumbers.length > 0 && (
+                        <Text style={styles.contactPhone} numberOfLines={1}>
+                          {contact.phoneNumbers[0].number}
+                        </Text>
+                      )}
+                    </View>
+                  </TouchableOpacity>
+                ))
+              ) : (
+                <View style={styles.noContactsContainer}>
+                  <Ionicons name="search-outline" size={34} color="#94a3b8" />
+                  <Text style={styles.noContactsTitle}>No contacts found</Text>
+                </View>
+              )}
+            </ScrollView>
+
+            <TouchableOpacity
+              style={styles.modalCancelButton}
+              onPress={closeContactPicker}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.modalCancelButtonText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </Modal>
 
       <PhotoAdjustModal
@@ -2742,67 +2898,60 @@ const styles = StyleSheet.create({
   },
   backButtonText: { color: "#fff", fontSize: 15, fontWeight: "700" },
 
-  profileCard: {
-    backgroundColor: "#fff",
-    borderRadius: 18,
-    padding: 18,
+  identityCard: {
     flexDirection: "row",
     alignItems: "center",
+    backgroundColor: "#fff",
+    borderRadius: 18,
+    padding: 16,
     borderWidth: 1,
     borderColor: "#e8edf5",
     marginBottom: 14,
   },
-  profileAvatarWrapper: { width: 78, height: 78, position: "relative" },
-  profileImage: { width: 78, height: 78, borderRadius: 39 },
-  profilePlaceholder: {
-    width: 78,
-    height: 78,
-    borderRadius: 39,
+  identityAvatarWrapper: { width: 68, height: 68, position: "relative" },
+  identityAvatarImage: { width: 68, height: 68, borderRadius: 34 },
+  identityAvatarPlaceholder: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
     backgroundColor: "#eaf2ff",
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
     borderColor: "#d7e6ff",
   },
-  profileInfo: { flex: 1, marginLeft: 16 },
-  profileName: { fontSize: 18, fontWeight: "800", color: "#111827" },
-  profileRole: { fontSize: 13, color: "#6b7280", marginTop: 4 },
-  changePhotoText: {
-    fontSize: 12,
-    color: "#2563eb",
-    fontWeight: "700",
-    marginTop: 8,
+  identityAvatarBadge: {
+    position: "absolute",
+    right: -2,
+    bottom: -2,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: "#2563EB",
+    borderWidth: 2,
+    borderColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center",
   },
-
-  visibilityCard: {
-    backgroundColor: "#fff",
-    borderRadius: 16,
-    padding: 14,
+  identityInfo: { flex: 1, marginLeft: 14, minWidth: 0 },
+  identityName: { fontSize: 17, fontWeight: "800", color: "#111827" },
+  identityPhoneRow: {
     flexDirection: "row",
     alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#e8edf5",
-    marginBottom: 14,
+    gap: 5,
+    marginTop: 4,
   },
-  visibilityIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: 13,
-    backgroundColor: "#eaf2ff",
-    justifyContent: "center",
+  identityPhone: { fontSize: 12.5, color: "#6b7280", fontWeight: "600" },
+  lockedRow: {
+    flexDirection: "row",
     alignItems: "center",
-    marginRight: 12,
+    gap: 5,
+    marginTop: 7,
   },
-  visibilityTextWrap: { flex: 1 },
-  visibilityTitle: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#111827",
-  },
-  visibilitySubtitle: {
+  lockedRowText: {
+    color: "#64748B",
     fontSize: 11,
-    color: "#6b7280",
-    marginTop: 3,
+    fontWeight: "600",
   },
 
   card: {
@@ -3230,200 +3379,42 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     marginLeft: 8,
   },
-  deleteTextButton: {
-    height: 48,
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-    marginTop: 7,
-  },
-  deleteTextButtonText: {
-    color: "#dc2626",
-    fontSize: 13,
-    fontWeight: "700",
-    marginLeft: 6,
-  },
-  buttonDisabled: { opacity: 0.6 },
 
-  visScreen: { flex: 1, backgroundColor: "#f6f8fc" },
-  visHeader: {
+  /* ── Delete button — properly designed danger card ────── */
+  deleteButton: {
+    marginTop: 18,
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
-    paddingBottom: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#e8edf5",
-    backgroundColor: "#fff",
-  },
-  visCloseButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    backgroundColor: "#f1f5f9",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  visHeaderTextWrap: { flex: 1, marginHorizontal: 12 },
-  visTitle: { fontSize: 18, fontWeight: "800", color: "#111827" },
-  visSubtitle: { fontSize: 11, color: "#6b7280", marginTop: 2 },
-
-  visBulkRow: {
-    flexDirection: "row",
-    gap: 10,
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 6,
-    backgroundColor: "#f6f8fc",
-  },
-  visBulkButton: {
-    flex: 1,
-    height: 42,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#cbd5e1",
-    backgroundColor: "#fff",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-  },
-  visBulkButtonActive: {
-    backgroundColor: "#2563eb",
-    borderColor: "#2563eb",
-  },
-  visBulkText: { fontSize: 13, fontWeight: "700", color: "#2563eb" },
-
-  visScroll: { flex: 1 },
-  visScrollContent: { padding: 16, paddingBottom: 24 },
-  visSectionTitle: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#0f172a",
-    marginTop: 4,
-    marginBottom: 2,
-    textTransform: "uppercase",
-    letterSpacing: 0.4,
-  },
-  visSectionSubtitle: {
-    fontSize: 11.5,
-    color: "#6b7280",
-    marginBottom: 10,
-    lineHeight: 16,
-  },
-
-  visGroupCard: {
-    backgroundColor: "#fff",
+    backgroundColor: "#FEF2F2",
     borderRadius: 14,
     borderWidth: 1,
-    borderColor: "#e8edf5",
-    overflow: "hidden",
-    marginBottom: 18,
-  },
-
-  visRow: {
-    minHeight: 62,
-    flexDirection: "row",
-    alignItems: "center",
+    borderColor: "#FECACA",
+    paddingVertical: 12,
     paddingHorizontal: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: "#f1f5f9",
   },
-  visRowLast: { borderBottomWidth: 0 },
-  visAvatar: {
+  deleteButtonIconWrap: {
     width: 40,
     height: 40,
     borderRadius: 12,
-    justifyContent: "center",
+    backgroundColor: "#FEE2E2",
     alignItems: "center",
+    justifyContent: "center",
     marginRight: 11,
   },
-  visAvatarText: { fontSize: 15, fontWeight: "800" },
-  visRowInfo: { flex: 1, minWidth: 0 },
-  visRowName: { fontSize: 14, fontWeight: "700", color: "#111827" },
-  visRowMeta: { fontSize: 11, color: "#6b7280", marginTop: 3 },
-
-  visLockedBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-    backgroundColor: "#dbeafe",
-    paddingHorizontal: 9,
-    paddingVertical: 5,
-    borderRadius: 8,
-  },
-  visLockedText: {
-    fontSize: 11,
+  deleteButtonTextWrap: { flex: 1, minWidth: 0 },
+  deleteButtonLabel: {
+    color: "#B91C1C",
+    fontSize: 14,
     fontWeight: "800",
-    color: "#1d4ed8",
+  },
+  deleteButtonHint: {
+    color: "#B91C1C",
+    opacity: 0.75,
+    fontSize: 11,
+    marginTop: 3,
   },
 
-  visCheckbox: {
-    width: 26,
-    height: 26,
-    borderRadius: 9,
-    borderWidth: 1.5,
-    borderColor: "#cbd5e1",
-    backgroundColor: "#fff",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  visCheckboxOn: {
-    backgroundColor: "#2563eb",
-    borderColor: "#2563eb",
-  },
-
-  visCentered: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    padding: 30,
-    gap: 10,
-  },
-  visLoadingText: { fontSize: 13, color: "#6b7280", fontWeight: "600" },
-  visErrorText: {
-    fontSize: 13,
-    color: "#b91c1c",
-    fontWeight: "600",
-    textAlign: "center",
-    marginTop: 4,
-  },
-  visEmptyText: {
-    fontSize: 13,
-    color: "#6b7280",
-    textAlign: "center",
-    marginTop: 4,
-  },
-
-  visFooter: {
-    flexDirection: "row",
-    gap: 10,
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: "#e8edf5",
-    backgroundColor: "#fff",
-  },
-  visCancelButton: {
-    flex: 1,
-    height: 50,
-    borderRadius: 13,
-    backgroundColor: "#f1f5f9",
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  visCancelText: { fontSize: 14, fontWeight: "700", color: "#475569" },
-  visSaveButton: {
-    flex: 1.4,
-    height: 50,
-    borderRadius: 13,
-    backgroundColor: "#2563eb",
-    flexDirection: "row",
-    justifyContent: "center",
-    alignItems: "center",
-    gap: 6,
-  },
-  visSaveButtonDisabled: { opacity: 0.7 },
-  visSaveText: { fontSize: 14, fontWeight: "800", color: "#fff" },
+  buttonDisabled: { opacity: 0.6 },
 
   modalOverlay: {
     flex: 1,
@@ -3434,10 +3425,11 @@ const styles = StyleSheet.create({
   },
   confirmationModal: {
     width: "100%",
-    maxWidth: 380,
+    maxWidth: 400,
     backgroundColor: "#fff",
     borderRadius: 20,
     padding: 22,
+    alignItems: "center",
   },
   deleteWarningIcon: {
     width: 52,
@@ -3448,23 +3440,34 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 15,
   },
-  confirmationTitle: { fontSize: 19, fontWeight: "800", color: "#111827" },
+  confirmationTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#111827",
+    textAlign: "center",
+  },
   confirmationMessage: {
     fontSize: 13,
-    color: "#6b7280",
-    lineHeight: 20,
+    color: "#4b5563",
+    lineHeight: 19,
     marginTop: 9,
+    textAlign: "center",
+  },
+  confirmationName: {
+    color: "#111827",
+    fontWeight: "800",
   },
   confirmationActions: {
     flexDirection: "row",
-    justifyContent: "flex-end",
+    justifyContent: "center",
     alignItems: "center",
     gap: 10,
     marginTop: 23,
+    width: "100%",
   },
   cancelButton: {
-    minWidth: 90,
-    height: 44,
+    flex: 1,
+    height: 46,
     justifyContent: "center",
     alignItems: "center",
     borderRadius: 11,
@@ -3472,19 +3475,20 @@ const styles = StyleSheet.create({
   },
   cancelButtonText: { color: "#374151", fontSize: 13, fontWeight: "700" },
   confirmDeleteButton: {
-    minWidth: 105,
-    height: 44,
+    flex: 1.4,
+    height: 46,
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: "#dc2626",
     borderRadius: 11,
+    gap: 6,
+    paddingHorizontal: 8,
   },
   confirmDeleteButtonText: {
     color: "#fff",
     fontSize: 13,
     fontWeight: "800",
-    marginLeft: 6,
   },
 
   modalBackdrop: {
@@ -3559,43 +3563,307 @@ const styles = StyleSheet.create({
     color: "#dc2626",
   },
 
-  kindRadioRow: {
-    flexDirection: "row",
-    gap: 10,
-    marginTop: 8,
-    marginBottom: 14,
+  contactPickerModal: {
+    width: "100%",
+    maxWidth: 480,
+    maxHeight: "85%",
+    backgroundColor: "#fff",
+    borderRadius: 22,
+    padding: 18,
   },
-  kindRadioOption: {
-    flex: 1,
-    minHeight: 50,
-    borderRadius: 13,
+  modalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  modalTitle: { fontSize: 18, fontWeight: "800", color: "#111827" },
+  modalSubtitle: { fontSize: 11.5, color: "#6b7280", marginTop: 2 },
+  modalCloseButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 12,
+    backgroundColor: "#f1f5f9",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  modalSearchContainer: {
+    minHeight: 46,
+    borderRadius: 12,
+    backgroundColor: "#f8fafc",
     borderWidth: 1,
-    borderColor: BORDER,
+    borderColor: "#e2e8f0",
     flexDirection: "row",
     alignItems: "center",
     paddingHorizontal: 12,
-    gap: 8,
-    backgroundColor: "#fff",
+    marginBottom: 10,
   },
-  kindRadioOptionExpense: {
-    borderColor: "#FCA5A5",
-    backgroundColor: "#FEF2F2",
+  modalSearchInput: {
+    flex: 1,
+    minHeight: 44,
+    paddingHorizontal: 9,
+    fontSize: 14,
+    color: "#111827",
   },
-  kindRadioOptionIncome: {
-    borderColor: "#86EFAC",
-    backgroundColor: "#F0FDF4",
+  clearSearchButton: {
+    width: 28,
+    height: 28,
+    justifyContent: "center",
+    alignItems: "center",
   },
-  radioOuter: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    borderWidth: 1.5,
-    borderColor: "#CBD5E1",
+  contactList: { maxHeight: 380 },
+  contactListContent: { paddingBottom: 8 },
+  contactRow: {
+    minHeight: 62,
+    flexDirection: "row",
+    alignItems: "center",
+    borderBottomWidth: 1,
+    borderBottomColor: "#f1f5f9",
+  },
+  contactAvatar: {
+    width: 42,
+    height: 42,
+    borderRadius: 13,
+    backgroundColor: "#eaf2ff",
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 11,
+  },
+  contactAvatarText: { fontSize: 16, fontWeight: "700", color: "#2563eb" },
+  contactInfo: { flex: 1, marginRight: 8 },
+  contactName: { fontSize: 14, fontWeight: "600", color: "#111827" },
+  contactPhone: { fontSize: 12, color: "#6b7280", marginTop: 3 },
+  noContactsContainer: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 40,
+  },
+  noContactsTitle: {
+    fontSize: 14,
+    color: "#6b7280",
+    marginTop: 10,
+    fontWeight: "600",
+  },
+  modalCancelButton: {
+    height: 48,
+    borderRadius: 13,
+    backgroundColor: "#f1f5f9",
+    justifyContent: "center",
+    alignItems: "center",
+    marginTop: 10,
+  },
+  modalCancelButtonText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#475569",
+  },
+
+  keyboardView: { width: "100%", alignItems: "center" },
+  editModal: {
+    width: "100%",
+    maxWidth: 420,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    padding: 20,
+  },
+  modalTopRow: { flexDirection: "row", alignItems: "center", marginBottom: 20 },
+  modalTitleIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 13,
+    backgroundColor: "#EFF6FF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 11,
+  },
+  modalTitleContent: { flex: 1 },
+  editModalTitle: { color: "#0F172A", fontSize: 17, fontWeight: "700" },
+  identityModalAvatarRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 18,
+    gap: 12,
+  },
+  identityModalAvatar: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    position: "relative",
+  },
+  identityModalAvatarImage: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+  },
+  identityModalAvatarPlaceholder: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "#eaf2ff",
+    justifyContent: "center",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#d7e6ff",
+  },
+  identityModalAvatarBadge: {
+    position: "absolute",
+    right: -2,
+    bottom: -2,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: "#2563EB",
+    borderWidth: 2,
+    borderColor: "#fff",
     alignItems: "center",
     justifyContent: "center",
   },
-  radioOuterExpense: { borderColor: RED },
-  radioOuterIncome: { borderColor: GREEN },
-  radioInner: { width: 9, height: 9, borderRadius: 4.5 },
-  kindRadioText: { fontSize: 13, fontWeight: "700", color: "#64748B" },
+  identityModalAvatarText: { flex: 1, minWidth: 0 },
+  identityModalAvatarTitle: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#111827",
+  },
+  identityModalAvatarSubtitle: {
+    fontSize: 11.5,
+    color: "#6b7280",
+    marginTop: 3,
+    lineHeight: 16,
+  },
+
+  identityFieldRow: {
+    minHeight: 52,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    borderRadius: 12,
+    backgroundColor: "#fbfcfe",
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 12,
+    marginBottom: 4,
+  },
+  identityFieldIcon: { marginRight: 10 },
+  identityFieldInput: {
+    flex: 1,
+    height: 50,
+    fontSize: 15,
+    color: "#111827",
+    paddingVertical: 0,
+  },
+  identityPhonePrefix: {
+    paddingRight: 10,
+    marginRight: 6,
+    borderRightWidth: 1,
+    borderRightColor: "#e2e8f0",
+    height: 40,
+    justifyContent: "center",
+  },
+  identityPhonePrefixText: {
+    fontSize: 14,
+    color: "#374151",
+    fontWeight: "700",
+  },
+  identityContactButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: "#eff6ff",
+    justifyContent: "center",
+    alignItems: "center",
+    marginLeft: 6,
+  },
+  identityFreeHint: {
+    fontSize: 11,
+    color: "#2563EB",
+    fontWeight: "600",
+    marginTop: 8,
+    marginBottom: 6,
+  },
+
+  validationBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1,
+    borderColor: "#FECACA",
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginTop: 10,
+    gap: 7,
+  },
+  validationText: { flex: 1, color: "#B91C1C", fontSize: 11, lineHeight: 16 },
+  modalActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    alignItems: "center",
+    marginTop: 20,
+    gap: 8,
+  },
+  cancelModalButton: {
+    minHeight: 45,
+    paddingHorizontal: 17,
+    borderRadius: 12,
+    backgroundColor: "#F1F5F9",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  saveButton: {
+    minHeight: 45,
+    paddingHorizontal: 17,
+    borderRadius: 12,
+    backgroundColor: "#2563EB",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+  },
+  saveButtonText: { color: "#FFFFFF", fontSize: 13, fontWeight: "700" },
+
+  tooltipCard: {
+    width: "100%",
+    maxWidth: 400,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    padding: 22,
+    alignItems: "center",
+  },
+  tooltipIconCircle: {
+    width: 58,
+    height: 58,
+    borderRadius: 29,
+    backgroundColor: "#EFF6FF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+  tooltipTitle: {
+    color: "#0F172A",
+    fontSize: 17,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  tooltipSubtitle: {
+    color: "#64748B",
+    fontSize: 12.5,
+    lineHeight: 18,
+    textAlign: "center",
+    marginTop: 6,
+    maxWidth: 320,
+  },
+  tooltipActionButton: {
+    marginTop: 18,
+    width: "100%",
+    minHeight: 47,
+    borderRadius: 12,
+    backgroundColor: "#2563EB",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  tooltipActionText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
 });
