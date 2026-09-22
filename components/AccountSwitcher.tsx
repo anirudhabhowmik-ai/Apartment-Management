@@ -22,6 +22,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAccounts } from "../hooks/useAccounts";
 import { useAccountStore } from "../store/accountStore";
 import { Account } from "../types";
@@ -540,6 +541,7 @@ export function AccountSwitcherTrigger() {
 
 export function AccountSwitcherHost() {
   const router = useRouter();
+  const insets = useSafeAreaInsets();
 
   // NOTE: `refresh` is intentionally NOT destructured here. We do not
   // want to refresh the account list when the sheet opens, because
@@ -749,7 +751,17 @@ export function AccountSwitcherHost() {
         <View style={styles.modalContainer} pointerEvents="box-none">
           <Pressable style={styles.overlay} onPress={closeSwitcher} />
 
-          <Pressable style={styles.sheet} onPress={() => {}}>
+          <Pressable
+            style={[
+              styles.sheet,
+              // Pad the bottom of the sheet by the device's safe-area inset
+              // (home indicator on iOS / gesture bar on Android) so the
+              // "Join With New Property" button never ends up hidden
+              // underneath it.
+              { paddingBottom: 20 + insets.bottom },
+            ]}
+            onPress={() => {}}
+          >
             <View style={styles.handle} />
 
             <View style={styles.sheetHeader}>
@@ -1017,7 +1029,13 @@ export function AccountSwitcherHost() {
             setEditingPhotoAccountId(null);
           }}
         >
-          <Pressable style={styles.photoOptionsModal} onPress={() => {}}>
+          <Pressable
+            style={[
+              styles.photoOptionsModal,
+              { paddingBottom: 32 + insets.bottom },
+            ]}
+            onPress={() => {}}
+          >
             <View style={styles.modalHandle} />
             <Text style={styles.photoOptionsTitle}>Upload Photo</Text>
             <Text style={styles.photoOptionsSubtitle}>
@@ -1147,7 +1165,8 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 26,
     paddingHorizontal: 20,
     paddingTop: 10,
-    paddingBottom: 20,
+    // paddingBottom is set inline so we can add the device's safe-area
+    // bottom inset on top of the base 20px spacing (see render below).
     maxHeight: "78%",
   },
   handle: {
@@ -1409,7 +1428,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: 24,
-    paddingBottom: 32,
+    // paddingBottom is set inline (32 + insets.bottom), see render below.
     width: "100%",
     maxWidth: 480,
   },
