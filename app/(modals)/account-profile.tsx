@@ -100,17 +100,42 @@ interface RevokePreview {
   } | null;
 }
 
-// A person grouped across all their accepted invitations on this account.
 interface AccessPerson {
-  key: string; // dedupe key (user id or phone)
+  key: string;
   userId: string | null;
   phone: string;
   name: string;
   photoUrl: string | null;
-  roles: InvitationRole[]; // every accepted role this person has
-  primaryInvitation: ApiInvitation; // used for revoke/dismiss actions
-  invitations: ApiInvitation[]; // all accepted invitations for this person
+  roles: InvitationRole[];
+  primaryInvitation: ApiInvitation;
+  invitations: ApiInvitation[];
 }
+
+interface PendingGroup {
+  key: string;
+  phone: string;
+  name: string;
+  photoUrl: string | null;
+  roles: InvitationRole[];
+  invitations: ApiInvitation[];
+}
+
+// ============================================================================
+// HELPERS
+// ============================================================================
+
+const normalizePhone = (raw?: string | null): string => {
+  if (!raw) return "";
+  const digits = String(raw).replace(/\D/g, "");
+  return digits.length > 10 ? digits.slice(-10) : digits;
+};
+
+const roleLabelShort = (role: InvitationRole): string => {
+  if (role === "admin") return "Admin";
+  if (role === "member_visibility") return "Member";
+  if (role === "staff_visibility") return "Staff";
+  return "Ownership";
+};
 
 // ============================================================================
 // PHOTO ADJUST MODAL
@@ -831,11 +856,7 @@ function RevokeAccessModal({
     { key: "admin", label: "Admin", count: acceptedAdmins.length },
     { key: "member", label: "Member", count: acceptedMembers.length },
     { key: "staff", label: "Staff", count: acceptedStaff.length },
-    {
-      key: "ownership",
-      label: "Ownership",
-      count: acceptedOwnership.length,
-    },
+    { key: "ownership", label: "Ownership", count: acceptedOwnership.length },
   ];
 
   return (
@@ -1230,6 +1251,228 @@ function RevokeAccessModal({
 }
 
 // ============================================================================
+// DELETE PENDING MODAL — choose which roles to delete for a pending group
+// ============================================================================
+
+interface DeletePendingModalProps {
+  group: PendingGroup | null;
+  submitting: boolean;
+  onCancel: () => void;
+  onConfirm: (ids: string[]) => void;
+}
+
+function DeletePendingModal({
+  group,
+  submitting,
+  onCancel,
+  onConfirm,
+}: DeletePendingModalProps) {
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (group) {
+      // Default: all roles of the group are selected (delete everything).
+      setSelectedIds(new Set(group.invitations.map((i) => i.id)));
+    }
+  }, [group]);
+
+  if (!group) return null;
+
+  const multiRole = group.roles.length > 1;
+
+  const toggle = (id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const nothingSelected = selectedIds.size === 0;
+  const allSelected = selectedIds.size === group.invitations.length;
+
+  return (
+    <Modal
+      transparent
+      animationType="fade"
+      visible={Boolean(group)}
+      onRequestClose={onCancel}
+    >
+      <TouchableWithoutFeedback onPress={onCancel}>
+        <View style={styles.modalOverlay}>
+          <TouchableWithoutFeedback
+            onPress={(event) => event.stopPropagation()}
+          >
+            <View style={styles.deleteModal}>
+              <View style={styles.deleteIcon}>
+                <Ionicons name="trash-outline" size={25} color="#DC2626" />
+              </View>
+              <Text style={styles.deleteModalTitle}>
+                {multiRole ? "Delete which invitations?" : "Delete Invitation?"}
+              </Text>
+              <Text style={styles.deleteModalDescription}>
+                {multiRole
+                  ? `Choose the roles to remove for ${group.name || "this person"}. Unchecked roles stay pending.`
+                  : "This person will no longer be able to accept this invitation."}
+              </Text>
+
+              {multiRole ? (
+                <View style={{ width: "100%", marginTop: 8 }}>
+                  {group.invitations.map((inv) => {
+                    const checked = selectedIds.has(inv.id);
+                    const badge =
+                      inv.role === "member_visibility"
+                        ? {
+                            bg: "#DCFCE7",
+                            text: "#16A34A",
+                            label: "Member",
+                            icon: "person",
+                          }
+                        : inv.role === "staff_visibility"
+                          ? {
+                              bg: "#E0F2FE",
+                              text: "#0284C7",
+                              label: "Staff",
+                              icon: "briefcase",
+                            }
+                          : inv.role === "admin"
+                            ? {
+                                bg: "#EDE9FE",
+                                text: "#7C3AED",
+                                label: "Admin",
+                                icon: "shield-checkmark",
+                              }
+                            : {
+                                bg: "#FEF3C7",
+                                text: "#B45309",
+                                label: "Ownership",
+                                icon: "swap-horizontal",
+                              };
+
+                    return (
+                      <TouchableOpacity
+                        key={inv.id}
+                        style={styles.revokeToggleRow}
+                        onPress={() => toggle(inv.id)}
+                        activeOpacity={0.8}
+                        disabled={submitting}
+                      >
+                        <View
+                          style={[
+                            styles.revokeToggleIconWrap,
+                            { backgroundColor: badge.bg },
+                          ]}
+                        >
+                          <Ionicons
+                            name={badge.icon as any}
+                            size={18}
+                            color={badge.text}
+                          />
+                        </View>
+                        <View style={styles.revokeToggleContent}>
+                          <Text style={styles.revokeToggleTitle}>
+                            {badge.label} invitation
+                          </Text>
+                          <Text
+                            style={styles.revokeToggleSubtitle}
+                            numberOfLines={1}
+                          >
+                            +91{inv.invited_phone}
+                          </Text>
+                        </View>
+                        <View
+                          style={[
+                            styles.revokeCheckbox,
+                            checked && styles.revokeCheckboxChecked,
+                          ]}
+                        >
+                          {checked ? (
+                            <Ionicons
+                              name="checkmark"
+                              size={16}
+                              color="#FFFFFF"
+                            />
+                          ) : null}
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+
+                  <TouchableOpacity
+                    style={{
+                      alignSelf: "center",
+                      marginTop: 8,
+                      paddingVertical: 6,
+                      paddingHorizontal: 10,
+                    }}
+                    onPress={() => {
+                      if (allSelected) setSelectedIds(new Set());
+                      else
+                        setSelectedIds(
+                          new Set(group.invitations.map((i) => i.id)),
+                        );
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text
+                      style={{
+                        color: "#2563EB",
+                        fontSize: 12,
+                        fontWeight: "700",
+                      }}
+                    >
+                      {allSelected ? "Clear all" : "Select all"}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+
+              <View style={styles.deleteModalActions}>
+                <TouchableOpacity
+                  style={styles.cancelModalButton}
+                  onPress={onCancel}
+                  activeOpacity={0.8}
+                  disabled={submitting}
+                >
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.deleteConfirmButton,
+                    nothingSelected && { opacity: 0.55 },
+                  ]}
+                  onPress={() => onConfirm(Array.from(selectedIds))}
+                  activeOpacity={0.8}
+                  disabled={submitting || nothingSelected}
+                >
+                  {submitting ? (
+                    <ActivityIndicator color="#FFFFFF" size="small" />
+                  ) : (
+                    <>
+                      <Ionicons
+                        name="trash-outline"
+                        size={17}
+                        color="#FFFFFF"
+                      />
+                      <Text style={styles.deleteConfirmText}>
+                        {multiRole && !allSelected
+                          ? `Delete ${selectedIds.size}`
+                          : "Delete"}
+                      </Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </TouchableWithoutFeedback>
+        </View>
+      </TouchableWithoutFeedback>
+    </Modal>
+  );
+}
+
+// ============================================================================
 // SCREEN
 // ============================================================================
 
@@ -1253,10 +1496,16 @@ export default function AccountProfileScreen() {
   const [invitations, setInvitations] = useState<ApiInvitation[]>([]);
   const [invitationsLoading, setInvitationsLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Legacy delete-target (single id) — kept for rejected invitations.
   const [invitationToDelete, setInvitationToDelete] = useState<string | null>(
     null,
   );
   const [deletingInvitation, setDeletingInvitation] = useState(false);
+
+  // New grouped pending delete target.
+  const [pendingGroupToDelete, setPendingGroupToDelete] =
+    useState<PendingGroup | null>(null);
 
   const [resendingInvitationId, setResendingInvitationId] = useState<
     string | null
@@ -1281,14 +1530,51 @@ export default function AccountProfileScreen() {
     [invitations],
   );
 
-  // ── Helper: dedupe key per person ──
+  // ── Pending groups (member + staff on same person → one group) ──
+  const pendingGroups = useMemo<PendingGroup[]>(() => {
+    const byKey = new Map<string, PendingGroup>();
+
+    for (const inv of pendingInvitations) {
+      const ten = normalizePhone(inv.invited_phone);
+      const key = `${inv.account_id}:${ten}`;
+      const existing = byKey.get(key);
+
+      if (existing) {
+        if (!existing.roles.includes(inv.role)) existing.roles.push(inv.role);
+        existing.invitations.push(inv);
+        continue;
+      }
+
+      byKey.set(key, {
+        key,
+        phone: ten,
+        name: inv.invitee_user_name ?? inv.invited_name ?? "Invitee",
+        photoUrl:
+          inv.invitee_user_photo_url ?? inv.accepted_user_photo_url ?? null,
+        roles: [inv.role],
+        invitations: [inv],
+      });
+    }
+
+    return Array.from(byKey.values());
+  }, [pendingInvitations]);
+
+  const pendingOwnershipGroups = useMemo(
+    () => pendingGroups.filter((g) => g.roles.includes("ownership_transfer")),
+    [pendingGroups],
+  );
+  const pendingNonOwnershipGroups = useMemo(
+    () => pendingGroups.filter((g) => !g.roles.includes("ownership_transfer")),
+    [pendingGroups],
+  );
+
+  // ── Helper: dedupe key per accepted person ──
   const personKey = useCallback((inv: ApiInvitation): string => {
     if (inv.accepted_by) return `u:${inv.accepted_by}`;
     const ten = String(inv.invited_phone ?? "").replace(/\D/g, "");
     return `p:${ten.slice(-10)}`;
   }, []);
 
-  // ── Group accepted invitations by person ──
   const acceptedPeople = useMemo<AccessPerson[]>(() => {
     const byKey = new Map<string, AccessPerson>();
 
@@ -1325,7 +1611,6 @@ export default function AccountProfileScreen() {
     return Array.from(byKey.values());
   }, [acceptedInvitations, personKey]);
 
-  // ── Effective role for each person (priority: ownership > admin > member/staff) ──
   const effectiveRoleOf = useCallback(
     (person: AccessPerson): InvitationRole => {
       if (person.roles.includes("ownership_transfer"))
@@ -1340,7 +1625,6 @@ export default function AccountProfileScreen() {
 
   const isOwner = selectedAccount?.ownerId === user?.id;
 
-  // ── Split into display buckets (excluding the owner) ──
   const acceptedOwnership = useMemo(
     () =>
       acceptedPeople
@@ -1357,8 +1641,6 @@ export default function AccountProfileScreen() {
     [acceptedPeople, selectedAccount?.ownerId, effectiveRoleOf],
   );
 
-  // Members section: people whose primary role is member AND who do NOT
-  // have an admin/ownership role (which would have promoted them up).
   const acceptedMembers = useMemo(
     () =>
       acceptedPeople
@@ -1375,9 +1657,6 @@ export default function AccountProfileScreen() {
     [acceptedPeople, selectedAccount?.ownerId, effectiveRoleOf],
   );
 
-  // ── Flattened invitations for the Revoke modal ──
-  // Uses ALL accepted invitations (per-role) so the modal can revoke
-  // each role individually.
   const acceptedInvitationsForRevoke = useMemo(() => {
     return acceptedPeople
       .filter((p) => p.userId !== selectedAccount?.ownerId)
@@ -1408,19 +1687,9 @@ export default function AccountProfileScreen() {
     [acceptedInvitationsForRevoke],
   );
 
-  const pendingOwnership = useMemo(
-    () => pendingInvitations.filter((i) => i.role === "ownership_transfer"),
-    [pendingInvitations],
-  );
-
-  const pendingNonOwnership = useMemo(
-    () => pendingInvitations.filter((i) => i.role !== "ownership_transfer"),
-    [pendingInvitations],
-  );
-
   const totalPeopleWithAccess =
     acceptedPeople.length +
-    pendingInvitations.length +
+    pendingGroups.length +
     rejectedInvitations.length +
     (selectedAccount?.ownerId === user?.id ? 1 : 0);
 
@@ -1670,6 +1939,44 @@ export default function AccountProfileScreen() {
     }
   };
 
+  // Batch delete for grouped pending invitations.
+  const confirmDeletePendingGroup = async (ids: string[]) => {
+    if (!pendingGroupToDelete || ids.length === 0) return;
+    const authToken = await getAuthToken();
+    if (!authToken) return;
+
+    setDeletingInvitation(true);
+    try {
+      const url =
+        ids.length === 1
+          ? `${API_URL}/api/accounts/${selectedAccount?.id}/invitations/${ids[0]}`
+          : `${API_URL}/api/accounts/${selectedAccount?.id}/invitations/batch`;
+
+      const res = await fetch(url, {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${authToken}`,
+        },
+        body: ids.length === 1 ? undefined : JSON.stringify({ ids }),
+      });
+
+      if (!res.ok) {
+        Alert.alert("Error", "Failed to delete invitation(s)");
+        return;
+      }
+
+      const idSet = new Set(ids);
+      setInvitations((prev) => prev.filter((i) => !idSet.has(i.id)));
+      setPendingGroupToDelete(null);
+    } catch (err) {
+      console.error("deletePendingGroup error:", err);
+      Alert.alert("Error", "Network error");
+    } finally {
+      setDeletingInvitation(false);
+    }
+  };
+
   const handleDismissInvitation = async (invitationId: string) => {
     const authToken = await getAuthToken();
     if (!authToken) return;
@@ -1798,7 +2105,7 @@ export default function AccountProfileScreen() {
     }
   };
 
-  // ── Render an AccessPerson row ──
+  // ── Accepted person row ──
   const renderPersonRow = (
     person: AccessPerson,
     isLast: boolean,
@@ -1847,8 +2154,6 @@ export default function AccountProfileScreen() {
                 text: styles.ownershipBadgeText,
               };
 
-    // Show the secondary role as a small pill next to the badge if the
-    // person also has an additional role.
     const secondaryLabel = (() => {
       if (kind === "admin") return null;
       if (kind === "member" && person.roles.includes("staff_visibility"))
@@ -1905,8 +2210,6 @@ export default function AccountProfileScreen() {
           <TouchableOpacity
             style={styles.closeIconButton}
             onPress={() => {
-              // Dismiss all accepted invitations for this person (one per
-              // role) so the row disappears.
               person.invitations.forEach((inv) =>
                 handleDismissInvitation(inv.id),
               );
@@ -1916,6 +2219,75 @@ export default function AccountProfileScreen() {
             <Ionicons name="close" size={16} color="#64748B" />
           </TouchableOpacity>
         ) : null}
+      </View>
+    );
+  };
+
+  // ── Grouped pending row ──
+  const renderPendingGroupRow = (
+    group: PendingGroup,
+    isLast: boolean,
+    kind: "ownership" | "other",
+  ) => {
+    const avatarStyle =
+      kind === "ownership" ? styles.ownershipAvatar : styles.pendingAvatar;
+    const avatarTextStyle =
+      kind === "ownership"
+        ? styles.ownershipAvatarText
+        : styles.pendingAvatarText;
+
+    return (
+      <View
+        key={group.key}
+        style={[styles.accessRow, isLast && styles.lastAccessRow]}
+      >
+        <GrantAvatar
+          photoUrl={group.photoUrl}
+          name={group.name}
+          style={avatarStyle}
+          textStyle={avatarTextStyle}
+        />
+        <View style={styles.accessInfo}>
+          <Text style={styles.accessName} numberOfLines={1}>
+            {group.name}
+          </Text>
+          <Text style={styles.accessPhone}>+91{group.phone}</Text>
+
+          {kind === "ownership" ? (
+            <View style={styles.ownershipPendingPill}>
+              <Ionicons name="hourglass-outline" size={11} color="#B45309" />
+              <Text style={styles.ownershipPendingPillText}>
+                Pending acceptance
+              </Text>
+            </View>
+          ) : null}
+        </View>
+
+        {group.roles
+          .filter((r) =>
+            kind === "ownership"
+              ? r === "ownership_transfer"
+              : r !== "ownership_transfer",
+          )
+          .map((role) => {
+            const badge = roleBadge(role);
+            return (
+              <View
+                key={role}
+                style={[styles.accessBadge, badge.style, { marginLeft: 6 }]}
+              >
+                <Text style={badge.text}>{badge.label.toUpperCase()}</Text>
+              </View>
+            );
+          })}
+
+        <TouchableOpacity
+          style={styles.deleteInvitationButton}
+          onPress={() => setPendingGroupToDelete(group)}
+          activeOpacity={0.7}
+        >
+          <Ionicons name="trash-outline" size={18} color="#DC2626" />
+        </TouchableOpacity>
       </View>
     );
   };
@@ -2105,7 +2477,6 @@ export default function AccountProfileScreen() {
               />
             </View>
 
-            {/* REVOKE ACCESS — owner only */}
             {isOwner && (
               <>
                 <Text style={styles.sectionTitle}>REVOKE ACCESS</Text>
@@ -2189,7 +2560,7 @@ export default function AccountProfileScreen() {
                     acceptedAdmins.length === 0 &&
                     acceptedMembers.length === 0 &&
                     acceptedStaff.length === 0 &&
-                    pendingInvitations.length === 0 &&
+                    pendingGroups.length === 0 &&
                     rejectedInvitations.length === 0 &&
                     styles.lastAccessRow,
                 ]}
@@ -2217,7 +2588,7 @@ export default function AccountProfileScreen() {
             </View>
           )}
 
-          {/* OWNERSHIP */}
+          {/* OWNERSHIP (accepted) */}
           {acceptedOwnership.length > 0 && (
             <View style={styles.accessGroup}>
               <Text style={styles.accessHeading}>Ownership</Text>
@@ -2228,7 +2599,7 @@ export default function AccountProfileScreen() {
                     acceptedAdmins.length === 0 &&
                     acceptedMembers.length === 0 &&
                     acceptedStaff.length === 0 &&
-                    pendingInvitations.length === 0 &&
+                    pendingGroups.length === 0 &&
                     rejectedInvitations.length === 0,
                   "ownership",
                 ),
@@ -2246,7 +2617,7 @@ export default function AccountProfileScreen() {
                   index === acceptedAdmins.length - 1 &&
                     acceptedMembers.length === 0 &&
                     acceptedStaff.length === 0 &&
-                    pendingInvitations.length === 0 &&
+                    pendingGroups.length === 0 &&
                     rejectedInvitations.length === 0,
                   "admin",
                 ),
@@ -2263,7 +2634,7 @@ export default function AccountProfileScreen() {
                   person,
                   index === acceptedMembers.length - 1 &&
                     acceptedStaff.length === 0 &&
-                    pendingInvitations.length === 0 &&
+                    pendingGroups.length === 0 &&
                     rejectedInvitations.length === 0,
                   "member",
                 ),
@@ -2279,7 +2650,7 @@ export default function AccountProfileScreen() {
                 renderPersonRow(
                   person,
                   index === acceptedStaff.length - 1 &&
-                    pendingInvitations.length === 0 &&
+                    pendingGroups.length === 0 &&
                     rejectedInvitations.length === 0,
                   "staff",
                 ),
@@ -2287,8 +2658,8 @@ export default function AccountProfileScreen() {
             </View>
           )}
 
-          {/* PENDING — OWNERSHIP REQUESTS */}
-          {pendingOwnership.length > 0 && (
+          {/* PENDING — OWNERSHIP */}
+          {pendingOwnershipGroups.length > 0 && (
             <View style={styles.accessGroup}>
               <View style={styles.pendingHeader}>
                 <Text style={styles.accessHeading}>Ownership Transfer</Text>
@@ -2299,130 +2670,41 @@ export default function AccountProfileScreen() {
                   ]}
                 >
                   <Text style={[styles.pendingCountText, { color: "#B45309" }]}>
-                    {pendingOwnership.length}
+                    {pendingOwnershipGroups.length}
                   </Text>
                 </View>
               </View>
-              {pendingOwnership.map((inv, index) => {
-                const displayName =
-                  inv.invitee_user_name ??
-                  inv.invited_name ??
-                  "Ownership request";
-                return (
-                  <View
-                    key={inv.id}
-                    style={[
-                      styles.accessRow,
-                      index === pendingOwnership.length - 1 &&
-                        pendingNonOwnership.length === 0 &&
-                        rejectedInvitations.length === 0 &&
-                        styles.lastAccessRow,
-                    ]}
-                  >
-                    <GrantAvatar
-                      photoUrl={
-                        inv.invitee_user_photo_url ??
-                        inv.accepted_user_photo_url ??
-                        null
-                      }
-                      name={displayName}
-                      style={styles.ownershipAvatar}
-                      textStyle={styles.ownershipAvatarText}
-                    />
-                    <View style={styles.accessInfo}>
-                      <Text style={styles.accessName}>{displayName}</Text>
-                      <Text style={styles.accessPhone}>
-                        +91{inv.invited_phone}
-                      </Text>
-                      <View style={styles.ownershipPendingPill}>
-                        <Ionicons
-                          name="hourglass-outline"
-                          size={11}
-                          color="#B45309"
-                        />
-                        <Text style={styles.ownershipPendingPillText}>
-                          Pending acceptance
-                        </Text>
-                      </View>
-                    </View>
-                    <View style={[styles.accessBadge, styles.ownershipBadge]}>
-                      <Text style={styles.ownershipBadgeText}>OWNERSHIP</Text>
-                    </View>
-                    <TouchableOpacity
-                      style={styles.deleteInvitationButton}
-                      onPress={() => setInvitationToDelete(inv.id)}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons
-                        name="trash-outline"
-                        size={18}
-                        color="#DC2626"
-                      />
-                    </TouchableOpacity>
-                  </View>
-                );
-              })}
+              {pendingOwnershipGroups.map((group, index) =>
+                renderPendingGroupRow(
+                  group,
+                  index === pendingOwnershipGroups.length - 1 &&
+                    pendingNonOwnershipGroups.length === 0 &&
+                    rejectedInvitations.length === 0,
+                  "ownership",
+                ),
+              )}
             </View>
           )}
 
           {/* PENDING — OTHER ROLES */}
-          {pendingNonOwnership.length > 0 && (
+          {pendingNonOwnershipGroups.length > 0 && (
             <View style={styles.accessGroup}>
               <View style={styles.pendingHeader}>
                 <Text style={styles.accessHeading}>Pending Invitations</Text>
                 <View style={styles.pendingCountBadge}>
                   <Text style={styles.pendingCountText}>
-                    {pendingNonOwnership.length}
+                    {pendingNonOwnershipGroups.length}
                   </Text>
                 </View>
               </View>
-              {pendingNonOwnership.map((inv, index) => {
-                const badge = roleBadge(inv.role);
-                const photoUrl =
-                  inv.invitee_user_photo_url ??
-                  inv.accepted_user_photo_url ??
-                  null;
-                const displayName =
-                  inv.invitee_user_name ?? inv.invited_name ?? "Invitee";
-                return (
-                  <View
-                    key={inv.id}
-                    style={[
-                      styles.accessRow,
-                      index === pendingNonOwnership.length - 1 &&
-                        rejectedInvitations.length === 0 &&
-                        styles.lastAccessRow,
-                    ]}
-                  >
-                    <GrantAvatar
-                      photoUrl={photoUrl}
-                      name={displayName}
-                      style={styles.pendingAvatar}
-                      textStyle={styles.pendingAvatarText}
-                    />
-                    <View style={styles.accessInfo}>
-                      <Text style={styles.accessName}>{displayName}</Text>
-                      <Text style={styles.accessPhone}>
-                        +91{inv.invited_phone}
-                      </Text>
-                    </View>
-                    <View style={[styles.accessBadge, badge.style]}>
-                      <Text style={badge.text}>{badge.label}</Text>
-                    </View>
-                    <TouchableOpacity
-                      style={styles.deleteInvitationButton}
-                      onPress={() => setInvitationToDelete(inv.id)}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons
-                        name="trash-outline"
-                        size={18}
-                        color="#DC2626"
-                      />
-                    </TouchableOpacity>
-                  </View>
-                );
-              })}
+              {pendingNonOwnershipGroups.map((group, index) =>
+                renderPendingGroupRow(
+                  group,
+                  index === pendingNonOwnershipGroups.length - 1 &&
+                    rejectedInvitations.length === 0,
+                  "other",
+                ),
+              )}
             </View>
           )}
 
@@ -2502,7 +2784,7 @@ export default function AccountProfileScreen() {
             acceptedMembers.length === 0 &&
             acceptedStaff.length === 0 &&
             acceptedOwnership.length === 0 &&
-            pendingInvitations.length === 0 &&
+            pendingGroups.length === 0 &&
             rejectedInvitations.length === 0 &&
             selectedAccount?.ownerId !== user?.id && (
               <View style={styles.noAccessContainer}>
@@ -2600,7 +2882,7 @@ export default function AccountProfileScreen() {
         />
       )}
 
-      {/* DELETE INVITATION */}
+      {/* DELETE SINGLE INVITATION (used for rejected invites) */}
       {invitationToDelete && (
         <Modal
           transparent
@@ -2660,7 +2942,20 @@ export default function AccountProfileScreen() {
         </Modal>
       )}
 
-      {/* REVOKE ACCESS MODAL — pass flattened per-role invitations */}
+      {/* DELETE GROUPED PENDING INVITATIONS */}
+      <DeletePendingModal
+        group={pendingGroupToDelete}
+        submitting={deletingInvitation}
+        onCancel={() => {
+          if (deletingInvitation) return;
+          setPendingGroupToDelete(null);
+        }}
+        onConfirm={(ids) => {
+          void confirmDeletePendingGroup(ids);
+        }}
+      />
+
+      {/* REVOKE ACCESS MODAL */}
       <RevokeAccessModal
         visible={showRevokeAccessModal}
         onClose={() => setShowRevokeAccessModal(false)}
@@ -3021,11 +3316,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#EFF6FF",
     marginLeft: 8,
   },
-  resendButtonText: {
-    color: "#2563EB",
-    fontSize: 11,
-    fontWeight: "700",
-  },
+  resendButtonText: { color: "#2563EB", fontSize: 11, fontWeight: "700" },
   noAccessContainer: {
     alignItems: "center",
     paddingHorizontal: 25,
