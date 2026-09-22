@@ -100,6 +100,18 @@ interface RevokePreview {
   } | null;
 }
 
+// A person grouped across all their accepted invitations on this account.
+interface AccessPerson {
+  key: string; // dedupe key (user id or phone)
+  userId: string | null;
+  phone: string;
+  name: string;
+  photoUrl: string | null;
+  roles: InvitationRole[]; // every accepted role this person has
+  primaryInvitation: ApiInvitation; // used for revoke/dismiss actions
+  invitations: ApiInvitation[]; // all accepted invitations for this person
+}
+
 // ============================================================================
 // PHOTO ADJUST MODAL
 // ============================================================================
@@ -1269,24 +1281,131 @@ export default function AccountProfileScreen() {
     [invitations],
   );
 
+  // ── Helper: dedupe key per person ──
+  const personKey = useCallback((inv: ApiInvitation): string => {
+    if (inv.accepted_by) return `u:${inv.accepted_by}`;
+    const ten = String(inv.invited_phone ?? "").replace(/\D/g, "");
+    return `p:${ten.slice(-10)}`;
+  }, []);
+
+  // ── Group accepted invitations by person ──
+  const acceptedPeople = useMemo<AccessPerson[]>(() => {
+    const byKey = new Map<string, AccessPerson>();
+
+    for (const inv of acceptedInvitations) {
+      const key = personKey(inv);
+      const existing = byKey.get(key);
+
+      if (existing) {
+        if (!existing.roles.includes(inv.role)) existing.roles.push(inv.role);
+        existing.invitations.push(inv);
+        continue;
+      }
+
+      const photoUrl =
+        inv.accepted_user_photo_url ?? inv.invitee_user_photo_url ?? null;
+      const name =
+        inv.accepted_user_name ??
+        inv.invitee_user_name ??
+        inv.invited_name ??
+        "";
+
+      byKey.set(key, {
+        key,
+        userId: inv.accepted_by ?? null,
+        phone: String(inv.invited_phone ?? ""),
+        name,
+        photoUrl,
+        roles: [inv.role],
+        primaryInvitation: inv,
+        invitations: [inv],
+      });
+    }
+
+    return Array.from(byKey.values());
+  }, [acceptedInvitations, personKey]);
+
+  // ── Effective role for each person (priority: ownership > admin > member/staff) ──
+  const effectiveRoleOf = useCallback(
+    (person: AccessPerson): InvitationRole => {
+      if (person.roles.includes("ownership_transfer"))
+        return "ownership_transfer";
+      if (person.roles.includes("admin")) return "admin";
+      if (person.roles.includes("member_visibility"))
+        return "member_visibility";
+      return "staff_visibility";
+    },
+    [],
+  );
+
+  const isOwner = selectedAccount?.ownerId === user?.id;
+
+  // ── Split into display buckets (excluding the owner) ──
+  const acceptedOwnership = useMemo(
+    () =>
+      acceptedPeople
+        .filter((p) => p.userId !== selectedAccount?.ownerId)
+        .filter((p) => effectiveRoleOf(p) === "ownership_transfer"),
+    [acceptedPeople, selectedAccount?.ownerId, effectiveRoleOf],
+  );
+
   const acceptedAdmins = useMemo(
     () =>
-      acceptedInvitations.filter(
-        (i) => i.role === "admin" && i.accepted_by !== selectedAccount?.ownerId,
-      ),
-    [acceptedInvitations, selectedAccount?.ownerId],
+      acceptedPeople
+        .filter((p) => p.userId !== selectedAccount?.ownerId)
+        .filter((p) => effectiveRoleOf(p) === "admin"),
+    [acceptedPeople, selectedAccount?.ownerId, effectiveRoleOf],
   );
+
+  // Members section: people whose primary role is member AND who do NOT
+  // have an admin/ownership role (which would have promoted them up).
   const acceptedMembers = useMemo(
-    () => acceptedInvitations.filter((i) => i.role === "member_visibility"),
-    [acceptedInvitations],
+    () =>
+      acceptedPeople
+        .filter((p) => p.userId !== selectedAccount?.ownerId)
+        .filter((p) => effectiveRoleOf(p) === "member_visibility"),
+    [acceptedPeople, selectedAccount?.ownerId, effectiveRoleOf],
   );
+
   const acceptedStaff = useMemo(
-    () => acceptedInvitations.filter((i) => i.role === "staff_visibility"),
-    [acceptedInvitations],
+    () =>
+      acceptedPeople
+        .filter((p) => p.userId !== selectedAccount?.ownerId)
+        .filter((p) => effectiveRoleOf(p) === "staff_visibility"),
+    [acceptedPeople, selectedAccount?.ownerId, effectiveRoleOf],
   );
-  const acceptedOwnership = useMemo(
-    () => acceptedInvitations.filter((i) => i.role === "ownership_transfer"),
-    [acceptedInvitations],
+
+  // ── Flattened invitations for the Revoke modal ──
+  // Uses ALL accepted invitations (per-role) so the modal can revoke
+  // each role individually.
+  const acceptedInvitationsForRevoke = useMemo(() => {
+    return acceptedPeople
+      .filter((p) => p.userId !== selectedAccount?.ownerId)
+      .flatMap((p) => p.invitations);
+  }, [acceptedPeople, selectedAccount?.ownerId]);
+
+  const revokeAdmins = useMemo(
+    () => acceptedInvitationsForRevoke.filter((i) => i.role === "admin"),
+    [acceptedInvitationsForRevoke],
+  );
+  const revokeMembers = useMemo(
+    () =>
+      acceptedInvitationsForRevoke.filter(
+        (i) => i.role === "member_visibility",
+      ),
+    [acceptedInvitationsForRevoke],
+  );
+  const revokeStaff = useMemo(
+    () =>
+      acceptedInvitationsForRevoke.filter((i) => i.role === "staff_visibility"),
+    [acceptedInvitationsForRevoke],
+  );
+  const revokeOwnership = useMemo(
+    () =>
+      acceptedInvitationsForRevoke.filter(
+        (i) => i.role === "ownership_transfer",
+      ),
+    [acceptedInvitationsForRevoke],
   );
 
   const pendingOwnership = useMemo(
@@ -1300,21 +1419,14 @@ export default function AccountProfileScreen() {
   );
 
   const totalPeopleWithAccess =
-    acceptedAdmins.length +
-    acceptedMembers.length +
-    acceptedStaff.length +
-    acceptedOwnership.length +
+    acceptedPeople.length +
     pendingInvitations.length +
     rejectedInvitations.length +
     (selectedAccount?.ownerId === user?.id ? 1 : 0);
 
-  const totalRevocable =
-    acceptedAdmins.length +
-    acceptedMembers.length +
-    acceptedStaff.length +
-    acceptedOwnership.length;
-
-  const isOwner = selectedAccount?.ownerId === user?.id;
+  const totalRevocable = acceptedPeople.filter(
+    (p) => p.userId !== selectedAccount?.ownerId,
+  ).length;
 
   const getInitials = (name: string) =>
     name
@@ -1686,6 +1798,128 @@ export default function AccountProfileScreen() {
     }
   };
 
+  // ── Render an AccessPerson row ──
+  const renderPersonRow = (
+    person: AccessPerson,
+    isLast: boolean,
+    kind: "ownership" | "admin" | "member" | "staff",
+  ) => {
+    const avatarStyle =
+      kind === "admin"
+        ? styles.adminAvatar
+        : kind === "member"
+          ? styles.memberAvatar
+          : kind === "staff"
+            ? styles.staffAvatar
+            : styles.ownershipAvatar;
+
+    const avatarTextStyle =
+      kind === "member"
+        ? styles.memberAvatarText
+        : kind === "staff"
+          ? styles.staffAvatarText
+          : kind === "ownership"
+            ? styles.ownershipAvatarText
+            : undefined;
+
+    const badge =
+      kind === "admin"
+        ? {
+            label: "ADMIN",
+            style: styles.adminBadge,
+            text: styles.adminBadgeText,
+          }
+        : kind === "member"
+          ? {
+              label: "MEMBER",
+              style: styles.memberBadge,
+              text: styles.memberBadgeText,
+            }
+          : kind === "staff"
+            ? {
+                label: "STAFF",
+                style: styles.staffBadge,
+                text: styles.staffBadgeText,
+              }
+            : {
+                label: "OWNERSHIP",
+                style: styles.ownershipBadge,
+                text: styles.ownershipBadgeText,
+              };
+
+    // Show the secondary role as a small pill next to the badge if the
+    // person also has an additional role.
+    const secondaryLabel = (() => {
+      if (kind === "admin") return null;
+      if (kind === "member" && person.roles.includes("staff_visibility"))
+        return "STAFF";
+      if (kind === "staff" && person.roles.includes("member_visibility"))
+        return "MEMBER";
+      return null;
+    })();
+
+    return (
+      <View
+        key={person.key}
+        style={[styles.accessRow, isLast && styles.lastAccessRow]}
+      >
+        <GrantAvatar
+          photoUrl={person.photoUrl}
+          name={person.name || "Unknown"}
+          style={avatarStyle}
+          textStyle={avatarTextStyle}
+        />
+        <View style={styles.accessInfo}>
+          <Text style={styles.accessName} numberOfLines={1}>
+            {person.name || "Unknown"}
+          </Text>
+          <Text style={styles.accessPhone}>+91{person.phone}</Text>
+        </View>
+
+        {secondaryLabel ? (
+          <View
+            style={[
+              styles.accessBadge,
+              secondaryLabel === "STAFF"
+                ? styles.staffBadge
+                : styles.memberBadge,
+            ]}
+          >
+            <Text
+              style={
+                secondaryLabel === "STAFF"
+                  ? styles.staffBadgeText
+                  : styles.memberBadgeText
+              }
+            >
+              {secondaryLabel}
+            </Text>
+          </View>
+        ) : null}
+
+        <View style={[styles.accessBadge, badge.style]}>
+          <Text style={badge.text}>{badge.label}</Text>
+        </View>
+
+        {kind === "member" || kind === "staff" ? (
+          <TouchableOpacity
+            style={styles.closeIconButton}
+            onPress={() => {
+              // Dismiss all accepted invitations for this person (one per
+              // role) so the row disappears.
+              person.invitations.forEach((inv) =>
+                handleDismissInvitation(inv.id),
+              );
+            }}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="close" size={16} color="#64748B" />
+          </TouchableOpacity>
+        ) : null}
+      </View>
+    );
+  };
+
   return (
     <View style={styles.screen}>
       <ScrollView
@@ -1951,10 +2185,10 @@ export default function AccountProfileScreen() {
               <View
                 style={[
                   styles.accessRow,
-                  acceptedAdmins.length === 0 &&
+                  acceptedOwnership.length === 0 &&
+                    acceptedAdmins.length === 0 &&
                     acceptedMembers.length === 0 &&
                     acceptedStaff.length === 0 &&
-                    acceptedOwnership.length === 0 &&
                     pendingInvitations.length === 0 &&
                     rejectedInvitations.length === 0 &&
                     styles.lastAccessRow,
@@ -1983,210 +2217,73 @@ export default function AccountProfileScreen() {
             </View>
           )}
 
-          {/* OWNERSHIP (ACCEPTED — co-owners) */}
+          {/* OWNERSHIP */}
           {acceptedOwnership.length > 0 && (
             <View style={styles.accessGroup}>
               <Text style={styles.accessHeading}>Ownership</Text>
-              {acceptedOwnership.map((inv, index) => (
-                <View
-                  key={inv.id}
-                  style={[
-                    styles.accessRow,
-                    index === acceptedOwnership.length - 1 &&
-                      acceptedAdmins.length === 0 &&
-                      acceptedMembers.length === 0 &&
-                      acceptedStaff.length === 0 &&
-                      pendingInvitations.length === 0 &&
-                      rejectedInvitations.length === 0 &&
-                      styles.lastAccessRow,
-                  ]}
-                >
-                  <GrantAvatar
-                    photoUrl={
-                      inv.accepted_user_photo_url ??
-                      inv.invitee_user_photo_url ??
-                      null
-                    }
-                    name={
-                      inv.accepted_user_name ??
-                      inv.invitee_user_name ??
-                      inv.invited_name ??
-                      "Owner"
-                    }
-                    style={styles.ownershipAvatar}
-                    textStyle={styles.ownershipAvatarText}
-                  />
-                  <View style={styles.accessInfo}>
-                    <Text style={styles.accessName}>
-                      {inv.accepted_user_name ??
-                        inv.invitee_user_name ??
-                        inv.invited_name ??
-                        "Owner"}
-                    </Text>
-                    <Text style={styles.accessPhone}>
-                      +91{inv.invited_phone}
-                    </Text>
-                  </View>
-                  <View style={[styles.accessBadge, styles.ownershipBadge]}>
-                    <Text style={styles.ownershipBadgeText}>OWNERSHIP</Text>
-                  </View>
-                </View>
-              ))}
+              {acceptedOwnership.map((person, index) =>
+                renderPersonRow(
+                  person,
+                  index === acceptedOwnership.length - 1 &&
+                    acceptedAdmins.length === 0 &&
+                    acceptedMembers.length === 0 &&
+                    acceptedStaff.length === 0 &&
+                    pendingInvitations.length === 0 &&
+                    rejectedInvitations.length === 0,
+                  "ownership",
+                ),
+              )}
             </View>
           )}
 
-          {/* ADMINS (ACCEPTED) */}
+          {/* ADMINS */}
           {acceptedAdmins.length > 0 && (
             <View style={styles.accessGroup}>
               <Text style={styles.accessHeading}>Admins</Text>
-              {acceptedAdmins.map((inv, index) => (
-                <View
-                  key={inv.id}
-                  style={[
-                    styles.accessRow,
-                    index === acceptedAdmins.length - 1 &&
-                      acceptedMembers.length === 0 &&
-                      acceptedStaff.length === 0 &&
-                      pendingInvitations.length === 0 &&
-                      rejectedInvitations.length === 0 &&
-                      styles.lastAccessRow,
-                  ]}
-                >
-                  <GrantAvatar
-                    photoUrl={
-                      inv.accepted_user_photo_url ??
-                      inv.invitee_user_photo_url ??
-                      null
-                    }
-                    name={
-                      inv.accepted_user_name ??
-                      inv.invitee_user_name ??
-                      inv.invited_name ??
-                      "Admin"
-                    }
-                    style={styles.adminAvatar}
-                  />
-                  <View style={styles.accessInfo}>
-                    <Text style={styles.accessName}>
-                      {inv.accepted_user_name ??
-                        inv.invitee_user_name ??
-                        inv.invited_name ??
-                        "Admin"}
-                    </Text>
-                    <Text style={styles.accessPhone}>
-                      +91{inv.invited_phone}
-                    </Text>
-                  </View>
-                  <View style={[styles.accessBadge, styles.adminBadge]}>
-                    <Text style={styles.adminBadgeText}>ADMIN</Text>
-                  </View>
-                </View>
-              ))}
+              {acceptedAdmins.map((person, index) =>
+                renderPersonRow(
+                  person,
+                  index === acceptedAdmins.length - 1 &&
+                    acceptedMembers.length === 0 &&
+                    acceptedStaff.length === 0 &&
+                    pendingInvitations.length === 0 &&
+                    rejectedInvitations.length === 0,
+                  "admin",
+                ),
+              )}
             </View>
           )}
 
+          {/* MEMBERS */}
           {acceptedMembers.length > 0 && (
             <View style={styles.accessGroup}>
               <Text style={styles.accessHeading}>Members</Text>
-              {acceptedMembers.map((inv, index) => (
-                <View
-                  key={inv.id}
-                  style={[
-                    styles.accessRow,
-                    index === acceptedMembers.length - 1 &&
-                      acceptedStaff.length === 0 &&
-                      pendingInvitations.length === 0 &&
-                      rejectedInvitations.length === 0 &&
-                      styles.lastAccessRow,
-                  ]}
-                >
-                  <GrantAvatar
-                    photoUrl={
-                      inv.accepted_user_photo_url ??
-                      inv.invitee_user_photo_url ??
-                      null
-                    }
-                    name={
-                      inv.accepted_user_name ??
-                      inv.invitee_user_name ??
-                      inv.invited_name ??
-                      "Member"
-                    }
-                    style={styles.memberAvatar}
-                    textStyle={styles.memberAvatarText}
-                  />
-                  <View style={styles.accessInfo}>
-                    <Text style={styles.accessName}>
-                      {inv.accepted_user_name ??
-                        inv.invitee_user_name ??
-                        inv.invited_name ??
-                        "Member"}
-                    </Text>
-                    <Text style={styles.accessPhone}>
-                      +91{inv.invited_phone}
-                    </Text>
-                  </View>
-                  <TouchableOpacity
-                    style={styles.closeIconButton}
-                    onPress={() => handleDismissInvitation(inv.id)}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name="close" size={16} color="#64748B" />
-                  </TouchableOpacity>
-                </View>
-              ))}
+              {acceptedMembers.map((person, index) =>
+                renderPersonRow(
+                  person,
+                  index === acceptedMembers.length - 1 &&
+                    acceptedStaff.length === 0 &&
+                    pendingInvitations.length === 0 &&
+                    rejectedInvitations.length === 0,
+                  "member",
+                ),
+              )}
             </View>
           )}
 
+          {/* STAFF */}
           {acceptedStaff.length > 0 && (
             <View style={styles.accessGroup}>
               <Text style={styles.accessHeading}>Staff</Text>
-              {acceptedStaff.map((inv, index) => (
-                <View
-                  key={inv.id}
-                  style={[
-                    styles.accessRow,
-                    index === acceptedStaff.length - 1 &&
-                      pendingInvitations.length === 0 &&
-                      rejectedInvitations.length === 0 &&
-                      styles.lastAccessRow,
-                  ]}
-                >
-                  <GrantAvatar
-                    photoUrl={
-                      inv.accepted_user_photo_url ??
-                      inv.invitee_user_photo_url ??
-                      null
-                    }
-                    name={
-                      inv.accepted_user_name ??
-                      inv.invitee_user_name ??
-                      inv.invited_name ??
-                      "Staff"
-                    }
-                    style={styles.staffAvatar}
-                    textStyle={styles.staffAvatarText}
-                  />
-                  <View style={styles.accessInfo}>
-                    <Text style={styles.accessName}>
-                      {inv.accepted_user_name ??
-                        inv.invitee_user_name ??
-                        inv.invited_name ??
-                        "Staff"}
-                    </Text>
-                    <Text style={styles.accessPhone}>
-                      +91{inv.invited_phone}
-                    </Text>
-                  </View>
-                  <TouchableOpacity
-                    style={styles.closeIconButton}
-                    onPress={() => handleDismissInvitation(inv.id)}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name="close" size={16} color="#64748B" />
-                  </TouchableOpacity>
-                </View>
-              ))}
+              {acceptedStaff.map((person, index) =>
+                renderPersonRow(
+                  person,
+                  index === acceptedStaff.length - 1 &&
+                    pendingInvitations.length === 0 &&
+                    rejectedInvitations.length === 0,
+                  "staff",
+                ),
+              )}
             </View>
           )}
 
@@ -2563,15 +2660,15 @@ export default function AccountProfileScreen() {
         </Modal>
       )}
 
-      {/* REVOKE ACCESS MODAL */}
+      {/* REVOKE ACCESS MODAL — pass flattened per-role invitations */}
       <RevokeAccessModal
         visible={showRevokeAccessModal}
         onClose={() => setShowRevokeAccessModal(false)}
         accountId={selectedAccount?.id ?? null}
-        acceptedAdmins={acceptedAdmins}
-        acceptedMembers={acceptedMembers}
-        acceptedStaff={acceptedStaff}
-        acceptedOwnership={acceptedOwnership}
+        acceptedAdmins={revokeAdmins}
+        acceptedMembers={revokeMembers}
+        acceptedStaff={revokeStaff}
+        acceptedOwnership={revokeOwnership}
         getAuthToken={getAuthToken}
         onRevoked={async () => {
           await loadInvitations({ silent: true });

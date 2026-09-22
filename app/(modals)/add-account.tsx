@@ -67,21 +67,38 @@ interface StaffRole {
   permissions: string[];
 }
 
+type ApiInvitationRole =
+  | "admin"
+  | "member_visibility"
+  | "staff_visibility"
+  | "ownership_transfer";
+
 interface ApiMyInvitation {
   id: string;
   account_id: string;
-  role:
-    | "admin"
-    | "member_visibility"
-    | "staff_visibility"
-    | "ownership_transfer";
+  role: ApiInvitationRole;
   status: string;
   invited_name: string | null;
+  invited_phone?: string | null;
   created_at: string;
   account_name: string;
   account_photo_url: string | null;
   invited_by_phone: string;
   current_role?: string | null;
+}
+
+// A merged invite — one person, one apartment, one or more roles.
+interface GroupedInvitation {
+  key: string; // `${account_id}:${phone}`
+  account_id: string;
+  account_name: string;
+  account_photo_url: string | null;
+  invited_by_phone: string;
+  invited_name: string | null;
+  invited_phone: string;
+  roles: ApiInvitationRole[];
+  invitations: ApiMyInvitation[];
+  primaryInvitation: ApiMyInvitation;
 }
 
 const STAFF_ROLES: StaffRole[] = [
@@ -719,12 +736,25 @@ function getToken(): Promise<string | null> {
   return SecureStore.getItemAsync("auth_token").catch(() => null);
 }
 
+function normalizePhone(raw?: string | null): string {
+  if (!raw) return "";
+  const digits = String(raw).replace(/\D/g, "");
+  return digits.length > 10 ? digits.slice(-10) : digits;
+}
+
 function roleToAccessLevel(
   role: ApiMyInvitation["role"],
 ): "admin" | "member" | "staff" {
   if (role === "admin" || role === "ownership_transfer") return "admin";
   if (role === "staff_visibility") return "staff";
   return "member";
+}
+
+function roleLabel(role: ApiInvitationRole): string {
+  if (role === "admin") return "Admin";
+  if (role === "member_visibility") return "Member";
+  if (role === "staff_visibility") return "Staff";
+  return "Ownership";
 }
 
 // ---------------------------------------------------------------------------
@@ -752,14 +782,17 @@ export default function AddAccountScreen() {
   const [name, setName] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
-  const [rejectingGrantId, setRejectingGrantId] = useState<string | null>(null);
+  const [rejectingGrantKey, setRejectingGrantKey] = useState<string | null>(
+    null,
+  );
   const [showPhotoOptions, setShowPhotoOptions] = useState(false);
 
   const [rawImage, setRawImage] = useState<RawImage | null>(null);
   const [showAdjustModal, setShowAdjustModal] = useState(false);
 
-  const [selectedInvitation, setSelectedInvitation] =
-    useState<ApiMyInvitation | null>(null);
+  const [selectedGroup, setSelectedGroup] = useState<GroupedInvitation | null>(
+    null,
+  );
   const [showAccessInfo, setShowAccessInfo] = useState(false);
 
   // ── Server-side invitations ──────────────────────────────────────────
@@ -804,14 +837,54 @@ export default function AddAccountScreen() {
 
   const pendingInvitations = invitations;
 
-  const getInvitationApartmentName = (invitation: ApiMyInvitation) =>
-    invitation.account_name || "Apartment Society";
+  // ── Group by (account_id + invited_phone) — this is what fixes the bug ──
+  const groupedInvitations: GroupedInvitation[] = useMemo(() => {
+    const byKey = new Map<string, GroupedInvitation>();
 
-  const getAccessLevelInfo = (invitation: ApiMyInvitation) => {
-    if (invitation.role === "ownership_transfer") {
-      return ACCESS_LEVEL_INFO.ownership;
+    for (const inv of pendingInvitations) {
+      const ten = normalizePhone(inv.invited_phone);
+      const key = `${inv.account_id}:${ten}`;
+
+      const existing = byKey.get(key);
+      if (existing) {
+        if (!existing.roles.includes(inv.role)) existing.roles.push(inv.role);
+        existing.invitations.push(inv);
+        continue;
+      }
+
+      byKey.set(key, {
+        key,
+        account_id: inv.account_id,
+        account_name: inv.account_name,
+        account_photo_url: inv.account_photo_url,
+        invited_by_phone: inv.invited_by_phone,
+        invited_name: inv.invited_name,
+        invited_phone: ten,
+        roles: [inv.role],
+        invitations: [inv],
+        primaryInvitation: inv,
+      });
     }
-    const accessLevel = roleToAccessLevel(invitation.role);
+
+    return Array.from(byKey.values());
+  }, [pendingInvitations]);
+
+  const getInvitationApartmentName = (inv: ApiMyInvitation) =>
+    inv.account_name || "Apartment Society";
+
+  // Choose the "primary" role for a grouped invite — priority ownership >
+  // admin > member > staff. This determines the icon/color of the card.
+  const getPrimaryRole = (roles: ApiInvitationRole[]): ApiInvitationRole => {
+    if (roles.includes("ownership_transfer")) return "ownership_transfer";
+    if (roles.includes("admin")) return "admin";
+    if (roles.includes("member_visibility")) return "member_visibility";
+    return "staff_visibility";
+  };
+
+  const getAccessLevelInfoForGroup = (group: GroupedInvitation) => {
+    const primary = getPrimaryRole(group.roles);
+    if (primary === "ownership_transfer") return ACCESS_LEVEL_INFO.ownership;
+    const accessLevel = roleToAccessLevel(primary);
     return (
       ACCESS_LEVEL_INFO[accessLevel as keyof typeof ACCESS_LEVEL_INFO] ||
       ACCESS_LEVEL_INFO.member
@@ -979,7 +1052,8 @@ export default function AddAccountScreen() {
     }
   };
 
-  const handleAcceptInvite = async (invitation: ApiMyInvitation) => {
+  // ── Accept a grouped invitation: accept every underlying invite ──
+  const handleAcceptGroup = async (group: GroupedInvitation) => {
     const token = await getToken();
     if (!token) {
       setError("You're not signed in.");
@@ -988,32 +1062,38 @@ export default function AddAccountScreen() {
 
     setLoading(true);
     try {
-      const res = await fetch(
-        `${API_URL}/api/invitations/${invitation.id}/accept`,
-        {
+      // Accept each underlying invitation (member + staff etc.).
+      // We do them sequentially to keep error handling simple.
+      for (const inv of group.invitations) {
+        const res = await fetch(`${API_URL}/api/invitations/${inv.id}/accept`, {
           method: "POST",
           headers: { Authorization: `Bearer ${token}` },
-        },
-      );
+        });
 
-      if (!res.ok) {
-        let data: any = null;
-        try {
-          data = await res.json();
-        } catch {
-          data = null;
+        if (!res.ok) {
+          let data: any = null;
+          try {
+            data = await res.json();
+          } catch {
+            data = null;
+          }
+          // 409 = already accepted (idempotent). Ignore and continue.
+          if (res.status !== 409) {
+            setError(
+              data?.code ?? `Failed to accept invitation (${res.status})`,
+            );
+            return;
+          }
         }
-        setError(data?.code ?? `Failed to accept invitation (${res.status})`);
-        return;
       }
 
       // Refresh accounts list so the newly joined account appears.
       await refreshAccounts();
 
       // Select the newly joined account.
-      selectAccount(invitation.account_id);
+      selectAccount(group.account_id);
 
-      // Remove from local list and reload fresh.
+      // Reload invites fresh.
       await loadInvitations();
 
       goToTabsOrBack();
@@ -1025,7 +1105,8 @@ export default function AddAccountScreen() {
     }
   };
 
-  const handleRejectInvite = async (invitationId: string) => {
+  // ── Reject a grouped invitation: reject every underlying invite ──
+  const handleRejectGroup = async (group: GroupedInvitation) => {
     const token = await getToken();
     if (!token) {
       setError("You're not signed in.");
@@ -1033,38 +1114,44 @@ export default function AddAccountScreen() {
     }
 
     try {
-      const res = await fetch(
-        `${API_URL}/api/invitations/${invitationId}/reject`,
-        {
-          method: "POST",
-          headers: { Authorization: `Bearer ${token}` },
-        },
+      await Promise.all(
+        group.invitations.map(async (inv) => {
+          try {
+            await fetch(`${API_URL}/api/invitations/${inv.id}/reject`, {
+              method: "POST",
+              headers: { Authorization: `Bearer ${token}` },
+            });
+          } catch (e) {
+            console.warn("Reject invite error:", e);
+          }
+        }),
       );
-      if (!res.ok) return;
-      setInvitations((prev) => prev.filter((i) => i.id !== invitationId));
-    } catch (e) {
-      console.warn("Reject invite error:", e);
+
+      // Optimistically remove every invite in this group from the list.
+      const ids = new Set(group.invitations.map((i) => i.id));
+      setInvitations((prev) => prev.filter((i) => !ids.has(i.id)));
     } finally {
-      setRejectingGrantId(null);
+      setRejectingGrantKey(null);
     }
   };
 
-  const showInvitationDetails = (invitation: ApiMyInvitation) => {
-    setSelectedInvitation(invitation);
+  const showInvitationDetails = (group: GroupedInvitation) => {
+    setSelectedGroup(group);
     setShowAccessInfo(true);
   };
 
+  // ── Group by apartment (for the header cards) ──
   const getUniqueApartments = () => {
     const map = new Map<
       string,
-      { name: string; invitations: ApiMyInvitation[] }
+      { name: string; groups: GroupedInvitation[] }
     >();
-    pendingInvitations.forEach((inv) => {
-      const aptName = getInvitationApartmentName(inv);
+    groupedInvitations.forEach((g) => {
+      const aptName = g.account_name || "Apartment Society";
       if (!map.has(aptName)) {
-        map.set(aptName, { name: aptName, invitations: [] });
+        map.set(aptName, { name: aptName, groups: [] });
       }
-      map.get(aptName)!.invitations.push(inv);
+      map.get(aptName)!.groups.push(g);
     });
     return Array.from(map.values());
   };
@@ -1072,9 +1159,11 @@ export default function AddAccountScreen() {
   const uniqueApartments = getUniqueApartments();
 
   const renderAccessInfoModal = () => {
-    if (!selectedInvitation) return null;
-    const accessInfo = getAccessLevelInfo(selectedInvitation);
-    const isOwnership = selectedInvitation.role === "ownership_transfer";
+    if (!selectedGroup) return null;
+    const accessInfo = getAccessLevelInfoForGroup(selectedGroup);
+    const hasOwnership = selectedGroup.roles.includes("ownership_transfer");
+
+    const rolesSummary = selectedGroup.roles.map(roleLabel).join(" + ");
 
     return (
       <Modal
@@ -1102,7 +1191,11 @@ export default function AddAccountScreen() {
             </View>
 
             <Text style={styles.modalTitle}>{accessInfo.title}</Text>
-            <Text style={styles.modalMessage}>{accessInfo.description}</Text>
+            <Text style={styles.modalMessage}>
+              {selectedGroup.roles.length > 1
+                ? `You'll gain ${rolesSummary} access on this property. ${accessInfo.description}`
+                : accessInfo.description}
+            </Text>
 
             <View style={styles.permissionsContainer}>
               <Text style={styles.permissionsTitle}>What you can do:</Text>
@@ -1133,19 +1226,19 @@ export default function AddAccountScreen() {
                   { backgroundColor: accessInfo.color },
                 ]}
                 onPress={() => {
-                  const inv = selectedInvitation;
+                  const g = selectedGroup;
                   setShowAccessInfo(false);
-                  handleAcceptInvite(inv);
+                  handleAcceptGroup(g);
                 }}
                 activeOpacity={0.85}
               >
                 <Ionicons
-                  name={isOwnership ? "swap-horizontal" : "checkmark"}
+                  name={hasOwnership ? "swap-horizontal" : "checkmark"}
                   size={18}
                   color="#fff"
                 />
                 <Text style={styles.accessInfoAcceptText}>
-                  {isOwnership ? "Accept Ownership" : "Accept Invitation"}
+                  {hasOwnership ? "Accept Ownership" : "Accept Invitation"}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -1240,10 +1333,10 @@ export default function AddAccountScreen() {
                   ]}
                 >
                   Invitations
-                  {pendingInvitations.length > 0 && (
+                  {groupedInvitations.length > 0 && (
                     <View style={styles.invitationBadge}>
                       <Text style={styles.invitationBadgeText}>
-                        {pendingInvitations.length}
+                        {groupedInvitations.length}
                       </Text>
                     </View>
                   )}
@@ -1332,7 +1425,7 @@ export default function AddAccountScreen() {
                       Loading invitations...
                     </Text>
                   </View>
-                ) : pendingInvitations.length === 0 ? (
+                ) : groupedInvitations.length === 0 ? (
                   <View style={styles.emptyStateContainer}>
                     <View style={styles.emptyStateIcon}>
                       <Ionicons
@@ -1364,21 +1457,21 @@ export default function AddAccountScreen() {
                           </Text>
                           <View style={styles.invitationCountBadge}>
                             <Text style={styles.invitationCountText}>
-                              {apartment.invitations.length}
+                              {apartment.groups.length}
                             </Text>
                           </View>
                         </View>
 
-                        {apartment.invitations.map((invitation) => {
-                          const isAdmin = invitation.role === "admin";
-                          const isStaff =
-                            invitation.role === "staff_visibility";
-                          const isOwnership =
-                            invitation.role === "ownership_transfer";
+                        {apartment.groups.map((group) => {
+                          const primary = getPrimaryRole(group.roles);
+                          const isOwnership = primary === "ownership_transfer";
+                          const isAdmin = primary === "admin";
+                          const isStaff = primary === "staff_visibility";
 
                           const inviterPhone =
-                            invitation.invited_by_phone || "Secretary";
+                            group.invited_by_phone || "Secretary";
 
+                          // Build the card visuals.
                           let optionCard: SetupOption = {
                             id: "join_owner",
                             title: "Join as Apartment Owner",
@@ -1441,9 +1534,24 @@ export default function AddAccountScreen() {
                             };
                           }
 
+                          // If the group has multiple roles, override the
+                          // title and description so it reflects the fact
+                          // that BOTH roles will be granted at once.
+                          const isMultiRole = group.roles.length > 1;
+                          const displayTitle = isMultiRole
+                            ? `Join as ${group.roles.map(roleLabel).join(" + ")}`
+                            : optionCard.title;
+                          const displayDescription = isMultiRole
+                            ? `You'll be granted ${group.roles
+                                .map(roleLabel)
+                                .join(
+                                  " and ",
+                                )} access on this property at the same time.`
+                            : optionCard.description;
+
                           return (
                             <View
-                              key={invitation.id}
+                              key={group.key}
                               style={[
                                 styles.invitationCard,
                                 isOwnership && styles.invitationCardOwnership,
@@ -1464,26 +1572,53 @@ export default function AddAccountScreen() {
                                 </View>
                                 <View style={styles.invitationCardInfo}>
                                   <Text style={styles.invitationCardTitle}>
-                                    {optionCard.title}
+                                    {displayTitle}
                                   </Text>
                                   <View style={styles.invitationBadgeRow}>
-                                    <View
-                                      style={[
-                                        styles.invitationRoleBadge,
-                                        {
-                                          backgroundColor: optionCard.badgeBg,
-                                        },
-                                      ]}
-                                    >
-                                      <Text
-                                        style={[
-                                          styles.invitationRoleBadgeText,
-                                          { color: optionCard.badgeColor },
-                                        ]}
-                                      >
-                                        {optionCard.badge}
-                                      </Text>
-                                    </View>
+                                    {group.roles.map((r) => {
+                                      const meta =
+                                        r === "admin"
+                                          ? {
+                                              label: "Admin",
+                                              bg: "#e8f0fe",
+                                              color: "#1a73e8",
+                                            }
+                                          : r === "member_visibility"
+                                            ? {
+                                                label: "Member",
+                                                bg: "#f3e8ff",
+                                                color: "#7c3aed",
+                                              }
+                                            : r === "staff_visibility"
+                                              ? {
+                                                  label: "Staff",
+                                                  bg: "#ecfdf5",
+                                                  color: "#059669",
+                                                }
+                                              : {
+                                                  label: "Ownership",
+                                                  bg: "#fef3c7",
+                                                  color: "#b45309",
+                                                };
+                                      return (
+                                        <View
+                                          key={r}
+                                          style={[
+                                            styles.invitationRoleBadge,
+                                            { backgroundColor: meta.bg },
+                                          ]}
+                                        >
+                                          <Text
+                                            style={[
+                                              styles.invitationRoleBadgeText,
+                                              { color: meta.color },
+                                            ]}
+                                          >
+                                            {meta.label}
+                                          </Text>
+                                        </View>
+                                      );
+                                    })}
                                     <View style={styles.inviterPillSmall}>
                                       <Ionicons
                                         name="call"
@@ -1499,14 +1634,14 @@ export default function AddAccountScreen() {
                               </View>
 
                               <Text style={styles.invitationCardDescription}>
-                                {optionCard.description}
+                                {displayDescription}
                               </Text>
 
                               <View style={styles.invitationActions}>
                                 <TouchableOpacity
                                   style={styles.invitationRejectButton}
                                   onPress={() =>
-                                    setRejectingGrantId(invitation.id)
+                                    setRejectingGrantKey(group.key)
                                   }
                                   activeOpacity={0.7}
                                 >
@@ -1525,9 +1660,7 @@ export default function AddAccountScreen() {
                                     styles.invitationAcceptButton,
                                     { backgroundColor: optionCard.iconColor },
                                   ]}
-                                  onPress={() =>
-                                    showInvitationDetails(invitation)
-                                  }
+                                  onPress={() => showInvitationDetails(group)}
                                   activeOpacity={0.8}
                                 >
                                   <Text style={styles.invitationAcceptText}>
@@ -1803,14 +1936,14 @@ export default function AddAccountScreen() {
 
       {/* Reject Modal */}
       <Modal
-        visible={rejectingGrantId !== null}
+        visible={rejectingGrantKey !== null}
         transparent
         animationType="fade"
-        onRequestClose={() => setRejectingGrantId(null)}
+        onRequestClose={() => setRejectingGrantKey(null)}
       >
         <Pressable
           style={styles.modalBackdropCenter}
-          onPress={() => setRejectingGrantId(null)}
+          onPress={() => setRejectingGrantKey(null)}
         >
           <Pressable style={styles.modalCardCenter} onPress={() => {}}>
             <View style={styles.modalIconCircle}>
@@ -1819,14 +1952,23 @@ export default function AddAccountScreen() {
 
             <Text style={styles.modalTitle}>Reject Invitation?</Text>
             <Text style={styles.modalMessage}>
-              Are you sure you want to reject this invitation? You will no
-              longer be able to join this property using this invite.
+              {(() => {
+                const g = groupedInvitations.find(
+                  (x) => x.key === rejectingGrantKey,
+                );
+                if (g && g.roles.length > 1) {
+                  return `Are you sure you want to reject this invitation? You'll lose the ${g.roles
+                    .map(roleLabel)
+                    .join(" and ")} access for this property.`;
+                }
+                return "Are you sure you want to reject this invitation? You will no longer be able to join this property using this invite.";
+              })()}
             </Text>
 
             <View style={styles.modalButtonRow}>
               <TouchableOpacity
                 style={styles.modalCancelButton}
-                onPress={() => setRejectingGrantId(null)}
+                onPress={() => setRejectingGrantKey(null)}
                 activeOpacity={0.8}
               >
                 <Text style={styles.modalCancelText}>Cancel</Text>
@@ -1835,9 +1977,10 @@ export default function AddAccountScreen() {
               <TouchableOpacity
                 style={styles.modalConfirmButton}
                 onPress={() => {
-                  if (rejectingGrantId) {
-                    handleRejectInvite(rejectingGrantId);
-                  }
+                  const g = groupedInvitations.find(
+                    (x) => x.key === rejectingGrantKey,
+                  );
+                  if (g) handleRejectGroup(g);
                 }}
                 activeOpacity={0.8}
               >

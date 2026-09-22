@@ -415,10 +415,6 @@ export default function GrantAccessScreen() {
   const [contactsList, setContactsList] = useState<ContactData[]>([]);
   const [contactSearch, setContactSearch] = useState("");
 
-  // ── Blocked phones split into OWNER vs ADMIN ──
-  // Owner phones: the account's created_by. Blocked for every flow.
-  // Admin phones: active admins on this account. Blocked for admin/member/
-  //   staff invite flows, but ALLOWED as ownership targets.
   const [blockedOwnerPhones, setBlockedOwnerPhones] = useState<Set<string>>(
     new Set(),
   );
@@ -448,7 +444,6 @@ export default function GrantAccessScreen() {
 
   const [feedback, setFeedback] = useState<FeedbackState>(EMPTY_FEEDBACK);
 
-  // ── Continuation toggles for ownership transfer ──
   const [keepAdmin, setKeepAdmin] = useState(true);
   const [keepMember, setKeepMember] = useState(true);
   const [keepStaff, setKeepStaff] = useState(true);
@@ -578,7 +573,6 @@ export default function GrantAccessScreen() {
         const data = await res.json();
         const rows: ApiInvitation[] = data?.invitations ?? [];
 
-        // NEW split arrays (fall back to combined for backward compat)
         const rawOwner: string[] = Array.isArray(data?.owner_phones)
           ? data.owner_phones
           : [];
@@ -648,8 +642,6 @@ export default function GrantAccessScreen() {
     };
   }, [accountId]);
 
-  // Helper — is a phone blocked by owner OR admin? Used for admin/member/
-  // staff invite flows (an owner OR existing admin cannot be re-invited).
   const isOwnerOrAdminBlocked = (ten: string) =>
     blockedOwnerPhones.has(ten) || blockedAdminPhones.has(ten);
 
@@ -691,8 +683,6 @@ export default function GrantAccessScreen() {
     pendingAdminPhones,
   ]);
 
-  // ── Ownership candidates: admins ARE allowed; only the OWNER and anyone
-  //    with a pending ownership transfer are excluded. ──
   const ownershipCandidates = useMemo(() => {
     if (!invitationsReady) return [];
     return apartmentPeople.filter((p) => {
@@ -783,7 +773,6 @@ export default function GrantAccessScreen() {
       ? phone
       : "";
 
-  // ── Phone lookup — the "owner_or_admin" case is now SPLIT ──
   const phoneLookup = useMemo<{
     matched: boolean;
     existingName: string;
@@ -820,7 +809,6 @@ export default function GrantAccessScreen() {
       };
     }
 
-    // Owner — blocked in every flow.
     if (blockedOwnerPhones.has(typedPhone10)) {
       return {
         matched: true,
@@ -831,8 +819,6 @@ export default function GrantAccessScreen() {
       };
     }
 
-    // Admin — blocked only for admin/member/staff invite flows.
-    // For ownership transfer, an admin IS a valid target — skip.
     if (blockedAdminPhones.has(typedPhone10) && !isOwnershipFlow) {
       return {
         matched: true,
@@ -1441,8 +1427,6 @@ export default function GrantAccessScreen() {
         return;
       }
 
-      // Admin is a blocker for regular admin/member/staff invites.
-      // For ownership transfer, admins are valid targets — skip the warning.
       if (src === "admin" && !isOwnershipFlow) {
         showFeedback({
           tone: "warning",
@@ -1486,11 +1470,29 @@ export default function GrantAccessScreen() {
             return;
           }
 
+          // ── FIX: detect member ↔ staff coexist swap ──
+          const LOWER_ROLE_KEYS = new Set<InvitationRole>([
+            "member_visibility",
+            "staff_visibility",
+          ]);
+
+          const isCoexistSwap =
+            pendingRole !== requestedRole &&
+            LOWER_ROLE_KEYS.has(pendingRole) &&
+            LOWER_ROLE_KEYS.has(requestedRole);
+
           const pendingRank = ROLE_RANK[pendingRole];
           const requestedRank = ROLE_RANK[requestedRole];
 
           let actionLine: string;
-          if (requestedRank > pendingRank) {
+          if (isCoexistSwap) {
+            // ── FIX: correct wording — both roles will coexist ──
+            actionLine = `The existing ${roleLabelLower(
+              pendingRole,
+            )} stays, and a new ${roleLabelLower(
+              requestedRole,
+            )} will be sent — this person will hold both roles at the same time.`;
+          } else if (requestedRank > pendingRank) {
             actionLine = `Granting ${roleLabelLower(
               requestedRole,
             )} will upgrade the pending ${roleLabelLower(
@@ -1510,12 +1512,15 @@ export default function GrantAccessScreen() {
 
           const confirmed = await new Promise<boolean>((resolve) => {
             showFeedback({
+              // ── FIX: contextual title/label for the coexist case ──
               tone: "info",
-              title: "Invitation already pending",
+              title: isCoexistSwap
+                ? "Add another role"
+                : "Invitation already pending",
               message: `+91${phone} already has a pending ${roleLabelLower(
                 pendingRole,
               )}. ${actionLine}`,
-              primaryLabel: "Grant",
+              primaryLabel: isCoexistSwap ? "Add" : "Grant",
               primaryTone: "primary",
               onPrimaryPress: () => resolve(true),
               secondaryLabel: "Cancel",
@@ -1677,7 +1682,6 @@ export default function GrantAccessScreen() {
       const recipientName = name.trim();
       const cleanPhone = phone.replace(/[^0-9]/g, "").slice(-10);
 
-      // Owner is a hard block for ownership transfer.
       if (isOwnershipFlow && blockedOwnerPhones.has(cleanPhone)) {
         showFeedback({
           tone: "warning",
@@ -1730,7 +1734,6 @@ export default function GrantAccessScreen() {
       const person = apartmentPeople.find((p) => p.id === personId);
       if (!person) continue;
 
-      // Owner is a hard block; admins are allowed for ownership transfer.
       if (isOwnershipFlow && blockedOwnerPhones.has(person.phone)) {
         showFeedback({
           tone: "warning",
@@ -2424,7 +2427,6 @@ export default function GrantAccessScreen() {
               </View>
             ) : null}
 
-            {/* AFTER TRANSFER — shows for BOTH new & existing sources */}
             {renderAfterTransferSection()}
 
             {!isVisibilityFlow && !isStaffFlow && source === "existing" ? (
