@@ -357,6 +357,16 @@ function ToggleSwitch({
   );
 }
 
+// Admin records returned by the backend, used to source ownership
+// candidates that don't have a `members` row (e.g. an old owner who kept
+// only the `admin` role).
+interface AdminRecord {
+  user_id: string;
+  name: string;
+  phone: string;
+  photo_url: string | null;
+}
+
 export default function GrantAccessScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -439,6 +449,10 @@ export default function GrantAccessScreen() {
   const [pendingStaffPhones, setPendingStaffPhones] = useState<Set<string>>(
     new Set(),
   );
+
+  // Full admin records (user_id, name, phone, photo_url).
+  // Used to source ownership candidates that don't have a `members` row.
+  const [adminRecords, setAdminRecords] = useState<AdminRecord[]>([]);
 
   const [invitationsReady, setInvitationsReady] = useState(false);
 
@@ -620,6 +634,22 @@ export default function GrantAccessScreen() {
           else if (inv.role === "staff_visibility") pendStaff.add(ten);
         }
 
+        // Parse the new `admins` array.
+        const rawAdminRecords: any[] = Array.isArray(data?.admins)
+          ? data.admins
+          : [];
+        const adminRecs: AdminRecord[] = rawAdminRecords
+          .map((r: any) => ({
+            user_id: String(r?.user_id ?? ""),
+            name: String(r?.name ?? ""),
+            phone: normalizePhone(r?.phone),
+            photo_url:
+              typeof r?.photo_url === "string" && r.photo_url.length > 0
+                ? r.photo_url
+                : null,
+          }))
+          .filter((r) => r.user_id && r.phone.length === 10);
+
         if (!cancelled) {
           setBlockedOwnerPhones(ownerSet);
           setBlockedAdminPhones(adminSet);
@@ -629,6 +659,7 @@ export default function GrantAccessScreen() {
           setPendingOwnershipPhones(pendOwnership);
           setPendingMemberPhones(pendMember);
           setPendingStaffPhones(pendStaff);
+          setAdminRecords(adminRecs);
         }
       } catch (e) {
         console.warn("[grant-access] invitation load failed:", e);
@@ -641,9 +672,6 @@ export default function GrantAccessScreen() {
       cancelled = true;
     };
   }, [accountId]);
-
-  const isOwnerOrAdminBlocked = (ten: string) =>
-    blockedOwnerPhones.has(ten) || blockedAdminPhones.has(ten);
 
   const visibilityCandidates = useMemo(() => {
     if (!invitationsReady) return [];
@@ -683,9 +711,43 @@ export default function GrantAccessScreen() {
     pendingAdminPhones,
   ]);
 
+  // ── Ownership candidates: members ∪ admins, deduped ──
+  //
+  // Sources:
+  //   1. apartmentPeople  — everyone with a `members` row.
+  //   2. adminRecords     — active admins from account_members.
+  //
+  // Rules:
+  //   • Exclude the current owner (blockedOwnerPhones).
+  //   • Exclude anyone with a pending ownership invite.
+  //   • DO NOT exclude admins — being admin is not a blocker for ownership.
+  //
+  // Dedup key matches the one used by apartmentPeople (`u:<userId>` or
+  // `p:<phone>`) so the ownership picker never shows the same person twice.
   const ownershipCandidates = useMemo(() => {
     if (!invitationsReady) return [];
-    return apartmentPeople.filter((p) => {
+
+    const memberUserIds = new Set(
+      apartmentPeople.map((p) => p.userId).filter(Boolean) as string[],
+    );
+    const memberPhones = new Set(apartmentPeople.map((p) => p.phone));
+
+    const adminOnlyCandidates: GroupedPerson[] = adminRecords
+      .filter((a) => !memberUserIds.has(a.user_id))
+      .filter((a) => !memberPhones.has(a.phone))
+      .map((a) => ({
+        id: `u:${a.user_id}`,
+        userId: a.user_id,
+        phone: a.phone,
+        name: a.name || "Admin",
+        photoUri: a.photo_url,
+        memberIds: [],
+        memberSummary: "",
+        staffIds: [],
+        staffSummary: "",
+      }));
+
+    return [...apartmentPeople, ...adminOnlyCandidates].filter((p) => {
       if (!p.phone) return false;
       if (blockedOwnerPhones.has(p.phone)) return false;
       if (pendingOwnershipPhones.has(p.phone)) return false;
@@ -694,6 +756,7 @@ export default function GrantAccessScreen() {
   }, [
     invitationsReady,
     apartmentPeople,
+    adminRecords,
     blockedOwnerPhones,
     pendingOwnershipPhones,
   ]);
@@ -1470,7 +1533,6 @@ export default function GrantAccessScreen() {
             return;
           }
 
-          // ── FIX: detect member ↔ staff coexist swap ──
           const LOWER_ROLE_KEYS = new Set<InvitationRole>([
             "member_visibility",
             "staff_visibility",
@@ -1486,7 +1548,6 @@ export default function GrantAccessScreen() {
 
           let actionLine: string;
           if (isCoexistSwap) {
-            // ── FIX: correct wording — both roles will coexist ──
             actionLine = `The existing ${roleLabelLower(
               pendingRole,
             )} stays, and a new ${roleLabelLower(
@@ -1512,7 +1573,6 @@ export default function GrantAccessScreen() {
 
           const confirmed = await new Promise<boolean>((resolve) => {
             showFeedback({
-              // ── FIX: contextual title/label for the coexist case ──
               tone: "info",
               title: isCoexistSwap
                 ? "Add another role"
@@ -1731,7 +1791,12 @@ export default function GrantAccessScreen() {
     }
     let allOk = true;
     for (const personId of selectedMemberIds) {
-      const person = apartmentPeople.find((p) => p.id === personId);
+      // FIX: for ownership flow, resolve from members ∪ admins.
+      const person =
+        apartmentPeople.find((p) => p.id === personId) ??
+        (isOwnershipFlow
+          ? ownershipCandidates.find((p) => p.id === personId)
+          : undefined);
       if (!person) continue;
 
       if (isOwnershipFlow && blockedOwnerPhones.has(person.phone)) {
