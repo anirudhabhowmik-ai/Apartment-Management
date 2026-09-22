@@ -17,6 +17,7 @@ import {
   Platform,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -33,7 +34,6 @@ import {
 import { useMembers, useStaff } from "../../hooks/useManagement";
 import { useAccountStore } from "../../store/accountStore";
 import { useAuthStore } from "../../store/useAuthStore";
-import type { AccountAccessRole } from "../../types";
 import { ACCESS_ROLE_LABEL } from "../../types";
 
 const API_URL = (process.env.EXPO_PUBLIC_API_URL ?? "").replace(
@@ -43,6 +43,18 @@ const API_URL = (process.env.EXPO_PUBLIC_API_URL ?? "").replace(
 
 type RecipientSource = "new" | "existing";
 type MemberType = "owner" | "ownership" | "staff";
+
+type InvitationRole =
+  | "admin"
+  | "member_visibility"
+  | "staff_visibility"
+  | "ownership_transfer";
+
+type AccessRoleKey =
+  | "owner"
+  | "admin"
+  | "member_visibility"
+  | "staff_visibility";
 
 interface ContactData {
   id: string;
@@ -70,7 +82,6 @@ type PreflightResult =
   | { ok: true; data: PreflightResponse }
   | { ok: false; message: string };
 
-type InvitationRole = "admin" | "member_visibility" | "staff_visibility";
 type InvitationStatus =
   | "pending"
   | "accepted"
@@ -84,7 +95,35 @@ interface ApiInvitation {
   invited_phone: string;
   role: InvitationRole;
   status: InvitationStatus;
+  invited_name?: string | null;
 }
+
+type PhoneMatchSource =
+  | ""
+  | "owner"
+  | "admin"
+  | "pending_admin"
+  | "pending_ownership"
+  | "pending_member"
+  | "pending_staff"
+  | "member"
+  | "staff"
+  | "both";
+
+const ROLE_RANK: Record<InvitationRole, number> = {
+  member_visibility: 1,
+  staff_visibility: 1,
+  admin: 2,
+  ownership_transfer: 3,
+};
+
+const roleLabelLower = (r: InvitationRole | null): string => {
+  if (r === "ownership_transfer") return "ownership transfer";
+  if (r === "admin") return "admin invitation";
+  if (r === "staff_visibility") return "staff invitation";
+  if (r === "member_visibility") return "member invitation";
+  return "invitation";
+};
 
 const normalizePhone = (raw?: string | null): string => {
   if (!raw) return "";
@@ -165,14 +204,6 @@ const FEEDBACK_TONE_META: Record<
     iconBg: "#DBEAFE",
   },
 };
-
-// ─── Person-level grouping ─────────────────────────────────────────────
-//
-// The backend returns one row per flat (members) or per role (staff). A
-// single person can hold multiple flats/roles, so they appear more than
-// once. For granting access we only care about the person, so we collapse
-// rows by (userId || normalized phone) into one entry that carries a
-// summary of every flat / role they hold.
 
 interface GroupedPerson {
   id: string;
@@ -293,17 +324,68 @@ function groupStaffByPerson(rows: any[]): GroupedPerson[] {
   return grouped;
 }
 
+// ============================================================================
+// Toggle Switch component
+// ============================================================================
+
+interface ToggleSwitchProps {
+  value: boolean;
+  onValueChange: (next: boolean) => void;
+  disabled?: boolean;
+  trackColorOn?: string;
+  trackColorOff?: string;
+  thumbColor?: string;
+}
+
+function ToggleSwitch({
+  value,
+  onValueChange,
+  disabled = false,
+  trackColorOn = "#2563EB",
+  trackColorOff = "#CBD5E1",
+  thumbColor = "#FFFFFF",
+}: ToggleSwitchProps) {
+  return (
+    <Switch
+      value={value}
+      onValueChange={onValueChange}
+      disabled={disabled}
+      trackColor={{ false: trackColorOff, true: trackColorOn }}
+      thumbColor={thumbColor}
+      ios_backgroundColor={trackColorOff}
+    />
+  );
+}
+
 export default function GrantAccessScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
   const currentUser = useAuthStore((state) => state.user);
 
-  const { accountId, role, memberType } = useLocalSearchParams<{
+  const {
+    accountId,
+    role: roleParamRaw,
+    memberType,
+  } = useLocalSearchParams<{
     accountId: string;
-    role: AccountAccessRole;
+    role: string;
     memberType?: MemberType;
   }>();
+
+  const role: InvitationRole =
+    (roleParamRaw as InvitationRole | undefined) ?? "member_visibility";
+
+  const roleSafe: InvitationRole = role;
+
+  const getRole = (): InvitationRole => roleSafe;
+
+  const accessKey: AccessRoleKey =
+    getRole() === "admin"
+      ? "admin"
+      : getRole() === "staff_visibility"
+        ? "staff_visibility"
+        : "member_visibility";
 
   const accounts = useAccountStore((state) => state.accounts);
   const account = accounts.find((a) => a.id === accountId);
@@ -333,6 +415,13 @@ export default function GrantAccessScreen() {
   const [contactsList, setContactsList] = useState<ContactData[]>([]);
   const [contactSearch, setContactSearch] = useState("");
 
+  // ── Blocked phones split into OWNER vs ADMIN ──
+  // Owner phones: the account's created_by. Blocked for every flow.
+  // Admin phones: active admins on this account. Blocked for admin/member/
+  //   staff invite flows, but ALLOWED as ownership targets.
+  const [blockedOwnerPhones, setBlockedOwnerPhones] = useState<Set<string>>(
+    new Set(),
+  );
   const [blockedAdminPhones, setBlockedAdminPhones] = useState<Set<string>>(
     new Set(),
   );
@@ -342,12 +431,27 @@ export default function GrantAccessScreen() {
   const [blockedStaffPhones, setBlockedStaffPhones] = useState<Set<string>>(
     new Set(),
   );
+  const [pendingAdminPhones, setPendingAdminPhones] = useState<Set<string>>(
+    new Set(),
+  );
+  const [pendingOwnershipPhones, setPendingOwnershipPhones] = useState<
+    Set<string>
+  >(new Set());
+  const [pendingMemberPhones, setPendingMemberPhones] = useState<Set<string>>(
+    new Set(),
+  );
+  const [pendingStaffPhones, setPendingStaffPhones] = useState<Set<string>>(
+    new Set(),
+  );
 
-  // Gate: nothing in the candidate list renders until we know who is
-  // already blocked (owner / active admins / pending invites).
   const [invitationsReady, setInvitationsReady] = useState(false);
 
   const [feedback, setFeedback] = useState<FeedbackState>(EMPTY_FEEDBACK);
+
+  // ── Continuation toggles for ownership transfer ──
+  const [keepAdmin, setKeepAdmin] = useState(true);
+  const [keepMember, setKeepMember] = useState(true);
+  const [keepStaff, setKeepStaff] = useState(true);
 
   const showFeedback = (next: Omit<FeedbackState, "visible">) => {
     setFeedback({ ...next, visible: true });
@@ -372,17 +476,17 @@ export default function GrantAccessScreen() {
   const listsReady = !membersLoading && !staffLoading;
   const pageReady = listsReady && invitationsReady;
 
-  // ============================================================
-  // FLOW
-  // ============================================================
+  const isOwnershipFlow =
+    memberType === "ownership" || getRole() === "ownership_transfer";
 
-  const isOwnershipFlow = memberType === "ownership";
-  const isStaffFlow = memberType === "staff" || role === "staff_visibility";
+  const isStaffFlow =
+    !isOwnershipFlow &&
+    (memberType === "staff" || getRole() === "staff_visibility");
 
   const isVisibilityFlow =
     !isOwnershipFlow &&
     !isStaffFlow &&
-    (memberType === "owner" || role === "member_visibility");
+    (memberType === "owner" || getRole() === "member_visibility");
 
   const visibilityTitle = isStaffFlow
     ? "Manage Staff Visibility"
@@ -392,11 +496,39 @@ export default function GrantAccessScreen() {
     ? "Ownership"
     : isStaffFlow
       ? ACCESS_ROLE_LABEL["staff_visibility"]
-      : ACCESS_ROLE_LABEL[role || "member_visibility"];
+      : ACCESS_ROLE_LABEL[accessKey];
 
-  // ============================================================
-  // MEMBERS / STAFF ROWS → GROUP BY PERSON
-  // ============================================================
+  const introTitle = isStaffFlow
+    ? visibilityTitle
+    : isVisibilityFlow
+      ? visibilityTitle
+      : isOwnershipFlow
+        ? "Transfer account ownership"
+        : `Grant ${title} access`;
+
+  const introDescription = isStaffFlow
+    ? "Select one or more staff members to grant visibility access."
+    : isVisibilityFlow
+      ? "Select one or more apartment owners to grant visibility access."
+      : isOwnershipFlow
+        ? "Transfer full ownership of this account to another person. They will become the new owner after accepting."
+        : "Choose who should receive access to this account.";
+
+  const introIcon: keyof typeof Ionicons.glyphMap = isStaffFlow
+    ? "briefcase-outline"
+    : isVisibilityFlow
+      ? "person-add-outline"
+      : isOwnershipFlow
+        ? "swap-horizontal-outline"
+        : "shield-checkmark-outline";
+
+  const saveLabel = isStaffFlow
+    ? `Grant ${visibilityTitle.replace("Manage ", "")}`
+    : isVisibilityFlow
+      ? `Grant ${visibilityTitle.replace("Manage ", "")}`
+      : isOwnershipFlow
+        ? "Transfer account ownership"
+        : `Grant ${title} Access`;
 
   const apartmentRowsActive = useMemo(
     () => rawApartmentMembers.filter(isActiveRow),
@@ -418,7 +550,6 @@ export default function GrantAccessScreen() {
     [staffRowsActive],
   );
 
-  // ── Invitations fetch — populates the blocked-phone sets ──
   useEffect(() => {
     let cancelled = false;
 
@@ -446,32 +577,64 @@ export default function GrantAccessScreen() {
         }
         const data = await res.json();
         const rows: ApiInvitation[] = data?.invitations ?? [];
-        const excluded: string[] = Array.isArray(data?.excluded_phones)
-          ? data.excluded_phones
+
+        // NEW split arrays (fall back to combined for backward compat)
+        const rawOwner: string[] = Array.isArray(data?.owner_phones)
+          ? data.owner_phones
           : [];
+        const rawAdmin: string[] = Array.isArray(data?.admin_phones)
+          ? data.admin_phones
+          : Array.isArray(data?.excluded_phones)
+            ? data.excluded_phones
+            : [];
 
-        const adminSet = new Set<string>();
-        const memberSet = new Set<string>();
-        const staffSet = new Set<string>();
-
-        for (const inv of rows) {
-          if (inv.status !== "pending" && inv.status !== "accepted") continue;
-          const ten = normalizePhone(inv.invited_phone);
-          if (!ten) continue;
-          if (inv.role === "admin") adminSet.add(ten);
-          else if (inv.role === "member_visibility") memberSet.add(ten);
-          else if (inv.role === "staff_visibility") staffSet.add(ten);
+        const ownerSet = new Set<string>();
+        for (const p of rawOwner) {
+          const ten = normalizePhone(p);
+          if (ten) ownerSet.add(ten);
         }
 
-        for (const p of excluded) {
+        const adminSet = new Set<string>();
+        for (const p of rawAdmin) {
           const ten = normalizePhone(p);
           if (ten) adminSet.add(ten);
         }
 
+        const memberSet = new Set<string>();
+        const staffSet = new Set<string>();
+
+        const pendAdmin = new Set<string>();
+        const pendOwnership = new Set<string>();
+        const pendMember = new Set<string>();
+        const pendStaff = new Set<string>();
+
+        for (const inv of rows) {
+          const ten = normalizePhone(inv.invited_phone);
+          if (!ten) continue;
+
+          if (inv.status === "accepted") {
+            if (inv.role === "member_visibility") memberSet.add(ten);
+            else if (inv.role === "staff_visibility") staffSet.add(ten);
+            continue;
+          }
+
+          if (inv.status !== "pending") continue;
+
+          if (inv.role === "admin") pendAdmin.add(ten);
+          else if (inv.role === "ownership_transfer") pendOwnership.add(ten);
+          else if (inv.role === "member_visibility") pendMember.add(ten);
+          else if (inv.role === "staff_visibility") pendStaff.add(ten);
+        }
+
         if (!cancelled) {
+          setBlockedOwnerPhones(ownerSet);
           setBlockedAdminPhones(adminSet);
           setBlockedMemberPhones(memberSet);
           setBlockedStaffPhones(staffSet);
+          setPendingAdminPhones(pendAdmin);
+          setPendingOwnershipPhones(pendOwnership);
+          setPendingMemberPhones(pendMember);
+          setPendingStaffPhones(pendStaff);
         }
       } catch (e) {
         console.warn("[grant-access] invitation load failed:", e);
@@ -485,9 +648,10 @@ export default function GrantAccessScreen() {
     };
   }, [accountId]);
 
-  // ── Candidate lists ──
-  // Each returns an EMPTY array while invitations haven't loaded, so
-  // nothing flashes on screen before the block sets are known.
+  // Helper — is a phone blocked by owner OR admin? Used for admin/member/
+  // staff invite flows (an owner OR existing admin cannot be re-invited).
+  const isOwnerOrAdminBlocked = (ten: string) =>
+    blockedOwnerPhones.has(ten) || blockedAdminPhones.has(ten);
 
   const visibilityCandidates = useMemo(() => {
     if (!invitationsReady) return [];
@@ -495,32 +659,66 @@ export default function GrantAccessScreen() {
     return apartmentPeople.filter((p) => {
       if (!p.phone) return false;
       if (blockedMemberPhones.has(p.phone)) return false;
+      if (blockedOwnerPhones.has(p.phone)) return false;
       if (blockedAdminPhones.has(p.phone)) return false;
+      if (pendingMemberPhones.has(p.phone)) return false;
       return true;
     });
   }, [
     invitationsReady,
     apartmentPeople,
     blockedMemberPhones,
+    blockedOwnerPhones,
     blockedAdminPhones,
+    pendingMemberPhones,
     isVisibilityFlow,
   ]);
 
   const adminCandidates = useMemo(() => {
     if (!invitationsReady) return [];
     return apartmentPeople.filter((p) => {
-      return p.phone.length > 0 && !blockedAdminPhones.has(p.phone);
+      if (!p.phone) return false;
+      if (blockedOwnerPhones.has(p.phone)) return false;
+      if (blockedAdminPhones.has(p.phone)) return false;
+      if (pendingAdminPhones.has(p.phone)) return false;
+      return true;
     });
-  }, [invitationsReady, apartmentPeople, blockedAdminPhones]);
+  }, [
+    invitationsReady,
+    apartmentPeople,
+    blockedOwnerPhones,
+    blockedAdminPhones,
+    pendingAdminPhones,
+  ]);
+
+  // ── Ownership candidates: admins ARE allowed; only the OWNER and anyone
+  //    with a pending ownership transfer are excluded. ──
+  const ownershipCandidates = useMemo(() => {
+    if (!invitationsReady) return [];
+    return apartmentPeople.filter((p) => {
+      if (!p.phone) return false;
+      if (blockedOwnerPhones.has(p.phone)) return false;
+      if (pendingOwnershipPhones.has(p.phone)) return false;
+      return true;
+    });
+  }, [
+    invitationsReady,
+    apartmentPeople,
+    blockedOwnerPhones,
+    pendingOwnershipPhones,
+  ]);
 
   const activeMembers = useMemo(() => {
     if (isVisibilityFlow) return visibilityCandidates;
+    if (isOwnershipFlow) return ownershipCandidates;
     if (!isVisibilityFlow && !isStaffFlow) return adminCandidates;
     return apartmentPeople;
   }, [
     isVisibilityFlow,
+    isOwnershipFlow,
     isStaffFlow,
     visibilityCandidates,
+    ownershipCandidates,
     adminCandidates,
     apartmentPeople,
   ]);
@@ -531,14 +729,18 @@ export default function GrantAccessScreen() {
     return staffPeople.filter((p) => {
       if (!p.phone) return false;
       if (blockedStaffPhones.has(p.phone)) return false;
+      if (blockedOwnerPhones.has(p.phone)) return false;
       if (blockedAdminPhones.has(p.phone)) return false;
+      if (pendingStaffPhones.has(p.phone)) return false;
       return true;
     });
   }, [
     invitationsReady,
     staffPeople,
     blockedStaffPhones,
+    blockedOwnerPhones,
     blockedAdminPhones,
+    pendingStaffPhones,
     isStaffFlow,
   ]);
 
@@ -548,6 +750,21 @@ export default function GrantAccessScreen() {
     if (!mine) return null;
     return apartmentPeople.find((p) => p.phone === mine) ?? null;
   }, [currentUser?.phone, apartmentPeople]);
+
+  const currentUserStaff = useMemo(() => {
+    if (!currentUser?.phone) return null;
+    const mine = normalizePhone(currentUser.phone);
+    if (!mine) return null;
+    return staffPeople.find((p) => p.phone === mine) ?? null;
+  }, [currentUser?.phone, staffPeople]);
+
+  useEffect(() => {
+    if (isOwnershipFlow) {
+      setKeepAdmin(true);
+      setKeepMember(true);
+      setKeepStaff(true);
+    }
+  }, [isOwnershipFlow]);
 
   const isAccountCreator =
     !!account && !!currentUser && account.ownerId === currentUser.id;
@@ -561,21 +778,26 @@ export default function GrantAccessScreen() {
 
   const inviterPhone = currentUser?.phone || "";
 
-  // ============================================================
-  // LIVE PHONE LOOKUP — gated on invitationsReady
-  // ============================================================
-
   const typedPhone10 =
     source === "new" && !isVisibilityFlow && !isStaffFlow && phone.length === 10
       ? phone
       : "";
 
-  const phoneLookup = useMemo(() => {
+  // ── Phone lookup — the "owner_or_admin" case is now SPLIT ──
+  const phoneLookup = useMemo<{
+    matched: boolean;
+    existingName: string;
+    existingKind: "" | "member" | "staff" | "both";
+    source: PhoneMatchSource;
+    pendingRole: InvitationRole | null;
+  }>(() => {
     if (!invitationsReady || !typedPhone10) {
       return {
-        matched: false as const,
+        matched: false,
         existingName: "",
-        existingKind: "" as "" | "member" | "staff" | "both",
+        existingKind: "",
+        source: "",
+        pendingRole: null,
       };
     }
 
@@ -584,29 +806,100 @@ export default function GrantAccessScreen() {
     const staffMatch =
       staffPeople.find((p) => p.phone === typedPhone10) ?? null;
 
-    if (!memberMatch && !staffMatch) {
+    if (memberMatch || staffMatch) {
+      const kind: "member" | "staff" | "both" =
+        memberMatch && staffMatch ? "both" : memberMatch ? "member" : "staff";
+      const existingName =
+        memberMatch?.name?.trim() || staffMatch?.name?.trim() || "";
       return {
-        matched: false as const,
-        existingName: "",
-        existingKind: "" as "" | "member" | "staff" | "both",
+        matched: true,
+        existingName,
+        existingKind: kind,
+        source: kind,
+        pendingRole: null,
       };
     }
 
-    const kind: "member" | "staff" | "both" =
-      memberMatch && staffMatch ? "both" : memberMatch ? "member" : "staff";
-    const existingName =
-      memberMatch?.name?.trim() || staffMatch?.name?.trim() || "";
+    // Owner — blocked in every flow.
+    if (blockedOwnerPhones.has(typedPhone10)) {
+      return {
+        matched: true,
+        existingName: "",
+        existingKind: "member",
+        source: "owner",
+        pendingRole: null,
+      };
+    }
+
+    // Admin — blocked only for admin/member/staff invite flows.
+    // For ownership transfer, an admin IS a valid target — skip.
+    if (blockedAdminPhones.has(typedPhone10) && !isOwnershipFlow) {
+      return {
+        matched: true,
+        existingName: "",
+        existingKind: "member",
+        source: "admin",
+        pendingRole: null,
+      };
+    }
+
+    if (pendingOwnershipPhones.has(typedPhone10)) {
+      return {
+        matched: true,
+        existingName: "",
+        existingKind: "member",
+        source: "pending_ownership",
+        pendingRole: "ownership_transfer",
+      };
+    }
+    if (pendingAdminPhones.has(typedPhone10)) {
+      return {
+        matched: true,
+        existingName: "",
+        existingKind: "member",
+        source: "pending_admin",
+        pendingRole: "admin",
+      };
+    }
+    if (pendingMemberPhones.has(typedPhone10)) {
+      return {
+        matched: true,
+        existingName: "",
+        existingKind: "member",
+        source: "pending_member",
+        pendingRole: "member_visibility",
+      };
+    }
+    if (pendingStaffPhones.has(typedPhone10)) {
+      return {
+        matched: true,
+        existingName: "",
+        existingKind: "staff",
+        source: "pending_staff",
+        pendingRole: "staff_visibility",
+      };
+    }
 
     return {
-      matched: true as const,
-      existingName,
-      existingKind: kind,
+      matched: false,
+      existingName: "",
+      existingKind: "",
+      source: "",
+      pendingRole: null,
     };
-  }, [invitationsReady, typedPhone10, apartmentPeople, staffPeople]);
-
-  // ============================================================
-  // SEARCH
-  // ============================================================
+  }, [
+    invitationsReady,
+    typedPhone10,
+    apartmentPeople,
+    staffPeople,
+    blockedOwnerPhones,
+    blockedAdminPhones,
+    pendingOwnershipPhones,
+    pendingAdminPhones,
+    pendingMemberPhones,
+    pendingStaffPhones,
+    isOwnershipFlow,
+  ]);
 
   const searchLower = search.trim().toLowerCase();
 
@@ -707,10 +1000,6 @@ export default function GrantAccessScreen() {
     setError("");
   };
 
-  // ============================================================
-  // API HELPERS
-  // ============================================================
-
   const getAuthToken = async (): Promise<string | null> => {
     try {
       return await SecureStore.getItemAsync("auth_token");
@@ -721,7 +1010,7 @@ export default function GrantAccessScreen() {
 
   const callPreflight = async (
     targetPhone: string,
-    targetRole: AccountAccessRole,
+    targetRole: InvitationRole,
   ): Promise<PreflightResult> => {
     const token = await getAuthToken();
     if (!token) {
@@ -765,10 +1054,12 @@ export default function GrantAccessScreen() {
   const callCreateInvitation = async (payload: {
     phone: string;
     name?: string;
-    role: AccountAccessRole;
+    role: InvitationRole;
     targetMemberId?: string;
     targetStaffId?: string;
-  }): Promise<{ ok: boolean; message?: string }> => {
+    isOwnershipTransfer?: boolean;
+    predecessorContinuationRoles?: InvitationRole[];
+  }): Promise<{ ok: boolean; message?: string; code?: string }> => {
     const token = await getAuthToken();
     if (!token) return { ok: false, message: "Not signed in" };
     try {
@@ -791,6 +1082,10 @@ export default function GrantAccessScreen() {
       }
 
       if (!res.ok) {
+        if (res.status === 409) {
+          const code = String(data?.code ?? "").toLowerCase();
+          return { ok: false, code };
+        }
         const backendMessage =
           data?.message ?? data?.error ?? "(no message from server)";
         return {
@@ -850,16 +1145,14 @@ export default function GrantAccessScreen() {
     }
   };
 
-  // ============================================================
-  // ALERT DRIVER
-  // ============================================================
-
   const sendInviteWithAlerts = async (opts: {
     phone: string;
     name?: string;
-    role: AccountAccessRole;
+    role: InvitationRole;
     targetMemberId?: string;
     targetStaffId?: string;
+    isOwnershipTransfer?: boolean;
+    predecessorContinuationRoles?: InvitationRole[];
   }): Promise<boolean> => {
     const preResult = await callPreflight(opts.phone, opts.role);
 
@@ -877,9 +1170,55 @@ export default function GrantAccessScreen() {
 
     const doSend = async (): Promise<boolean> => {
       setSubmitting(true);
-      const result = await callCreateInvitation(opts);
+      const result = await callCreateInvitation({
+        phone: opts.phone,
+        name: opts.name,
+        role: opts.role,
+        targetMemberId: opts.targetMemberId,
+        targetStaffId: opts.targetStaffId,
+        isOwnershipTransfer: opts.isOwnershipTransfer,
+        predecessorContinuationRoles: opts.predecessorContinuationRoles,
+      });
       setSubmitting(false);
       if (!result.ok) {
+        if (result.code === "ownership_pending_other") {
+          showFeedback({
+            tone: "warning",
+            title: "Another ownership request is pending",
+            message:
+              "There is already a pending ownership transfer request to a different number on this account. Delete that request first, then send this one.",
+            primaryLabel: "OK",
+          });
+          return false;
+        }
+        if (result.code === "pending_ownership") {
+          showFeedback({
+            tone: "warning",
+            title: "Ownership request already pending",
+            message: `An ownership transfer request is already pending for +91${opts.phone}. It must be accepted or deleted from the account profile before sending a new one.`,
+            primaryLabel: "OK",
+          });
+          return false;
+        }
+        if (result.code === "pending_admin") {
+          showFeedback({
+            tone: "warning",
+            title: "Admin invitation already pending",
+            message: `An admin invitation is already pending for +91${opts.phone}. It must be accepted or deleted from the account profile before sending a new one.`,
+            primaryLabel: "OK",
+          });
+          return false;
+        }
+        if (result.code === "pending") {
+          showFeedback({
+            tone: "warning",
+            title: "Invitation already pending",
+            message: `An invitation is already pending for +91${opts.phone}. It must be accepted or deleted from the account profile before sending a new one.`,
+            primaryLabel: "OK",
+          });
+          return false;
+        }
+
         showFeedback({
           tone: "error",
           title: "Send failed",
@@ -891,12 +1230,18 @@ export default function GrantAccessScreen() {
       return true;
     };
 
+    const isOwnership = opts.isOwnershipTransfer === true;
+
     switch (pre.kind) {
       case "self":
         showFeedback({
           tone: "warning",
-          title: "This number belongs to the owner",
-          message: `+91${opts.phone} is the owner's number. The owner already has full access to this account, so no invitation is needed.`,
+          title: isOwnership
+            ? "This is the current owner"
+            : "This number belongs to the owner",
+          message: isOwnership
+            ? `+91${opts.phone} is the current owner of this account. Ownership cannot be transferred to the same person.`
+            : `+91${opts.phone} is the owner's number. The owner already has full access to this account, so no invitation is needed.`,
           primaryLabel: "OK",
         });
         return false;
@@ -932,7 +1277,7 @@ export default function GrantAccessScreen() {
         showFeedback({
           tone: "warning",
           title: "Invitation already pending",
-          message: `An invitation for +91${opts.phone} is already pending. Delete it from the profile screen first if you want to send a new one.`,
+          message: `An invitation is already pending for +91${opts.phone}. It must be accepted or deleted from the account profile before sending a new one.`,
           primaryLabel: "OK",
         });
         return false;
@@ -943,8 +1288,10 @@ export default function GrantAccessScreen() {
           showFeedback({
             tone: "info",
             title: "Existing access found",
-            message: `${displayName} (+91${opts.phone}) already has member or staff access on this account. Granting admin access will add admin alongside their existing roles. Continue?`,
-            primaryLabel: "Grant Admin",
+            message: isOwnership
+              ? `${displayName} (+91${opts.phone}) already has access to this account. Transferring ownership will make them the new owner of the account once they accept. Continue?`
+              : `${displayName} (+91${opts.phone}) already has member or staff access on this account. Granting admin access will add admin alongside their existing roles. Continue?`,
+            primaryLabel: isOwnership ? "Transfer ownership" : "Grant Admin",
             primaryTone: "primary",
             onPrimaryPress: () => {
               doSend().then(resolve);
@@ -960,10 +1307,6 @@ export default function GrantAccessScreen() {
         return await doSend();
     }
   };
-
-  // ============================================================
-  // CONTACT PICKER
-  // ============================================================
 
   const pickContact = async () => {
     if (Platform.OS === "web") {
@@ -1057,9 +1400,17 @@ export default function GrantAccessScreen() {
     setShowContactPicker(false);
   };
 
-  // ============================================================
-  // SAVE
-  // ============================================================
+  const computePredecessorContinuationRoles = (): InvitationRole[] => {
+    if (!isOwnershipFlow) return [];
+    const out: InvitationRole[] = [];
+    if (keepAdmin) {
+      out.push("admin");
+    } else {
+      if (keepMember && currentUserMember) out.push("member_visibility");
+      if (keepStaff && currentUserStaff) out.push("staff_visibility");
+    }
+    return out;
+  };
 
   const handleSave = async () => {
     if (!accountId) {
@@ -1071,7 +1422,6 @@ export default function GrantAccessScreen() {
       return;
     }
 
-    // ── Name conflict gate (admin New Phone flow only) ──
     if (
       source === "new" &&
       !isVisibilityFlow &&
@@ -1079,65 +1429,168 @@ export default function GrantAccessScreen() {
       phoneLookup.matched &&
       phone.length === 10
     ) {
-      const cleanName = name.trim();
+      const src = phoneLookup.source;
 
-      if (!cleanName) {
-        setError(
-          `This number belongs to ${
-            phoneLookup.existingName || "an existing person"
-          }. Enter a name to continue.`,
-        );
+      if (src === "owner") {
+        showFeedback({
+          tone: "warning",
+          title: "This number belongs to the owner",
+          message: `+91${phone} is the owner of this account. The owner already has full access, so no invitation is needed.`,
+          primaryLabel: "OK",
+        });
         return;
       }
 
-      const namesMatch =
-        phoneLookup.existingName &&
-        cleanName.toLowerCase() === phoneLookup.existingName.toLowerCase();
-
-      if (!namesMatch) {
-        const confirmed = await confirmNameConflict({
-          phone,
-          existing_name: phoneLookup.existingName || "another person",
-          role: "admin",
+      // Admin is a blocker for regular admin/member/staff invites.
+      // For ownership transfer, admins are valid targets — skip the warning.
+      if (src === "admin" && !isOwnershipFlow) {
+        showFeedback({
+          tone: "warning",
+          title: "This number is already an admin",
+          message: `+91${phone} already has admin access to this account. No invitation is needed.`,
+          primaryLabel: "OK",
         });
+        return;
+      }
 
-        if (!confirmed) {
-          setName(phoneLookup.existingName);
-          setError("");
+      if (
+        src === "pending_admin" ||
+        src === "pending_ownership" ||
+        src === "pending_member" ||
+        src === "pending_staff"
+      ) {
+        const pendingRole = phoneLookup.pendingRole;
+
+        const requestedRole: InvitationRole | null = isOwnershipFlow
+          ? "ownership_transfer"
+          : getRole() === "ownership_transfer"
+            ? "ownership_transfer"
+            : getRole() === "admin"
+              ? "admin"
+              : getRole() === "staff_visibility"
+                ? "staff_visibility"
+                : getRole() === "member_visibility"
+                  ? "member_visibility"
+                  : null;
+
+        if (pendingRole && requestedRole) {
+          if (pendingRole === requestedRole) {
+            showFeedback({
+              tone: "warning",
+              title: "Invitation already pending",
+              message: `A ${roleLabelLower(
+                requestedRole,
+              )} is already pending for +91${phone}. It must be accepted or deleted from the account profile before sending a new one.`,
+              primaryLabel: "OK",
+            });
+            return;
+          }
+
+          const pendingRank = ROLE_RANK[pendingRole];
+          const requestedRank = ROLE_RANK[requestedRole];
+
+          let actionLine: string;
+          if (requestedRank > pendingRank) {
+            actionLine = `Granting ${roleLabelLower(
+              requestedRole,
+            )} will upgrade the pending ${roleLabelLower(
+              pendingRole,
+            )} to ${roleLabelLower(requestedRole)}.`;
+          } else if (requestedRank < pendingRank) {
+            actionLine = `Granting ${roleLabelLower(
+              requestedRole,
+            )} will downgrade the pending ${roleLabelLower(
+              pendingRole,
+            )} to ${roleLabelLower(requestedRole)}.`;
+          } else {
+            actionLine = `Granting ${roleLabelLower(
+              requestedRole,
+            )} will replace the pending ${roleLabelLower(pendingRole)}.`;
+          }
+
+          const confirmed = await new Promise<boolean>((resolve) => {
+            showFeedback({
+              tone: "info",
+              title: "Invitation already pending",
+              message: `+91${phone} already has a pending ${roleLabelLower(
+                pendingRole,
+              )}. ${actionLine}`,
+              primaryLabel: "Grant",
+              primaryTone: "primary",
+              onPrimaryPress: () => resolve(true),
+              secondaryLabel: "Cancel",
+              onSecondaryPress: () => resolve(false),
+            });
+          });
+
+          if (!confirmed) return;
+        }
+      }
+
+      if (src === "member" || src === "staff" || src === "both") {
+        const cleanName = name.trim();
+
+        if (!cleanName) {
+          setError(
+            `This number belongs to ${
+              phoneLookup.existingName || "an existing person"
+            }. Enter a name to continue.`,
+          );
           return;
         }
 
-        setNameConflictBusy(true);
+        const namesMatch =
+          phoneLookup.existingName &&
+          cleanName.toLowerCase() === phoneLookup.existingName.toLowerCase();
 
-        const renameResult = await callRenamePerson({
-          phone,
-          name: cleanName,
-        });
+        if (!namesMatch) {
+          const confirmed = await confirmNameConflict({
+            phone,
+            existing_name: phoneLookup.existingName || "another person",
+            role: "admin",
+          });
 
-        if (!renameResult.ok) {
+          if (!confirmed) {
+            setName(phoneLookup.existingName);
+            setError("");
+            return;
+          }
+
+          setNameConflictBusy(true);
+
+          const renameResult = await callRenamePerson({
+            phone,
+            name: cleanName,
+          });
+
+          if (!renameResult.ok) {
+            setNameConflictBusy(false);
+            closeNameConflict();
+            showFeedback({
+              tone: "error",
+              title: "Couldn't update name",
+              message: renameResult.message || "Failed to rename this person.",
+              primaryLabel: "OK",
+            });
+            return;
+          }
+
+          renameMemberByPhone(phone, cleanName);
+          renameStaffByPhone(phone, cleanName);
+
           setNameConflictBusy(false);
           closeNameConflict();
-          showFeedback({
-            tone: "error",
-            title: "Couldn't update name",
-            message: renameResult.message || "Failed to rename this person.",
-            primaryLabel: "OK",
-          });
-          return;
         }
-
-        renameMemberByPhone(phone, cleanName);
-        renameStaffByPhone(phone, cleanName);
-
-        setNameConflictBusy(false);
-        closeNameConflict();
       }
     }
 
-    const grantRole: AccountAccessRole =
-      role || (isVisibilityFlow ? "member_visibility" : "member_visibility");
+    const grantRole: InvitationRole =
+      getRole() === "ownership_transfer"
+        ? "ownership_transfer"
+        : isOwnershipFlow
+          ? "ownership_transfer"
+          : getRole() || "member_visibility";
 
-    // ── STAFF FLOW ──
     if (isStaffFlow) {
       if (selectedStaffIds.length === 0) {
         setError("Please select at least one staff member.");
@@ -1184,7 +1637,6 @@ export default function GrantAccessScreen() {
       return;
     }
 
-    // ── VISIBILITY FLOW ──
     if (isVisibilityFlow) {
       if (selectedMemberIds.length === 0) {
         setError("Please select at least one apartment owner.");
@@ -1221,10 +1673,22 @@ export default function GrantAccessScreen() {
       return;
     }
 
-    // ── NEW PHONE FLOW ──
     if (source === "new") {
       const recipientName = name.trim();
       const cleanPhone = phone.replace(/[^0-9]/g, "").slice(-10);
+
+      // Owner is a hard block for ownership transfer.
+      if (isOwnershipFlow && blockedOwnerPhones.has(cleanPhone)) {
+        showFeedback({
+          tone: "warning",
+          title: "This is the current owner",
+          message:
+            "Ownership cannot be transferred to the same person who already owns the account.",
+          primaryLabel: "OK",
+        });
+        return;
+      }
+
       if (!recipientName) {
         setError("Please enter a name.");
         return;
@@ -1237,12 +1701,18 @@ export default function GrantAccessScreen() {
         phone: cleanPhone,
         name: recipientName,
         role: grantRole,
+        isOwnershipTransfer: isOwnershipFlow,
+        predecessorContinuationRoles: computePredecessorContinuationRoles(),
       });
       if (ok) {
         showFeedback({
           tone: "success",
-          title: "Invitation sent",
-          message: `Invite sent to +91${cleanPhone}.`,
+          title: isOwnershipFlow
+            ? "Ownership transfer sent"
+            : "Invitation sent",
+          message: isOwnershipFlow
+            ? `Ownership transfer invitation sent to +91${cleanPhone}. They will become the new owner once they accept.`
+            : `Invite sent to +91${cleanPhone}.`,
           primaryLabel: "Done",
           primaryTone: "primary",
           onPrimaryPress: () => router.back(),
@@ -1251,7 +1721,6 @@ export default function GrantAccessScreen() {
       return;
     }
 
-    // ── EXISTING PERSON FLOW ──
     if (selectedMemberIds.length === 0) {
       setError("Please select at least one member.");
       return;
@@ -1260,11 +1729,27 @@ export default function GrantAccessScreen() {
     for (const personId of selectedMemberIds) {
       const person = apartmentPeople.find((p) => p.id === personId);
       if (!person) continue;
+
+      // Owner is a hard block; admins are allowed for ownership transfer.
+      if (isOwnershipFlow && blockedOwnerPhones.has(person.phone)) {
+        showFeedback({
+          tone: "warning",
+          title: "This is the current owner",
+          message:
+            "Ownership cannot be transferred to the same person who already owns the account.",
+          primaryLabel: "OK",
+        });
+        allOk = false;
+        break;
+      }
+
       const ok = await sendInviteWithAlerts({
         phone: person.phone,
         name: person.name,
         role: grantRole,
         targetMemberId: person.memberIds[0],
+        isOwnershipTransfer: isOwnershipFlow,
+        predecessorContinuationRoles: computePredecessorContinuationRoles(),
       });
       if (!ok) {
         allOk = false;
@@ -1274,9 +1759,12 @@ export default function GrantAccessScreen() {
     if (allOk) {
       showFeedback({
         tone: "success",
-        title: "Invitations sent",
-        message:
-          selectedMemberIds.length === 1
+        title: isOwnershipFlow ? "Ownership transfer sent" : "Invitations sent",
+        message: isOwnershipFlow
+          ? selectedMemberIds.length === 1
+            ? "Ownership transfer invitation has been sent. They will become the new owner once they accept."
+            : `${selectedMemberIds.length} ownership transfer invitations have been sent.`
+          : selectedMemberIds.length === 1
             ? "Person has been invited."
             : `${selectedMemberIds.length} people have been invited.`,
         primaryLabel: "Done",
@@ -1285,10 +1773,6 @@ export default function GrantAccessScreen() {
       });
     }
   };
-
-  // ============================================================
-  // PERSON ROW (used for both members and staff)
-  // ============================================================
 
   const renderMemberRow = (person: GroupedPerson) => {
     const meta = person.memberSummary;
@@ -1413,10 +1897,6 @@ export default function GrantAccessScreen() {
       </TouchableOpacity>
     );
   };
-
-  // ============================================================
-  // CONTACT MODAL
-  // ============================================================
 
   const renderContactPickerModal = () => {
     if (!showContactPicker) return null;
@@ -1565,10 +2045,6 @@ export default function GrantAccessScreen() {
     );
   };
 
-  // ============================================================
-  // FEEDBACK MODAL
-  // ============================================================
-
   const renderFeedbackModal = () => {
     if (!feedback.visible) return null;
 
@@ -1635,9 +2111,88 @@ export default function GrantAccessScreen() {
     );
   };
 
-  // ============================================================
-  // EMPTY STATE
-  // ============================================================
+  const renderAfterTransferSection = () => {
+    if (!isOwnershipFlow) return null;
+
+    return (
+      <View style={styles.section}>
+        <Text style={styles.sectionTitle}>AFTER TRANSFER</Text>
+        <View style={styles.formCard}>
+          <Text style={styles.continuationHint}>
+            Choose which access you want to keep after transferring ownership.
+            Roles you turn off will be removed.
+          </Text>
+
+          <View style={styles.toggleRow}>
+            <View
+              style={[styles.toggleIconWrap, { backgroundColor: "#EDE9FE" }]}
+            >
+              <Ionicons name="shield-checkmark" size={18} color="#7C3AED" />
+            </View>
+            <View style={styles.toggleContent}>
+              <Text style={styles.toggleTitle}>Continue as Admin</Text>
+              <Text style={styles.toggleSubtitle}>
+                Keep administrator privileges
+              </Text>
+            </View>
+            <ToggleSwitch
+              value={keepAdmin}
+              onValueChange={setKeepAdmin}
+              trackColorOn="#7C3AED"
+            />
+          </View>
+
+          {!keepAdmin && currentUserMember ? (
+            <View style={styles.toggleRow}>
+              <View
+                style={[styles.toggleIconWrap, { backgroundColor: "#DCFCE7" }]}
+              >
+                <Ionicons name="person" size={18} color="#16A34A" />
+              </View>
+              <View style={styles.toggleContent}>
+                <Text style={styles.toggleTitle}>Continue as Member</Text>
+                <Text style={styles.toggleSubtitle} numberOfLines={1}>
+                  {currentUserMember.name}
+                  {currentUserMember.memberSummary
+                    ? `  •  ${currentUserMember.memberSummary}`
+                    : ""}
+                </Text>
+              </View>
+              <ToggleSwitch
+                value={keepMember}
+                onValueChange={setKeepMember}
+                trackColorOn="#16A34A"
+              />
+            </View>
+          ) : null}
+
+          {!keepAdmin && currentUserStaff ? (
+            <View style={styles.toggleRow}>
+              <View
+                style={[styles.toggleIconWrap, { backgroundColor: "#E0F2FE" }]}
+              >
+                <Ionicons name="briefcase" size={18} color="#0284C7" />
+              </View>
+              <View style={styles.toggleContent}>
+                <Text style={styles.toggleTitle}>Continue as Staff</Text>
+                <Text style={styles.toggleSubtitle} numberOfLines={1}>
+                  {currentUserStaff.name}
+                  {currentUserStaff.staffSummary
+                    ? `  •  ${currentUserStaff.staffSummary}`
+                    : ""}
+                </Text>
+              </View>
+              <ToggleSwitch
+                value={keepStaff}
+                onValueChange={setKeepStaff}
+                trackColorOn="#0284C7"
+              />
+            </View>
+          ) : null}
+        </View>
+      </View>
+    );
+  };
 
   const hasMembers = visibilityCandidates.length > 0;
   const hasStaff = staffCandidates.length > 0;
@@ -1646,6 +2201,8 @@ export default function GrantAccessScreen() {
     if (isStaffFlow) return "No staff available to select.";
     if (isVisibilityFlow)
       return "All apartment owners already have a pending or active invitation.";
+    if (isOwnershipFlow)
+      return "No other members are available to transfer ownership to.";
     return "No members are available.";
   };
 
@@ -1662,10 +2219,6 @@ export default function GrantAccessScreen() {
       !isVisibilityFlow &&
       source === "existing" &&
       selectedMemberIds.length === 0);
-
-  // ============================================================
-  // SCREEN
-  // ============================================================
 
   return (
     <KeyboardAvoidingView
@@ -1686,33 +2239,11 @@ export default function GrantAccessScreen() {
       >
         <View style={styles.introCard}>
           <View style={styles.introIcon}>
-            <Ionicons
-              name={
-                isStaffFlow
-                  ? "briefcase-outline"
-                  : isVisibilityFlow
-                    ? "person-add-outline"
-                    : "shield-checkmark-outline"
-              }
-              size={24}
-              color="#2563EB"
-            />
+            <Ionicons name={introIcon} size={24} color="#2563EB" />
           </View>
           <View style={styles.introContent}>
-            <Text style={styles.introTitle}>
-              {isStaffFlow
-                ? visibilityTitle
-                : isVisibilityFlow
-                  ? visibilityTitle
-                  : `Grant ${title} access`}
-            </Text>
-            <Text style={styles.introDescription}>
-              {isStaffFlow
-                ? "Select one or more staff members to grant visibility access."
-                : isVisibilityFlow
-                  ? "Select one or more apartment owners to grant visibility access."
-                  : "Choose who should receive access to this account."}
-            </Text>
+            <Text style={styles.introTitle}>{introTitle}</Text>
+            <Text style={styles.introDescription}>{introDescription}</Text>
           </View>
         </View>
 
@@ -1892,6 +2423,9 @@ export default function GrantAccessScreen() {
                 </View>
               </View>
             ) : null}
+
+            {/* AFTER TRANSFER — shows for BOTH new & existing sources */}
+            {renderAfterTransferSection()}
 
             {!isVisibilityFlow && !isStaffFlow && source === "existing" ? (
               <View style={styles.section}>
@@ -2250,6 +2784,9 @@ export default function GrantAccessScreen() {
                 style={[
                   styles.saveButton,
                   saveButtonDisabled ? styles.saveButtonDisabled : null,
+                  isOwnershipFlow && !saveButtonDisabled
+                    ? styles.saveButtonOwnership
+                    : null,
                 ]}
                 onPress={handleSave}
                 activeOpacity={0.85}
@@ -2260,17 +2797,15 @@ export default function GrantAccessScreen() {
                 ) : (
                   <>
                     <Ionicons
-                      name="shield-checkmark-outline"
+                      name={
+                        isOwnershipFlow
+                          ? "swap-horizontal-outline"
+                          : "shield-checkmark-outline"
+                      }
                       size={20}
                       color="#FFFFFF"
                     />
-                    <Text style={styles.saveText}>
-                      {isStaffFlow
-                        ? `Grant ${visibilityTitle.replace("Manage ", "")}`
-                        : isVisibilityFlow
-                          ? `Grant ${visibilityTitle.replace("Manage ", "")}`
-                          : `Grant ${title} Access`}
-                    </Text>
+                    <Text style={styles.saveText}>{saveLabel}</Text>
                   </>
                 )}
               </TouchableOpacity>
@@ -2294,10 +2829,6 @@ export default function GrantAccessScreen() {
     </KeyboardAvoidingView>
   );
 }
-
-// ============================================================
-// STYLES
-// ============================================================
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: "#F8FAFC" },
@@ -2384,7 +2915,11 @@ const styles = StyleSheet.create({
     marginBottom: 3,
   },
   sourceTileTitleActive: { color: "#1D4ED8" },
-  sourceTileDescription: { fontSize: 11.5, color: "#64748B", lineHeight: 15 },
+  sourceTileDescription: {
+    fontSize: 11.5,
+    color: "#64748B",
+    lineHeight: 15,
+  },
   sourceTileCheck: {
     position: "absolute",
     top: 10,
@@ -2474,6 +3009,42 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   phoneHint: { color: "#DC2626", fontSize: 12 },
+
+  continuationHint: {
+    color: "#475569",
+    fontSize: 12.5,
+    lineHeight: 18,
+    marginBottom: 12,
+  },
+  toggleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    borderRadius: 14,
+    padding: 10,
+    marginBottom: 10,
+    gap: 10,
+  },
+  toggleIconWrap: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  toggleContent: { flex: 1, minWidth: 0 },
+  toggleTitle: {
+    color: "#0F172A",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  toggleSubtitle: {
+    color: "#64748B",
+    fontSize: 11.5,
+    marginTop: 3,
+  },
 
   selectControlsRow: {
     flexDirection: "row",
@@ -2655,6 +3226,7 @@ const styles = StyleSheet.create({
     gap: 9,
     paddingHorizontal: 18,
   },
+  saveButtonOwnership: { backgroundColor: "#D97706" },
   saveButtonDisabled: { opacity: 0.55 },
   saveText: { color: "#FFFFFF", fontSize: 15, fontWeight: "700" },
   cancelButton: {
@@ -2782,7 +3354,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  modalCancelButtonText: { color: "#334155", fontSize: 14, fontWeight: "700" },
+  modalCancelButtonText: {
+    color: "#334155",
+    fontSize: 14,
+    fontWeight: "700",
+  },
 
   feedbackOverlay: {
     flex: 1,

@@ -1,3 +1,4 @@
+// app/(tabs)/index.tsx
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useIsFocused } from "expo-router/react-navigation";
@@ -12,9 +13,10 @@ import {
   RefreshControl,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
 
 import { useAccounts } from "../../hooks/useAccounts";
@@ -61,10 +63,26 @@ type PendingAdminOffer = {
   invited_name: string | null;
   invited_by_phone: string | null;
   created_at: string;
+  current_role: string | null;
+};
+
+type PendingOwnershipOffer = {
+  id: string;
+  account_id: string;
+  account_name: string;
+  account_photo_url: string | null;
+  invited_name: string | null;
+  invited_by_phone: string | null;
+  created_at: string;
+  current_role: string | null;
 };
 
 type MyRole = {
-  role: "admin" | "member_visibility" | "staff_visibility";
+  role:
+    | "admin"
+    | "member_visibility"
+    | "staff_visibility"
+    | "ownership_transfer";
   grantId: string;
   accepted_by: string | null;
 };
@@ -298,6 +316,15 @@ function getTransactionType(txn: any): TransactionType {
   if (raw === "expense") return "expense";
   if (txn?.category === "maintenance") return "income";
   return "expense";
+}
+
+function roleLabelFromId(role?: string | null): string {
+  if (!role) return "Member";
+  if (role === "admin") return "Admin";
+  if (role === "member_visibility") return "Member";
+  if (role === "staff_visibility") return "Staff";
+  if (role === "ownership_transfer") return "Owner";
+  return "Member";
 }
 
 type PaidEntry = {
@@ -627,12 +654,15 @@ function MyRolesCard({
   busy: boolean;
   loading: boolean;
 }) {
-  const roleMeta = (role: MyRole["role"]) =>
-    role === "admin"
-      ? { label: "Admin", bg: "#EDE9FE", color: "#7C3AED" }
-      : role === "member_visibility"
-        ? { label: "Member", bg: "#DCFCE7", color: "#16A34A" }
-        : { label: "Staff", bg: "#E0F2FE", color: "#0284C7" };
+  const roleMeta = (role: MyRole["role"]) => {
+    if (role === "admin")
+      return { label: "Admin", bg: "#EDE9FE", color: "#7C3AED" };
+    if (role === "member_visibility")
+      return { label: "Member", bg: "#DCFCE7", color: "#16A34A" };
+    if (role === "staff_visibility")
+      return { label: "Staff", bg: "#E0F2FE", color: "#0284C7" };
+    return { label: "Owner", bg: "#FEF3C7", color: "#B45309" };
+  };
 
   const showSkeleton = loading && roles.length === 0;
 
@@ -694,6 +724,39 @@ function MyRolesCard({
   );
 }
 
+/* ─────────────────────────── TOGGLE SWITCH ─────────────────────────── */
+
+interface ToggleSwitchProps {
+  value: boolean;
+  onValueChange: (next: boolean) => void;
+  disabled?: boolean;
+  trackColorOn?: string;
+  trackColorOff?: string;
+  thumbColor?: string;
+}
+
+function ToggleSwitch({
+  value,
+  onValueChange,
+  disabled = false,
+  trackColorOn = "#2563EB",
+  trackColorOff = "#CBD5E1",
+  thumbColor = "#FFFFFF",
+}: ToggleSwitchProps) {
+  return (
+    <Switch
+      value={value}
+      onValueChange={onValueChange}
+      disabled={disabled}
+      trackColor={{ false: trackColorOff, true: trackColorOn }}
+      thumbColor={thumbColor}
+      ios_backgroundColor={trackColorOff}
+    />
+  );
+}
+
+/* ─────────────────────────── OFFER BANNERS ─────────────────────────── */
+
 function PendingAdminOfferBanner({
   offer,
   busy,
@@ -705,6 +768,7 @@ function PendingAdminOfferBanner({
   onAccept: () => void;
   onReject: () => void;
 }) {
+  const currentLabel = roleLabelFromId(offer.current_role);
   return (
     <View style={styles.offerBanner}>
       <View style={styles.offerBannerHeader}>
@@ -712,12 +776,26 @@ function PendingAdminOfferBanner({
           <Ionicons name="shield-checkmark" size={20} color="#7C3AED" />
         </View>
         <View style={styles.offerBannerHeaderText}>
-          <Text style={styles.offerBannerTitle} numberOfLines={1}>
-            Admin offer · {offer.account_name || "this account"}
-          </Text>
+          <View style={styles.upgradeTitleRow}>
+            <Text style={styles.offerBannerTitle} numberOfLines={1}>
+              Upgrade to Admin
+            </Text>
+            <View style={styles.upgradePillGroup}>
+              <View style={styles.upgradePillFrom}>
+                <Text style={styles.upgradePillFromText}>
+                  {currentLabel.toUpperCase()}
+                </Text>
+              </View>
+              <Ionicons name="arrow-forward" size={11} color="#94A3B8" />
+              <View style={styles.upgradePillTo}>
+                <Text style={styles.upgradePillToText}>ADMIN</Text>
+              </View>
+            </View>
+          </View>
           <Text style={styles.offerBannerSubtitle} numberOfLines={2}>
-            You already have access here. The owner wants to add Admin on top of
-            your current roles.
+            {offer.account_name || "This account"} wants to upgrade your{" "}
+            {currentLabel.toLowerCase()} access to Admin. You'll keep your
+            existing role.
           </Text>
         </View>
       </View>
@@ -750,7 +828,7 @@ function PendingAdminOfferBanner({
           ) : (
             <>
               <Ionicons name="checkmark" size={16} color="#FFFFFF" />
-              <Text style={styles.offerBannerAcceptText}>Accept</Text>
+              <Text style={styles.offerBannerAcceptText}>Accept upgrade</Text>
             </>
           )}
         </TouchableOpacity>
@@ -758,6 +836,90 @@ function PendingAdminOfferBanner({
     </View>
   );
 }
+
+function PendingOwnershipOfferBanner({
+  offer,
+  busy,
+  onAccept,
+  onReject,
+}: {
+  offer: PendingOwnershipOffer;
+  busy: boolean;
+  onAccept: () => void;
+  onReject: () => void;
+}) {
+  const currentLabel = roleLabelFromId(offer.current_role);
+  return (
+    <View style={styles.ownershipBanner}>
+      <View style={styles.ownershipBannerHeader}>
+        <View style={styles.ownershipBannerIcon}>
+          <Ionicons name="swap-horizontal" size={20} color="#B45309" />
+        </View>
+        <View style={styles.ownershipBannerHeaderText}>
+          <View style={styles.upgradeTitleRow}>
+            <Text style={styles.ownershipBannerTitle} numberOfLines={1}>
+              Ownership transfer
+            </Text>
+            <View style={styles.upgradePillGroup}>
+              <View style={styles.ownershipPillFrom}>
+                <Text style={styles.ownershipPillFromText}>
+                  {currentLabel.toUpperCase()}
+                </Text>
+              </View>
+              <Ionicons name="arrow-forward" size={11} color="#94A3B8" />
+              <View style={styles.ownershipPillTo}>
+                <Text style={styles.ownershipPillToText}>OWNER</Text>
+              </View>
+            </View>
+          </View>
+          <Text style={styles.ownershipBannerSubtitle} numberOfLines={3}>
+            {offer.account_name || "This account"} wants to transfer full
+            ownership to you. You'll become the new owner and keep your{" "}
+            {currentLabel.toLowerCase()} access.
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.ownershipBannerActions}>
+        <TouchableOpacity
+          style={[styles.offerBannerBtn, styles.ownershipBannerReject]}
+          onPress={onReject}
+          activeOpacity={0.8}
+          disabled={busy}
+        >
+          {busy ? (
+            <ActivityIndicator size="small" color="#B45309" />
+          ) : (
+            <>
+              <Ionicons name="close-outline" size={16} color="#B45309" />
+              <Text style={styles.ownershipBannerRejectText}>Decline</Text>
+            </>
+          )}
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.offerBannerBtn, styles.ownershipBannerAccept]}
+          onPress={onAccept}
+          activeOpacity={0.85}
+          disabled={busy}
+        >
+          {busy ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <>
+              <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+              <Text style={styles.ownershipBannerAcceptText}>
+                Accept ownership
+              </Text>
+            </>
+          )}
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
+/* ───────────────────────── MONTH/YEAR PICKER ───────────────────────── */
 
 function MonthYearPickerModal({
   visible,
@@ -1074,6 +1236,8 @@ function AttendanceSection({
   );
 }
 
+/* ───────────────────────────── MAIN SCREEN ───────────────────────────── */
+
 export default function HomeScreen() {
   const router = useRouter();
   const isFocused = useIsFocused();
@@ -1115,8 +1279,12 @@ export default function HomeScreen() {
   const [attYear, setAttYear] = useState(now.getFullYear());
   const [attMonth, setAttMonth] = useState(now.getMonth());
 
+  // ── Banners state ──
   const [pendingAdminOffers, setPendingAdminOffers] = useState<
     PendingAdminOffer[]
+  >([]);
+  const [pendingOwnershipOffers, setPendingOwnershipOffers] = useState<
+    PendingOwnershipOffer[]
   >([]);
   const [offersLoading, setOffersLoading] = useState(false);
   const [busyOfferId, setBusyOfferId] = useState<string | null>(null);
@@ -1132,6 +1300,8 @@ export default function HomeScreen() {
   );
   const [withdrawPreviewLoading, setWithdrawPreviewLoading] = useState(false);
   const [withdrawingAccess, setWithdrawingAccess] = useState(false);
+  // Toggle state — for admins: which sub-roles to keep. For non-admins:
+  // which roles to KEEP (so the ones turned OFF will be revoked).
   const [keepMemberVisibility, setKeepMemberVisibility] = useState(true);
   const [keepStaffVisibility, setKeepStaffVisibility] = useState(true);
 
@@ -1163,15 +1333,18 @@ export default function HomeScreen() {
     });
   }, [router]);
 
-  const loadPendingAdminOffers = useCallback(async () => {
+  // ── Load pending offers ──
+  const loadPendingOffers = useCallback(async () => {
     if (!user?.phone) {
       setPendingAdminOffers([]);
+      setPendingOwnershipOffers([]);
       return;
     }
 
     const token = await getAuthToken();
     if (!token) {
       setPendingAdminOffers([]);
+      setPendingOwnershipOffers([]);
       return;
     }
 
@@ -1183,6 +1356,7 @@ export default function HomeScreen() {
       });
       if (!res.ok) {
         setPendingAdminOffers([]);
+        setPendingOwnershipOffers([]);
         return;
       }
 
@@ -1195,28 +1369,48 @@ export default function HomeScreen() {
         accountIdsKey ? accountIdsKey.split(",") : [],
       );
 
-      const offers: PendingAdminOffer[] = rows
-        .filter((r) => {
-          if (!r) return false;
-          if (r.role !== "admin") return false;
-          if (r.status !== "pending") return false;
-          if (!myAccountIds.has(r.account_id)) return false;
-          return true;
-        })
-        .map((r) => ({
-          id: r.id,
-          account_id: r.account_id,
-          account_name: r.account_name ?? "",
-          account_photo_url: r.account_photo_url ?? null,
-          invited_name: r.invited_name ?? null,
-          invited_by_phone: r.invited_by_phone ?? null,
-          created_at: r.created_at ?? "",
-        }));
+      const adminOffers: PendingAdminOffer[] = [];
+      const ownershipOffers: PendingOwnershipOffer[] = [];
 
-      setPendingAdminOffers(offers);
+      for (const r of rows) {
+        if (!r) continue;
+        if (r.status !== "pending") continue;
+        if (!myAccountIds.has(r.account_id)) continue;
+
+        const currentRole: string | null = r.current_role ?? null;
+        if (!currentRole) continue;
+
+        if (r.role === "admin") {
+          adminOffers.push({
+            id: r.id,
+            account_id: r.account_id,
+            account_name: r.account_name ?? "",
+            account_photo_url: r.account_photo_url ?? null,
+            invited_name: r.invited_name ?? null,
+            invited_by_phone: r.invited_by_phone ?? null,
+            created_at: r.created_at ?? "",
+            current_role: currentRole,
+          });
+        } else if (r.role === "ownership_transfer") {
+          ownershipOffers.push({
+            id: r.id,
+            account_id: r.account_id,
+            account_name: r.account_name ?? "",
+            account_photo_url: r.account_photo_url ?? null,
+            invited_name: r.invited_name ?? null,
+            invited_by_phone: r.invited_by_phone ?? null,
+            created_at: r.created_at ?? "",
+            current_role: currentRole,
+          });
+        }
+      }
+
+      setPendingAdminOffers(adminOffers);
+      setPendingOwnershipOffers(ownershipOffers);
     } catch (e) {
-      console.warn("[home] loadPendingAdminOffers failed:", e);
+      console.warn("[home] loadPendingOffers failed:", e);
       setPendingAdminOffers([]);
+      setPendingOwnershipOffers([]);
     } finally {
       setOffersLoading(false);
     }
@@ -1224,9 +1418,9 @@ export default function HomeScreen() {
 
   useEffect(() => {
     if (isFocused) {
-      loadPendingAdminOffers();
+      loadPendingOffers();
     }
-  }, [isFocused, loadPendingAdminOffers]);
+  }, [isFocused, loadPendingOffers]);
 
   // ── Load the current user's grants for this account ──
   const loadMyRoles = useCallback(async () => {
@@ -1267,7 +1461,8 @@ export default function HomeScreen() {
             r?.accepted_by === user.id &&
             (r.role === "admin" ||
               r.role === "member_visibility" ||
-              r.role === "staff_visibility"),
+              r.role === "staff_visibility" ||
+              r.role === "ownership_transfer"),
         )
         .map((r) => ({
           role: r.role,
@@ -1315,6 +1510,7 @@ export default function HomeScreen() {
     }, [accountId]),
   );
 
+  // ── Accept / Reject admin upgrade ──
   const handleAcceptOffer = async (offer: PendingAdminOffer) => {
     const token = await getAuthToken();
     if (!token) return;
@@ -1328,7 +1524,7 @@ export default function HomeScreen() {
         },
       );
       if (!res.ok) {
-        await loadPendingAdminOffers();
+        await loadPendingOffers();
         return;
       }
       setPendingAdminOffers((prev) => prev.filter((o) => o.id !== offer.id));
@@ -1354,7 +1550,7 @@ export default function HomeScreen() {
         },
       );
       if (!res.ok) {
-        await loadPendingAdminOffers();
+        await loadPendingOffers();
         return;
       }
       setPendingAdminOffers((prev) => prev.filter((o) => o.id !== offer.id));
@@ -1365,14 +1561,66 @@ export default function HomeScreen() {
     }
   };
 
-  // ── Open withdraw modal — mirrors account-profile's revoke flow ──
-  //
-  // Fetches `/preview-revoke` for the current user. That endpoint now
-  // permits self-preview (backend change), so it succeeds for any
-  // non-owner. The response populates `withdrawPreview.memberProfile`
-  // and `withdrawPreview.staffProfile` when the user has an active row
-  // in `members` / `staff` — which is exactly the rule used by
-  // account-profile's revoke modal.
+  // ── Accept / Reject ownership transfer ──
+  const handleAcceptOwnership = async (offer: PendingOwnershipOffer) => {
+    const token = await getAuthToken();
+    if (!token) return;
+    setBusyOfferId(offer.id);
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/invitations/${offer.id}/accept`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+      if (!res.ok) {
+        await loadPendingOffers();
+        return;
+      }
+      setPendingOwnershipOffers((prev) =>
+        prev.filter((o) => o.id !== offer.id),
+      );
+      await refreshAccounts();
+      await loadMyRoles();
+      Alert.alert(
+        "You're now the owner",
+        `${offer.account_name || "This account"} has been transferred to you.`,
+      );
+    } catch (e) {
+      console.warn("[home] accept ownership failed:", e);
+    } finally {
+      setBusyOfferId(null);
+    }
+  };
+
+  const handleRejectOwnership = async (offer: PendingOwnershipOffer) => {
+    const token = await getAuthToken();
+    if (!token) return;
+    setBusyOfferId(offer.id);
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/invitations/${offer.id}/reject`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+      if (!res.ok) {
+        await loadPendingOffers();
+        return;
+      }
+      setPendingOwnershipOffers((prev) =>
+        prev.filter((o) => o.id !== offer.id),
+      );
+    } catch (e) {
+      console.warn("[home] reject ownership failed:", e);
+    } finally {
+      setBusyOfferId(null);
+    }
+  };
+
+  // ── Open withdraw modal ──
   const openWithdrawModal = useCallback(async () => {
     if (!selectedAccount?.id || !user?.id) return;
 
@@ -1418,12 +1666,6 @@ export default function HomeScreen() {
     setKeepStaffVisibility(true);
   };
 
-  // ── Withdraw MY access ──
-  //
-  //   Admin            → `?role=admin` + keep flags
-  //   Member only      → `?role=member_visibility`
-  //   Staff only       → `?role=staff_visibility`
-  //   Member + Staff   → two calls, one per role
   const handleWithdrawAccess = async () => {
     if (!selectedAccount?.id || !user?.id) return;
     const token = await getAuthToken();
@@ -1441,6 +1683,8 @@ export default function HomeScreen() {
       }> = [];
 
       if (hasAdmin) {
+        // For admin: keepMemberVisibility / keepStaffVisibility tell the
+        // backend which sub-roles to KEEP after dropping admin.
         calls.push({
           role: "admin",
           body: {
@@ -1455,10 +1699,12 @@ export default function HomeScreen() {
           },
         });
       } else {
-        if (hasMember) {
+        // For non-admin: the "keep*" toggles mean "keep this role". We only
+        // issue a revoke call for the role(s) whose toggle is OFF.
+        if (hasMember && !keepMemberVisibility) {
           calls.push({ role: "member_visibility", body: {} });
         }
-        if (hasStaff) {
+        if (hasStaff && !keepStaffVisibility) {
           calls.push({ role: "staff_visibility", body: {} });
         }
       }
@@ -1466,8 +1712,9 @@ export default function HomeScreen() {
       if (calls.length === 0) {
         Alert.alert(
           "Nothing to withdraw",
-          "You don't have any access to remove on this account.",
+          "You have to turn off at least one role to withdraw access.",
         );
+        setWithdrawingAccess(false);
         return;
       }
 
@@ -1489,6 +1736,7 @@ export default function HomeScreen() {
             "Error",
             `Failed to withdraw ${call.role.replace(/_/g, " ")}.`,
           );
+          setWithdrawingAccess(false);
           return;
         }
       }
@@ -1501,6 +1749,13 @@ export default function HomeScreen() {
         kept.push("Member");
       }
       if (hasAdmin && withdrawPreview?.staffProfile && keepStaffVisibility) {
+        kept.push("Staff");
+      }
+      // Non-admin case: any role whose toggle was kept is preserved.
+      if (!hasAdmin && hasMember && keepMemberVisibility) {
+        kept.push("Member");
+      }
+      if (!hasAdmin && hasStaff && keepStaffVisibility) {
         kept.push("Staff");
       }
 
@@ -1628,7 +1883,7 @@ export default function HomeScreen() {
   const onRefresh = async () => {
     setRefreshing(true);
     try {
-      await loadPendingAdminOffers();
+      await loadPendingOffers();
       await loadMyRoles();
       await refreshProfile();
       if (selectedAccount?.id) {
@@ -1689,10 +1944,16 @@ export default function HomeScreen() {
 
     const hasMemberProfile = !!withdrawPreview?.memberProfile;
     const hasStaffProfile = !!withdrawPreview?.staffProfile;
-    const showToggles =
-      hasAdmin &&
-      !withdrawPreviewLoading &&
-      (hasMemberProfile || hasStaffProfile);
+
+    // Which toggles to show?
+    //   • Admin path: keep-toggles for member / staff sub-roles if the
+    //     user actually has those profiles.
+    //   • Non-admin path: keep-toggles for each role the user has.
+    const showMemberToggle = hasAdmin ? hasMemberProfile : hasMember;
+    const showStaffToggle = hasAdmin ? hasStaffProfile : hasStaff;
+
+    const showAnyToggle =
+      !withdrawPreviewLoading && (showMemberToggle || showStaffToggle);
 
     const headlineRole = hasAdmin
       ? "admin"
@@ -1702,17 +1963,27 @@ export default function HomeScreen() {
           ? "member"
           : "staff";
 
-    const titleText = `Withdraw ${headlineRole} access?`;
+    const titleText = hasAdmin
+      ? "Withdraw admin access?"
+      : hasMember && hasStaff
+        ? "Withdraw your access"
+        : `Withdraw ${headlineRole} access?`;
 
     const descriptionText = hasAdmin
       ? hasMemberProfile || hasStaffProfile
-        ? "You will lose administrator privileges on this property. You still have a profile here — choose which access to keep below."
+        ? "You will lose administrator privileges on this property. Choose which access to keep below."
         : "You will lose administrator privileges on this property. You can ask the owner to invite you again later."
       : hasMember && hasStaff
-        ? "You will lose your member and staff access on this property."
+        ? "Turn off the roles you no longer want. Roles you keep on will stay active."
         : hasMember
-          ? "You will lose your member access on this property."
-          : "You will lose your staff access on this property.";
+          ? "Turn the toggle off to withdraw your member access."
+          : "Turn the toggle off to withdraw your staff access.";
+
+    // Disable confirm when nothing would change.
+    const nothingToWithdraw =
+      !hasAdmin &&
+      (!hasMember || keepMemberVisibility) &&
+      (!hasStaff || keepStaffVisibility);
 
     return (
       <Modal
@@ -1735,12 +2006,8 @@ export default function HomeScreen() {
               </View>
             ) : null}
 
-            {showToggles && hasMemberProfile ? (
-              <TouchableOpacity
-                style={styles.withdrawToggleRow}
-                onPress={() => setKeepMemberVisibility((v) => !v)}
-                activeOpacity={0.8}
-              >
+            {showAnyToggle && showMemberToggle ? (
+              <View style={styles.withdrawToggleRow}>
                 <View
                   style={[
                     styles.withdrawToggleIconWrap,
@@ -1751,34 +2018,27 @@ export default function HomeScreen() {
                 </View>
                 <View style={styles.withdrawToggleContent}>
                   <Text style={styles.withdrawToggleTitle}>
-                    Keep Member visibility
+                    {hasAdmin ? "Keep Member visibility" : "Member access"}
                   </Text>
                   <Text style={styles.withdrawToggleSubtitle} numberOfLines={1}>
-                    {withdrawPreview?.memberProfile?.name || "You"}
+                    {withdrawPreview?.memberProfile?.name ||
+                      user?.name ||
+                      "You"}
                     {withdrawPreview?.memberProfile?.flatNumber
                       ? `  •  ${withdrawPreview.memberProfile.wing ? "Wing " + withdrawPreview.memberProfile.wing + " " : ""}Apt ${withdrawPreview.memberProfile.flatNumber}`
                       : ""}
                   </Text>
                 </View>
-                <View
-                  style={[
-                    styles.withdrawCheckbox,
-                    keepMemberVisibility && styles.withdrawCheckboxChecked,
-                  ]}
-                >
-                  {keepMemberVisibility ? (
-                    <Ionicons name="checkmark" size={16} color="#FFFFFF" />
-                  ) : null}
-                </View>
-              </TouchableOpacity>
+                <ToggleSwitch
+                  value={keepMemberVisibility}
+                  onValueChange={setKeepMemberVisibility}
+                  trackColorOn="#16A34A"
+                />
+              </View>
             ) : null}
 
-            {showToggles && hasStaffProfile ? (
-              <TouchableOpacity
-                style={styles.withdrawToggleRow}
-                onPress={() => setKeepStaffVisibility((v) => !v)}
-                activeOpacity={0.8}
-              >
+            {showAnyToggle && showStaffToggle ? (
+              <View style={styles.withdrawToggleRow}>
                 <View
                   style={[
                     styles.withdrawToggleIconWrap,
@@ -1789,31 +2049,28 @@ export default function HomeScreen() {
                 </View>
                 <View style={styles.withdrawToggleContent}>
                   <Text style={styles.withdrawToggleTitle}>
-                    Keep Staff visibility
+                    {hasAdmin ? "Keep Staff visibility" : "Staff access"}
                   </Text>
                   <Text style={styles.withdrawToggleSubtitle} numberOfLines={1}>
-                    {withdrawPreview?.staffProfile?.name || "You"}
+                    {withdrawPreview?.staffProfile?.name || user?.name || "You"}
                     {withdrawPreview?.staffProfile?.role
                       ? `  •  ${withdrawPreview.staffProfile.role}`
                       : ""}
                   </Text>
                 </View>
-                <View
-                  style={[
-                    styles.withdrawCheckbox,
-                    keepStaffVisibility && styles.withdrawCheckboxChecked,
-                  ]}
-                >
-                  {keepStaffVisibility ? (
-                    <Ionicons name="checkmark" size={16} color="#FFFFFF" />
-                  ) : null}
-                </View>
-              </TouchableOpacity>
+                <ToggleSwitch
+                  value={keepStaffVisibility}
+                  onValueChange={setKeepStaffVisibility}
+                  trackColorOn="#0284C7"
+                />
+              </View>
             ) : null}
 
-            {showToggles ? (
+            {showAnyToggle ? (
               <Text style={styles.withdrawHint}>
-                Unchecked roles will be removed along with admin.
+                {hasAdmin
+                  ? "Roles you turn off will be removed along with admin."
+                  : "Roles you turn off will be withdrawn. Roles you keep on will stay active."}
               </Text>
             ) : null}
 
@@ -1827,9 +2084,16 @@ export default function HomeScreen() {
                 <Text style={styles.withdrawCancelText}>Cancel</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                style={styles.withdrawConfirmBtn}
+                style={[
+                  styles.withdrawConfirmBtn,
+                  nothingToWithdraw && { opacity: 0.55 },
+                ]}
                 onPress={handleWithdrawAccess}
-                disabled={withdrawingAccess || withdrawPreviewLoading}
+                disabled={
+                  withdrawingAccess ||
+                  withdrawPreviewLoading ||
+                  nothingToWithdraw
+                }
                 activeOpacity={0.85}
               >
                 {withdrawingAccess ? (
@@ -1928,9 +2192,24 @@ export default function HomeScreen() {
     selectedAccount.type === "apartment" ? "Apartment Community" : "Home";
 
   const renderPendingOffers = () => {
-    if (pendingAdminOffers.length === 0) return null;
+    if (
+      pendingAdminOffers.length === 0 &&
+      pendingOwnershipOffers.length === 0
+    ) {
+      return null;
+    }
+
     return (
       <View style={styles.offersSection}>
+        {pendingOwnershipOffers.map((offer) => (
+          <PendingOwnershipOfferBanner
+            key={offer.id}
+            offer={offer}
+            busy={busyOfferId === offer.id}
+            onAccept={() => handleAcceptOwnership(offer)}
+            onReject={() => handleRejectOwnership(offer)}
+          />
+        ))}
         {pendingAdminOffers.map((offer) => (
           <PendingAdminOfferBanner
             key={offer.id}
@@ -1961,7 +2240,6 @@ export default function HomeScreen() {
       <>
         <ProfileCard user={user} onEdit={handleOpenProfile} />
 
-        {/* My Access card is only for non-owners. */}
         {!accountIsOwner ? (
           <MyRolesCard
             roles={myRoles}
@@ -1977,7 +2255,6 @@ export default function HomeScreen() {
               My Roles on this Property
             </Text>
 
-            {/* MEMBER GROUP */}
             {hasMembers ? (
               <View style={styles.groupCard}>
                 <Pressable
@@ -2074,7 +2351,6 @@ export default function HomeScreen() {
               </View>
             ) : null}
 
-            {/* STAFF GROUP */}
             {hasStaff ? (
               <View style={styles.groupCard}>
                 <Pressable
@@ -2571,6 +2847,8 @@ export default function HomeScreen() {
   );
 }
 
+/* ────────────────────────────────── STYLES ────────────────────────────────── */
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#F8FAFC" },
   scrollContent: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 30 },
@@ -2680,7 +2958,7 @@ const styles = StyleSheet.create({
   },
   profileEditText: { fontSize: 12, fontWeight: "700", color: "#2563EB" },
 
-  /* ======================= MY ACCESS CARD ======================= */
+  /* ── MY ACCESS CARD ── */
   myRolesCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 18,
@@ -2771,7 +3049,7 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
 
-  /* ======================= WITHDRAW MODAL ======================= */
+  /* ── WITHDRAW MODAL ── */
   modalBackdrop: {
     flex: 1,
     backgroundColor: "rgba(15, 23, 42, 0.58)",
@@ -2839,20 +3117,6 @@ const styles = StyleSheet.create({
     color: "#64748B",
     fontSize: 11.5,
     marginTop: 3,
-  },
-  withdrawCheckbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 7,
-    borderWidth: 1.5,
-    borderColor: "#CBD5E1",
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#FFFFFF",
-  },
-  withdrawCheckboxChecked: {
-    backgroundColor: "#2563EB",
-    borderColor: "#2563EB",
   },
   withdrawHint: {
     color: "#94A3B8",
@@ -2973,25 +3237,16 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#F1F5F9",
   },
-  groupRowLast: {
-    borderBottomWidth: 0,
-  },
+  groupRowLast: { borderBottomWidth: 0 },
   groupRowInfo: {
     flex: 1,
     minWidth: 0,
     marginRight: 8,
   },
-  groupRowTitleLine: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    flexWrap: "wrap",
-  },
   groupRowTitle: {
     fontSize: 13.5,
     fontWeight: "700",
     color: "#0F172A",
-    flexShrink: 1,
   },
   groupRowSubtitle: {
     fontSize: 11.5,
@@ -3010,10 +3265,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
 
-  groupOverviewGrid: {
-    flexDirection: "row",
-    gap: 12,
-  },
+  groupOverviewGrid: { flexDirection: "row", gap: 12 },
   groupOverviewCard: {
     flex: 1,
     backgroundColor: "#FFFFFF",
@@ -3076,7 +3328,9 @@ const styles = StyleSheet.create({
     color: "#94A3B8",
   },
 
+  /* ── OFFER BANNERS ── */
   offersSection: { marginBottom: 14, gap: 10 },
+
   offerBanner: {
     backgroundColor: "#FFFFFF",
     borderRadius: 18,
@@ -3103,7 +3357,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  offerBannerHeaderText: { flex: 1 },
+  offerBannerHeaderText: { flex: 1, minWidth: 0 },
   offerBannerTitle: {
     fontSize: 14,
     fontWeight: "800",
@@ -3140,6 +3394,121 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 13,
     fontWeight: "800",
+  },
+
+  /* Role upgrade pills inside the admin banner */
+  upgradeTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  upgradePillGroup: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  upgradePillFrom: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    backgroundColor: "#F1F5F9",
+  },
+  upgradePillFromText: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: "#475569",
+  },
+  upgradePillTo: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    backgroundColor: "#EDE9FE",
+  },
+  upgradePillToText: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: "#7C3AED",
+  },
+
+  /* ── OWNERSHIP BANNER ── */
+  ownershipBanner: {
+    backgroundColor: "#FFFBEB",
+    borderRadius: 18,
+    padding: 14,
+    borderWidth: 1,
+    borderColor: "#FCD34D",
+    shadowColor: "#B45309",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.1,
+    shadowRadius: 14,
+    elevation: 2,
+  },
+  ownershipBannerHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 11,
+    marginBottom: 12,
+  },
+  ownershipBannerIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: "#FEF3C7",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  ownershipBannerHeaderText: { flex: 1, minWidth: 0 },
+  ownershipBannerTitle: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#78350F",
+  },
+  ownershipBannerSubtitle: {
+    fontSize: 12,
+    color: "#78350F",
+    lineHeight: 17,
+    marginTop: 4,
+    opacity: 0.9,
+  },
+  ownershipBannerActions: { flexDirection: "row", gap: 8 },
+  ownershipBannerReject: {
+    backgroundColor: "#FFFBEB",
+    borderWidth: 1,
+    borderColor: "#FCD34D",
+  },
+  ownershipBannerRejectText: {
+    color: "#B45309",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  ownershipBannerAccept: { backgroundColor: "#B45309" },
+  ownershipBannerAcceptText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  ownershipPillFrom: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    backgroundColor: "#FDE68A",
+  },
+  ownershipPillFromText: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: "#78350F",
+  },
+  ownershipPillTo: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    backgroundColor: "#B45309",
+  },
+  ownershipPillToText: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: "#FFFFFF",
   },
 
   balanceCard: {

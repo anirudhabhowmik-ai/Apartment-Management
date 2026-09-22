@@ -1,12 +1,6 @@
 // app/(modals)/account-profile.tsx
-// Edit user Name, Photo And Change Password
+// Edit user Name, Photo, and manage Access & Roles
 import { Ionicons } from "@expo/vector-icons";
-import {
-  Contact,
-  ContactField,
-  ContactsSortOrder,
-  requestPermissionsAsync,
-} from "expo-contacts";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
@@ -19,7 +13,6 @@ import {
   Dimensions,
   GestureResponderEvent,
   Image,
-  KeyboardAvoidingView,
   Modal,
   PanResponder,
   Platform,
@@ -27,7 +20,6 @@ import {
   RefreshControl,
   ScrollView,
   StyleSheet,
-  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -44,17 +36,9 @@ const API_URL = (
   process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000"
 ).replace(/\/api\/?$/, "");
 
-const ENABLE_LINKED_PROFILE_PREVIEW = true;
-
 // ============================================================================
 // TYPES
 // ============================================================================
-
-interface ContactData {
-  id: string;
-  name: string;
-  phoneNumbers: { number: string; label?: string }[];
-}
 
 interface RawImage {
   uri: string;
@@ -62,22 +46,12 @@ interface RawImage {
   height: number;
 }
 
-interface LinkedProfileInfo {
-  exists: boolean;
-  id?: string;
-  name?: string;
-  role?: string;
-  wing?: string;
-  flatNumber?: string;
-}
+type InvitationRole =
+  | "admin"
+  | "member_visibility"
+  | "staff_visibility"
+  | "ownership_transfer";
 
-interface PhoneChangePreview {
-  currentPhone: string | null;
-  linkedMember: LinkedProfileInfo;
-  linkedStaff: LinkedProfileInfo;
-}
-
-type InvitationRole = "admin" | "member_visibility" | "staff_visibility";
 type InvitationStatus =
   | "pending"
   | "accepted"
@@ -103,10 +77,8 @@ interface ApiInvitation {
   account_photo_url: string | null;
   accepted_user_name?: string | null;
   accepted_user_photo_url?: string | null;
-  // Live invitee identity (matched by phone, even before accept)
   invitee_user_name?: string | null;
   invitee_user_photo_url?: string | null;
-  // "Dismiss alert" flag — TRUE only for fresh member/staff accepts
   can_dismiss?: boolean;
 }
 
@@ -636,7 +608,7 @@ function GrantAvatar({
 // REVOKE ACCESS MODAL
 // ============================================================================
 
-type RevokeTab = "admin" | "member" | "staff";
+type RevokeTab = "admin" | "member" | "staff" | "ownership";
 
 interface RevokeAccessModalProps {
   visible: boolean;
@@ -645,6 +617,7 @@ interface RevokeAccessModalProps {
   acceptedAdmins: ApiInvitation[];
   acceptedMembers: ApiInvitation[];
   acceptedStaff: ApiInvitation[];
+  acceptedOwnership: ApiInvitation[];
   getAuthToken: () => Promise<string | null>;
   onRevoked: () => Promise<void> | void;
 }
@@ -656,6 +629,7 @@ function RevokeAccessModal({
   acceptedAdmins,
   acceptedMembers,
   acceptedStaff,
+  acceptedOwnership,
   getAuthToken,
   onRevoked,
 }: RevokeAccessModalProps) {
@@ -687,7 +661,9 @@ function RevokeAccessModal({
       ? acceptedAdmins
       : tab === "member"
         ? acceptedMembers
-        : acceptedStaff;
+        : tab === "staff"
+          ? acceptedStaff
+          : acceptedOwnership;
 
   const filtered = useMemo(() => {
     const s = search.toLowerCase().trim();
@@ -706,7 +682,8 @@ function RevokeAccessModal({
   const roleLabel = (role: InvitationRole) => {
     if (role === "admin") return "Admin";
     if (role === "member_visibility") return "Member";
-    return "Staff";
+    if (role === "staff_visibility") return "Staff";
+    return "Ownership";
   };
 
   const displayName = (inv: ApiInvitation) =>
@@ -780,8 +757,6 @@ function RevokeAccessModal({
 
     setSubmitting(true);
     try {
-      // Only send the keep-*-visibility flags when revoking an admin.
-      // For member/staff revokes the toggles are not applicable.
       const payload =
         target.role === "admin"
           ? {
@@ -819,7 +794,6 @@ function RevokeAccessModal({
     }
   };
 
-  // Toggles are ONLY meaningful when revoking an admin.
   const hasRevokeToggles =
     target?.role === "admin" &&
     (!!preview?.memberProfile || !!preview?.staffProfile);
@@ -845,6 +819,11 @@ function RevokeAccessModal({
     { key: "admin", label: "Admin", count: acceptedAdmins.length },
     { key: "member", label: "Member", count: acceptedMembers.length },
     { key: "staff", label: "Staff", count: acceptedStaff.length },
+    {
+      key: "ownership",
+      label: "Ownership",
+      count: acceptedOwnership.length,
+    },
   ];
 
   return (
@@ -860,7 +839,8 @@ function RevokeAccessModal({
             <View style={{ flex: 1 }}>
               <Text style={styles.revokeAccessTitle}>Revoke Access</Text>
               <Text style={styles.revokeAccessSubtitle}>
-                Remove admin, member, or staff access from this account
+                Remove admin, member, staff, or ownership access from this
+                account
               </Text>
             </View>
             <TouchableOpacity
@@ -959,7 +939,9 @@ function RevokeAccessModal({
                             ? "admin"
                             : tab === "member"
                               ? "member_visibility"
-                              : "staff_visibility",
+                              : tab === "staff"
+                                ? "staff_visibility"
+                                : "ownership_transfer",
                         ).toLowerCase()}s yet.`}
                   </Text>
                 </View>
@@ -972,13 +954,17 @@ function RevokeAccessModal({
                       ? styles.adminAvatar
                       : inv.role === "member_visibility"
                         ? styles.memberAvatar
-                        : styles.staffAvatar;
+                        : inv.role === "staff_visibility"
+                          ? styles.staffAvatar
+                          : styles.ownershipAvatar;
                   const avatarTextStyle =
                     inv.role === "member_visibility"
                       ? styles.memberAvatarText
                       : inv.role === "staff_visibility"
                         ? styles.staffAvatarText
-                        : undefined;
+                        : inv.role === "ownership_transfer"
+                          ? styles.ownershipAvatarText
+                          : undefined;
 
                   return (
                     <View key={inv.id} style={styles.revokeAccessRow}>
@@ -1006,7 +992,9 @@ function RevokeAccessModal({
                                 ? styles.adminBadge
                                 : inv.role === "member_visibility"
                                   ? styles.memberBadge
-                                  : styles.staffBadge,
+                                  : inv.role === "staff_visibility"
+                                    ? styles.staffBadge
+                                    : styles.ownershipBadge,
                             ]}
                           >
                             <Text
@@ -1015,7 +1003,9 @@ function RevokeAccessModal({
                                   ? styles.adminBadgeText
                                   : inv.role === "member_visibility"
                                     ? styles.memberBadgeText
-                                    : styles.staffBadgeText
+                                    : inv.role === "staff_visibility"
+                                      ? styles.staffBadgeText
+                                      : styles.ownershipBadgeText
                               }
                             >
                               {roleLabel(inv.role).toUpperCase()}
@@ -1081,8 +1071,6 @@ function RevokeAccessModal({
                           : ""}
                       </Text>
 
-                      {/* Member toggle — only when revoking an admin
-                          who also has a member profile. */}
                       {target.role === "admin" && preview?.memberProfile && (
                         <TouchableOpacity
                           style={styles.revokeToggleRow}
@@ -1129,8 +1117,6 @@ function RevokeAccessModal({
                         </TouchableOpacity>
                       )}
 
-                      {/* Staff toggle — only when revoking an admin
-                          who also has a staff profile. */}
                       {target.role === "admin" && preview?.staffProfile && (
                         <TouchableOpacity
                           style={styles.revokeToggleRow}
@@ -1239,38 +1225,18 @@ export default function AccountProfileScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
-  const { user, logout } = useAuthStore();
+  const { user } = useAuthStore();
   const { selectedAccount, editAccount } = useAccounts();
   const { isAdmin } = useUserRole();
   const canEdit = isAdmin;
 
   const [propertyName, setPropertyName] = useState("");
   const [editingName, setEditingName] = useState(false);
+  const [savingName, setSavingName] = useState(false);
 
   const [showPhotoOptions, setShowPhotoOptions] = useState(false);
   const [rawImage, setRawImage] = useState<RawImage | null>(null);
   const [showAdjustModal, setShowAdjustModal] = useState(false);
-
-  const [showPhoneModal, setShowPhoneModal] = useState(false);
-  const [showPhoneTooltip, setShowPhoneTooltip] = useState(false);
-  const [phone, setPhone] = useState("");
-  const [phoneOtp, setPhoneOtp] = useState(["", "", "", "", "", ""]);
-  const [phoneOtpSent, setPhoneOtpSent] = useState(false);
-  const [phoneError, setPhoneError] = useState("");
-  const [otpMessage, setOtpMessage] = useState("");
-  const [timer, setTimer] = useState(30);
-  const [isTimerActive, setIsTimerActive] = useState(false);
-  const otpInputs = useRef<(TextInput | null)[]>([]);
-  const timerInterval = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  const [linkedProfile, setLinkedProfile] = useState<PhoneChangePreview | null>(
-    null,
-  );
-  const [linkedProfileLoading, setLinkedProfileLoading] = useState(false);
-  const [updateMemberPhone, setUpdateMemberPhone] = useState(false);
-  const [updateStaffPhone, setUpdateStaffPhone] = useState(false);
-
-  const [processingChange, setProcessingChange] = useState(false);
 
   const [invitations, setInvitations] = useState<ApiInvitation[]>([]);
   const [invitationsLoading, setInvitationsLoading] = useState(false);
@@ -1283,10 +1249,6 @@ export default function AccountProfileScreen() {
   const [resendingInvitationId, setResendingInvitationId] = useState<
     string | null
   >(null);
-
-  const [showContactPicker, setShowContactPicker] = useState(false);
-  const [contactsList, setContactsList] = useState<ContactData[]>([]);
-  const [contactSearch, setContactSearch] = useState("");
 
   const [showRevokeAccessModal, setShowRevokeAccessModal] = useState(false);
 
@@ -1308,8 +1270,11 @@ export default function AccountProfileScreen() {
   );
 
   const acceptedAdmins = useMemo(
-    () => acceptedInvitations.filter((i) => i.role === "admin"),
-    [acceptedInvitations],
+    () =>
+      acceptedInvitations.filter(
+        (i) => i.role === "admin" && i.accepted_by !== selectedAccount?.ownerId,
+      ),
+    [acceptedInvitations, selectedAccount?.ownerId],
   );
   const acceptedMembers = useMemo(
     () => acceptedInvitations.filter((i) => i.role === "member_visibility"),
@@ -1319,41 +1284,37 @@ export default function AccountProfileScreen() {
     () => acceptedInvitations.filter((i) => i.role === "staff_visibility"),
     [acceptedInvitations],
   );
+  const acceptedOwnership = useMemo(
+    () => acceptedInvitations.filter((i) => i.role === "ownership_transfer"),
+    [acceptedInvitations],
+  );
+
+  const pendingOwnership = useMemo(
+    () => pendingInvitations.filter((i) => i.role === "ownership_transfer"),
+    [pendingInvitations],
+  );
+
+  const pendingNonOwnership = useMemo(
+    () => pendingInvitations.filter((i) => i.role !== "ownership_transfer"),
+    [pendingInvitations],
+  );
 
   const totalPeopleWithAccess =
     acceptedAdmins.length +
     acceptedMembers.length +
     acceptedStaff.length +
+    acceptedOwnership.length +
     pendingInvitations.length +
     rejectedInvitations.length +
     (selectedAccount?.ownerId === user?.id ? 1 : 0);
 
   const totalRevocable =
-    acceptedAdmins.length + acceptedMembers.length + acceptedStaff.length;
+    acceptedAdmins.length +
+    acceptedMembers.length +
+    acceptedStaff.length +
+    acceptedOwnership.length;
 
   const isOwner = selectedAccount?.ownerId === user?.id;
-
-  // ============================================================
-  // TIMER
-  // ============================================================
-
-  useEffect(() => {
-    if (isTimerActive && timer > 0) {
-      timerInterval.current = setInterval(() => setTimer((p) => p - 1), 1000);
-    } else if (timer === 0) {
-      setIsTimerActive(false);
-      if (timerInterval.current) {
-        clearInterval(timerInterval.current);
-        timerInterval.current = null;
-      }
-    }
-    return () => {
-      if (timerInterval.current) {
-        clearInterval(timerInterval.current);
-        timerInterval.current = null;
-      }
-    };
-  }, [isTimerActive, timer]);
 
   const getInitials = (name: string) =>
     name
@@ -1405,7 +1366,12 @@ export default function AccountProfileScreen() {
           "revoked",
           "cancelled",
         ];
-        const KNOWN_ROLE = ["admin", "member_visibility", "staff_visibility"];
+        const KNOWN_ROLE = [
+          "admin",
+          "member_visibility",
+          "staff_visibility",
+          "ownership_transfer",
+        ];
 
         const normalized: ApiInvitation[] = rows.map((r) => {
           const rawStatus = String(r.status ?? "")
@@ -1537,337 +1503,27 @@ export default function AccountProfileScreen() {
     setEditingName(true);
   };
 
+  const cancelEditingName = () => {
+    if (savingName) return;
+    setEditingName(false);
+    setPropertyName("");
+  };
+
   const savePropertyName = async () => {
-    if (!canEdit) return;
+    if (!canEdit || savingName) return;
     const trimmed = propertyName.trim();
     if (!trimmed || !selectedAccount) return;
-    await editAccount(selectedAccount.id, { name: trimmed });
-    setEditingName(false);
-  };
 
-  // ============================================================
-  // PHONE (ownership transfer)
-  // ============================================================
-
-  const openPhoneEditor = async () => {
-    if (!canEdit) return;
-
-    setPhone("");
-    setPhoneOtp(["", "", "", "", "", ""]);
-    setPhoneError("");
-    setPhoneOtpSent(false);
-    setOtpMessage("");
-    setTimer(30);
-    setIsTimerActive(false);
-    setLinkedProfile(null);
-    setUpdateMemberPhone(false);
-    setUpdateStaffPhone(false);
-
-    setShowPhoneModal(true);
-
-    if (!ENABLE_LINKED_PROFILE_PREVIEW) return;
-
-    setLinkedProfileLoading(true);
-
-    const authToken = await getAuthToken();
-    if (!authToken) {
-      setLinkedProfileLoading(false);
-      setPhoneError("You're not signed in. Please log in again.");
-      return;
-    }
-
+    setSavingName(true);
     try {
-      const res = await fetch(
-        `${API_URL}/api/accounts/${selectedAccount?.id}/profile/phone/change-preview`,
-        { headers: { Authorization: `Bearer ${authToken}` } },
-      );
-
-      const data: PhoneChangePreview = await res.json();
-
-      if (!res.ok) {
-        console.warn("[account-profile] change-preview failed:", data);
-        setLinkedProfile(null);
-        return;
-      }
-
-      setLinkedProfile(data);
-      setUpdateMemberPhone(!!data.linkedMember?.exists);
-      setUpdateStaffPhone(!!data.linkedStaff?.exists);
+      await editAccount(selectedAccount.id, { name: trimmed });
+      setEditingName(false);
     } catch (err) {
-      console.warn("[account-profile] change-preview error:", err);
-      setLinkedProfile(null);
+      console.error("savePropertyName error:", err);
+      Alert.alert("Error", "Failed to update account name.");
     } finally {
-      setLinkedProfileLoading(false);
+      setSavingName(false);
     }
-  };
-
-  const handleSendPhoneOtp = async () => {
-    if (phone.length !== 10) {
-      setPhoneError("Enter a valid 10-digit phone number");
-      return;
-    }
-    setPhoneError("");
-
-    const authToken = await getAuthToken();
-    if (!authToken) {
-      setPhoneError("You're not signed in. Please log in again.");
-      return;
-    }
-
-    setProcessingChange(true);
-    try {
-      const res = await fetch(
-        `${API_URL}/api/accounts/${selectedAccount?.id}/profile/phone/request-otp`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${authToken}`,
-          },
-          body: JSON.stringify({ phone }),
-        },
-      );
-
-      let data: any = null;
-      try {
-        data = await res.json();
-      } catch {
-        data = null;
-      }
-
-      if (!res.ok) {
-        setPhoneError(data?.message || "Unable to send OTP");
-        return;
-      }
-
-      setPhoneOtpSent(true);
-      setOtpMessage(data?.message || `OTP sent to +91${phone}`);
-      setTimer(30);
-      setIsTimerActive(true);
-      setTimeout(() => otpInputs.current[0]?.focus(), 300);
-    } catch (err) {
-      console.error("request-otp error:", err);
-      setPhoneError("Network error. Please check your connection.");
-    } finally {
-      setProcessingChange(false);
-    }
-  };
-
-  const handleResendOtp = async () => {
-    if (phone.length !== 10) {
-      setPhoneError("Enter a valid 10-digit phone number");
-      return;
-    }
-    setPhoneError("");
-    await handleSendPhoneOtp();
-  };
-
-  const handleVerifyPressed = async () => {
-    const otpString = phoneOtp.join("");
-    if (otpString.length !== 6) {
-      setPhoneError("Please enter complete 6-digit OTP");
-      return;
-    }
-    setPhoneError("");
-
-    const authToken = await getAuthToken();
-    if (!authToken) {
-      setPhoneError("You're not signed in. Please log in again.");
-      return;
-    }
-
-    setProcessingChange(true);
-    try {
-      const res = await fetch(
-        `${API_URL}/api/accounts/${selectedAccount?.id}/profile/phone/verify-otp`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${authToken}`,
-          },
-          body: JSON.stringify({
-            phone,
-            otp: otpString,
-            updateMemberPhone,
-            updateStaffPhone,
-          }),
-        },
-      );
-
-      let data: any = null;
-      try {
-        data = await res.json();
-      } catch {
-        data = null;
-      }
-
-      if (!res.ok) {
-        setPhoneError(data?.message || "Failed to transfer ownership");
-        return;
-      }
-
-      closePhoneModal();
-
-      if (data?.requiresLogout) {
-        Alert.alert(
-          "Ownership Transferred",
-          data?.message ||
-            "Your number has been updated. Please sign in again with the new number.",
-          [
-            {
-              text: "Sign Out",
-              onPress: async () => {
-                try {
-                  await logout();
-                } catch (e) {
-                  console.error("Logout error:", e);
-                }
-                router.replace("/(auth)/login");
-              },
-            },
-          ],
-          { cancelable: false },
-        );
-      }
-    } catch (err) {
-      console.error("verify-otp error:", err);
-      setPhoneError("Network error. Please check your connection.");
-    } finally {
-      setProcessingChange(false);
-    }
-  };
-
-  const closePhoneModal = () => {
-    setShowPhoneModal(false);
-    setPhone("");
-    setPhoneOtp(["", "", "", "", "", ""]);
-    setPhoneError("");
-    setPhoneOtpSent(false);
-    setOtpMessage("");
-    setTimer(30);
-    setIsTimerActive(false);
-    setLinkedProfile(null);
-    setLinkedProfileLoading(false);
-    setUpdateMemberPhone(false);
-    setUpdateStaffPhone(false);
-    if (timerInterval.current) {
-      clearInterval(timerInterval.current);
-      timerInterval.current = null;
-    }
-  };
-
-  const handleOtpChange = (text: string, index: number) => {
-    const cleaned = text.replace(/[^0-9]/g, "").slice(-1);
-    const next = [...phoneOtp];
-    next[index] = cleaned;
-    setPhoneOtp(next);
-    if (cleaned.length === 1 && index < 5) {
-      otpInputs.current[index + 1]?.focus();
-    }
-  };
-
-  const handleOtpKeyPress = (event: any, index: number) => {
-    if (
-      event.nativeEvent.key === "Backspace" &&
-      !phoneOtp[index] &&
-      index > 0
-    ) {
-      otpInputs.current[index - 1]?.focus();
-    }
-  };
-
-  // ============================================================
-  // CONTACTS
-  // ============================================================
-
-  const pickContact = async () => {
-    if (Platform.OS === "web") {
-      Alert.alert(
-        "Not Available",
-        "Contact picker is only available on mobile devices. Please enter the phone number manually.",
-        [{ text: "OK" }],
-      );
-      return;
-    }
-    try {
-      const { status } = await requestPermissionsAsync();
-      if (status !== "granted") {
-        Alert.alert(
-          "Permission Required",
-          "We need access to your contacts to help you quickly add phone numbers.",
-          [{ text: "Cancel", style: "cancel" }, { text: "OK" }],
-        );
-        setPhoneError("Permission to access contacts is required");
-        return;
-      }
-      const contacts = await Contact.getAllDetails(
-        [ContactField.FULL_NAME, ContactField.PHONES],
-        { sortOrder: ContactsSortOrder.GivenName },
-      );
-      if (contacts.length === 0) {
-        setPhoneError("No contacts found on your device");
-        return;
-      }
-      const mapped: ContactData[] = contacts
-        .filter((c) => c.phones && c.phones.length > 0)
-        .map((c) => ({
-          id: c.id,
-          name: c.fullName || "Unknown",
-          phoneNumbers: c.phones.map((p) => ({
-            number: p.number || "",
-            label: p.label || undefined,
-          })),
-        }));
-      if (mapped.length === 0) {
-        setPhoneError("No contacts with phone numbers found");
-        return;
-      }
-      setContactSearch("");
-      setContactsList(mapped);
-      setShowContactPicker(true);
-      setPhoneError("");
-    } catch (error) {
-      console.error("Error fetching contacts:", error);
-      setPhoneError("Failed to fetch contacts. Please try again.");
-    }
-  };
-
-  const filteredContacts = contactsList.filter((c) => {
-    const s = contactSearch.toLowerCase().trim();
-    if (!s) return true;
-    return (
-      c.name.toLowerCase().includes(s) ||
-      c.phoneNumbers.some((p) => p.number.toLowerCase().includes(s))
-    );
-  });
-
-  const closeContactPicker = () => {
-    setContactSearch("");
-    setShowContactPicker(false);
-  };
-
-  const selectContact = (contact: ContactData) => {
-    if (!contact?.phoneNumbers?.length) {
-      setPhoneError("Selected contact doesn't have a phone number");
-      return;
-    }
-    let phoneNumber = contact.phoneNumbers[0].number || "";
-    phoneNumber = phoneNumber
-      .replace(/[^0-9]/g, "")
-      .replace(/^91/, "")
-      .replace(/^0/, "");
-    if (phoneNumber.length > 10) phoneNumber = phoneNumber.slice(-10);
-    if (phoneNumber.length !== 10) {
-      setPhoneError(
-        "Selected contact does not have a valid 10-digit phone number",
-      );
-      return;
-    }
-    setPhone(phoneNumber);
-    setPhoneError("");
-    setContactSearch("");
-    setShowContactPicker(false);
   };
 
   // ============================================================
@@ -1914,8 +1570,6 @@ export default function AccountProfileScreen() {
         },
       );
       if (!res.ok) return;
-      // Remove the dismissed row from local state so the UI updates
-      // immediately without waiting for a full refetch.
       setInvitations((prev) => prev.filter((i) => i.id !== invitationId));
     } catch (err) {
       console.warn("dismissInvitation error:", err);
@@ -2003,9 +1657,6 @@ export default function AccountProfileScreen() {
   // RENDER HELPERS
   // ============================================================
 
-  const hasMemberLinked = !!linkedProfile?.linkedMember?.exists;
-  const hasStaffLinked = !!linkedProfile?.linkedStaff?.exists;
-
   const roleBadge = (role: InvitationRole) => {
     switch (role) {
       case "admin":
@@ -2025,6 +1676,12 @@ export default function AccountProfileScreen() {
           label: "Staff",
           style: styles.staffBadge,
           text: styles.staffBadgeText,
+        };
+      case "ownership_transfer":
+        return {
+          label: "Ownership",
+          style: styles.ownershipBadge,
+          text: styles.ownershipBadgeText,
         };
     }
   };
@@ -2084,16 +1741,30 @@ export default function AccountProfileScreen() {
                     value={propertyName}
                     onChangeText={setPropertyName}
                     autoFocus
+                    editable={!savingName}
                     onSubmitEditing={savePropertyName}
                     returnKeyType="done"
                     selectTextOnFocus
                   />
                   <TouchableOpacity
+                    style={styles.cancelNameButton}
+                    onPress={cancelEditingName}
+                    activeOpacity={0.8}
+                    disabled={savingName}
+                  >
+                    <Ionicons name="close" size={17} color="#475569" />
+                  </TouchableOpacity>
+                  <TouchableOpacity
                     style={styles.saveNameButton}
                     onPress={savePropertyName}
                     activeOpacity={0.8}
+                    disabled={savingName}
                   >
-                    <Ionicons name="checkmark" size={17} color="#FFFFFF" />
+                    {savingName ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <Ionicons name="checkmark" size={17} color="#FFFFFF" />
+                    )}
                   </TouchableOpacity>
                 </View>
               ) : (
@@ -2105,13 +1776,10 @@ export default function AccountProfileScreen() {
                     <TouchableOpacity
                       style={styles.editButton}
                       onPress={startEditingName}
-                      activeOpacity={0.7}
+                      activeOpacity={0.8}
                     >
-                      <Ionicons
-                        name="create-outline"
-                        size={15}
-                        color="#2563EB"
-                      />
+                      <Ionicons name="pencil" size={13} color="#FFFFFF" />
+                      <Text style={styles.editButtonText}>Edit</Text>
                     </TouchableOpacity>
                   )}
                 </View>
@@ -2119,35 +1787,9 @@ export default function AccountProfileScreen() {
 
               <View style={styles.phoneDisplayRow}>
                 <Ionicons name="call-outline" size={14} color="#64748B" />
-                <TouchableOpacity
-                  style={styles.phonePressable}
-                  activeOpacity={0.7}
-                  onPress={
-                    canEdit ? openPhoneEditor : () => setShowPhoneTooltip(true)
-                  }
-                >
-                  <Text style={styles.userPhone} numberOfLines={1}>
-                    {user?.phone}
-                  </Text>
-                </TouchableOpacity>
-
-                {canEdit && (
-                  <TouchableOpacity
-                    style={styles.editButton}
-                    onPress={openPhoneEditor}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name="create-outline" size={14} color="#2563EB" />
-                  </TouchableOpacity>
-                )}
-                <TouchableOpacity
-                  style={styles.phoneInfoIcon}
-                  onPress={() => setShowPhoneTooltip(true)}
-                  activeOpacity={0.7}
-                  hitSlop={6}
-                >
-                  <Ionicons name="information" size={11} color="#2563EB" />
-                </TouchableOpacity>
+                <Text style={styles.userPhone} numberOfLines={1}>
+                  {user?.phone}
+                </Text>
               </View>
 
               <View style={styles.accountTypeBadge}>
@@ -2209,6 +1851,22 @@ export default function AccountProfileScreen() {
                     },
                   })
                 }
+              />
+              <MenuRow
+                icon="swap-horizontal-outline"
+                color="#D97706"
+                title="Transfer account ownership"
+                description="Transfer full ownership of this account to another person"
+                onPress={() =>
+                  router.push({
+                    pathname: "/(modals)/grant-access",
+                    params: {
+                      accountId: selectedAccount?.id || "",
+                      role: "ownership_transfer",
+                      memberType: "ownership",
+                    },
+                  })
+                }
                 isLast
               />
             </View>
@@ -2238,7 +1896,7 @@ export default function AccountProfileScreen() {
                       </View>
                       <View style={styles.menuItemContent}>
                         <Text style={styles.menuItemTitle}>
-                          Revoke Admin, Member & Staff Access
+                          Revoke Admin, Member, Staff & Ownership Access
                         </Text>
                         <Text
                           style={styles.menuItemDescription}
@@ -2296,6 +1954,7 @@ export default function AccountProfileScreen() {
                   acceptedAdmins.length === 0 &&
                     acceptedMembers.length === 0 &&
                     acceptedStaff.length === 0 &&
+                    acceptedOwnership.length === 0 &&
                     pendingInvitations.length === 0 &&
                     rejectedInvitations.length === 0 &&
                     styles.lastAccessRow,
@@ -2321,6 +1980,58 @@ export default function AccountProfileScreen() {
                   <Text style={styles.ownerBadgeText}>Owner</Text>
                 </View>
               </View>
+            </View>
+          )}
+
+          {/* OWNERSHIP (ACCEPTED — co-owners) */}
+          {acceptedOwnership.length > 0 && (
+            <View style={styles.accessGroup}>
+              <Text style={styles.accessHeading}>Ownership</Text>
+              {acceptedOwnership.map((inv, index) => (
+                <View
+                  key={inv.id}
+                  style={[
+                    styles.accessRow,
+                    index === acceptedOwnership.length - 1 &&
+                      acceptedAdmins.length === 0 &&
+                      acceptedMembers.length === 0 &&
+                      acceptedStaff.length === 0 &&
+                      pendingInvitations.length === 0 &&
+                      rejectedInvitations.length === 0 &&
+                      styles.lastAccessRow,
+                  ]}
+                >
+                  <GrantAvatar
+                    photoUrl={
+                      inv.accepted_user_photo_url ??
+                      inv.invitee_user_photo_url ??
+                      null
+                    }
+                    name={
+                      inv.accepted_user_name ??
+                      inv.invitee_user_name ??
+                      inv.invited_name ??
+                      "Owner"
+                    }
+                    style={styles.ownershipAvatar}
+                    textStyle={styles.ownershipAvatarText}
+                  />
+                  <View style={styles.accessInfo}>
+                    <Text style={styles.accessName}>
+                      {inv.accepted_user_name ??
+                        inv.invitee_user_name ??
+                        inv.invited_name ??
+                        "Owner"}
+                    </Text>
+                    <Text style={styles.accessPhone}>
+                      +91{inv.invited_phone}
+                    </Text>
+                  </View>
+                  <View style={[styles.accessBadge, styles.ownershipBadge]}>
+                    <Text style={styles.ownershipBadgeText}>OWNERSHIP</Text>
+                  </View>
+                </View>
+              ))}
             </View>
           )}
 
@@ -2479,18 +2190,96 @@ export default function AccountProfileScreen() {
             </View>
           )}
 
-          {/* PENDING */}
-          {pendingInvitations.length > 0 && (
+          {/* PENDING — OWNERSHIP REQUESTS */}
+          {pendingOwnership.length > 0 && (
+            <View style={styles.accessGroup}>
+              <View style={styles.pendingHeader}>
+                <Text style={styles.accessHeading}>Ownership Transfer</Text>
+                <View
+                  style={[
+                    styles.pendingCountBadge,
+                    { backgroundColor: "#FEF3C7" },
+                  ]}
+                >
+                  <Text style={[styles.pendingCountText, { color: "#B45309" }]}>
+                    {pendingOwnership.length}
+                  </Text>
+                </View>
+              </View>
+              {pendingOwnership.map((inv, index) => {
+                const displayName =
+                  inv.invitee_user_name ??
+                  inv.invited_name ??
+                  "Ownership request";
+                return (
+                  <View
+                    key={inv.id}
+                    style={[
+                      styles.accessRow,
+                      index === pendingOwnership.length - 1 &&
+                        pendingNonOwnership.length === 0 &&
+                        rejectedInvitations.length === 0 &&
+                        styles.lastAccessRow,
+                    ]}
+                  >
+                    <GrantAvatar
+                      photoUrl={
+                        inv.invitee_user_photo_url ??
+                        inv.accepted_user_photo_url ??
+                        null
+                      }
+                      name={displayName}
+                      style={styles.ownershipAvatar}
+                      textStyle={styles.ownershipAvatarText}
+                    />
+                    <View style={styles.accessInfo}>
+                      <Text style={styles.accessName}>{displayName}</Text>
+                      <Text style={styles.accessPhone}>
+                        +91{inv.invited_phone}
+                      </Text>
+                      <View style={styles.ownershipPendingPill}>
+                        <Ionicons
+                          name="hourglass-outline"
+                          size={11}
+                          color="#B45309"
+                        />
+                        <Text style={styles.ownershipPendingPillText}>
+                          Pending acceptance
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={[styles.accessBadge, styles.ownershipBadge]}>
+                      <Text style={styles.ownershipBadgeText}>OWNERSHIP</Text>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.deleteInvitationButton}
+                      onPress={() => setInvitationToDelete(inv.id)}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons
+                        name="trash-outline"
+                        size={18}
+                        color="#DC2626"
+                      />
+                    </TouchableOpacity>
+                  </View>
+                );
+              })}
+            </View>
+          )}
+
+          {/* PENDING — OTHER ROLES */}
+          {pendingNonOwnership.length > 0 && (
             <View style={styles.accessGroup}>
               <View style={styles.pendingHeader}>
                 <Text style={styles.accessHeading}>Pending Invitations</Text>
                 <View style={styles.pendingCountBadge}>
                   <Text style={styles.pendingCountText}>
-                    {pendingInvitations.length}
+                    {pendingNonOwnership.length}
                   </Text>
                 </View>
               </View>
-              {pendingInvitations.map((inv, index) => {
+              {pendingNonOwnership.map((inv, index) => {
                 const badge = roleBadge(inv.role);
                 const photoUrl =
                   inv.invitee_user_photo_url ??
@@ -2503,7 +2292,7 @@ export default function AccountProfileScreen() {
                     key={inv.id}
                     style={[
                       styles.accessRow,
-                      index === pendingInvitations.length - 1 &&
+                      index === pendingNonOwnership.length - 1 &&
                         rejectedInvitations.length === 0 &&
                         styles.lastAccessRow,
                     ]}
@@ -2615,6 +2404,7 @@ export default function AccountProfileScreen() {
             acceptedAdmins.length === 0 &&
             acceptedMembers.length === 0 &&
             acceptedStaff.length === 0 &&
+            acceptedOwnership.length === 0 &&
             pendingInvitations.length === 0 &&
             rejectedInvitations.length === 0 &&
             selectedAccount?.ownerId !== user?.id && (
@@ -2713,487 +2503,6 @@ export default function AccountProfileScreen() {
         />
       )}
 
-      {/* PHONE EDIT MODAL */}
-      {canEdit && showPhoneModal && (
-        <Modal
-          transparent
-          animationType="fade"
-          visible={showPhoneModal}
-          onRequestClose={closePhoneModal}
-        >
-          <TouchableWithoutFeedback onPress={closePhoneModal}>
-            <View style={styles.modalOverlay}>
-              <TouchableWithoutFeedback
-                onPress={(event) => event.stopPropagation()}
-              >
-                <KeyboardAvoidingView
-                  behavior={Platform.OS === "ios" ? "padding" : "height"}
-                  style={styles.keyboardView}
-                >
-                  <View style={styles.editModal}>
-                    <View style={styles.modalTopRow}>
-                      <View style={styles.modalTitleIcon}>
-                        <Ionicons
-                          name="call-outline"
-                          size={20}
-                          color="#2563EB"
-                        />
-                      </View>
-                      <View style={styles.modalTitleContent}>
-                        <Text style={styles.editModalTitle}>
-                          Change Phone Number
-                        </Text>
-                        <Text style={styles.modalSubtitle}>
-                          {phoneOtpSent
-                            ? "Verify your new number"
-                            : "Enter your new mobile number"}
-                        </Text>
-                      </View>
-                      <TouchableOpacity
-                        style={styles.modalCloseButton}
-                        onPress={closePhoneModal}
-                        activeOpacity={0.7}
-                      >
-                        <Ionicons name="close" size={21} color="#475569" />
-                      </TouchableOpacity>
-                    </View>
-
-                    <ScrollView
-                      keyboardShouldPersistTaps="handled"
-                      showsVerticalScrollIndicator={false}
-                    >
-                      {!phoneOtpSent ? (
-                        <>
-                          <Text style={styles.fieldLabel}>
-                            New phone number
-                          </Text>
-                          <View style={styles.phoneInputRow}>
-                            <View style={styles.phonePrefixBox}>
-                              <Text style={styles.phonePrefix}>+91</Text>
-                            </View>
-                            <TextInput
-                              style={styles.phoneInput}
-                              value={phone}
-                              onChangeText={(value) => {
-                                const cleaned = value.replace(/[^0-9]/g, "");
-                                setPhone(cleaned.slice(0, 10));
-                                setPhoneError("");
-                              }}
-                              keyboardType="number-pad"
-                              maxLength={10}
-                              placeholder="98765 43210"
-                              placeholderTextColor="#94A3B8"
-                            />
-                            <TouchableOpacity
-                              onPress={pickContact}
-                              style={styles.phoneContactButton}
-                              activeOpacity={0.75}
-                            >
-                              <Ionicons
-                                name="people-outline"
-                                size={20}
-                                color="#2563EB"
-                              />
-                            </TouchableOpacity>
-                          </View>
-                          <Text style={styles.inputHint}>
-                            We'll send a 6-digit verification code to this
-                            number.
-                          </Text>
-
-                          {ENABLE_LINKED_PROFILE_PREVIEW &&
-                          linkedProfileLoading ? (
-                            <View style={styles.linkedLoadingBox}>
-                              <ActivityIndicator size="small" color="#2563EB" />
-                              <Text style={styles.linkedLoadingText}>
-                                Checking linked profiles…
-                              </Text>
-                            </View>
-                          ) : ENABLE_LINKED_PROFILE_PREVIEW &&
-                            (hasMemberLinked || hasStaffLinked) ? (
-                            <View style={styles.linkedSection}>
-                              <Text style={styles.linkedSectionTitle}>
-                                Also update on these profiles
-                              </Text>
-                              <Text style={styles.linkedSectionHelp}>
-                                We found the old number on these profiles in
-                                your account. Choose which ones you'd like to
-                                update to the new number.
-                              </Text>
-
-                              {hasMemberLinked && (
-                                <View style={styles.linkedInlineRow}>
-                                  <View
-                                    style={[
-                                      styles.linkedInlineIcon,
-                                      { backgroundColor: "#DCFCE7" },
-                                    ]}
-                                  >
-                                    <Ionicons
-                                      name="person"
-                                      size={18}
-                                      color="#16A34A"
-                                    />
-                                  </View>
-                                  <View style={styles.linkedInlineContent}>
-                                    <View style={styles.linkedInlineTitleRow}>
-                                      <Text style={styles.linkedInlineTitle}>
-                                        Member Profile
-                                      </Text>
-                                      <View
-                                        style={[
-                                          styles.linkedInlineBadge,
-                                          { backgroundColor: "#DCFCE7" },
-                                        ]}
-                                      >
-                                        <Text
-                                          style={[
-                                            styles.linkedInlineBadgeText,
-                                            { color: "#16A34A" },
-                                          ]}
-                                        >
-                                          MEMBER
-                                        </Text>
-                                      </View>
-                                    </View>
-                                    <Text
-                                      style={styles.linkedInlineName}
-                                      numberOfLines={1}
-                                    >
-                                      {linkedProfile?.linkedMember?.name ||
-                                        "You"}
-                                      {linkedProfile?.linkedMember?.flatNumber
-                                        ? `  •  ${linkedProfile.linkedMember.wing ? "Wing " + linkedProfile.linkedMember.wing + " " : ""}Apt ${linkedProfile.linkedMember.flatNumber}`
-                                        : ""}
-                                    </Text>
-                                  </View>
-                                  <Switch
-                                    value={updateMemberPhone}
-                                    onValueChange={setUpdateMemberPhone}
-                                    trackColor={{
-                                      false: "#CBD5E1",
-                                      true: "#93C5FD",
-                                    }}
-                                    thumbColor={
-                                      updateMemberPhone ? "#2563EB" : "#FFFFFF"
-                                    }
-                                  />
-                                </View>
-                              )}
-
-                              {hasStaffLinked && (
-                                <View style={styles.linkedInlineRow}>
-                                  <View
-                                    style={[
-                                      styles.linkedInlineIcon,
-                                      { backgroundColor: "#E0F2FE" },
-                                    ]}
-                                  >
-                                    <Ionicons
-                                      name="briefcase"
-                                      size={18}
-                                      color="#0284C7"
-                                    />
-                                  </View>
-                                  <View style={styles.linkedInlineContent}>
-                                    <View style={styles.linkedInlineTitleRow}>
-                                      <Text style={styles.linkedInlineTitle}>
-                                        Staff Profile
-                                      </Text>
-                                      <View
-                                        style={[
-                                          styles.linkedInlineBadge,
-                                          { backgroundColor: "#E0F2FE" },
-                                        ]}
-                                      >
-                                        <Text
-                                          style={[
-                                            styles.linkedInlineBadgeText,
-                                            { color: "#0284C7" },
-                                          ]}
-                                        >
-                                          STAFF
-                                        </Text>
-                                      </View>
-                                    </View>
-                                    <Text
-                                      style={styles.linkedInlineName}
-                                      numberOfLines={1}
-                                    >
-                                      {linkedProfile?.linkedStaff?.name ||
-                                        "You"}
-                                      {linkedProfile?.linkedStaff?.role
-                                        ? `  •  ${linkedProfile.linkedStaff.role}`
-                                        : ""}
-                                    </Text>
-                                  </View>
-                                  <Switch
-                                    value={updateStaffPhone}
-                                    onValueChange={setUpdateStaffPhone}
-                                    trackColor={{
-                                      false: "#CBD5E1",
-                                      true: "#93C5FD",
-                                    }}
-                                    thumbColor={
-                                      updateStaffPhone ? "#2563EB" : "#FFFFFF"
-                                    }
-                                  />
-                                </View>
-                              )}
-                            </View>
-                          ) : null}
-                        </>
-                      ) : (
-                        <>
-                          <View style={styles.otpMessageContainer}>
-                            <View style={styles.otpSuccessIcon}>
-                              <Ionicons
-                                name="checkmark"
-                                size={16}
-                                color="#16A34A"
-                              />
-                            </View>
-                            <View style={styles.otpMessageContent}>
-                              <Text style={styles.otpMessageTitle}>
-                                Verification code sent
-                              </Text>
-                              <Text style={styles.otpMessageText}>
-                                {otpMessage}
-                              </Text>
-                            </View>
-                          </View>
-
-                          <Text style={styles.fieldLabel}>
-                            Enter verification code
-                          </Text>
-                          <View style={styles.otpContainer}>
-                            {[0, 1, 2, 3, 4, 5].map((index) => (
-                              <TextInput
-                                key={index}
-                                ref={(ref) => {
-                                  otpInputs.current[index] = ref;
-                                }}
-                                style={[
-                                  styles.otpInput,
-                                  phoneOtp[index] && styles.otpInputFilled,
-                                ]}
-                                value={phoneOtp[index]}
-                                onChangeText={(text) =>
-                                  handleOtpChange(text, index)
-                                }
-                                onKeyPress={(event) =>
-                                  handleOtpKeyPress(event, index)
-                                }
-                                keyboardType="number-pad"
-                                maxLength={1}
-                                selectionColor="#2563EB"
-                              />
-                            ))}
-                          </View>
-
-                          <View style={styles.timerContainer}>
-                            {isTimerActive ? (
-                              <Text style={styles.timerText}>
-                                Resend available in{" "}
-                                <Text style={styles.timerStrong}>{timer}s</Text>
-                              </Text>
-                            ) : (
-                              <TouchableOpacity
-                                onPress={handleResendOtp}
-                                activeOpacity={0.7}
-                              >
-                                <Text style={styles.resendOtpText}>
-                                  Resend OTP
-                                </Text>
-                              </TouchableOpacity>
-                            )}
-                          </View>
-
-                          {ENABLE_LINKED_PROFILE_PREVIEW &&
-                            (hasMemberLinked || hasStaffLinked) && (
-                              <View style={styles.linkedReminderBox}>
-                                <Ionicons
-                                  name="information-circle"
-                                  size={16}
-                                  color="#B45309"
-                                />
-                                <View style={{ flex: 1 }}>
-                                  <Text style={styles.linkedReminderText}>
-                                    After you verify, the new number will be
-                                    saved on:
-                                  </Text>
-                                  {hasMemberLinked && updateMemberPhone && (
-                                    <Text style={styles.linkedReminderItem}>
-                                      • Member profile (
-                                      {linkedProfile?.linkedMember?.name ||
-                                        "you"}
-                                      )
-                                    </Text>
-                                  )}
-                                  {hasStaffLinked && updateStaffPhone && (
-                                    <Text style={styles.linkedReminderItem}>
-                                      • Staff profile (
-                                      {linkedProfile?.linkedStaff?.name ||
-                                        "you"}
-                                      )
-                                    </Text>
-                                  )}
-                                </View>
-                              </View>
-                            )}
-                        </>
-                      )}
-
-                      {phoneError ? (
-                        <View style={styles.validationBox}>
-                          <Ionicons
-                            name="alert-circle-outline"
-                            size={17}
-                            color="#DC2626"
-                          />
-                          <Text style={styles.validationText}>
-                            {phoneError}
-                          </Text>
-                        </View>
-                      ) : null}
-                    </ScrollView>
-
-                    <View style={styles.modalActions}>
-                      <TouchableOpacity
-                        style={styles.cancelModalButton}
-                        onPress={closePhoneModal}
-                        activeOpacity={0.8}
-                      >
-                        <Text style={styles.cancelButtonText}>Cancel</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity
-                        style={[
-                          styles.saveButton,
-                          processingChange && styles.saveButtonDisabled,
-                        ]}
-                        onPress={
-                          phoneOtpSent
-                            ? handleVerifyPressed
-                            : handleSendPhoneOtp
-                        }
-                        disabled={
-                          processingChange ||
-                          (!phoneOtpSent
-                            ? phone.length !== 10
-                            : phoneOtp.join("").length !== 6)
-                        }
-                        activeOpacity={0.8}
-                      >
-                        {processingChange ? (
-                          <ActivityIndicator color="#fff" size="small" />
-                        ) : (
-                          <>
-                            <Ionicons
-                              name={
-                                phoneOtpSent
-                                  ? "checkmark-circle-outline"
-                                  : "paper-plane-outline"
-                              }
-                              size={18}
-                              color="#FFFFFF"
-                            />
-                            <Text style={styles.saveButtonText}>
-                              {phoneOtpSent ? "Verify OTP" : "Send OTP"}
-                            </Text>
-                          </>
-                        )}
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                </KeyboardAvoidingView>
-              </TouchableWithoutFeedback>
-            </View>
-          </TouchableWithoutFeedback>
-        </Modal>
-      )}
-
-      {/* PHONE TOOLTIP */}
-      {showPhoneTooltip && (
-        <Modal
-          transparent
-          animationType="fade"
-          visible={showPhoneTooltip}
-          onRequestClose={() => setShowPhoneTooltip(false)}
-        >
-          <TouchableWithoutFeedback onPress={() => setShowPhoneTooltip(false)}>
-            <View style={styles.modalOverlay}>
-              <TouchableWithoutFeedback
-                onPress={(event) => event.stopPropagation()}
-              >
-                <View style={styles.tooltipCard}>
-                  <View style={styles.tooltipIconCircle}>
-                    <Ionicons name="call-outline" size={26} color="#2563EB" />
-                  </View>
-                  <Text style={styles.tooltipTitle}>Phone Number</Text>
-                  <Text style={styles.tooltipSubtitle}>
-                    This phone number is tied to the account owner. You can
-                    change it or transfer ownership to another person.
-                  </Text>
-
-                  <View style={styles.tooltipList}>
-                    <View style={styles.tooltipRow}>
-                      <View style={styles.tooltipRowIcon}>
-                        <Ionicons
-                          name="create-outline"
-                          size={17}
-                          color="#2563EB"
-                        />
-                      </View>
-                      <View style={styles.tooltipRowTextContainer}>
-                        <Text style={styles.tooltipRowTitle}>
-                          Change your number
-                        </Text>
-                        <Text style={styles.tooltipRowText}>
-                          Tap the phone number to update it. We'll send an OTP
-                          to verify the new number.
-                        </Text>
-                      </View>
-                    </View>
-
-                    <View style={styles.tooltipRow}>
-                      <View
-                        style={[
-                          styles.tooltipRowIcon,
-                          { backgroundColor: "#FEF3C7" },
-                        ]}
-                      >
-                        <Ionicons
-                          name="swap-horizontal-outline"
-                          size={17}
-                          color="#D97706"
-                        />
-                      </View>
-                      <View style={styles.tooltipRowTextContainer}>
-                        <Text style={styles.tooltipRowTitle}>
-                          Transfer ownership
-                        </Text>
-                        <Text style={styles.tooltipRowText}>
-                          Add someone else's number and verify it with OTP to
-                          transfer ownership of this account to them.
-                        </Text>
-                      </View>
-                    </View>
-                  </View>
-
-                  <TouchableOpacity
-                    style={styles.tooltipActionButton}
-                    onPress={() => setShowPhoneTooltip(false)}
-                    activeOpacity={0.85}
-                  >
-                    <Text style={styles.tooltipActionText}>Got it</Text>
-                  </TouchableOpacity>
-                </View>
-              </TouchableWithoutFeedback>
-            </View>
-          </TouchableWithoutFeedback>
-        </Modal>
-      )}
-
       {/* DELETE INVITATION */}
       {invitationToDelete && (
         <Modal
@@ -3262,165 +2571,12 @@ export default function AccountProfileScreen() {
         acceptedAdmins={acceptedAdmins}
         acceptedMembers={acceptedMembers}
         acceptedStaff={acceptedStaff}
+        acceptedOwnership={acceptedOwnership}
         getAuthToken={getAuthToken}
         onRevoked={async () => {
           await loadInvitations({ silent: true });
         }}
       />
-
-      {/* CONTACT PICKER */}
-      {showContactPicker && (
-        <Modal
-          visible={showContactPicker}
-          transparent
-          animationType="slide"
-          onRequestClose={closeContactPicker}
-        >
-          <TouchableWithoutFeedback onPress={closeContactPicker}>
-            <View style={styles.contactModalOverlay}>
-              <TouchableWithoutFeedback
-                onPress={(event) => event.stopPropagation()}
-              >
-                <View
-                  style={[
-                    styles.contactModalContainer,
-                    { paddingBottom: Math.max(insets.bottom, 16) },
-                  ]}
-                >
-                  <View style={styles.contactModalHeader}>
-                    <View>
-                      <Text style={styles.contactModalTitle}>
-                        Select Contact
-                      </Text>
-                      <Text style={styles.contactModalSubtitle}>
-                        Choose a contact from your phone
-                      </Text>
-                    </View>
-                    <TouchableOpacity
-                      onPress={closeContactPicker}
-                      style={styles.contactModalCloseButton}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons name="close" size={21} color="#475569" />
-                    </TouchableOpacity>
-                  </View>
-
-                  <View style={styles.contactModalSearchContainer}>
-                    <Ionicons name="search-outline" size={19} color="#64748B" />
-                    <TextInput
-                      style={styles.contactModalSearchInput}
-                      placeholder="Search contacts"
-                      placeholderTextColor="#94A3B8"
-                      value={contactSearch}
-                      onChangeText={setContactSearch}
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                      returnKeyType="search"
-                    />
-                    {contactSearch.length > 0 ? (
-                      <TouchableOpacity
-                        onPress={() => setContactSearch("")}
-                        activeOpacity={0.7}
-                      >
-                        <Ionicons
-                          name="close-circle"
-                          size={19}
-                          color="#94A3B8"
-                        />
-                      </TouchableOpacity>
-                    ) : null}
-                  </View>
-
-                  <View style={styles.contactCountRow}>
-                    <Text style={styles.contactCount}>
-                      {filteredContacts.length}{" "}
-                      {filteredContacts.length === 1 ? "contact" : "contacts"}
-                    </Text>
-                  </View>
-
-                  <View style={styles.contactListWrapper}>
-                    <ScrollView
-                      style={styles.contactListContainer}
-                      contentContainerStyle={styles.contactListContent}
-                      showsVerticalScrollIndicator={false}
-                      keyboardShouldPersistTaps="handled"
-                      nestedScrollEnabled
-                    >
-                      {filteredContacts.length > 0 ? (
-                        filteredContacts.map((contact) => (
-                          <TouchableOpacity
-                            key={contact.id}
-                            style={styles.contactItem}
-                            onPress={() => selectContact(contact)}
-                            activeOpacity={0.75}
-                          >
-                            <View style={styles.contactAvatar}>
-                              <Text style={styles.contactAvatarText}>
-                                {contact.name
-                                  ? contact.name.charAt(0).toUpperCase()
-                                  : "?"}
-                              </Text>
-                            </View>
-                            <View style={styles.contactInfo}>
-                              <Text
-                                style={styles.contactName}
-                                numberOfLines={1}
-                              >
-                                {contact.name || "Unknown"}
-                              </Text>
-                              {contact.phoneNumbers.length > 0 ? (
-                                <Text
-                                  style={styles.contactPhone}
-                                  numberOfLines={1}
-                                >
-                                  {contact.phoneNumbers[0].number}
-                                </Text>
-                              ) : null}
-                            </View>
-                            <View style={styles.contactArrow}>
-                              <Ionicons
-                                name="chevron-forward"
-                                size={17}
-                                color="#94A3B8"
-                              />
-                            </View>
-                          </TouchableOpacity>
-                        ))
-                      ) : (
-                        <View style={styles.noContactsContainer}>
-                          <View style={styles.noContactsIcon}>
-                            <Ionicons
-                              name="search-outline"
-                              size={27}
-                              color="#64748B"
-                            />
-                          </View>
-                          <Text style={styles.noContactsTitle}>
-                            No contacts found
-                          </Text>
-                          <Text style={styles.noContactsText}>
-                            Try another name or phone number.
-                          </Text>
-                        </View>
-                      )}
-                    </ScrollView>
-                  </View>
-
-                  <TouchableOpacity
-                    style={styles.contactModalCancelButton}
-                    onPress={closeContactPicker}
-                    activeOpacity={0.8}
-                  >
-                    <Text style={styles.contactModalCancelButtonText}>
-                      Cancel
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </TouchableWithoutFeedback>
-            </View>
-          </TouchableWithoutFeedback>
-        </Modal>
-      )}
     </View>
   );
 }
@@ -3483,32 +2639,27 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
   editButton: {
-    width: 28,
-    height: 28,
-    borderRadius: 9,
-    backgroundColor: "#EFF6FF",
-    alignItems: "center",
-    justifyContent: "center",
-    marginLeft: 7,
-  },
-  phoneDisplayRow: { flexDirection: "row", alignItems: "center", marginTop: 6 },
-  phonePressable: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 2,
-    paddingRight: 4,
-    flexShrink: 1,
+    justifyContent: "center",
+    gap: 5,
+    height: 32,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: "#2563EB",
+    marginLeft: 10,
+  },
+  editButtonText: {
+    color: "#FFFFFF",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  phoneDisplayRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 6,
   },
   userPhone: { color: "#64748B", fontSize: 13, marginLeft: 6 },
-  phoneInfoIcon: {
-    marginLeft: 6,
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    backgroundColor: "#EFF6FF",
-    alignItems: "center",
-    justifyContent: "center",
-  },
   accountTypeBadge: {
     flexDirection: "row",
     alignItems: "center",
@@ -3530,7 +2681,7 @@ const styles = StyleSheet.create({
   nameEditContainer: { flexDirection: "row", alignItems: "center" },
   inlineNameInput: {
     flex: 1,
-    maxWidth: 190,
+    maxWidth: 175,
     height: 42,
     color: "#0F172A",
     fontSize: 18,
@@ -3542,6 +2693,17 @@ const styles = StyleSheet.create({
     backgroundColor: "#F8FBFF",
     ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as any) : {}),
   },
+  cancelNameButton: {
+    width: 35,
+    height: 35,
+    borderRadius: 11,
+    backgroundColor: "#F1F5F9",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 6,
+  },
   saveNameButton: {
     width: 35,
     height: 35,
@@ -3549,7 +2711,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#2563EB",
     alignItems: "center",
     justifyContent: "center",
-    marginLeft: 7,
+    marginLeft: 6,
   },
 
   sectionTitle: {
@@ -3646,14 +2808,6 @@ const styles = StyleSheet.create({
     paddingTop: 13,
     paddingBottom: 5,
   },
-  accessHeadingHint: {
-    color: "#94A3B8",
-    fontSize: 10,
-    lineHeight: 14,
-    paddingHorizontal: 15,
-    paddingBottom: 8,
-    fontStyle: "italic",
-  },
   accessRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -3677,6 +2831,8 @@ const styles = StyleSheet.create({
   staffAvatar: { backgroundColor: "#E0F2FE", marginRight: 11 },
   pendingAvatar: { backgroundColor: "#FEF3C7", marginRight: 11 },
   rejectedAvatar: { backgroundColor: "#FEF2F2", marginRight: 11 },
+  ownershipAvatar: { backgroundColor: "#FEF3C7", marginRight: 11 },
+  ownershipAvatarText: { color: "#B45309" },
   accessAvatarText: { color: "#2563EB", fontSize: 15, fontWeight: "700" },
   pendingAvatarText: { color: "#B45309" },
   rejectedAvatarText: { color: "#DC2626" },
@@ -3708,14 +2864,24 @@ const styles = StyleSheet.create({
   memberBadgeText: { color: "#16A34A", fontSize: 9, fontWeight: "700" },
   staffBadge: { backgroundColor: "#E0F2FE" },
   staffBadgeText: { color: "#0284C7", fontSize: 9, fontWeight: "700" },
-  pendingStatus: {
+  ownershipBadge: { backgroundColor: "#FEF3C7" },
+  ownershipBadgeText: { color: "#B45309", fontSize: 9, fontWeight: "700" },
+  ownershipPendingPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
     backgroundColor: "#FEF3C7",
-    borderRadius: 9,
-    paddingHorizontal: 8,
-    paddingVertical: 5,
-    marginLeft: 7,
+    borderRadius: 8,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    alignSelf: "flex-start",
+    marginTop: 6,
   },
-  pendingStatusText: { color: "#B45309", fontSize: 9, fontWeight: "700" },
+  ownershipPendingPillText: {
+    color: "#B45309",
+    fontSize: 10,
+    fontWeight: "700",
+  },
   pendingHeader: { flexDirection: "row", alignItems: "center" },
   pendingCountBadge: {
     minWidth: 21,
@@ -3736,28 +2902,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginLeft: 6,
-  },
-  revokeButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    backgroundColor: "#FEF2F2",
-    alignItems: "center",
-    justifyContent: "center",
-    marginLeft: 8,
-  },
-  revokeTextButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: 10,
-    backgroundColor: "#FEF2F2",
-    borderWidth: 1,
-    borderColor: "#FECACA",
-  },
-  revokeTextButtonLabel: {
-    color: "#DC2626",
-    fontSize: 12,
-    fontWeight: "700",
   },
   closeIconButton: {
     width: 32,
@@ -3883,259 +3027,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 18,
   },
-  keyboardView: { width: "100%", alignItems: "center" },
-  editModal: {
-    width: "100%",
-    maxWidth: 420,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 22,
-    padding: 20,
-  },
-  modalTopRow: { flexDirection: "row", alignItems: "center", marginBottom: 20 },
-  modalTitleIcon: {
-    width: 42,
-    height: 42,
-    borderRadius: 13,
-    backgroundColor: "#EFF6FF",
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 11,
-  },
-  modalTitleContent: { flex: 1 },
-  editModalTitle: { color: "#0F172A", fontSize: 17, fontWeight: "700" },
-  modalSubtitle: { color: "#64748B", fontSize: 11, marginTop: 3 },
-  modalCloseButton: {
-    width: 35,
-    height: 35,
-    borderRadius: 11,
-    backgroundColor: "#F1F5F9",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  fieldLabel: {
-    color: "#334155",
-    fontSize: 12,
-    fontWeight: "700",
-    marginBottom: 7,
-    marginTop: 10,
-  },
-  phoneInputRow: {
-    height: 51,
-    flexDirection: "row",
-    alignItems: "center",
-    borderWidth: 1,
-    borderColor: "#CBD5E1",
-    borderRadius: 13,
-    backgroundColor: "#FFFFFF",
-    paddingLeft: 4,
-    paddingRight: 5,
-  },
-  phonePrefixBox: {
-    height: 41,
-    minWidth: 55,
-    borderRightWidth: 1,
-    borderRightColor: "#E2E8F0",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  phonePrefix: { color: "#334155", fontSize: 14, fontWeight: "700" },
-  phoneInput: {
-    flex: 1,
-    height: "100%",
-    color: "#0F172A",
-    fontSize: 15,
-    paddingHorizontal: 11,
-    ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as any) : {}),
-  },
-  phoneContactButton: {
-    width: 39,
-    height: 39,
-    borderRadius: 11,
-    backgroundColor: "#EFF6FF",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  inputHint: { color: "#94A3B8", fontSize: 10, lineHeight: 15, marginTop: 7 },
-  validationBox: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#FEF2F2",
-    borderWidth: 1,
-    borderColor: "#FECACA",
-    borderRadius: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-    marginTop: 10,
-    gap: 7,
-  },
-  validationText: { flex: 1, color: "#B91C1C", fontSize: 11, lineHeight: 16 },
-  modalActions: {
-    flexDirection: "row",
-    justifyContent: "flex-end",
-    alignItems: "center",
-    marginTop: 20,
-    gap: 8,
-  },
-  cancelModalButton: {
-    minHeight: 45,
-    paddingHorizontal: 17,
-    borderRadius: 12,
-    backgroundColor: "#F1F5F9",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  cancelButtonText: { color: "#475569", fontSize: 13, fontWeight: "700" },
-  saveButton: {
-    minHeight: 45,
-    paddingHorizontal: 17,
-    borderRadius: 12,
-    backgroundColor: "#2563EB",
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 7,
-  },
-  saveButtonDisabled: { backgroundColor: "#CBD5E1" },
-  saveButtonText: { color: "#FFFFFF", fontSize: 13, fontWeight: "700" },
-
-  linkedSection: {
-    marginTop: 18,
-    paddingTop: 14,
-    borderTopWidth: 1,
-    borderTopColor: "#F1F5F9",
-  },
-  linkedSectionTitle: {
-    color: "#0F172A",
-    fontSize: 12.5,
-    fontWeight: "800",
-    marginBottom: 4,
-  },
-  linkedSectionHelp: {
-    color: "#64748B",
-    fontSize: 11.5,
-    lineHeight: 16,
-    marginBottom: 12,
-  },
-  linkedLoadingBox: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    backgroundColor: "#F8FAFC",
-    borderRadius: 10,
-    padding: 12,
-    marginTop: 16,
-  },
-  linkedLoadingText: {
-    color: "#64748B",
-    fontSize: 12,
-  },
-  linkedInlineRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#F8FAFC",
-    borderWidth: 1,
-    borderColor: "#E2E8F0",
-    borderRadius: 14,
-    padding: 10,
-    marginBottom: 8,
-    gap: 10,
-  },
-  linkedInlineIcon: {
-    width: 38,
-    height: 38,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  linkedInlineContent: { flex: 1, minWidth: 0 },
-  linkedInlineTitleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginBottom: 2,
-  },
-  linkedInlineTitle: { color: "#0F172A", fontSize: 13, fontWeight: "700" },
-  linkedInlineBadge: {
-    borderRadius: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  linkedInlineBadgeText: {
-    fontSize: 8.5,
-    fontWeight: "800",
-    letterSpacing: 0.3,
-  },
-  linkedInlineName: { color: "#64748B", fontSize: 11.5, fontWeight: "600" },
-
-  linkedReminderBox: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 8,
-    backgroundColor: "#FEF3C7",
-    borderWidth: 1,
-    borderColor: "#FDE68A",
-    borderRadius: 12,
-    padding: 11,
-    marginTop: 14,
-  },
-  linkedReminderText: {
-    color: "#92400E",
-    fontSize: 11.5,
-    lineHeight: 16,
-    marginBottom: 3,
-  },
-  linkedReminderItem: {
-    color: "#92400E",
-    fontSize: 11,
-    fontWeight: "700",
-    marginLeft: 4,
-  },
-
-  otpMessageContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#F0FDF4",
-    borderWidth: 1,
-    borderColor: "#BBF7D0",
-    borderRadius: 13,
-    padding: 11,
-    marginTop: 8,
-  },
-  otpSuccessIcon: {
-    width: 31,
-    height: 31,
-    borderRadius: 10,
-    backgroundColor: "#DCFCE7",
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 9,
-  },
-  otpMessageContent: { flex: 1 },
-  otpMessageTitle: { color: "#166534", fontSize: 12, fontWeight: "700" },
-  otpMessageText: { color: "#15803D", fontSize: 10, marginTop: 2 },
-  otpContainer: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: 4,
-  },
-  otpInput: {
-    width: 43,
-    height: 53,
-    borderWidth: 1.5,
-    borderColor: "#CBD5E1",
-    borderRadius: 12,
-    backgroundColor: "#F8FAFC",
-    textAlign: "center",
-    fontSize: 20,
-    fontWeight: "700",
-    color: "#0F172A",
-    ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as any) : {}),
-  },
-  otpInputFilled: { borderColor: "#2563EB", backgroundColor: "#EFF6FF" },
-  timerContainer: { alignItems: "center", marginTop: 12 },
-  timerText: { color: "#64748B", fontSize: 11 },
-  timerStrong: { color: "#334155", fontWeight: "700" },
-  resendOtpText: { color: "#2563EB", fontSize: 12, fontWeight: "700" },
 
   deleteModal: {
     width: "100%",
@@ -4186,6 +3077,16 @@ const styles = StyleSheet.create({
     gap: 7,
   },
   deleteConfirmText: { color: "#FFFFFF", fontSize: 13, fontWeight: "700" },
+
+  cancelModalButton: {
+    minHeight: 45,
+    paddingHorizontal: 17,
+    borderRadius: 12,
+    backgroundColor: "#F1F5F9",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cancelButtonText: { color: "#475569", fontSize: 13, fontWeight: "700" },
 
   revokeModal: {
     width: "100%",
@@ -4348,7 +3249,7 @@ const styles = StyleSheet.create({
   },
   revokeAccessTabs: {
     flexDirection: "row",
-    gap: 8,
+    gap: 6,
     marginTop: 12,
     marginBottom: 4,
   },
@@ -4357,8 +3258,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
-    paddingVertical: 10,
+    gap: 5,
+    paddingVertical: 9,
     borderRadius: 12,
     backgroundColor: "#F1F5F9",
     borderWidth: 1,
@@ -4370,14 +3271,14 @@ const styles = StyleSheet.create({
   },
   revokeAccessTabText: {
     color: "#475569",
-    fontSize: 12.5,
+    fontSize: 11.5,
     fontWeight: "700",
   },
   revokeAccessTabTextActive: { color: "#1D4ED8" },
   revokeAccessTabCount: {
-    minWidth: 20,
-    height: 20,
-    borderRadius: 10,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
     backgroundColor: "#E2E8F0",
     alignItems: "center",
     justifyContent: "center",
@@ -4386,7 +3287,7 @@ const styles = StyleSheet.create({
   revokeAccessTabCountActive: { backgroundColor: "#DBEAFE" },
   revokeAccessTabCountText: {
     color: "#475569",
-    fontSize: 10,
+    fontSize: 9,
     fontWeight: "800",
   },
   revokeAccessTabCountTextActive: { color: "#1D4ED8" },
@@ -4460,192 +3361,4 @@ const styles = StyleSheet.create({
     fontSize: 11.5,
     fontWeight: "800",
   },
-
-  contactModalOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(15, 23, 42, 0.58)",
-    justifyContent: "flex-end",
-  },
-  contactModalContainer: {
-    backgroundColor: "#FFFFFF",
-    borderTopLeftRadius: 26,
-    borderTopRightRadius: 26,
-    paddingHorizontal: 18,
-    paddingTop: 19,
-    maxHeight: "88%",
-    minHeight: "52%",
-  },
-  contactModalHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 15,
-  },
-  contactModalTitle: { color: "#0F172A", fontSize: 18, fontWeight: "700" },
-  contactModalSubtitle: { color: "#64748B", fontSize: 11, marginTop: 3 },
-  contactModalCloseButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 11,
-    backgroundColor: "#F1F5F9",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  contactModalSearchContainer: {
-    height: 48,
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#F8FAFC",
-    borderWidth: 1,
-    borderColor: "#E2E8F0",
-    borderRadius: 13,
-    paddingHorizontal: 12,
-  },
-  contactModalSearchInput: {
-    flex: 1,
-    height: "100%",
-    color: "#0F172A",
-    fontSize: 13,
-    paddingHorizontal: 8,
-    ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as any) : {}),
-  },
-  contactCountRow: { paddingVertical: 9 },
-  contactCount: { color: "#64748B", fontSize: 10, fontWeight: "700" },
-  contactListWrapper: { flex: 1, minHeight: 220 },
-  contactListContainer: { flex: 1 },
-  contactListContent: { paddingBottom: 5 },
-  contactItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F1F5F9",
-  },
-  contactAvatar: {
-    width: 43,
-    height: 43,
-    borderRadius: 13,
-    backgroundColor: "#EFF6FF",
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: 11,
-  },
-  contactAvatarText: { color: "#2563EB", fontSize: 16, fontWeight: "700" },
-  contactInfo: { flex: 1, minWidth: 0 },
-  contactName: { color: "#1E293B", fontSize: 13, fontWeight: "700" },
-  contactPhone: { color: "#64748B", fontSize: 11, marginTop: 3 },
-  contactArrow: {
-    width: 30,
-    height: 30,
-    borderRadius: 10,
-    backgroundColor: "#F8FAFC",
-    alignItems: "center",
-    justifyContent: "center",
-    marginLeft: 7,
-  },
-  noContactsContainer: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 42,
-    paddingHorizontal: 25,
-  },
-  noContactsIcon: {
-    width: 58,
-    height: 58,
-    borderRadius: 18,
-    backgroundColor: "#F1F5F9",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 11,
-  },
-  noContactsTitle: { color: "#334155", fontSize: 14, fontWeight: "700" },
-  noContactsText: {
-    color: "#94A3B8",
-    fontSize: 11,
-    lineHeight: 17,
-    textAlign: "center",
-    marginTop: 4,
-  },
-  contactModalCancelButton: {
-    minHeight: 47,
-    borderRadius: 13,
-    backgroundColor: "#F1F5F9",
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 12,
-  },
-  contactModalCancelButtonText: {
-    color: "#475569",
-    fontSize: 13,
-    fontWeight: "700",
-  },
-
-  tooltipCard: {
-    width: "100%",
-    maxWidth: 400,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 22,
-    padding: 22,
-    alignItems: "center",
-  },
-  tooltipIconCircle: {
-    width: 58,
-    height: 58,
-    borderRadius: 29,
-    backgroundColor: "#EFF6FF",
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 14,
-  },
-  tooltipTitle: {
-    color: "#0F172A",
-    fontSize: 17,
-    fontWeight: "800",
-    textAlign: "center",
-  },
-  tooltipSubtitle: {
-    color: "#64748B",
-    fontSize: 12.5,
-    lineHeight: 18,
-    textAlign: "center",
-    marginTop: 6,
-    maxWidth: 320,
-  },
-  tooltipList: { width: "100%", marginTop: 16, gap: 10 },
-  tooltipRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10,
-    backgroundColor: "#F8FAFC",
-    borderWidth: 1,
-    borderColor: "#E2E8F0",
-    borderRadius: 12,
-    padding: 12,
-  },
-  tooltipRowIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 10,
-    backgroundColor: "#EFF6FF",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  tooltipRowTextContainer: { flex: 1 },
-  tooltipRowTitle: { color: "#0F172A", fontSize: 13, fontWeight: "700" },
-  tooltipRowText: {
-    color: "#64748B",
-    fontSize: 11.5,
-    lineHeight: 16,
-    marginTop: 3,
-  },
-  tooltipActionButton: {
-    marginTop: 18,
-    width: "100%",
-    minHeight: 47,
-    borderRadius: 12,
-    backgroundColor: "#2563EB",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  tooltipActionText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
 });

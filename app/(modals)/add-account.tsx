@@ -70,13 +70,18 @@ interface StaffRole {
 interface ApiMyInvitation {
   id: string;
   account_id: string;
-  role: "admin" | "member_visibility" | "staff_visibility";
+  role:
+    | "admin"
+    | "member_visibility"
+    | "staff_visibility"
+    | "ownership_transfer";
   status: string;
   invited_name: string | null;
   created_at: string;
   account_name: string;
   account_photo_url: string | null;
   invited_by_phone: string;
+  current_role?: string | null;
 }
 
 const STAFF_ROLES: StaffRole[] = [
@@ -196,10 +201,25 @@ const ACCESS_LEVEL_INFO = {
       "Update Profile",
     ],
   },
+  ownership: {
+    title: "Ownership Transfer",
+    icon: "swap-horizontal",
+    color: "#b45309",
+    bg: "#fef3c7",
+    description:
+      "You will become the new owner of this account. You'll gain full control, including transferring ownership to someone else in the future.",
+    permissions: [
+      "Full account control",
+      "Manage Admins & Staff",
+      "Manage Finances",
+      "Transfer ownership",
+      "Delete account",
+    ],
+  },
 };
 
 // ---------------------------------------------------------------------------
-// Photo Adjust Modal — unchanged
+// Photo Adjust Modal
 // ---------------------------------------------------------------------------
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -702,7 +722,7 @@ function getToken(): Promise<string | null> {
 function roleToAccessLevel(
   role: ApiMyInvitation["role"],
 ): "admin" | "member" | "staff" {
-  if (role === "admin") return "admin";
+  if (role === "admin" || role === "ownership_transfer") return "admin";
   if (role === "staff_visibility") return "staff";
   return "member";
 }
@@ -762,10 +782,14 @@ export default function AddAccountScreen() {
         return;
       }
       const data = await res.json();
-      const rows: ApiMyInvitation[] = Array.isArray(data?.invitations)
+      const raw: ApiMyInvitation[] = Array.isArray(data?.invitations)
         ? data.invitations
         : [];
-      setInvitations(rows);
+
+      // Hide invites for accounts where the user already has an active role.
+      // Those are surfaced as banners on the home page instead.
+      const visible = raw.filter((r) => !r.current_role);
+      setInvitations(visible);
     } catch (e) {
       console.warn("[add-account] loadInvitations error:", e);
       setInvitations([]);
@@ -784,6 +808,9 @@ export default function AddAccountScreen() {
     invitation.account_name || "Apartment Society";
 
   const getAccessLevelInfo = (invitation: ApiMyInvitation) => {
+    if (invitation.role === "ownership_transfer") {
+      return ACCESS_LEVEL_INFO.ownership;
+    }
     const accessLevel = roleToAccessLevel(invitation.role);
     return (
       ACCESS_LEVEL_INFO[accessLevel as keyof typeof ACCESS_LEVEL_INFO] ||
@@ -1047,6 +1074,7 @@ export default function AddAccountScreen() {
   const renderAccessInfoModal = () => {
     if (!selectedInvitation) return null;
     const accessInfo = getAccessLevelInfo(selectedInvitation);
+    const isOwnership = selectedInvitation.role === "ownership_transfer";
 
     return (
       <Modal
@@ -1111,9 +1139,13 @@ export default function AddAccountScreen() {
                 }}
                 activeOpacity={0.85}
               >
-                <Ionicons name="checkmark" size={18} color="#fff" />
+                <Ionicons
+                  name={isOwnership ? "swap-horizontal" : "checkmark"}
+                  size={18}
+                  color="#fff"
+                />
                 <Text style={styles.accessInfoAcceptText}>
-                  Accept Invitation
+                  {isOwnership ? "Accept Ownership" : "Accept Invitation"}
                 </Text>
               </TouchableOpacity>
             </View>
@@ -1341,6 +1373,8 @@ export default function AddAccountScreen() {
                           const isAdmin = invitation.role === "admin";
                           const isStaff =
                             invitation.role === "staff_visibility";
+                          const isOwnership =
+                            invitation.role === "ownership_transfer";
 
                           const inviterPhone =
                             invitation.invited_by_phone || "Secretary";
@@ -1360,7 +1394,22 @@ export default function AddAccountScreen() {
                             accessLevel: "member",
                           };
 
-                          if (isAdmin) {
+                          if (isOwnership) {
+                            optionCard = {
+                              id: "join_admin",
+                              title: "Become Account Owner",
+                              badge: "Ownership Transfer",
+                              badgeColor: "#b45309",
+                              badgeBg: "#fef3c7",
+                              description:
+                                "You've been invited to become the new owner of this account. Accepting will transfer full ownership to you.",
+                              icon: "swap-horizontal-outline",
+                              iconColor: "#b45309",
+                              iconBg: "#fef3c7",
+                              category: "join",
+                              accessLevel: "admin",
+                            };
+                          } else if (isAdmin) {
                             optionCard = {
                               id: "join_admin",
                               title: "Join as Admin",
@@ -1395,7 +1444,10 @@ export default function AddAccountScreen() {
                           return (
                             <View
                               key={invitation.id}
-                              style={styles.invitationCard}
+                              style={[
+                                styles.invitationCard,
+                                isOwnership && styles.invitationCardOwnership,
+                              ]}
                             >
                               <View style={styles.invitationCardHeader}>
                                 <View
@@ -1418,7 +1470,9 @@ export default function AddAccountScreen() {
                                     <View
                                       style={[
                                         styles.invitationRoleBadge,
-                                        { backgroundColor: optionCard.badgeBg },
+                                        {
+                                          backgroundColor: optionCard.badgeBg,
+                                        },
                                       ]}
                                     >
                                       <Text
@@ -1477,7 +1531,9 @@ export default function AddAccountScreen() {
                                   activeOpacity={0.8}
                                 >
                                   <Text style={styles.invitationAcceptText}>
-                                    View Access
+                                    {isOwnership
+                                      ? "View & Accept"
+                                      : "View Access"}
                                   </Text>
                                   <Ionicons
                                     name="arrow-forward"
@@ -2109,6 +2165,11 @@ const styles = StyleSheet.create({
     marginTop: 10,
     borderWidth: 1,
     borderColor: "#e2e8f0",
+  },
+
+  invitationCardOwnership: {
+    backgroundColor: "#fffbeb",
+    borderColor: "#fde68a",
   },
 
   invitationCardHeader: {
