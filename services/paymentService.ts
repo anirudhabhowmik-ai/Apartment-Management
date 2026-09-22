@@ -1,4 +1,12 @@
-import RazorpayCheckout from "react-native-razorpay";
+// services/paymentService.ts
+//
+// IMPORTANT: We do NOT statically import `react-native-razorpay` at the top.
+// Doing so crashes the whole tab navigator at load time whenever:
+//   • the native module isn't linked (Expo Go / stale dev build)
+//   • the code runs on Web
+//
+// Instead we lazy-load the native module inside startRazorpayPayment, and
+// degrade gracefully if it isn't available.
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL;
 
@@ -27,19 +35,69 @@ interface VerifyPaymentResponse {
   error?: string;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Lazy native module loader
+// ─────────────────────────────────────────────────────────────────────────────
+
+type RazorpayCheckoutModule = {
+  open: (options: any) => Promise<any>;
+};
+
+let cachedRazorpay: RazorpayCheckoutModule | null = null;
+
+function isWebPlatform(): boolean {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { Platform } = require("react-native");
+    return Platform?.OS === "web";
+  } catch {
+    return false;
+  }
+}
+
+function loadRazorpayNative(): RazorpayCheckoutModule {
+  if (cachedRazorpay) return cachedRazorpay;
+
+  if (isWebPlatform()) {
+    throw new Error(
+      "Razorpay Checkout is not available on web. Please use the mobile app to complete payments.",
+    );
+  }
+
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const mod = require("react-native-razorpay");
+    const resolved = mod?.default ?? mod;
+
+    if (!resolved || typeof resolved.open !== "function") {
+      throw new Error(
+        "Razorpay native module is not linked. Rebuild the Android/iOS app after installing react-native-razorpay.",
+      );
+    }
+
+    cachedRazorpay = resolved as RazorpayCheckoutModule;
+    return cachedRazorpay;
+  } catch (err: any) {
+    const message =
+      err instanceof Error
+        ? err.message
+        : String(err?.message ?? err ?? "Unknown error");
+    throw new Error(
+      message ||
+        "Razorpay is not available in this build. Please rebuild the app with the native module installed.",
+    );
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+
 const formatIndianPhoneNumber = (phone?: string): string => {
-  if (!phone) {
-    return "";
-  }
-
+  if (!phone) return "";
   const digits = phone.replace(/\D/g, "");
-
   const last10Digits = digits.slice(-10);
-
-  if (last10Digits.length !== 10) {
-    return "";
-  }
-
+  if (last10Digits.length !== 10) return "";
   return `+91${last10Digits}`;
 };
 
@@ -54,11 +112,9 @@ const createOrderOnBackend = async (
   try {
     const response = await fetch(`${API_URL}/payment/create-order`, {
       method: "POST",
-
       headers: {
         "Content-Type": "application/json",
       },
-
       body: JSON.stringify({
         amount,
         planName,
@@ -83,17 +139,13 @@ const createOrderOnBackend = async (
 
     return {
       success: true,
-
       orderId: data.orderId,
-
       amount:
         typeof data.amount === "number" ? data.amount : Number(data.amount),
-
       currency: data.currency || "INR",
     };
   } catch (error: any) {
     console.error("Create Razorpay order error:", error);
-
     throw new Error(error?.message || "Unable to create payment order.");
   }
 };
@@ -110,16 +162,12 @@ const verifyPaymentOnBackend = async (
   try {
     const response = await fetch(`${API_URL}/payment/verify`, {
       method: "POST",
-
       headers: {
         "Content-Type": "application/json",
       },
-
       body: JSON.stringify({
         razorpay_order_id: razorpayOrderId,
-
         razorpay_payment_id: razorpayPaymentId,
-
         razorpay_signature: razorpaySignature,
       }),
     });
@@ -140,16 +188,12 @@ const verifyPaymentOnBackend = async (
 
     return {
       success: true,
-
       message: data.message || "Payment verified successfully.",
-
       paymentId: data.paymentId || razorpayPaymentId,
-
       orderId: data.orderId || razorpayOrderId,
     };
   } catch (error: any) {
     console.error("Razorpay payment verification error:", error);
-
     throw new Error(error?.message || "Unable to verify payment.");
   }
 };
@@ -160,14 +204,9 @@ const parseRazorpayError = (error: any) => {
   const description =
     typeof error?.description === "string" ? error.description : "";
 
-  /**
-   * Sometimes the description itself
-   * contains JSON.
-   */
   if (description) {
     try {
       const parsed = JSON.parse(description);
-
       if (parsed?.error) {
         razorpayError = parsed.error;
       }
@@ -178,16 +217,16 @@ const parseRazorpayError = (error: any) => {
 
   return {
     code: razorpayError?.code || error?.code || "",
-
     description: razorpayError?.description || "",
-
     reason: razorpayError?.reason || "",
-
     source: razorpayError?.source || "",
-
     step: razorpayError?.step || "",
   };
 };
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Public API
+// ─────────────────────────────────────────────────────────────────────────────
 
 export const startRazorpayPayment = async (
   amount: number,
@@ -223,9 +262,22 @@ export const startRazorpayPayment = async (
     if (!RAZORPAY_KEY_ID) {
       return {
         success: false,
-
         error:
           "Razorpay Key ID is not configured. Add EXPO_PUBLIC_RAZORPAY_KEY_ID to your .env and rebuild the Android APK.",
+      };
+    }
+
+    // ── Lazy-load the native module ONLY when we actually need it ──
+    let RazorpayCheckout: RazorpayCheckoutModule;
+    try {
+      RazorpayCheckout = loadRazorpayNative();
+    } catch (loadErr: any) {
+      console.error("Razorpay native module load failed:", loadErr);
+      return {
+        success: false,
+        error:
+          loadErr?.message ||
+          "Razorpay is not available in this build. Please rebuild the app.",
       };
     }
 
@@ -233,9 +285,7 @@ export const startRazorpayPayment = async (
 
     console.log("Razorpay customer information:", {
       name: user.name || "",
-
       email: user.email || "",
-
       contact,
     });
 
@@ -249,25 +299,16 @@ export const startRazorpayPayment = async (
 
     const options = {
       description: `${planName} Plan Subscription`,
-
       currency: order.currency || "INR",
-
       key: RAZORPAY_KEY_ID,
-
       amount: amountInPaise,
-
       name: "Apartment Management",
-
       order_id: order.orderId,
-
       prefill: {
         name: user.name || "",
-
         email: user.email || "",
-
         contact,
       },
-
       theme: {
         color: "#2563EB",
       },
@@ -278,17 +319,13 @@ export const startRazorpayPayment = async (
     console.log("Razorpay payment response:", data);
 
     const paymentId = data?.razorpay_payment_id;
-
     const orderId = data?.razorpay_order_id || order.orderId;
-
     const signature = data?.razorpay_signature;
 
     if (!paymentId || !orderId || !signature) {
       console.error("Incomplete Razorpay payment response:", data);
-
       return {
         success: false,
-
         error: "Razorpay did not return complete payment verification details.",
       };
     }
@@ -304,29 +341,23 @@ export const startRazorpayPayment = async (
     if (!verification.success) {
       return {
         success: false,
-
         error: verification.error || "Payment verification failed.",
       };
     }
 
     return {
       success: true,
-
       paymentId,
-
       orderId,
-
       signature,
     };
   } catch (error: any) {
     console.error("Razorpay payment error:", error);
 
     const parsed = parseRazorpayError(error);
-
     console.error("Parsed Razorpay error:", parsed);
 
     const reason = String(parsed.reason || "").toLowerCase();
-
     const description = String(parsed.description || "").toLowerCase();
 
     if (
@@ -337,20 +368,16 @@ export const startRazorpayPayment = async (
       description.includes("cancel")
     ) {
       console.log("Razorpay Checkout cancelled by user.");
-
       return {
         success: false,
-
         error: "Payment was cancelled.",
       };
     }
 
     if (reason === "payment_error") {
       console.log("Razorpay reported a payment error.");
-
       return {
         success: false,
-
         error: "Payment could not be completed. Please try again.",
       };
     }
@@ -358,7 +385,6 @@ export const startRazorpayPayment = async (
     if (parsed.step === "payment_authentication") {
       return {
         success: false,
-
         error:
           "Payment authentication failed. Please try again or use another payment method.",
       };
@@ -366,7 +392,6 @@ export const startRazorpayPayment = async (
 
     return {
       success: false,
-
       error:
         parsed.description ||
         error?.message ||
