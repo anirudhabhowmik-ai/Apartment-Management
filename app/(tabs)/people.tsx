@@ -5,7 +5,6 @@ import * as SecureStore from "expo-secure-store";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Image,
   Keyboard,
   KeyboardAvoidingView,
@@ -42,6 +41,238 @@ import type { AttendanceStatus, ManagementType } from "../../types";
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
 const AUTH_TOKEN_KEY = "auth_token";
 const MANAGEMENT_PREFIX = "/management";
+
+// ============================================================================
+// Inline custom alert — self-contained, no external imports
+// ============================================================================
+
+type AlertVariant = "info" | "success" | "warning" | "error" | "question";
+
+interface AlertButton {
+  text: string;
+  onPress?: () => void;
+  style?: "default" | "cancel" | "destructive";
+}
+
+interface AlertState {
+  visible: boolean;
+  variant: AlertVariant;
+  title: string;
+  message?: string;
+  buttons: AlertButton[];
+}
+
+const EMPTY_ALERT: AlertState = {
+  visible: false,
+  variant: "info",
+  title: "",
+  message: undefined,
+  buttons: [],
+};
+
+function AppAlert({
+  state,
+  onDismiss,
+}: {
+  state: AlertState;
+  onDismiss: () => void;
+}) {
+  const { variant, title, message, buttons } = state;
+
+  const meta: Record<
+    AlertVariant,
+    { icon: keyof typeof Ionicons.glyphMap; color: string; bg: string }
+  > = {
+    info: { icon: "information-circle", color: "#2563EB", bg: "#EFF6FF" },
+    success: { icon: "checkmark-circle", color: "#16A34A", bg: "#F0FDF4" },
+    warning: { icon: "warning", color: "#D97706", bg: "#FEF3C7" },
+    error: { icon: "close-circle", color: "#DC2626", bg: "#FEF2F2" },
+    question: { icon: "help-circle", color: "#7C3AED", bg: "#F5F3FF" },
+  };
+
+  const m = meta[variant];
+
+  const handlePress = (btn: AlertButton) => {
+    onDismiss();
+    if (btn.onPress) {
+      setTimeout(btn.onPress, 0);
+    }
+  };
+
+  const hasTwo = buttons.length === 2;
+  const isStacked = buttons.length > 2;
+
+  return (
+    <Modal
+      transparent
+      visible={state.visible}
+      animationType="fade"
+      onRequestClose={onDismiss}
+      statusBarTranslucent
+    >
+      <Pressable style={inlineAlertStyles.backdrop} onPress={onDismiss}>
+        <Pressable
+          style={inlineAlertStyles.card}
+          onPress={(e) => e.stopPropagation()}
+        >
+          <View
+            style={[inlineAlertStyles.iconCircle, { backgroundColor: m.bg }]}
+          >
+            <Ionicons name={m.icon} size={30} color={m.color} />
+          </View>
+
+          <Text style={inlineAlertStyles.title}>{title}</Text>
+
+          {message ? (
+            <Text style={inlineAlertStyles.message}>{message}</Text>
+          ) : null}
+
+          <View
+            style={[
+              inlineAlertStyles.actions,
+              isStacked && inlineAlertStyles.actionsStacked,
+            ]}
+          >
+            {buttons.map((btn, idx) => {
+              const isDestructive = btn.style === "destructive";
+              const isCancel = btn.style === "cancel";
+              const isPrimary = !isDestructive && !isCancel;
+
+              return (
+                <Pressable
+                  key={`${btn.text}-${idx}`}
+                  onPress={() => handlePress(btn)}
+                  style={({ pressed }) => [
+                    inlineAlertStyles.button,
+                    hasTwo && inlineAlertStyles.buttonHalf,
+                    isStacked && inlineAlertStyles.buttonFull,
+                    isCancel && inlineAlertStyles.buttonCancel,
+                    isDestructive && inlineAlertStyles.buttonDestructive,
+                    isPrimary && inlineAlertStyles.buttonPrimary,
+                    pressed && { opacity: 0.85 },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      inlineAlertStyles.buttonText,
+                      isCancel && inlineAlertStyles.buttonTextCancel,
+                      isDestructive && inlineAlertStyles.buttonTextDestructive,
+                      isPrimary && inlineAlertStyles.buttonTextPrimary,
+                    ]}
+                  >
+                    {btn.text}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+function useAppAlert() {
+  const [state, setState] = useState<AlertState>(EMPTY_ALERT);
+
+  const show = useCallback(
+    (opts: {
+      variant?: AlertVariant;
+      title: string;
+      message?: string;
+      buttons?: AlertButton[];
+    }) => {
+      setState({
+        visible: true,
+        variant: opts.variant ?? "info",
+        title: opts.title,
+        message: opts.message,
+        buttons:
+          opts.buttons && opts.buttons.length > 0
+            ? opts.buttons
+            : [{ text: "OK", style: "default" }],
+      });
+    },
+    [],
+  );
+
+  const dismiss = useCallback(() => {
+    setState(EMPTY_ALERT);
+  }, []);
+
+  return { state, show, dismiss };
+}
+
+const inlineAlertStyles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 24,
+  },
+  card: {
+    width: "100%",
+    maxWidth: 380,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    paddingHorizontal: 22,
+    paddingTop: 24,
+    paddingBottom: 18,
+    alignItems: "center",
+  },
+  iconCircle: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+  title: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: "#0F172A",
+    textAlign: "center",
+  },
+  message: {
+    fontSize: 13.5,
+    lineHeight: 20,
+    color: "#64748B",
+    textAlign: "center",
+    marginTop: 8,
+    maxWidth: 320,
+  },
+  actions: {
+    flexDirection: "row",
+    width: "100%",
+    marginTop: 20,
+    justifyContent: "center",
+    gap: 10,
+  },
+  actionsStacked: { flexDirection: "column", gap: 8 },
+  button: {
+    minHeight: 48,
+    minWidth: 120,
+    paddingHorizontal: 20,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  buttonHalf: { flex: 1, minWidth: 0 },
+  buttonFull: { width: "100%" },
+  buttonCancel: {
+    backgroundColor: "#F1F5F9",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  buttonDestructive: { backgroundColor: "#DC2626" },
+  buttonPrimary: { backgroundColor: "#2563EB" },
+  buttonText: { fontSize: 14.5, fontWeight: "800" },
+  buttonTextCancel: { color: "#475569" },
+  buttonTextDestructive: { color: "#FFFFFF" },
+  buttonTextPrimary: { color: "#FFFFFF" },
+});
 
 async function getAuthToken(): Promise<string | null> {
   try {
@@ -121,10 +352,6 @@ const COLORS = {
 };
 
 type PaymentFilter = "all" | "paid" | "due";
-
-// ---------------------------------------------------------------------------
-// Role styling maps
-// ---------------------------------------------------------------------------
 
 interface RoleStyle {
   label: string;
@@ -340,12 +567,15 @@ const formatPhoneForDisplay = (raw?: string | null): string => {
   return `+91 ${ten.slice(0, 5)} ${ten.slice(5)}`;
 };
 
-const callNumber = async (raw?: string | null) => {
+const callNumber = async (
+  raw: string | null | undefined,
+  onError: (title: string, message: string) => void,
+) => {
   if (!raw) return;
   const digits = String(raw).replace(/\D/g, "");
   const ten = digits.length > 10 ? digits.slice(-10) : digits;
   if (ten.length !== 10) {
-    Alert.alert("Invalid number", "This phone number looks incomplete.");
+    onError("Invalid number", "This phone number looks incomplete.");
     return;
   }
   const url = `tel:+91${ten}`;
@@ -353,7 +583,7 @@ const callNumber = async (raw?: string | null) => {
     await Linking.openURL(url);
   } catch (error) {
     console.warn("Failed to open dialer:", error);
-    Alert.alert("Cannot call", "Unable to open the phone dialer.");
+    onError("Cannot call", "Unable to open the phone dialer.");
   }
 };
 
@@ -670,8 +900,6 @@ export default function PeopleScreen() {
   const clearRecord = useAttendanceStore((state) => state.clearRecord);
   const attendanceVersion = useAttendanceStore((state) => state.version);
 
-  // ✅ CHANGED: also pull fetchConfigFromServer so we can hit the DB if the
-  // in-memory cache is empty (fresh device, or another admin saved it).
   const {
     getBillConfig,
     fetchConfigFromServer,
@@ -679,6 +907,9 @@ export default function PeopleScreen() {
   } = useBillStore();
 
   const { isAdmin, isMember } = useUserRole();
+
+  const alert = useAppAlert();
+  const showAlert = alert.show;
 
   const canEdit = isAdmin;
   const canSeeFinance = isAdmin || isMember;
@@ -1200,12 +1431,14 @@ export default function PeopleScreen() {
       setRefreshKey((previous) => previous + 1);
     } catch (error) {
       console.error("Failed to save payment:", error);
-      Alert.alert(
-        "Error",
-        error instanceof Error
-          ? error.message
-          : "Failed to save payment. Please try again.",
-      );
+      showAlert({
+        variant: "error",
+        title: "Could not save payment",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Something went wrong. Please try again.",
+      });
     } finally {
       setSaving(false);
       setPaymentMember(null);
@@ -1215,6 +1448,16 @@ export default function PeopleScreen() {
   const handleDownloadBill = async (member: any) => {
     if (generatingBill || !canEdit) return;
 
+    if (isExpenseTab) {
+      showAlert({
+        variant: "info",
+        title: "Not available",
+        message:
+          "Bills can only be downloaded for members or staff, not transactions.",
+      });
+      return;
+    }
+
     try {
       setGeneratingBill(member.id);
 
@@ -1222,18 +1465,26 @@ export default function PeopleScreen() {
       const monthlyPayment = getPaymentForMonth(member, m);
 
       if (monthlyPayment.status !== "paid") {
-        Alert.alert(
-          "No Paid Bill",
-          "This member doesn't have a paid bill for this month. Please mark the payment as paid first.",
-        );
+        showAlert({
+          variant: "warning",
+          title: "No paid bill yet",
+          message:
+            "Mark the payment as paid for this month before downloading a bill.",
+        });
         setGeneratingBill(null);
         return;
       }
 
-      const memberType: BillMemberType = isApartmentTab ? "owner" : "staff";
+      let memberType: BillMemberType;
+      if (isApartmentTab) {
+        memberType = "owner";
+      } else if (isStaffTab) {
+        memberType = "staff";
+      } else {
+        setGeneratingBill(null);
+        return;
+      }
 
-      // ✅ CHANGED: try the in-memory cache first, then hit the server so
-      // any admin on any device can download the bill with the shared template.
       let billConfig = getBillConfig(memberType);
       if (!billConfig && selectedAccountId) {
         try {
@@ -1258,10 +1509,12 @@ export default function PeopleScreen() {
 
       if (!selectedTemplate) {
         setGeneratingBill(null);
-        Alert.alert(
-          "Template Error",
-          "Could not find the saved template. Please re-save it in Profile → Generate Bill.",
-        );
+        showAlert({
+          variant: "error",
+          title: "Template not found",
+          message:
+            "The saved template could not be resolved. Please re-save it from Profile → Generate Bill.",
+        });
         return;
       }
 
@@ -1350,21 +1603,29 @@ export default function PeopleScreen() {
       setGeneratingBill(null);
 
       if (result.saved) {
-        Alert.alert("Downloaded", "Bill saved successfully.");
+        showAlert({
+          variant: "success",
+          title: "Downloaded",
+          message: "Bill saved successfully.",
+        });
       } else if (result.message !== "Permission denied") {
-        Alert.alert(
-          "Download Failed",
-          result.message || "Could not save the bill. Please try again.",
-        );
+        showAlert({
+          variant: "error",
+          title: "Download failed",
+          message:
+            result.message || "Could not save the bill. Please try again.",
+        });
       }
     } catch (error) {
       console.error("Error generating bill:", error);
-      Alert.alert(
-        "Error",
-        error instanceof Error
-          ? error.message
-          : "Failed to generate bill. Please try again.",
-      );
+      showAlert({
+        variant: "error",
+        title: "Something went wrong",
+        message:
+          error instanceof Error
+            ? error.message
+            : "Failed to generate bill. Please try again.",
+      });
       setGeneratingBill(null);
     }
   };
@@ -2030,7 +2291,13 @@ export default function PeopleScreen() {
                         onPress={(event) => {
                           event.stopPropagation();
                           Keyboard.dismiss();
-                          callNumber(card.phone);
+                          callNumber(card.phone, (title, message) =>
+                            showAlert({
+                              variant: "error",
+                              title,
+                              message,
+                            }),
+                          );
                         }}
                         hitSlop={6}
                       >
@@ -2085,7 +2352,8 @@ export default function PeopleScreen() {
 
                     const showPay = showFinancialInfo;
                     const showAttendance = isStaffTab;
-                    const showBill = showFinancialInfo && isPaidThisMonth;
+                    const showBill =
+                      showFinancialInfo && isPaidThisMonth && !isExpenseTab;
 
                     return (
                       <View key={record.id} style={styles.recordBlock}>
@@ -2804,12 +3072,14 @@ export default function PeopleScreen() {
         onSelect={setPaidDate}
         onClose={() => setShowPaidDatePicker(false)}
       />
+
+      <AppAlert state={alert.state} onDismiss={alert.dismiss} />
     </View>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Styles (identical to your existing ones — no changes)
+// Styles (identical to your existing ones)
 // ---------------------------------------------------------------------------
 
 const cardShadow = {

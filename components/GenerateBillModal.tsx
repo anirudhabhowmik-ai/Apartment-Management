@@ -1,10 +1,10 @@
 // components/GenerateBillModal.tsx
 import { Ionicons } from "@expo/vector-icons";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Modal,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -22,6 +22,242 @@ import {
 } from "../store/billStore";
 import SignatureCanvas from "./SignatureCanvas";
 import SignaturePreview from "./SignaturePreview";
+
+// ============================================================================
+// Inline custom alert — self-contained, no external imports
+// ============================================================================
+
+type AlertVariant = "info" | "success" | "warning" | "error" | "question";
+
+interface AlertButton {
+  text: string;
+  onPress?: () => void;
+  style?: "default" | "cancel" | "destructive";
+}
+
+interface AlertState {
+  visible: boolean;
+  variant: AlertVariant;
+  title: string;
+  message?: string;
+  buttons: AlertButton[];
+}
+
+const EMPTY_ALERT: AlertState = {
+  visible: false,
+  variant: "info",
+  title: "",
+  message: undefined,
+  buttons: [],
+};
+
+function AppAlert({
+  state,
+  onDismiss,
+}: {
+  state: AlertState;
+  onDismiss: () => void;
+}) {
+  const { variant, title, message, buttons } = state;
+
+  const meta: Record<
+    AlertVariant,
+    { icon: keyof typeof Ionicons.glyphMap; color: string; bg: string }
+  > = {
+    info: { icon: "information-circle", color: "#2563EB", bg: "#EFF6FF" },
+    success: { icon: "checkmark-circle", color: "#16A34A", bg: "#F0FDF4" },
+    warning: { icon: "warning", color: "#D97706", bg: "#FEF3C7" },
+    error: { icon: "close-circle", color: "#DC2626", bg: "#FEF2F2" },
+    question: { icon: "help-circle", color: "#7C3AED", bg: "#F5F3FF" },
+  };
+
+  const m = meta[variant];
+
+  const handlePress = (btn: AlertButton) => {
+    onDismiss();
+    if (btn.onPress) {
+      setTimeout(btn.onPress, 0);
+    }
+  };
+
+  const hasTwo = buttons.length === 2;
+  const isStacked = buttons.length > 2;
+
+  return (
+    <Modal
+      transparent
+      visible={state.visible}
+      animationType="fade"
+      onRequestClose={onDismiss}
+      statusBarTranslucent
+    >
+      <Pressable style={inlineAlertStyles.backdrop} onPress={onDismiss}>
+        <Pressable
+          style={inlineAlertStyles.card}
+          onPress={(e) => e.stopPropagation()}
+        >
+          <View
+            style={[inlineAlertStyles.iconCircle, { backgroundColor: m.bg }]}
+          >
+            <Ionicons name={m.icon} size={30} color={m.color} />
+          </View>
+
+          <Text style={inlineAlertStyles.title}>{title}</Text>
+
+          {message ? (
+            <Text style={inlineAlertStyles.message}>{message}</Text>
+          ) : null}
+
+          <View
+            style={[
+              inlineAlertStyles.actions,
+              isStacked && inlineAlertStyles.actionsStacked,
+            ]}
+          >
+            {buttons.map((btn, idx) => {
+              const isDestructive = btn.style === "destructive";
+              const isCancel = btn.style === "cancel";
+              const isPrimary = !isDestructive && !isCancel;
+
+              return (
+                <Pressable
+                  key={`${btn.text}-${idx}`}
+                  onPress={() => handlePress(btn)}
+                  style={({ pressed }) => [
+                    inlineAlertStyles.button,
+                    hasTwo && inlineAlertStyles.buttonHalf,
+                    isStacked && inlineAlertStyles.buttonFull,
+                    isCancel && inlineAlertStyles.buttonCancel,
+                    isDestructive && inlineAlertStyles.buttonDestructive,
+                    isPrimary && inlineAlertStyles.buttonPrimary,
+                    pressed && { opacity: 0.85 },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      inlineAlertStyles.buttonText,
+                      isCancel && inlineAlertStyles.buttonTextCancel,
+                      isDestructive && inlineAlertStyles.buttonTextDestructive,
+                      isPrimary && inlineAlertStyles.buttonTextPrimary,
+                    ]}
+                  >
+                    {btn.text}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+function useAppAlert() {
+  const [state, setState] = useState<AlertState>(EMPTY_ALERT);
+
+  const show = useCallback(
+    (opts: {
+      variant?: AlertVariant;
+      title: string;
+      message?: string;
+      buttons?: AlertButton[];
+    }) => {
+      setState({
+        visible: true,
+        variant: opts.variant ?? "info",
+        title: opts.title,
+        message: opts.message,
+        buttons:
+          opts.buttons && opts.buttons.length > 0
+            ? opts.buttons
+            : [{ text: "OK", style: "default" }],
+      });
+    },
+    [],
+  );
+
+  const dismiss = useCallback(() => {
+    setState(EMPTY_ALERT);
+  }, []);
+
+  return { state, show, dismiss };
+}
+
+const inlineAlertStyles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 24,
+  },
+  card: {
+    width: "100%",
+    maxWidth: 380,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    paddingHorizontal: 22,
+    paddingTop: 24,
+    paddingBottom: 18,
+    alignItems: "center",
+  },
+  iconCircle: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+  title: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: "#0F172A",
+    textAlign: "center",
+  },
+  message: {
+    fontSize: 13.5,
+    lineHeight: 20,
+    color: "#64748B",
+    textAlign: "center",
+    marginTop: 8,
+    maxWidth: 320,
+  },
+  actions: {
+    flexDirection: "row",
+    width: "100%",
+    marginTop: 20,
+    justifyContent: "center",
+    gap: 10,
+  },
+  actionsStacked: { flexDirection: "column", gap: 8 },
+  button: {
+    minHeight: 48,
+    minWidth: 120,
+    paddingHorizontal: 20,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  buttonHalf: { flex: 1, minWidth: 0 },
+  buttonFull: { width: "100%" },
+  buttonCancel: {
+    backgroundColor: "#F1F5F9",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  buttonDestructive: { backgroundColor: "#DC2626" },
+  buttonPrimary: { backgroundColor: "#2563EB" },
+  buttonText: { fontSize: 14.5, fontWeight: "800" },
+  buttonTextCancel: { color: "#475569" },
+  buttonTextDestructive: { color: "#FFFFFF" },
+  buttonTextPrimary: { color: "#FFFFFF" },
+});
+
+// ============================================================================
+// Types & helpers
+// ============================================================================
 
 interface GenerateBillModalProps {
   visible: boolean;
@@ -105,6 +341,9 @@ export default function GenerateBillModal({
   } = useBillStore();
   const { selectedAccountId } = useAccounts();
 
+  const alert = useAppAlert();
+  const showAlert = alert.show;
+
   const [memberType, setMemberType] =
     useState<BillMemberType>(initialMemberType);
 
@@ -152,15 +391,9 @@ export default function GenerateBillModal({
 
   const [formError, setFormError] = useState("");
 
-  // ---------------------------------------------------------------------
-  // Load config from the server whenever the modal opens or member type
-  // changes. Seed from the in-memory cache first (instant paint), then
-  // refresh from the DB so multi-device saves are picked up.
-  // ---------------------------------------------------------------------
   useEffect(() => {
     if (!visible) return;
 
-    // Seed from memory (fast path).
     const cached = getBillConfig(memberType);
     if (cached) {
       setTemplateId(cached.templateId);
@@ -185,7 +418,6 @@ export default function GenerateBillModal({
     setShowDesignPreview(false);
     setShowSignatureModal(false);
 
-    // Then refresh from the server.
     if (!selectedAccountId) return;
     let cancelled = false;
     (async () => {
@@ -244,7 +476,11 @@ export default function GenerateBillModal({
 
   const handleSaveTemplate = async () => {
     if (!selectedAccountId) {
-      Alert.alert("Error", "No account selected.");
+      showAlert({
+        variant: "error",
+        title: "No account selected",
+        message: "Please choose an account first.",
+      });
       return;
     }
 
@@ -279,11 +515,27 @@ export default function GenerateBillModal({
         config,
       );
       onSaved?.(saved);
-      Alert.alert("Saved", "Bill template saved for the whole society.", [
-        { text: "OK", onPress: onClose },
-      ]);
+
+      showAlert({
+        variant: "success",
+        title: "Template saved",
+        message: `Your ${
+          memberType === "owner" ? "owner bill" : "staff slip"
+        } template has been saved for the whole society.`,
+        buttons: [
+          {
+            text: "Great",
+            style: "default",
+            onPress: onClose,
+          },
+        ],
+      });
     } catch (e: any) {
-      Alert.alert("Save failed", e?.message ?? "Could not save template.");
+      showAlert({
+        variant: "error",
+        title: "Save failed",
+        message: e?.message ?? "Could not save the template. Please try again.",
+      });
     } finally {
       setSaving(false);
     }
@@ -1373,6 +1625,8 @@ export default function GenerateBillModal({
           onCancel={() => setShowSignatureModal(false)}
           existingSign={signature}
         />
+
+        <AppAlert state={alert.state} onDismiss={alert.dismiss} />
       </View>
     </Modal>
   );

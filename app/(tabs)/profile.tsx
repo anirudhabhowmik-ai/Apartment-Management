@@ -6,8 +6,8 @@ import * as SecureStore from "expo-secure-store";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Modal,
+  Pressable,
   ScrollView,
   StyleSheet,
   Switch,
@@ -29,6 +29,238 @@ import { startRazorpayPayment } from "../../services/paymentService";
 import { useAccountStore } from "../../store/accountStore";
 import { BillMemberType } from "../../store/billStore";
 import { useAuthStore } from "../../store/useAuthStore";
+
+// ============================================================================
+// Inline custom alert — self-contained, no external imports
+// ============================================================================
+
+type AlertVariant = "info" | "success" | "warning" | "error" | "question";
+
+interface AlertButton {
+  text: string;
+  onPress?: () => void;
+  style?: "default" | "cancel" | "destructive";
+}
+
+interface AlertState {
+  visible: boolean;
+  variant: AlertVariant;
+  title: string;
+  message?: string;
+  buttons: AlertButton[];
+}
+
+const EMPTY_ALERT: AlertState = {
+  visible: false,
+  variant: "info",
+  title: "",
+  message: undefined,
+  buttons: [],
+};
+
+function AppAlert({
+  state,
+  onDismiss,
+}: {
+  state: AlertState;
+  onDismiss: () => void;
+}) {
+  const { variant, title, message, buttons } = state;
+
+  const meta: Record<
+    AlertVariant,
+    { icon: keyof typeof Ionicons.glyphMap; color: string; bg: string }
+  > = {
+    info: { icon: "information-circle", color: "#2563EB", bg: "#EFF6FF" },
+    success: { icon: "checkmark-circle", color: "#16A34A", bg: "#F0FDF4" },
+    warning: { icon: "warning", color: "#D97706", bg: "#FEF3C7" },
+    error: { icon: "close-circle", color: "#DC2626", bg: "#FEF2F2" },
+    question: { icon: "help-circle", color: "#7C3AED", bg: "#F5F3FF" },
+  };
+
+  const m = meta[variant];
+
+  const handlePress = (btn: AlertButton) => {
+    onDismiss();
+    if (btn.onPress) {
+      setTimeout(btn.onPress, 0);
+    }
+  };
+
+  const hasTwo = buttons.length === 2;
+  const isStacked = buttons.length > 2;
+
+  return (
+    <Modal
+      transparent
+      visible={state.visible}
+      animationType="fade"
+      onRequestClose={onDismiss}
+      statusBarTranslucent
+    >
+      <Pressable style={inlineAlertStyles.backdrop} onPress={onDismiss}>
+        <Pressable
+          style={inlineAlertStyles.card}
+          onPress={(e) => e.stopPropagation()}
+        >
+          <View
+            style={[inlineAlertStyles.iconCircle, { backgroundColor: m.bg }]}
+          >
+            <Ionicons name={m.icon} size={30} color={m.color} />
+          </View>
+
+          <Text style={inlineAlertStyles.title}>{title}</Text>
+
+          {message ? (
+            <Text style={inlineAlertStyles.message}>{message}</Text>
+          ) : null}
+
+          <View
+            style={[
+              inlineAlertStyles.actions,
+              isStacked && inlineAlertStyles.actionsStacked,
+            ]}
+          >
+            {buttons.map((btn, idx) => {
+              const isDestructive = btn.style === "destructive";
+              const isCancel = btn.style === "cancel";
+              const isPrimary = !isDestructive && !isCancel;
+
+              return (
+                <Pressable
+                  key={`${btn.text}-${idx}`}
+                  onPress={() => handlePress(btn)}
+                  style={({ pressed }) => [
+                    inlineAlertStyles.button,
+                    hasTwo && inlineAlertStyles.buttonHalf,
+                    isStacked && inlineAlertStyles.buttonFull,
+                    isCancel && inlineAlertStyles.buttonCancel,
+                    isDestructive && inlineAlertStyles.buttonDestructive,
+                    isPrimary && inlineAlertStyles.buttonPrimary,
+                    pressed && { opacity: 0.85 },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      inlineAlertStyles.buttonText,
+                      isCancel && inlineAlertStyles.buttonTextCancel,
+                      isDestructive && inlineAlertStyles.buttonTextDestructive,
+                      isPrimary && inlineAlertStyles.buttonTextPrimary,
+                    ]}
+                  >
+                    {btn.text}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+function useAppAlert() {
+  const [state, setState] = useState<AlertState>(EMPTY_ALERT);
+
+  const show = useCallback(
+    (opts: {
+      variant?: AlertVariant;
+      title: string;
+      message?: string;
+      buttons?: AlertButton[];
+    }) => {
+      setState({
+        visible: true,
+        variant: opts.variant ?? "info",
+        title: opts.title,
+        message: opts.message,
+        buttons:
+          opts.buttons && opts.buttons.length > 0
+            ? opts.buttons
+            : [{ text: "OK", style: "default" }],
+      });
+    },
+    [],
+  );
+
+  const dismiss = useCallback(() => {
+    setState(EMPTY_ALERT);
+  }, []);
+
+  return { state, show, dismiss };
+}
+
+const inlineAlertStyles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 24,
+  },
+  card: {
+    width: "100%",
+    maxWidth: 380,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    paddingHorizontal: 22,
+    paddingTop: 24,
+    paddingBottom: 18,
+    alignItems: "center",
+  },
+  iconCircle: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+  title: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: "#0F172A",
+    textAlign: "center",
+  },
+  message: {
+    fontSize: 13.5,
+    lineHeight: 20,
+    color: "#64748B",
+    textAlign: "center",
+    marginTop: 8,
+    maxWidth: 320,
+  },
+  actions: {
+    flexDirection: "row",
+    width: "100%",
+    marginTop: 20,
+    justifyContent: "center",
+    gap: 10,
+  },
+  actionsStacked: { flexDirection: "column", gap: 8 },
+  button: {
+    minHeight: 48,
+    minWidth: 120,
+    paddingHorizontal: 20,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  buttonHalf: { flex: 1, minWidth: 0 },
+  buttonFull: { width: "100%" },
+  buttonCancel: {
+    backgroundColor: "#F1F5F9",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  buttonDestructive: { backgroundColor: "#DC2626" },
+  buttonPrimary: { backgroundColor: "#2563EB" },
+  buttonText: { fontSize: 14.5, fontWeight: "800" },
+  buttonTextCancel: { color: "#475569" },
+  buttonTextDestructive: { color: "#FFFFFF" },
+  buttonTextPrimary: { color: "#FFFFFF" },
+});
 
 // ============================================================================
 // API
@@ -96,7 +328,7 @@ interface HistoryEntry {
 }
 
 // ============================================================================
-// STYLES (unchanged from your file)
+// STYLES
 // ============================================================================
 
 const styles = StyleSheet.create({
@@ -825,11 +1057,13 @@ export default function ProfileTabScreen(): React.ReactElement {
   const isOwner = selectedAccount?.ownerId === user?.id;
   const showAdminDirectory = !isOwner;
 
-  // ✅ CHANGED: owner OR admin can manage bills
   const canManageBills = isOwner || isAdmin;
 
   const canSeeSubscription = isAdmin || isMember;
   const canManageSubscription = isAdmin;
+
+  const alert = useAppAlert();
+  const showAlert = alert.show;
 
   const [notifications, setNotifications] = useState(true);
   const [darkMode, setDarkMode] = useState(false);
@@ -1079,23 +1313,37 @@ export default function ProfileTabScreen(): React.ReactElement {
       router.replace("/(auth)/login");
     } catch (err) {
       console.error("Logout error:", err);
-      Alert.alert("Logout failed", "Please try again.");
+      showAlert({
+        variant: "error",
+        title: "Logout failed",
+        message: "Please try again.",
+      });
     }
   };
 
+  const confirmDeleteAccount = () => {
+    showAlert({
+      variant: "warning",
+      title: "Account deleted",
+      message: "The account has been removed.",
+    });
+  };
+
   const handleDeleteAccount = () => {
-    Alert.alert(
-      "Delete Account",
-      "Are you sure you want to delete your account? This action cannot be undone.",
-      [
+    showAlert({
+      variant: "error",
+      title: "Delete Account",
+      message:
+        "Are you sure you want to delete your account? This action cannot be undone.",
+      buttons: [
         { text: "Cancel", style: "cancel" },
         {
-          text: "Delete Account",
+          text: "Delete",
           style: "destructive",
-          onPress: () => Alert.alert("Account deleted successfully"),
+          onPress: confirmDeleteAccount,
         },
       ],
-    );
+    });
   };
 
   const handlePhoneRowPress = () => {
@@ -1106,8 +1354,6 @@ export default function ProfileTabScreen(): React.ReactElement {
     }
   };
 
-  // Called after the template is saved to the DB. We just add a local
-  // history entry so the user sees confirmation in the Activity feed.
   const handleBillSaved = () => {
     addHistoryEntry(
       "template_saved",
@@ -1169,17 +1415,17 @@ export default function ProfileTabScreen(): React.ReactElement {
     setActivePlan(plan.id);
     setActivePlanPeriod(period);
 
-    Alert.alert(
-      "Plan Updated!",
-      `You have successfully ${
+    showAlert({
+      variant: "success",
+      title: "Plan Updated",
+      message: `You have successfully ${
         isUpgrade
           ? "upgraded to"
           : isDowngrade
             ? "downgraded to"
             : "switched to"
       } ${plan.name} plan (${period}).`,
-      [{ text: "OK" }],
-    );
+    });
   };
 
   const handleCancelSubscription = () => {
@@ -1198,11 +1444,12 @@ export default function ProfileTabScreen(): React.ReactElement {
     );
     setActivePlan("free");
     setActivePlanPeriod("monthly");
-    Alert.alert(
-      "Subscription Cancelled",
-      "Your subscription has been cancelled. You will be moved to the Free plan.",
-      [{ text: "OK" }],
-    );
+    showAlert({
+      variant: "info",
+      title: "Subscription Cancelled",
+      message:
+        "Your subscription has been cancelled. You will be moved to the Free plan.",
+    });
   };
 
   const handleStartPayment = async (
@@ -1229,7 +1476,11 @@ export default function ProfileTabScreen(): React.ReactElement {
     if (!selectedAccount?.id || !user?.id) return;
     const token = await getAuthToken();
     if (!token) {
-      Alert.alert("Error", "You're not signed in. Please log in again.");
+      showAlert({
+        variant: "error",
+        title: "Not signed in",
+        message: "You're not signed in. Please log in again.",
+      });
       return;
     }
 
@@ -1255,24 +1506,29 @@ export default function ProfileTabScreen(): React.ReactElement {
         try {
           data = await res.json();
         } catch {}
-        Alert.alert(
-          "Error",
-          data?.message || "Failed to withdraw admin access.",
-        );
+        showAlert({
+          variant: "error",
+          title: "Could not withdraw access",
+          message: data?.message || "Failed to withdraw admin access.",
+        });
         return;
       }
 
       setShowWithdrawModal(false);
       await loadAccountPeople();
 
-      Alert.alert(
-        "Admin Access Withdrawn",
-        "You are no longer an admin of this account.",
-        [{ text: "OK" }],
-      );
+      showAlert({
+        variant: "success",
+        title: "Admin Access Withdrawn",
+        message: "You are no longer an admin of this account.",
+      });
     } catch (err) {
       console.error("withdrawAdmin error:", err);
-      Alert.alert("Error", "Network error. Please check your connection.");
+      showAlert({
+        variant: "error",
+        title: "Network error",
+        message: "Please check your connection and try again.",
+      });
     } finally {
       setWithdrawSubmitting(false);
     }
@@ -1287,10 +1543,12 @@ export default function ProfileTabScreen(): React.ReactElement {
       color: "#2563EB",
       onPress: () => {
         if (!canManageBills) {
-          Alert.alert(
-            "Permission denied",
-            "Only the account owner or an admin can manage bill templates.",
-          );
+          showAlert({
+            variant: "warning",
+            title: "Permission denied",
+            message:
+              "Only the account owner or an admin can manage bill templates.",
+          });
           return;
         }
         setBillMemberType("owner");
@@ -1368,7 +1626,6 @@ export default function ProfileTabScreen(): React.ReactElement {
     },
   ];
 
-  // ✅ CHANGED: BILLING section is gated by `canManageBills` (owner OR admin)
   const settingsSections = useMemo(() => {
     const sections = [
       { title: "BILLING", itemIds: ["generate_bill"] },
@@ -1542,7 +1799,6 @@ export default function ProfileTabScreen(): React.ReactElement {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
       >
-        {/* ACCOUNT HERO CARD */}
         <View style={styles.heroCard}>
           <View style={styles.heroTopRow}>
             <View style={styles.avatarWrap}>
@@ -1634,7 +1890,6 @@ export default function ProfileTabScreen(): React.ReactElement {
           )}
         </View>
 
-        {/* ADMIN & OWNERS */}
         {showAdminDirectory && (
           <View style={styles.adminCard}>
             <View style={styles.adminCardHeader}>
@@ -1763,7 +2018,6 @@ export default function ProfileTabScreen(): React.ReactElement {
           </View>
         )}
 
-        {/* SUBSCRIPTION */}
         {canSeeSubscription &&
           (() => {
             const currentPlan = plans.find((p) => p.id === activePlan);
@@ -1873,7 +2127,6 @@ export default function ProfileTabScreen(): React.ReactElement {
             );
           })()}
 
-        {/* SETTINGS */}
         {settingsSections.map((section) => {
           const items = menuItems.filter((item) =>
             section.itemIds.includes(item.id),
@@ -1889,7 +2142,6 @@ export default function ProfileTabScreen(): React.ReactElement {
           );
         })}
 
-        {/* HISTORY */}
         <View style={styles.historyCard}>
           <View style={styles.historyHeader}>
             <View>
@@ -1965,7 +2217,6 @@ export default function ProfileTabScreen(): React.ReactElement {
           </TouchableOpacity>
         </View>
 
-        {/* DANGER ZONE */}
         <View style={styles.menuSection}>
           <Text style={styles.menuSectionTitle}>DANGER ZONE</Text>
           <View style={styles.menuCard}>
@@ -1992,7 +2243,6 @@ export default function ProfileTabScreen(): React.ReactElement {
           </View>
         </View>
 
-        {/* LOGOUT */}
         <TouchableOpacity
           style={styles.logoutButton}
           onPress={handleLogout}
@@ -2002,7 +2252,6 @@ export default function ProfileTabScreen(): React.ReactElement {
           <Text style={styles.logoutButtonText}>Log Out</Text>
         </TouchableOpacity>
 
-        {/* FOOTER */}
         <View style={styles.footer}>
           <View style={styles.footerLogo}>
             <Ionicons name="business-outline" size={16} color="#2563EB" />
@@ -2114,7 +2363,6 @@ export default function ProfileTabScreen(): React.ReactElement {
         </Modal>
       )}
 
-      {/* ✅ CHANGED: only render the modal for owner/admin with an account */}
       {canManageBills && selectedAccount?.id && (
         <GenerateBillModal
           visible={showGenerateBill}
@@ -2137,6 +2385,8 @@ export default function ProfileTabScreen(): React.ReactElement {
         onPlanChanged={handlePlanChanged}
         onCancelSubscription={handleCancelSubscription}
       />
+
+      <AppAlert state={alert.state} onDismiss={alert.dismiss} />
     </View>
   );
 }
