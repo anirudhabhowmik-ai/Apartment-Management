@@ -1,5 +1,5 @@
 // app/(modals)/account-profile.tsx
-// Edit user Name, Photo, and manage Access & Roles
+// Edit user Name, Photo, manage Access & Roles, and (owner only) delete the property
 import { Ionicons } from "@expo/vector-icons";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
@@ -9,7 +9,6 @@ import * as SecureStore from "expo-secure-store";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Dimensions,
   GestureResponderEvent,
   Image,
@@ -136,6 +135,236 @@ const roleLabelShort = (role: InvitationRole): string => {
   if (role === "staff_visibility") return "Staff";
   return "Ownership";
 };
+
+// ============================================================================
+// INLINE CUSTOM ALERT (self-contained, no external imports)
+// ============================================================================
+
+type AlertVariant = "info" | "success" | "warning" | "error" | "question";
+
+interface AlertButton {
+  text: string;
+  onPress?: () => void;
+  style?: "default" | "cancel" | "destructive";
+}
+
+interface AlertState {
+  visible: boolean;
+  variant: AlertVariant;
+  title: string;
+  message?: string;
+  buttons: AlertButton[];
+}
+
+const EMPTY_ALERT: AlertState = {
+  visible: false,
+  variant: "info",
+  title: "",
+  message: undefined,
+  buttons: [],
+};
+
+function AppAlert({
+  state,
+  onDismiss,
+}: {
+  state: AlertState;
+  onDismiss: () => void;
+}) {
+  const { variant, title, message, buttons } = state;
+
+  const meta: Record<
+    AlertVariant,
+    { icon: keyof typeof Ionicons.glyphMap; color: string; bg: string }
+  > = {
+    info: { icon: "information-circle", color: "#2563EB", bg: "#EFF6FF" },
+    success: { icon: "checkmark-circle", color: "#16A34A", bg: "#F0FDF4" },
+    warning: { icon: "warning", color: "#D97706", bg: "#FEF3C7" },
+    error: { icon: "close-circle", color: "#DC2626", bg: "#FEF2F2" },
+    question: { icon: "help-circle", color: "#7C3AED", bg: "#F5F3FF" },
+  };
+
+  const m = meta[variant];
+
+  const handlePress = (btn: AlertButton) => {
+    onDismiss();
+    if (btn.onPress) setTimeout(btn.onPress, 0);
+  };
+
+  const hasTwo = buttons.length === 2;
+  const isStacked = buttons.length > 2;
+
+  return (
+    <Modal
+      transparent
+      visible={state.visible}
+      animationType="fade"
+      onRequestClose={onDismiss}
+      statusBarTranslucent
+    >
+      <Pressable style={inlineAlertStyles.backdrop} onPress={onDismiss}>
+        <Pressable
+          style={inlineAlertStyles.card}
+          onPress={(e) => e.stopPropagation()}
+        >
+          <View
+            style={[inlineAlertStyles.iconCircle, { backgroundColor: m.bg }]}
+          >
+            <Ionicons name={m.icon} size={30} color={m.color} />
+          </View>
+
+          <Text style={inlineAlertStyles.title}>{title}</Text>
+
+          {message ? (
+            <Text style={inlineAlertStyles.message}>{message}</Text>
+          ) : null}
+
+          <View
+            style={[
+              inlineAlertStyles.actions,
+              isStacked && inlineAlertStyles.actionsStacked,
+            ]}
+          >
+            {buttons.map((btn, idx) => {
+              const isDestructive = btn.style === "destructive";
+              const isCancel = btn.style === "cancel";
+              const isPrimary = !isDestructive && !isCancel;
+
+              return (
+                <Pressable
+                  key={`${btn.text}-${idx}`}
+                  onPress={() => handlePress(btn)}
+                  style={({ pressed }) => [
+                    inlineAlertStyles.button,
+                    hasTwo && inlineAlertStyles.buttonHalf,
+                    isStacked && inlineAlertStyles.buttonFull,
+                    isCancel && inlineAlertStyles.buttonCancel,
+                    isDestructive && inlineAlertStyles.buttonDestructive,
+                    isPrimary && inlineAlertStyles.buttonPrimary,
+                    pressed && { opacity: 0.85 },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      inlineAlertStyles.buttonText,
+                      isCancel && inlineAlertStyles.buttonTextCancel,
+                      isDestructive && inlineAlertStyles.buttonTextDestructive,
+                      isPrimary && inlineAlertStyles.buttonTextPrimary,
+                    ]}
+                  >
+                    {btn.text}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+function useAppAlert() {
+  const [state, setState] = useState<AlertState>(EMPTY_ALERT);
+
+  const show = useCallback(
+    (opts: {
+      variant?: AlertVariant;
+      title: string;
+      message?: string;
+      buttons?: AlertButton[];
+    }) => {
+      setState({
+        visible: true,
+        variant: opts.variant ?? "info",
+        title: opts.title,
+        message: opts.message,
+        buttons:
+          opts.buttons && opts.buttons.length > 0
+            ? opts.buttons
+            : [{ text: "OK", style: "default" }],
+      });
+    },
+    [],
+  );
+
+  const dismiss = useCallback(() => {
+    setState(EMPTY_ALERT);
+  }, []);
+
+  return { state, show, dismiss };
+}
+
+const inlineAlertStyles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 24,
+  },
+  card: {
+    width: "100%",
+    maxWidth: 380,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    paddingHorizontal: 22,
+    paddingTop: 24,
+    paddingBottom: 18,
+    alignItems: "center",
+  },
+  iconCircle: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+  title: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: "#0F172A",
+    textAlign: "center",
+  },
+  message: {
+    fontSize: 13.5,
+    lineHeight: 20,
+    color: "#64748B",
+    textAlign: "center",
+    marginTop: 8,
+    maxWidth: 320,
+  },
+  actions: {
+    flexDirection: "row",
+    width: "100%",
+    marginTop: 20,
+    justifyContent: "center",
+    gap: 10,
+  },
+  actionsStacked: { flexDirection: "column", gap: 8 },
+  button: {
+    minHeight: 48,
+    minWidth: 120,
+    paddingHorizontal: 20,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  buttonHalf: { flex: 1, minWidth: 0 },
+  buttonFull: { width: "100%" },
+  buttonCancel: {
+    backgroundColor: "#F1F5F9",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  buttonDestructive: { backgroundColor: "#DC2626" },
+  buttonPrimary: { backgroundColor: "#2563EB" },
+  buttonText: { fontSize: 14.5, fontWeight: "800" },
+  buttonTextCancel: { color: "#475569" },
+  buttonTextDestructive: { color: "#FFFFFF" },
+  buttonTextPrimary: { color: "#FFFFFF" },
+});
 
 // ============================================================================
 // PHOTO ADJUST MODAL
@@ -642,7 +871,7 @@ function GrantAvatar({
 }
 
 // ============================================================================
-// REVOKE ACCESS MODAL
+// REVOKE ACCESS MODAL (unchanged from your file)
 // ============================================================================
 
 type RevokeTab = "admin" | "member" | "staff" | "ownership";
@@ -657,6 +886,11 @@ interface RevokeAccessModalProps {
   acceptedOwnership: ApiInvitation[];
   getAuthToken: () => Promise<string | null>;
   onRevoked: () => Promise<void> | void;
+  onNotify: (opts: {
+    variant?: AlertVariant;
+    title: string;
+    message?: string;
+  }) => void;
 }
 
 function RevokeAccessModal({
@@ -669,6 +903,7 @@ function RevokeAccessModal({
   acceptedOwnership,
   getAuthToken,
   onRevoked,
+  onNotify,
 }: RevokeAccessModalProps) {
   const [tab, setTab] = useState<RevokeTab>("admin");
   const [search, setSearch] = useState("");
@@ -735,7 +970,11 @@ function RevokeAccessModal({
   const openRevoke = async (inv: ApiInvitation) => {
     const targetUserId = inv.accepted_by ?? null;
     if (!targetUserId) {
-      Alert.alert("Error", "Missing user reference on invitation.");
+      onNotify({
+        variant: "error",
+        title: "Error",
+        message: "Missing user reference on invitation.",
+      });
       return;
     }
 
@@ -788,7 +1027,11 @@ function RevokeAccessModal({
 
     const targetUserId = target.accepted_by ?? null;
     if (!targetUserId) {
-      Alert.alert("Error", "Missing user reference on invitation.");
+      onNotify({
+        variant: "error",
+        title: "Error",
+        message: "Missing user reference on invitation.",
+      });
       return;
     }
 
@@ -817,7 +1060,11 @@ function RevokeAccessModal({
       );
 
       if (!res.ok) {
-        Alert.alert("Error", "Failed to revoke access.");
+        onNotify({
+          variant: "error",
+          title: "Error",
+          message: "Failed to revoke access.",
+        });
         return;
       }
 
@@ -825,7 +1072,11 @@ function RevokeAccessModal({
       await onRevoked();
     } catch (err) {
       console.error("revoke error:", err);
-      Alert.alert("Error", "Network error.");
+      onNotify({
+        variant: "error",
+        title: "Error",
+        message: "Network error.",
+      });
     } finally {
       setSubmitting(false);
     }
@@ -1251,7 +1502,7 @@ function RevokeAccessModal({
 }
 
 // ============================================================================
-// DELETE PENDING MODAL — choose which roles to delete for a pending group
+// DELETE PENDING MODAL
 // ============================================================================
 
 interface DeletePendingModalProps {
@@ -1271,7 +1522,6 @@ function DeletePendingModal({
 
   useEffect(() => {
     if (group) {
-      // Default: all roles of the group are selected (delete everything).
       setSelectedIds(new Set(group.invitations.map((i) => i.id)));
     }
   }, [group]);
@@ -1473,6 +1723,151 @@ function DeletePendingModal({
 }
 
 // ============================================================================
+// DELETE PROPERTY MODAL (owner only, requires checkbox)
+// ============================================================================
+
+interface DeletePropertyModalProps {
+  visible: boolean;
+  propertyName: string;
+  submitting: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}
+
+function DeletePropertyModal({
+  visible,
+  propertyName,
+  submitting,
+  onCancel,
+  onConfirm,
+}: DeletePropertyModalProps) {
+  const [acknowledged, setAcknowledged] = useState(false);
+
+  useEffect(() => {
+    if (visible) setAcknowledged(false);
+  }, [visible]);
+
+  const canConfirm = acknowledged && !submitting;
+
+  return (
+    <Modal
+      transparent
+      animationType="fade"
+      visible={visible}
+      onRequestClose={onCancel}
+      statusBarTranslucent
+    >
+      <TouchableWithoutFeedback onPress={onCancel}>
+        <View style={styles.modalOverlay}>
+          <TouchableWithoutFeedback
+            onPress={(event) => event.stopPropagation()}
+          >
+            <View style={styles.deletePropertyModal}>
+              <View style={styles.deletePropertyIcon}>
+                <Ionicons name="warning" size={28} color="#DC2626" />
+              </View>
+
+              <Text style={styles.deletePropertyTitle}>
+                Delete this property?
+              </Text>
+
+              <Text style={styles.deletePropertySubtitle} numberOfLines={2}>
+                You're about to delete{" "}
+                <Text style={{ fontWeight: "800", color: "#0F172A" }}>
+                  {propertyName || "this property"}
+                </Text>
+                .
+              </Text>
+
+              <View style={styles.deletePropertyWarningCard}>
+                <Text style={styles.deletePropertyWarningTitle}>
+                  This will permanently remove:
+                </Text>
+
+                {[
+                  "All members and their payment history",
+                  "All staff and attendance records",
+                  "All expenses and income entries",
+                  "Bill templates and settings",
+                  "Access for every admin, member, and staff",
+                ].map((line) => (
+                  <View key={line} style={styles.deletePropertyBullet}>
+                    <Ionicons name="remove-circle" size={12} color="#DC2626" />
+                    <Text style={styles.deletePropertyBulletText}>{line}</Text>
+                  </View>
+                ))}
+              </View>
+
+              <Text style={styles.deletePropertyNote}>
+                This action cannot be undone.
+              </Text>
+
+              <TouchableOpacity
+                style={styles.deletePropertyCheckboxRow}
+                onPress={() => setAcknowledged((v) => !v)}
+                activeOpacity={0.75}
+                disabled={submitting}
+              >
+                <View
+                  style={[
+                    styles.deletePropertyCheckbox,
+                    acknowledged && styles.deletePropertyCheckboxChecked,
+                  ]}
+                >
+                  {acknowledged ? (
+                    <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+                  ) : null}
+                </View>
+                <Text style={styles.deletePropertyCheckboxLabel}>
+                  I understand this will permanently delete the property and all
+                  of its data.
+                </Text>
+              </TouchableOpacity>
+
+              <View style={styles.deletePropertyActions}>
+                <TouchableOpacity
+                  style={styles.cancelModalButton}
+                  onPress={onCancel}
+                  activeOpacity={0.8}
+                  disabled={submitting}
+                >
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.deleteConfirmButton,
+                    !canConfirm && { opacity: 0.5 },
+                  ]}
+                  onPress={onConfirm}
+                  activeOpacity={0.85}
+                  disabled={!canConfirm}
+                >
+                  {submitting ? (
+                    <ActivityIndicator color="#FFFFFF" size="small" />
+                  ) : (
+                    <>
+                      <Ionicons
+                        name="trash-outline"
+                        size={17}
+                        color="#FFFFFF"
+                      />
+                      <Text style={styles.deleteConfirmText}>
+                        Delete Property
+                      </Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </TouchableWithoutFeedback>
+        </View>
+      </TouchableWithoutFeedback>
+    </Modal>
+  );
+}
+
+// ============================================================================
 // SCREEN
 // ============================================================================
 
@@ -1481,9 +1876,16 @@ export default function AccountProfileScreen() {
   const insets = useSafeAreaInsets();
 
   const { user } = useAuthStore();
-  const { selectedAccount, editAccount } = useAccounts();
+  const {
+    selectedAccount,
+    editAccount,
+    refresh: refreshAccounts,
+  } = useAccounts() as any;
   const { isAdmin } = useUserRole();
   const canEdit = isAdmin;
+
+  const alert = useAppAlert();
+  const showAlert = alert.show;
 
   const [propertyName, setPropertyName] = useState("");
   const [editingName, setEditingName] = useState(false);
@@ -1497,13 +1899,11 @@ export default function AccountProfileScreen() {
   const [invitationsLoading, setInvitationsLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
-  // Legacy delete-target (single id) — kept for rejected invitations.
   const [invitationToDelete, setInvitationToDelete] = useState<string | null>(
     null,
   );
   const [deletingInvitation, setDeletingInvitation] = useState(false);
 
-  // New grouped pending delete target.
   const [pendingGroupToDelete, setPendingGroupToDelete] =
     useState<PendingGroup | null>(null);
 
@@ -1512,6 +1912,10 @@ export default function AccountProfileScreen() {
   >(null);
 
   const [showRevokeAccessModal, setShowRevokeAccessModal] = useState(false);
+
+  // Delete property modal state
+  const [showDeletePropertyModal, setShowDeletePropertyModal] = useState(false);
+  const [deletingProperty, setDeletingProperty] = useState(false);
 
   // ============================================================
   // DERIVED
@@ -1530,7 +1934,6 @@ export default function AccountProfileScreen() {
     [invitations],
   );
 
-  // ── Pending groups (member + staff on same person → one group) ──
   const pendingGroups = useMemo<PendingGroup[]>(() => {
     const byKey = new Map<string, PendingGroup>();
 
@@ -1568,7 +1971,6 @@ export default function AccountProfileScreen() {
     [pendingGroups],
   );
 
-  // ── Helper: dedupe key per accepted person ──
   const personKey = useCallback((inv: ApiInvitation): string => {
     if (inv.accepted_by) return `u:${inv.accepted_by}`;
     const ten = String(inv.invited_phone ?? "").replace(/\D/g, "");
@@ -1815,10 +2217,11 @@ export default function AccountProfileScreen() {
     setShowPhotoOptions(false);
     const permission = await ImagePicker.requestCameraPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert(
-        "Permission needed",
-        "Please grant permission to access your camera.",
-      );
+      showAlert({
+        variant: "warning",
+        title: "Permission needed",
+        message: "Please grant permission to access your camera.",
+      });
       return;
     }
     const result = await ImagePicker.launchCameraAsync({
@@ -1838,10 +2241,11 @@ export default function AccountProfileScreen() {
     setShowPhotoOptions(false);
     const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!permission.granted) {
-      Alert.alert(
-        "Permission needed",
-        "Please grant permission to access your photos.",
-      );
+      showAlert({
+        variant: "warning",
+        title: "Permission needed",
+        message: "Please grant permission to access your photos.",
+      });
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -1901,7 +2305,11 @@ export default function AccountProfileScreen() {
       setEditingName(false);
     } catch (err) {
       console.error("savePropertyName error:", err);
-      Alert.alert("Error", "Failed to update account name.");
+      showAlert({
+        variant: "error",
+        title: "Error",
+        message: "Failed to update account name.",
+      });
     } finally {
       setSavingName(false);
     }
@@ -1926,20 +2334,27 @@ export default function AccountProfileScreen() {
         },
       );
       if (!res.ok) {
-        Alert.alert("Error", "Failed to delete invitation");
+        showAlert({
+          variant: "error",
+          title: "Error",
+          message: "Failed to delete invitation",
+        });
         return;
       }
       setInvitations((prev) => prev.filter((i) => i.id !== invitationToDelete));
       setInvitationToDelete(null);
     } catch (err) {
       console.error("deleteInvitation error:", err);
-      Alert.alert("Error", "Network error");
+      showAlert({
+        variant: "error",
+        title: "Error",
+        message: "Network error",
+      });
     } finally {
       setDeletingInvitation(false);
     }
   };
 
-  // Batch delete for grouped pending invitations.
   const confirmDeletePendingGroup = async (ids: string[]) => {
     if (!pendingGroupToDelete || ids.length === 0) return;
     const authToken = await getAuthToken();
@@ -1962,7 +2377,11 @@ export default function AccountProfileScreen() {
       });
 
       if (!res.ok) {
-        Alert.alert("Error", "Failed to delete invitation(s)");
+        showAlert({
+          variant: "error",
+          title: "Error",
+          message: "Failed to delete invitation(s)",
+        });
         return;
       }
 
@@ -1971,7 +2390,11 @@ export default function AccountProfileScreen() {
       setPendingGroupToDelete(null);
     } catch (err) {
       console.error("deletePendingGroup error:", err);
-      Alert.alert("Error", "Network error");
+      showAlert({
+        variant: "error",
+        title: "Error",
+        message: "Network error",
+      });
     } finally {
       setDeletingInvitation(false);
     }
@@ -1995,14 +2418,14 @@ export default function AccountProfileScreen() {
     }
   };
 
-  // ============================================================
-  // RESEND INVITATION
-  // ============================================================
-
   const handleResendInvite = async (invitation: ApiInvitation) => {
     const authToken = await getAuthToken();
     if (!authToken) {
-      Alert.alert("Error", "You're not signed in. Please log in again.");
+      showAlert({
+        variant: "error",
+        title: "Error",
+        message: "You're not signed in. Please log in again.",
+      });
       return;
     }
 
@@ -2021,12 +2444,14 @@ export default function AccountProfileScreen() {
         try {
           d = await delRes.json();
         } catch {}
-        Alert.alert(
-          "Resend Failed",
-          d?.message ||
+        showAlert({
+          variant: "error",
+          title: "Resend Failed",
+          message:
+            d?.message ||
             d?.error ||
             "Could not clear the old invitation. Please try again.",
-        );
+        });
         return;
       }
 
@@ -2054,21 +2479,124 @@ export default function AccountProfileScreen() {
       } catch {}
 
       if (!createRes.ok) {
-        Alert.alert(
-          "Resend Failed",
-          createData?.message ||
+        showAlert({
+          variant: "error",
+          title: "Resend Failed",
+          message:
+            createData?.message ||
             createData?.error ||
             "Could not send a new invitation. Please try again.",
-        );
+        });
         return;
       }
 
       await loadInvitations({ silent: true });
     } catch (err) {
       console.error("resendInvitation error:", err);
-      Alert.alert("Error", "Network error. Please check your connection.");
+      showAlert({
+        variant: "error",
+        title: "Error",
+        message: "Network error. Please check your connection.",
+      });
     } finally {
       setResendingInvitationId(null);
+    }
+  };
+
+  // ============================================================
+  // DELETE PROPERTY
+  // ============================================================
+
+  const openDeleteProperty = () => {
+    if (!isOwner) {
+      showAlert({
+        variant: "warning",
+        title: "Only the owner can delete",
+        message: "Only the account owner can delete this property.",
+      });
+      return;
+    }
+    setShowDeletePropertyModal(true);
+  };
+
+  const performDeleteProperty = async () => {
+    if (!selectedAccount?.id || !isOwner) return;
+
+    const token = await getAuthToken();
+    if (!token) {
+      showAlert({
+        variant: "error",
+        title: "Not signed in",
+        message: "Please log in again and retry.",
+      });
+      return;
+    }
+
+    setDeletingProperty(true);
+    try {
+      const res = await fetch(`${API_URL}/api/accounts/${selectedAccount.id}`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      let body: any = null;
+      try {
+        body = await res.json();
+      } catch {}
+
+      if (!res.ok) {
+        const code = body?.code;
+        let message = body?.message || "Could not delete the property.";
+        if (code === "owner_required") {
+          message = "Only the owner can delete this property.";
+        } else if (code === "not_found") {
+          message = "This property no longer exists.";
+        }
+        showAlert({
+          variant: "error",
+          title: "Delete failed",
+          message,
+        });
+        return;
+      }
+
+      setShowDeletePropertyModal(false);
+
+      try {
+        if (typeof refreshAccounts === "function") {
+          await refreshAccounts();
+        }
+      } catch {}
+
+      showAlert({
+        variant: "success",
+        title: "Property deleted",
+        message:
+          "The property has been removed. You can create or join another property anytime.",
+        buttons: [
+          {
+            text: "OK",
+            style: "default",
+            onPress: () => {
+              // Send back to the tabs root, then to Profile
+              try {
+                router.replace("/(tabs)/profile");
+              } catch {
+                router.replace("/(tabs)");
+              }
+            },
+          },
+        ],
+      });
+    } catch (err) {
+      console.error("deleteProperty error:", err);
+      showAlert({
+        variant: "error",
+        title: "Network error",
+        message: "Please check your connection and try again.",
+      });
+    } finally {
+      setDeletingProperty(false);
     }
   };
 
@@ -2105,7 +2633,6 @@ export default function AccountProfileScreen() {
     }
   };
 
-  // ── Accepted person row ──
   const renderPersonRow = (
     person: AccessPerson,
     isLast: boolean,
@@ -2223,7 +2750,6 @@ export default function AccountProfileScreen() {
     );
   };
 
-  // ── Grouped pending row ──
   const renderPendingGroupRow = (
     group: PendingGroup,
     isLast: boolean,
@@ -2549,7 +3075,6 @@ export default function AccountProfileScreen() {
             </View>
           </View>
 
-          {/* OWNER */}
           {selectedAccount?.ownerId === user?.id && (
             <View style={styles.accessGroup}>
               <Text style={styles.accessHeading}>Account Owner</Text>
@@ -2588,7 +3113,6 @@ export default function AccountProfileScreen() {
             </View>
           )}
 
-          {/* OWNERSHIP (accepted) */}
           {acceptedOwnership.length > 0 && (
             <View style={styles.accessGroup}>
               <Text style={styles.accessHeading}>Ownership</Text>
@@ -2607,7 +3131,6 @@ export default function AccountProfileScreen() {
             </View>
           )}
 
-          {/* ADMINS */}
           {acceptedAdmins.length > 0 && (
             <View style={styles.accessGroup}>
               <Text style={styles.accessHeading}>Admins</Text>
@@ -2625,7 +3148,6 @@ export default function AccountProfileScreen() {
             </View>
           )}
 
-          {/* MEMBERS */}
           {acceptedMembers.length > 0 && (
             <View style={styles.accessGroup}>
               <Text style={styles.accessHeading}>Members</Text>
@@ -2642,7 +3164,6 @@ export default function AccountProfileScreen() {
             </View>
           )}
 
-          {/* STAFF */}
           {acceptedStaff.length > 0 && (
             <View style={styles.accessGroup}>
               <Text style={styles.accessHeading}>Staff</Text>
@@ -2658,7 +3179,6 @@ export default function AccountProfileScreen() {
             </View>
           )}
 
-          {/* PENDING — OWNERSHIP */}
           {pendingOwnershipGroups.length > 0 && (
             <View style={styles.accessGroup}>
               <View style={styles.pendingHeader}>
@@ -2686,7 +3206,6 @@ export default function AccountProfileScreen() {
             </View>
           )}
 
-          {/* PENDING — OTHER ROLES */}
           {pendingNonOwnershipGroups.length > 0 && (
             <View style={styles.accessGroup}>
               <View style={styles.pendingHeader}>
@@ -2708,7 +3227,6 @@ export default function AccountProfileScreen() {
             </View>
           )}
 
-          {/* REJECTED */}
           {rejectedInvitations.length > 0 && (
             <View style={styles.accessGroup}>
               <Text style={styles.accessHeading}>Rejected</Text>
@@ -2778,7 +3296,6 @@ export default function AccountProfileScreen() {
             </View>
           )}
 
-          {/* EMPTY */}
           {!invitationsLoading &&
             acceptedAdmins.length === 0 &&
             acceptedMembers.length === 0 &&
@@ -2798,6 +3315,50 @@ export default function AccountProfileScreen() {
               </View>
             )}
         </View>
+
+        {/* DANGER ZONE (owner only) */}
+        {isOwner && (
+          <>
+            <Text
+              style={[styles.sectionTitle, { color: "#DC2626", marginTop: 12 }]}
+            >
+              DANGER ZONE
+            </Text>
+            <View style={styles.menuCard}>
+              <TouchableOpacity
+                style={[styles.menuItem, styles.menuItemLast]}
+                onPress={openDeleteProperty}
+                activeOpacity={0.75}
+                disabled={deletingProperty}
+              >
+                <View style={styles.menuItemLeft}>
+                  <View
+                    style={[styles.menuIcon, { backgroundColor: "#DC262614" }]}
+                  >
+                    {deletingProperty ? (
+                      <ActivityIndicator size="small" color="#DC2626" />
+                    ) : (
+                      <Ionicons
+                        name="trash-outline"
+                        size={20}
+                        color="#DC2626"
+                      />
+                    )}
+                  </View>
+                  <View style={styles.menuItemContent}>
+                    <Text style={styles.menuItemTitle}>
+                      {deletingProperty ? "Deleting…" : "Delete Property"}
+                    </Text>
+                    <Text style={styles.menuItemDescription} numberOfLines={1}>
+                      Permanently remove this property and its data
+                    </Text>
+                  </View>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
       </ScrollView>
 
       {/* PHOTO OPTIONS */}
@@ -2882,7 +3443,7 @@ export default function AccountProfileScreen() {
         />
       )}
 
-      {/* DELETE SINGLE INVITATION (used for rejected invites) */}
+      {/* DELETE SINGLE INVITATION */}
       {invitationToDelete && (
         <Modal
           transparent
@@ -2968,7 +3529,22 @@ export default function AccountProfileScreen() {
         onRevoked={async () => {
           await loadInvitations({ silent: true });
         }}
+        onNotify={(opts) => showAlert(opts)}
       />
+
+      {/* DELETE PROPERTY MODAL (owner only, requires checkbox) */}
+      <DeletePropertyModal
+        visible={showDeletePropertyModal}
+        propertyName={selectedAccount?.name || "this property"}
+        submitting={deletingProperty}
+        onCancel={() => {
+          if (deletingProperty) return;
+          setShowDeletePropertyModal(false);
+        }}
+        onConfirm={performDeleteProperty}
+      />
+
+      <AppAlert state={alert.state} onDismiss={alert.dismiss} />
     </View>
   );
 }
@@ -3748,5 +4324,116 @@ const styles = StyleSheet.create({
     color: "#DC2626",
     fontSize: 11.5,
     fontWeight: "800",
+  },
+
+  /* ---------- DELETE PROPERTY MODAL ---------- */
+  deletePropertyModal: {
+    width: "100%",
+    maxWidth: 420,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 24,
+    paddingHorizontal: 22,
+    paddingTop: 24,
+    paddingBottom: 20,
+    alignItems: "center",
+  },
+  deletePropertyIcon: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    backgroundColor: "#FEF2F2",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+  deletePropertyTitle: {
+    color: "#0F172A",
+    fontSize: 18,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  deletePropertySubtitle: {
+    color: "#64748B",
+    fontSize: 13,
+    lineHeight: 19,
+    textAlign: "center",
+    marginTop: 6,
+    maxWidth: 340,
+  },
+  deletePropertyWarningCard: {
+    width: "100%",
+    backgroundColor: "#FEF2F2",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#FECACA",
+    padding: 12,
+    marginTop: 14,
+  },
+  deletePropertyWarningTitle: {
+    color: "#991B1B",
+    fontSize: 12,
+    fontWeight: "800",
+    letterSpacing: 0.3,
+    marginBottom: 6,
+  },
+  deletePropertyBullet: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
+    marginTop: 3,
+  },
+  deletePropertyBulletText: {
+    color: "#7F1D1D",
+    fontSize: 11.5,
+    lineHeight: 16,
+    flex: 1,
+  },
+  deletePropertyNote: {
+    color: "#DC2626",
+    fontSize: 11.5,
+    fontWeight: "700",
+    marginTop: 12,
+    textAlign: "center",
+  },
+  deletePropertyCheckboxRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    width: "100%",
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 14,
+  },
+  deletePropertyCheckbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 7,
+    borderWidth: 1.5,
+    borderColor: "#CBD5E1",
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  deletePropertyCheckboxChecked: {
+    backgroundColor: "#DC2626",
+    borderColor: "#DC2626",
+  },
+  deletePropertyCheckboxLabel: {
+    flex: 1,
+    color: "#334155",
+    fontSize: 12,
+    lineHeight: 17,
+    fontWeight: "600",
+  },
+  deletePropertyActions: {
+    flexDirection: "row",
+    width: "100%",
+    justifyContent: "center",
+    marginTop: 18,
+    gap: 10,
   },
 });

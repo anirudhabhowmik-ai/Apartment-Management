@@ -1052,7 +1052,7 @@ const styles = StyleSheet.create({
 export default function ProfileTabScreen(): React.ReactElement {
   const router = useRouter();
   const { user, logout, refreshProfile } = useAuthStore();
-  const { selectedAccount, refresh: refreshAccounts } = useAccounts() as any;
+  const { selectedAccount } = useAccounts();
   const { isAdmin, isMember } = useUserRole();
 
   const isOwner = selectedAccount?.ownerId === user?.id;
@@ -1089,8 +1089,6 @@ export default function ProfileTabScreen(): React.ReactElement {
 
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
   const [withdrawSubmitting, setWithdrawSubmitting] = useState(false);
-
-  const [deletingAccount, setDeletingAccount] = useState(false);
 
   useEffect(() => {
     refreshProfile().catch(() => {});
@@ -1322,128 +1320,6 @@ export default function ProfileTabScreen(): React.ReactElement {
         message: "Please try again.",
       });
     }
-  };
-
-  // ---------------------------------------------------------------------------
-  // Delete account — owner only, soft-delete on the backend.
-  // 1. Only the owner sees the DANGER ZONE (gated in JSX below).
-  // 2. Even if called, this handler refuses non-owners.
-  // 3. The server enforces the same rule via `created_by` check.
-  // ---------------------------------------------------------------------------
-  const performDeleteAccount = async () => {
-    if (!selectedAccount?.id) return;
-
-    if (!isOwner) {
-      showAlert({
-        variant: "warning",
-        title: "Not allowed",
-        message: "Only the account owner can delete this property.",
-      });
-      return;
-    }
-
-    const token = await getAuthToken();
-    if (!token) {
-      showAlert({
-        variant: "error",
-        title: "Not signed in",
-        message: "Please log in again and retry.",
-      });
-      return;
-    }
-
-    setDeletingAccount(true);
-    try {
-      const res = await fetch(`${API_URL}/api/accounts/${selectedAccount.id}`, {
-        method: "DELETE",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-
-      let body: any = null;
-      try {
-        body = await res.json();
-      } catch {}
-
-      if (!res.ok) {
-        const code = body?.code;
-        let message = body?.message || "Could not delete the property.";
-        if (code === "owner_required") {
-          message = "Only the owner can delete this property.";
-        } else if (code === "not_found") {
-          message = "This property no longer exists.";
-        }
-        showAlert({
-          variant: "error",
-          title: "Delete failed",
-          message,
-        });
-        return;
-      }
-
-      // Refresh the profile (last_account_id may have been cleared)
-      try {
-        await refreshProfile();
-      } catch {}
-
-      // Refresh the account list so the deleted account disappears
-      try {
-        if (typeof refreshAccounts === "function") {
-          await refreshAccounts();
-        }
-      } catch {}
-
-      showAlert({
-        variant: "success",
-        title: "Property deleted",
-        message:
-          "The property has been removed. You can create or join another property anytime.",
-        buttons: [
-          {
-            text: "OK",
-            style: "default",
-            onPress: () => router.replace("/(tabs)"),
-          },
-        ],
-      });
-    } catch (err) {
-      console.error("delete account error:", err);
-      showAlert({
-        variant: "error",
-        title: "Network error",
-        message: "Please check your connection and try again.",
-      });
-    } finally {
-      setDeletingAccount(false);
-    }
-  };
-
-  const handleDeleteAccount = () => {
-    if (!isOwner) {
-      showAlert({
-        variant: "warning",
-        title: "Only the owner can delete",
-        message:
-          "You're not the owner of this property. Ask the owner, or withdraw access from the Admin & Owners card.",
-      });
-      return;
-    }
-
-    showAlert({
-      variant: "error",
-      title: "Delete this property?",
-      message:
-        "This permanently removes the property, its members, staff, payments, expenses, and bill templates. This cannot be undone.",
-      buttons: [
-        { text: "Cancel", style: "cancel" },
-        {
-          text: "Delete",
-          style: "destructive",
-          onPress: performDeleteAccount,
-        },
-      ],
-    });
   };
 
   const handlePhoneRowPress = () => {
@@ -2317,47 +2193,7 @@ export default function ProfileTabScreen(): React.ReactElement {
           </TouchableOpacity>
         </View>
 
-        {/* DANGER ZONE — OWNER ONLY */}
-        {isOwner && (
-          <View style={styles.menuSection}>
-            <Text style={styles.menuSectionTitle}>DANGER ZONE</Text>
-            <View style={styles.menuCard}>
-              <TouchableOpacity
-                style={[styles.menuItem, styles.menuItemLast]}
-                onPress={handleDeleteAccount}
-                activeOpacity={0.75}
-                disabled={deletingAccount}
-              >
-                <View style={styles.menuItemLeft}>
-                  <View
-                    style={[styles.menuIcon, { backgroundColor: "#DC262614" }]}
-                  >
-                    {deletingAccount ? (
-                      <ActivityIndicator size="small" color="#DC2626" />
-                    ) : (
-                      <Ionicons
-                        name="trash-outline"
-                        size={20}
-                        color="#DC2626"
-                      />
-                    )}
-                  </View>
-                  <View style={styles.menuItemContent}>
-                    <Text style={styles.menuItemTitle}>
-                      {deletingAccount ? "Deleting…" : "Delete Account"}
-                    </Text>
-                    <Text style={styles.menuItemDescription}>
-                      Permanently remove this property and its data
-                    </Text>
-                  </View>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
-
-        {/* LOG OUT — EVERYONE */}
+        {/* LOG OUT — visible for every role */}
         <TouchableOpacity
           style={styles.logoutButton}
           onPress={handleLogout}
