@@ -1,17 +1,18 @@
+// app/(tabs)/finance.tsx
 import { downloadFinanceReportPdf } from "@/services/financeReportPdf";
 import { Ionicons } from "@expo/vector-icons";
 import * as FileSystem from "expo-file-system/legacy";
 import { useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 import * as Sharing from "expo-sharing";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
-  Image, // ✅ NEW
+  Image,
   Linking,
   Modal,
   Platform,
+  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -39,6 +40,238 @@ import {
   getPeopleSummary,
   PeopleTransaction,
 } from "../../utils/peopleTransactions";
+
+// ============================================================
+// Inline custom alert — self-contained, no external imports
+// ============================================================
+
+type AlertVariant = "info" | "success" | "warning" | "error" | "question";
+
+interface AlertButton {
+  text: string;
+  onPress?: () => void;
+  style?: "default" | "cancel" | "destructive";
+}
+
+interface AlertState {
+  visible: boolean;
+  variant: AlertVariant;
+  title: string;
+  message?: string;
+  buttons: AlertButton[];
+}
+
+const EMPTY_ALERT: AlertState = {
+  visible: false,
+  variant: "info",
+  title: "",
+  message: undefined,
+  buttons: [],
+};
+
+function AppAlert({
+  state,
+  onDismiss,
+}: {
+  state: AlertState;
+  onDismiss: () => void;
+}) {
+  const { variant, title, message, buttons } = state;
+
+  const meta: Record<
+    AlertVariant,
+    { icon: keyof typeof Ionicons.glyphMap; color: string; bg: string }
+  > = {
+    info: { icon: "information-circle", color: "#2563EB", bg: "#EFF6FF" },
+    success: { icon: "checkmark-circle", color: "#16A34A", bg: "#F0FDF4" },
+    warning: { icon: "warning", color: "#D97706", bg: "#FEF3C7" },
+    error: { icon: "close-circle", color: "#DC2626", bg: "#FEF2F2" },
+    question: { icon: "help-circle", color: "#7C3AED", bg: "#F5F3FF" },
+  };
+
+  const m = meta[variant];
+
+  const handlePress = (btn: AlertButton) => {
+    onDismiss();
+    if (btn.onPress) {
+      setTimeout(btn.onPress, 0);
+    }
+  };
+
+  const hasTwo = buttons.length === 2;
+  const isStacked = buttons.length > 2;
+
+  return (
+    <Modal
+      transparent
+      visible={state.visible}
+      animationType="fade"
+      onRequestClose={onDismiss}
+      statusBarTranslucent
+    >
+      <Pressable style={inlineAlertStyles.backdrop} onPress={onDismiss}>
+        <Pressable
+          style={inlineAlertStyles.card}
+          onPress={(e) => e.stopPropagation()}
+        >
+          <View
+            style={[inlineAlertStyles.iconCircle, { backgroundColor: m.bg }]}
+          >
+            <Ionicons name={m.icon} size={30} color={m.color} />
+          </View>
+
+          <Text style={inlineAlertStyles.title}>{title}</Text>
+
+          {message ? (
+            <Text style={inlineAlertStyles.message}>{message}</Text>
+          ) : null}
+
+          <View
+            style={[
+              inlineAlertStyles.actions,
+              isStacked && inlineAlertStyles.actionsStacked,
+            ]}
+          >
+            {buttons.map((btn, idx) => {
+              const isDestructive = btn.style === "destructive";
+              const isCancel = btn.style === "cancel";
+              const isPrimary = !isDestructive && !isCancel;
+
+              return (
+                <Pressable
+                  key={`${btn.text}-${idx}`}
+                  onPress={() => handlePress(btn)}
+                  style={({ pressed }) => [
+                    inlineAlertStyles.button,
+                    hasTwo && inlineAlertStyles.buttonHalf,
+                    isStacked && inlineAlertStyles.buttonFull,
+                    isCancel && inlineAlertStyles.buttonCancel,
+                    isDestructive && inlineAlertStyles.buttonDestructive,
+                    isPrimary && inlineAlertStyles.buttonPrimary,
+                    pressed && { opacity: 0.85 },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      inlineAlertStyles.buttonText,
+                      isCancel && inlineAlertStyles.buttonTextCancel,
+                      isDestructive && inlineAlertStyles.buttonTextDestructive,
+                      isPrimary && inlineAlertStyles.buttonTextPrimary,
+                    ]}
+                  >
+                    {btn.text}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+function useAppAlert() {
+  const [state, setState] = useState<AlertState>(EMPTY_ALERT);
+
+  const show = useCallback(
+    (opts: {
+      variant?: AlertVariant;
+      title: string;
+      message?: string;
+      buttons?: AlertButton[];
+    }) => {
+      setState({
+        visible: true,
+        variant: opts.variant ?? "info",
+        title: opts.title,
+        message: opts.message,
+        buttons:
+          opts.buttons && opts.buttons.length > 0
+            ? opts.buttons
+            : [{ text: "OK", style: "default" }],
+      });
+    },
+    [],
+  );
+
+  const dismiss = useCallback(() => {
+    setState(EMPTY_ALERT);
+  }, []);
+
+  return { state, show, dismiss };
+}
+
+const inlineAlertStyles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 24,
+  },
+  card: {
+    width: "100%",
+    maxWidth: 380,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    paddingHorizontal: 22,
+    paddingTop: 24,
+    paddingBottom: 18,
+    alignItems: "center",
+  },
+  iconCircle: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+  title: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: "#0F172A",
+    textAlign: "center",
+  },
+  message: {
+    fontSize: 13.5,
+    lineHeight: 20,
+    color: "#64748B",
+    textAlign: "center",
+    marginTop: 8,
+    maxWidth: 320,
+  },
+  actions: {
+    flexDirection: "row",
+    width: "100%",
+    marginTop: 20,
+    justifyContent: "center",
+    gap: 10,
+  },
+  actionsStacked: { flexDirection: "column", gap: 8 },
+  button: {
+    minHeight: 48,
+    minWidth: 120,
+    paddingHorizontal: 20,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  buttonHalf: { flex: 1, minWidth: 0 },
+  buttonFull: { width: "100%" },
+  buttonCancel: {
+    backgroundColor: "#F1F5F9",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  buttonDestructive: { backgroundColor: "#DC2626" },
+  buttonPrimary: { backgroundColor: "#2563EB" },
+  buttonText: { fontSize: 14.5, fontWeight: "800" },
+  buttonTextCancel: { color: "#475569" },
+  buttonTextDestructive: { color: "#FFFFFF" },
+  buttonTextPrimary: { color: "#FFFFFF" },
+});
 
 // ============================================================
 // TYPES
@@ -70,7 +303,6 @@ type CarriedForwardResponse = {
   carried_forward: number;
 };
 
-// ✅ NEW — grouped card shape (mirrors People tab)
 type FinanceGroupedCard = {
   user_id: string;
   name: string;
@@ -222,25 +454,33 @@ const truncate = (value: string, max = 22): string => {
   return value.length > max ? `${value.slice(0, max - 1)}…` : value;
 };
 
-const callNumber = async (raw?: string | null) => {
-  if (!raw) return;
-  const digits = String(raw).replace(/\D/g, "");
-  const ten = digits.length > 10 ? digits.slice(-10) : digits;
-  if (ten.length !== 10) {
-    Alert.alert("Invalid number", "This phone number looks incomplete.");
-    return;
-  }
-  try {
-    await Linking.openURL(`tel:+91${ten}`);
-  } catch (e) {
-    console.warn("dialer failed:", e);
-    Alert.alert("Cannot call", "Unable to open the phone dialer.");
-  }
+const currentMonthKey = (): string => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 };
 
-// ------------------------------------------------------------
-// Soft-delete helpers
-// ------------------------------------------------------------
+const previousMonthKey = (): string => {
+  const now = new Date();
+  const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  return `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, "0")}`;
+};
+
+const isDueRelevant = (dueMonth: string): boolean => {
+  const current = currentMonthKey();
+  const previous = previousMonthKey();
+  return dueMonth === current || dueMonth === previous;
+};
+
+const getTransactionType = (txn: any): TransactionType => {
+  if (!txn) return "expense";
+  const raw = String(txn.transactionType ?? txn.transaction_type ?? "")
+    .trim()
+    .toLowerCase();
+  if (raw === "income") return "income";
+  if (raw === "expense") return "expense";
+  if (txn?.category === "maintenance") return "income";
+  return "expense";
+};
 
 const getInactiveMonth = (row: any): string | null => {
   const status = String(row?.status ?? "").toLowerCase();
@@ -261,20 +501,41 @@ const isRowInactiveForMonth = (row: any, monthKey: string): boolean => {
   return monthKey >= deletedMonth;
 };
 
-// ------------------------------------------------------------
-// File save helpers
-// ------------------------------------------------------------
-
+// ✅ FIXED — now understands XLSX / XLS / XLSM / CSV and never falls
+// back to "jpg" for non-image files.
 const pickExtension = (mimeOrUri?: string | null): string => {
   const s = String(mimeOrUri || "").toLowerCase();
+
   if (s.includes("image/png") || s.endsWith(".png")) return "png";
   if (s.includes("image/webp") || s.endsWith(".webp")) return "webp";
-  if (s.includes("application/pdf") || s.endsWith(".pdf")) return "pdf";
   if (s.includes("image/gif") || s.endsWith(".gif")) return "gif";
   if (s.includes("image/heic") || s.endsWith(".heic")) return "heic";
   if (s.includes("image/jpeg") || s.endsWith(".jpg")) return "jpg";
   if (s.includes("image/jpg") || s.endsWith(".jpeg")) return "jpg";
-  return "jpg";
+
+  if (s.includes("application/pdf") || s.endsWith(".pdf")) return "pdf";
+
+  if (
+    s.includes(
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ) ||
+    s.endsWith(".xlsx")
+  ) {
+    return "xlsx";
+  }
+  if (s.includes("application/vnd.ms-excel") || s.endsWith(".xls")) {
+    return "xls";
+  }
+  if (
+    s.includes("application/vnd.ms-excel.sheet.macroenabled.12") ||
+    s.endsWith(".xlsm")
+  ) {
+    return "xlsm";
+  }
+  if (s.includes("text/csv") || s.endsWith(".csv")) return "csv";
+
+  // Never default to an image extension for unknown types.
+  return "bin";
 };
 
 const pickMimeType = (mimeOrUri?: string | null): string => {
@@ -284,14 +545,24 @@ const pickMimeType = (mimeOrUri?: string | null): string => {
       return "image/png";
     case "webp":
       return "image/webp";
-    case "pdf":
-      return "application/pdf";
     case "gif":
       return "image/gif";
     case "heic":
       return "image/heic";
-    default:
+    case "jpg":
       return "image/jpeg";
+    case "pdf":
+      return "application/pdf";
+    case "xlsx":
+      return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+    case "xls":
+      return "application/vnd.ms-excel";
+    case "xlsm":
+      return "application/vnd.ms-excel.sheet.macroenabled.12";
+    case "csv":
+      return "text/csv";
+    default:
+      return "application/octet-stream";
   }
 };
 
@@ -394,70 +665,6 @@ const saveFileWithFolderPicker = async (
   throw new Error("Saving is not available on this device.");
 };
 
-const downloadBillAttachment = async (
-  uri?: string | null,
-  name?: string | null,
-): Promise<void> => {
-  if (!uri) {
-    Alert.alert("No bill", "This transaction has no attachment.");
-    return;
-  }
-
-  const baseName = (name || "bill").replace(/\.[^.]+$/, "");
-
-  try {
-    let hint: string | null = null;
-    if (uri.startsWith("data:")) {
-      const m = uri.match(/^data:([^;]+);/);
-      hint = m?.[1] || null;
-    } else {
-      hint = uri;
-    }
-
-    const result = await saveFileWithFolderPicker(uri, baseName, hint);
-
-    if (!result) {
-      return;
-    }
-
-    Alert.alert("Downloaded", "Bill saved successfully.");
-  } catch (e: any) {
-    console.warn("downloadBillAttachment failed:", e);
-    Alert.alert(
-      "Download failed",
-      e?.message || "Unable to save the bill attachment.",
-    );
-  }
-};
-
-const currentMonthKey = (): string => {
-  const now = new Date();
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
-};
-
-const previousMonthKey = (): string => {
-  const now = new Date();
-  const prev = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  return `${prev.getFullYear()}-${String(prev.getMonth() + 1).padStart(2, "0")}`;
-};
-
-const isDueRelevant = (dueMonth: string): boolean => {
-  const current = currentMonthKey();
-  const previous = previousMonthKey();
-  return dueMonth === current || dueMonth === previous;
-};
-
-const getTransactionType = (txn: any): TransactionType => {
-  if (!txn) return "expense";
-  const raw = String(txn.transactionType ?? txn.transaction_type ?? "")
-    .trim()
-    .toLowerCase();
-  if (raw === "income") return "income";
-  if (raw === "expense") return "expense";
-  if (txn?.category === "maintenance") return "income";
-  return "expense";
-};
-
 function normalizeAttachments(raw: any): BillAttachment[] {
   if (raw == null) return [];
   let value = raw;
@@ -537,7 +744,6 @@ function hasDueInMonth(member: any, month: string): boolean {
   return false;
 }
 
-// ✅ NEW — group helper (mirrors People tab's groupRowsByUser)
 function groupFinanceRowsByUser(
   rows: PeopleTransaction[],
 ): FinanceGroupedCard[] {
@@ -546,7 +752,6 @@ function groupFinanceRowsByUser(
   for (const row of rows) {
     const anyRow = row as any;
 
-    // Expense rows have no person — keep them as 1-record groups.
     if (anyRow.__isExpenseRow) {
       map.set(`expense-${row.id}`, {
         user_id: `expense-${row.id}`,
@@ -559,7 +764,6 @@ function groupFinanceRowsByUser(
       continue;
     }
 
-    // Members & staff: group by userId (fallback to memberId).
     const uid =
       anyRow.userId ||
       anyRow.user_id ||
@@ -571,7 +775,6 @@ function groupFinanceRowsByUser(
         user_id: uid,
         name: anyRow.memberName || anyRow.name || "",
         phone: anyRow.phone || null,
-        // ✅ Photo sync — same precedence as People tab
         photo_url:
           anyRow.photoUri ||
           anyRow.photo_url ||
@@ -598,12 +801,14 @@ function TransactionDetailModal({
   title,
   description,
   attachments,
+  onDownload,
 }: {
   visible: boolean;
   onClose: () => void;
   title: string;
   description: string;
   attachments: BillAttachment[];
+  onDownload: (url?: string | null, name?: string | null) => void;
 }) {
   return (
     <Modal
@@ -675,9 +880,7 @@ function TransactionDetailModal({
                   </View>
                   <TouchableOpacity
                     style={styles.attachmentDownload}
-                    onPress={() =>
-                      att.url && downloadBillAttachment(att.url, att.name)
-                    }
+                    onPress={() => onDownload(att.url, att.name)}
                     activeOpacity={0.7}
                   >
                     <Ionicons name="download-outline" size={16} color="#fff" />
@@ -699,11 +902,13 @@ function TransactionDetailModal({
 function TransactionItem({
   payment,
   onShowDetails,
-  isGrouped = false, // ✅ NEW — suppress repeated person title
+  onCall,
+  isGrouped = false,
 }: {
   payment: PeopleTransaction;
   onShowDetails: (payment: PeopleTransaction) => void;
-  isGrouped?: boolean; // ✅ NEW
+  onCall: (phone: string | null | undefined) => void;
+  isGrouped?: boolean;
 }) {
   const getIcon = (key: string): keyof typeof Ionicons.glyphMap => {
     const icons: Record<string, keyof typeof Ionicons.glyphMap> = {
@@ -737,7 +942,6 @@ function TransactionItem({
   };
 
   const anyPayment = payment as any;
-
   const isInactive = anyPayment.__isInactive === true;
 
   const rawCategory: string =
@@ -770,7 +974,6 @@ function TransactionItem({
         ? anyPayment.name
         : "";
 
-  // ✅ When grouped, don't repeat the person name as title — show flat/role instead.
   let title = "";
   if (isGrouped && (isMaintenance || isSalary)) {
     if (isMaintenance) {
@@ -811,7 +1014,6 @@ function TransactionItem({
   const phoneDigits = rawPhone
     ? String(rawPhone).replace(/\D/g, "").slice(-10)
     : "";
-  // ✅ Hide the phone pill inside a group (already in the group header)
   const hasCallablePhone =
     !isGrouped && (isMaintenance || isSalary) && phoneDigits.length === 10;
 
@@ -852,7 +1054,6 @@ function TransactionItem({
       style={[
         styles.transactionItem,
         isInactive && styles.transactionItemInactive,
-        // ✅ Compact styling when nested inside a group
         isGrouped && styles.transactionItemGrouped,
       ]}
     >
@@ -936,7 +1137,7 @@ function TransactionItem({
               style={styles.phonePill}
               onPress={(event) => {
                 event.stopPropagation();
-                callNumber(rawPhone);
+                onCall(rawPhone);
               }}
               hitSlop={6}
               activeOpacity={0.7}
@@ -1027,17 +1228,18 @@ function TransactionItem({
 }
 
 // ============================================================
-// GROUPED CARD (person header + nested transactions)
+// GROUPED CARD
 // ============================================================
 
 function GroupedCard({
   card,
   onShowDetails,
+  onCall,
 }: {
   card: FinanceGroupedCard;
   onShowDetails: (payment: PeopleTransaction) => void;
+  onCall: (phone: string | null | undefined) => void;
 }) {
-  // Expense groups have no person header — just render items.
   if (card.isExpenseGroup) {
     return (
       <View style={styles.groupWrapper}>
@@ -1046,6 +1248,7 @@ function GroupedCard({
             key={payment.id}
             payment={payment}
             onShowDetails={onShowDetails}
+            onCall={onCall}
           />
         ))}
       </View>
@@ -1057,7 +1260,6 @@ function GroupedCard({
 
   return (
     <View style={styles.groupCard}>
-      {/* Person header */}
       <View style={styles.groupHeader}>
         <View style={[styles.groupAvatar, isStaff && styles.groupAvatarStaff]}>
           {card.photo_url ? (
@@ -1088,7 +1290,7 @@ function GroupedCard({
             style={styles.groupCallButton}
             onPress={(event) => {
               event.stopPropagation();
-              callNumber(card.phone);
+              onCall(card.phone);
             }}
             hitSlop={6}
             activeOpacity={0.7}
@@ -1098,13 +1300,13 @@ function GroupedCard({
         ) : null}
       </View>
 
-      {/* Nested records */}
       <View style={styles.groupRecords}>
         {card.records.map((payment) => (
           <TransactionItem
             key={payment.id}
             payment={payment}
             onShowDetails={onShowDetails}
+            onCall={onCall}
             isGrouped
           />
         ))}
@@ -1235,13 +1437,15 @@ export default function FinanceScreen() {
   const canEditBalance = isAdmin || isMember;
   const canDownloadReport = isAdmin || isMember;
 
+  const alert = useAppAlert();
+  const showAlert = alert.show;
+
   const [refreshing, setRefreshing] = useState(false);
   const [filter, setFilter] = useState<FilterType>("all");
   const [filteredPayments, setFilteredPayments] = useState<PeopleTransaction[]>(
     [],
   );
 
-  // ✅ NEW — grouped view of filtered payments
   const groupedCards = useMemo(
     () => groupFinanceRowsByUser(filteredPayments),
     [filteredPayments],
@@ -1256,7 +1460,6 @@ export default function FinanceScreen() {
   const [selectedMonth, setSelectedMonth] = useState(new Date());
   const [showReportOptions, setShowReportOptions] = useState(false);
 
-  // ---- Opening balance (server-persisted) ----
   const [openingBalance, setOpeningBalanceState] = useState(0);
   const [openingBalanceMeta, setOpeningBalanceMeta] = useState<{
     updatedAt: string | null;
@@ -1270,7 +1473,6 @@ export default function FinanceScreen() {
     useState(false);
   const [openingBalanceInput, setOpeningBalanceInput] = useState("");
 
-  // ---- Carried forward (server-computed) ----
   const [carriedForwardBalance, setCarriedForwardBalance] = useState(0);
   const [carriedForwardLoading, setCarriedForwardLoading] = useState(false);
 
@@ -1280,6 +1482,86 @@ export default function FinanceScreen() {
 
   const openDetails = (payment: PeopleTransaction) => setDetailPayment(payment);
   const closeDetails = () => setDetailPayment(null);
+
+  // ============================================================
+  // CALL HELPER — custom alert
+  // ============================================================
+
+  const handleCall = useCallback(
+    async (raw?: string | null) => {
+      if (!raw) return;
+      const digits = String(raw).replace(/\D/g, "");
+      const ten = digits.length > 10 ? digits.slice(-10) : digits;
+      if (ten.length !== 10) {
+        showAlert({
+          variant: "error",
+          title: "Invalid number",
+          message: "This phone number looks incomplete.",
+        });
+        return;
+      }
+      try {
+        await Linking.openURL(`tel:+91${ten}`);
+      } catch (e) {
+        console.warn("dialer failed:", e);
+        showAlert({
+          variant: "error",
+          title: "Cannot call",
+          message: "Unable to open the phone dialer.",
+        });
+      }
+    },
+    [showAlert],
+  );
+
+  // ============================================================
+  // ATTACHMENT DOWNLOAD — custom alert
+  // ============================================================
+
+  const handleDownloadAttachment = useCallback(
+    async (uri?: string | null, name?: string | null) => {
+      if (!uri) {
+        showAlert({
+          variant: "info",
+          title: "No bill",
+          message: "This transaction has no attachment.",
+        });
+        return;
+      }
+
+      const baseName = (name || "bill").replace(/\.[^.]+$/, "");
+
+      try {
+        let hint: string | null = null;
+        if (uri.startsWith("data:")) {
+          const m = uri.match(/^data:([^;]+);/);
+          hint = m?.[1] || null;
+        } else {
+          hint = uri;
+        }
+
+        const result = await saveFileWithFolderPicker(uri, baseName, hint);
+
+        if (!result) {
+          return;
+        }
+
+        showAlert({
+          variant: "success",
+          title: "Downloaded",
+          message: "Bill saved successfully.",
+        });
+      } catch (e: any) {
+        console.warn("downloadBillAttachment failed:", e);
+        showAlert({
+          variant: "error",
+          title: "Download failed",
+          message: e?.message || "Unable to save the bill attachment.",
+        });
+      }
+    },
+    [showAlert],
+  );
 
   // ============================================================
   // MONTH HELPERS
@@ -1405,7 +1687,6 @@ export default function FinanceScreen() {
           wing: member.wing,
           flatNumber: member.flatNumber,
           phone: member.phone,
-          // ✅ CHANGED — carry grouping + photo keys
           userId: member.userId || member.user_id,
           photoUri: member.photoUri || member.photo_url,
           amount: isSalary
@@ -1452,7 +1733,6 @@ export default function FinanceScreen() {
           wing: member.wing,
           flatNumber: member.flatNumber,
           phone: member.phone,
-          // ✅ CHANGED — carry grouping + photo keys
           userId: member.userId || member.user_id,
           photoUri: member.photoUri || member.photo_url,
           amount: isSalary
@@ -1540,10 +1820,11 @@ export default function FinanceScreen() {
       setShowOpeningBalanceEditor(false);
     } catch (e: any) {
       console.warn("[finance] opening balance save failed:", e);
-      Alert.alert(
-        "Save failed",
-        e?.message || "Could not save the opening balance.",
-      );
+      showAlert({
+        variant: "error",
+        title: "Save failed",
+        message: e?.message || "Could not save the opening balance.",
+      });
     }
   };
 
@@ -1802,12 +2083,18 @@ export default function FinanceScreen() {
         `ai-khata-finance-${monthKey}`,
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       );
-      Alert.alert("Downloaded", "Excel report saved successfully.");
+      showAlert({
+        variant: "success",
+        title: "Downloaded",
+        message: "Excel report saved successfully.",
+      });
     } catch (e: any) {
-      Alert.alert(
-        "Report unavailable",
-        e?.message || "Unable to save the Excel report. Please try again.",
-      );
+      showAlert({
+        variant: "error",
+        title: "Report unavailable",
+        message:
+          e?.message || "Unable to save the Excel report. Please try again.",
+      });
     }
   };
 
@@ -1821,7 +2108,7 @@ export default function FinanceScreen() {
     const { monthKey, reportSummary, transactions } = getReportData();
 
     try {
-      await downloadFinanceReportPdf({
+      const result = await downloadFinanceReportPdf({
         propertyName: selectedAccount?.name || "Property",
         month: monthKey,
         income: reportSummary.income,
@@ -1829,12 +2116,28 @@ export default function FinanceScreen() {
         net: reportSummary.net,
         transactions,
       });
+
       setShowReportOptions(false);
-    } catch {
-      Alert.alert(
-        "Report unavailable",
-        "Unable to generate the PDF report. Please try again.",
-      );
+
+      if (!result.saved) {
+        return;
+      }
+
+      showAlert({
+        variant: "success",
+        title: "Downloaded",
+        message:
+          Platform.OS === "android"
+            ? `Finance report saved as "${result.fileName}".`
+            : `Finance report ready — "${result.fileName}".`,
+      });
+    } catch (e: any) {
+      showAlert({
+        variant: "error",
+        title: "Report unavailable",
+        message:
+          e?.message || "Unable to generate the PDF report. Please try again.",
+      });
     }
   };
 
@@ -1958,7 +2261,7 @@ export default function FinanceScreen() {
                     <TouchableOpacity
                       style={styles.heroPhonePill}
                       onPress={() =>
-                        callNumber(openingBalanceMeta.updatedByPhone)
+                        handleCall(openingBalanceMeta.updatedByPhone)
                       }
                       hitSlop={6}
                       activeOpacity={0.75}
@@ -2187,12 +2490,12 @@ export default function FinanceScreen() {
               </Text>
             </View>
           ) : (
-            // ✅ CHANGED — grouped cards instead of flat list
             groupedCards.map((card) => (
               <GroupedCard
                 key={card.user_id}
                 card={card}
                 onShowDetails={openDetails}
+                onCall={handleCall}
               />
             ))
           )}
@@ -2214,6 +2517,7 @@ export default function FinanceScreen() {
           attachments={normalizeAttachments(
             (detailPayment as any).bill_attachments,
           )}
+          onDownload={handleDownloadAttachment}
         />
       ) : null}
 
@@ -2396,6 +2700,8 @@ export default function FinanceScreen() {
           </View>
         </Modal>
       )}
+
+      <AppAlert state={alert.state} onDismiss={alert.dismiss} />
     </View>
   );
 }
@@ -2766,12 +3072,10 @@ const styles = StyleSheet.create({
 
   transactionsSection: { marginBottom: 20 },
 
-  // ✅ NEW — wrapper for expense-only groups
   groupWrapper: {
     marginBottom: 0,
   },
 
-  // ✅ NEW — card that wraps a person + their records
   groupCard: {
     backgroundColor: "#fff",
     borderRadius: 17,
@@ -2781,7 +3085,6 @@ const styles = StyleSheet.create({
     borderColor: "#E8EDF5",
   },
 
-  // ✅ NEW — person header
   groupHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -2839,9 +3142,7 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
 
-  groupRecords: {
-    // container for nested TransactionItem rows
-  },
+  groupRecords: {},
 
   transactionItem: {
     flexDirection: "row",
@@ -2854,7 +3155,6 @@ const styles = StyleSheet.create({
     borderColor: "#E8EDF5",
   },
 
-  // ✅ NEW — flat/nested items inside a group have no outer card chrome
   transactionItemGrouped: {
     backgroundColor: "transparent",
     borderWidth: 0,

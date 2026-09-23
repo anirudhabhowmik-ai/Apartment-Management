@@ -1,7 +1,8 @@
+// services/financeReportPdf.ts
 import * as FileSystem from "expo-file-system/legacy";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
-import { Alert, Platform } from "react-native";
+import { Platform } from "react-native";
 
 import { PeopleTransaction } from "../utils/peopleTransactions";
 
@@ -12,6 +13,17 @@ interface FinanceReportPdfInput {
   expenses: number;
   net: number;
   transactions: PeopleTransaction[];
+}
+
+export interface FinanceReportPdfResult {
+  /** true = file was saved, false = user cancelled the folder picker */
+  saved: boolean;
+  /** File name shown to the user, e.g. "ai-khata-finance-2024-12.pdf" */
+  fileName: string;
+  /** Full URI where the file was written (cache + SAF destination). */
+  fileUri: string;
+  /** Optional human message from the OS layer (share sheet, etc.). */
+  message?: string;
 }
 
 /* ================================================================
@@ -343,7 +355,7 @@ export const downloadFinanceReportPdf = async ({
   expenses,
   net,
   transactions,
-}: FinanceReportPdfInput): Promise<void> => {
+}: FinanceReportPdfInput): Promise<FinanceReportPdfResult> => {
   const html = buildFinanceReportHtml({
     propertyName,
     month,
@@ -389,48 +401,44 @@ export const downloadFinanceReportPdf = async ({
 
   // ==============================================================
   // ANDROID — save directly to a user-chosen folder using SAF.
-  //   The system folder picker appears once. After the user picks
-  //   (e.g. Downloads), the PDF is written straight there. No share
-  //   sheet, no Gmail/Drive prompt.
   // ==============================================================
   if (Platform.OS === "android") {
     const permissions =
       await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
 
     // If the user cancels the folder picker, we bail out quietly.
-    // (Caller gets a resolved promise, no error.)
+    // The caller gets `saved: false` and can decide what to show.
     if (!permissions.granted) {
-      return;
+      return {
+        saved: false,
+        fileName,
+        fileUri,
+      };
     }
 
-    // SAF needs the raw bytes; read from the cache file we just wrote.
     const base64Bytes = await FileSystem.readAsStringAsync(fileUri, {
       encoding: FileSystem.EncodingType.Base64,
     });
 
-    // Create a new file inside the chosen directory with a .pdf mime
     const destUri = await FileSystem.StorageAccessFramework.createFileAsync(
       permissions.directoryUri,
       fileName,
       "application/pdf",
     );
 
-    // Write the bytes to it
     await FileSystem.writeAsStringAsync(destUri, base64Bytes, {
       encoding: FileSystem.EncodingType.Base64,
     });
 
-    Alert.alert("Downloaded", `Finance report saved as "${fileName}".`, [
-      { text: "OK" },
-    ]);
-
-    return;
+    return {
+      saved: true,
+      fileName,
+      fileUri: destUri,
+    };
   }
 
   // ==============================================================
-  // iOS — no direct "save to folder" API exists. Fall back to the
-  // share sheet. The user can tap "Save to Files" there to keep a
-  // copy in iCloud Drive or On My iPhone.
+  // iOS — share sheet fallback (no "save to folder" API exists).
   // ==============================================================
   const canShare = await Sharing.isAvailableAsync();
   if (!canShare) {
@@ -442,4 +450,10 @@ export const downloadFinanceReportPdf = async ({
     dialogTitle: `Finance Report — ${month}`,
     UTI: "com.adobe.pdf",
   });
+
+  return {
+    saved: true,
+    fileName,
+    fileUri,
+  };
 };
