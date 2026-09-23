@@ -1,6 +1,10 @@
-import AsyncStorage from "@react-native-async-storage/async-storage";
+// store/billStore.ts
+import * as SecureStore from "expo-secure-store";
 import { create } from "zustand";
-import { createJSONStorage, persist } from "zustand/middleware";
+
+const API_URL = (
+  process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000"
+).replace(/\/api\/?$/, "");
 
 export interface BillTemplateDesign {
   id: string;
@@ -41,15 +45,6 @@ export interface SavedBillConfig {
   email: string;
   signature?: SignatureData;
   updatedAt: string;
-
-  /**
-   * Snapshot of the resolved template's layout fields at save time.
-   *
-   * Storing this makes owner and staff configs fully independent — the
-   * PDF generator uses this directly instead of looking up the shared
-   * `templates` array. Older configs saved before this field existed
-   * won't have it; the PDF code falls back to the live template array.
-   */
   layoutSnapshot?: {
     colors: BillTemplateDesign["colors"];
     fontFamily: BillTemplateDesign["fontFamily"];
@@ -66,11 +61,29 @@ export interface SavedBillConfig {
 
 interface BillState {
   templates: BillTemplateDesign[];
+
+  /** In-memory cache of configs loaded from the server, keyed by member type. */
   ownerBillConfig: SavedBillConfig | null;
   staffBillConfig: SavedBillConfig | null;
-  setBillConfig: (memberType: BillMemberType, config: SavedBillConfig) => void;
+
+  setLocalConfig: (
+    memberType: BillMemberType,
+    config: SavedBillConfig | null,
+  ) => void;
   getBillConfig: (memberType: BillMemberType) => SavedBillConfig | null;
   getTemplateById: (id: string) => BillTemplateDesign | undefined;
+
+  /** Network ops — always talk to the server. */
+  fetchConfigFromServer: (
+    accountId: string,
+    memberType: BillMemberType,
+  ) => Promise<SavedBillConfig | null>;
+
+  saveConfigToServer: (
+    accountId: string,
+    memberType: BillMemberType,
+    config: SavedBillConfig,
+  ) => Promise<SavedBillConfig>;
 }
 
 export const DEFAULT_TEMPLATES: BillTemplateDesign[] = [
@@ -145,46 +158,80 @@ export const DEFAULT_TEMPLATES: BillTemplateDesign[] = [
   },
 ];
 
-export const useBillStore = create<BillState>()(
-  persist(
-    (set, get) => ({
-      templates: DEFAULT_TEMPLATES,
-      ownerBillConfig: null,
-      staffBillConfig: null,
+async function authHeaders(): Promise<Record<string, string>> {
+  const token = await SecureStore.getItemAsync("auth_token");
+  return {
+    "Content-Type": "application/json",
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
 
-      setBillConfig: (memberType, config) =>
+export const useBillStore = create<BillState>((set, get) => ({
+  templates: DEFAULT_TEMPLATES,
+  ownerBillConfig: null,
+  staffBillConfig: null,
+
+  setLocalConfig: (memberType, config) =>
+    set(() =>
+      memberType === "owner"
+        ? { ownerBillConfig: config }
+        : { staffBillConfig: config },
+    ),
+
+  getBillConfig: (memberType) =>
+    memberType === "owner" ? get().ownerBillConfig : get().staffBillConfig,
+
+  getTemplateById: (id) => get().templates.find((t) => t.id === id),
+
+  fetchConfigFromServer: async (accountId, memberType) => {
+    const res = await fetch(
+      `${API_URL}/api/accounts/${accountId}/bills/config/${memberType}`,
+      { headers: await authHeaders() },
+    );
+    if (!res.ok) {
+      if (res.status === 404) {
         set(() =>
           memberType === "owner"
-            ? { ownerBillConfig: config }
-            : { staffBillConfig: config },
-        ),
+            ? { ownerBillConfig: null }
+            : { staffBillConfig: null },
+        );
+        return null;
+      }
+      throw new Error(`Failed to load bill config (${res.status})`);
+    }
+    const data = await res.json();
+    const config: SavedBillConfig | null = data?.config ?? null;
+    set(() =>
+      memberType === "owner"
+        ? { ownerBillConfig: config }
+        : { staffBillConfig: config },
+    );
+    return config;
+  },
 
-      getBillConfig: (memberType) =>
-        memberType === "owner" ? get().ownerBillConfig : get().staffBillConfig,
-
-      getTemplateById: (id) => get().templates.find((t) => t.id === id),
-    }),
-    {
-      name: "bill-config-storage",
-      storage: createJSONStorage(() => AsyncStorage),
-
-      partialize: (state) => ({
-        ownerBillConfig: state.ownerBillConfig,
-        staffBillConfig: state.staffBillConfig,
-      }),
-
-      // Bumped to 2 because SavedBillConfig gained `layoutSnapshot`.
-      // Old configs won't have it — the PDF code falls back to the
-      // live template array in that case.
-      version: 2,
-
-      migrate: (persistedState) => {
-        const state = (persistedState ?? {}) as Partial<BillState>;
-        return {
-          ownerBillConfig: state.ownerBillConfig ?? null,
-          staffBillConfig: state.staffBillConfig ?? null,
-        };
+  saveConfigToServer: async (accountId, memberType, config) => {
+    const res = await fetch(
+      `${API_URL}/api/accounts/${accountId}/bills/config/${memberType}`,
+      {
+        method: "PUT",
+        headers: await authHeaders(),
+        body: JSON.stringify({ config }),
       },
-    },
-  ),
-);
+    );
+    if (!res.ok) {
+      let body: any = null;
+      try {
+        body = await res.json();
+      } catch {}
+      throw new Error(body?.message || `Save failed (${res.status})`);
+    }
+    const data = await res.json();
+    const saved: SavedBillConfig = data.config;
+    set(() =>
+      memberType === "owner"
+        ? { ownerBillConfig: saved }
+        : { staffBillConfig: saved },
+    );
+    return saved;
+  },
+}));

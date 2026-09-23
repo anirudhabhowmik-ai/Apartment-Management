@@ -1,6 +1,9 @@
+// components/GenerateBillModal.tsx
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
+  Alert,
   Modal,
   ScrollView,
   StyleSheet,
@@ -9,6 +12,8 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+
+import { useAccounts } from "../hooks/useAccounts";
 import {
   BillMemberType,
   SavedBillConfig,
@@ -92,10 +97,18 @@ export default function GenerateBillModal({
   onMemberTypeChange,
   onSaved,
 }: GenerateBillModalProps) {
-  const { templates, getBillConfig, setBillConfig } = useBillStore();
+  const {
+    templates,
+    getBillConfig,
+    fetchConfigFromServer,
+    saveConfigToServer,
+  } = useBillStore();
+  const { selectedAccountId } = useAccounts();
 
   const [memberType, setMemberType] =
     useState<BillMemberType>(initialMemberType);
+
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     setMemberType(initialMemberType);
@@ -139,26 +152,66 @@ export default function GenerateBillModal({
 
   const [formError, setFormError] = useState("");
 
+  // ---------------------------------------------------------------------
+  // Load config from the server whenever the modal opens or member type
+  // changes. Seed from the in-memory cache first (instant paint), then
+  // refresh from the DB so multi-device saves are picked up.
+  // ---------------------------------------------------------------------
   useEffect(() => {
-    if (visible) {
-      const cfg = getBillConfig(memberType);
+    if (!visible) return;
 
-      setStep("design");
-      setTemplateId(cfg?.templateId ?? templates[0].id);
-      setSwatch(cfg?.accentColor ?? templates[0].colors.primary);
-
-      setSocietyName(cfg?.societyName ?? "");
-      setAddress(cfg?.address ?? "");
-      setContactNumber(sanitizeContactNumber(cfg?.contactNumber ?? ""));
-      setEmail(cfg?.email ?? "");
-      setSignature(cfg?.signature);
-
-      setFormError("");
-      setShowDesignPreview(false);
-      setShowSignatureModal(false);
+    // Seed from memory (fast path).
+    const cached = getBillConfig(memberType);
+    if (cached) {
+      setTemplateId(cached.templateId);
+      setSwatch(cached.accentColor);
+      setSocietyName(cached.societyName ?? "");
+      setAddress(cached.address ?? "");
+      setContactNumber(sanitizeContactNumber(cached.contactNumber ?? ""));
+      setEmail(cached.email ?? "");
+      setSignature(cached.signature);
+    } else {
+      setTemplateId(templates[0].id);
+      setSwatch(templates[0].colors.primary);
+      setSocietyName("");
+      setAddress("");
+      setContactNumber("");
+      setEmail("");
+      setSignature(undefined);
     }
+
+    setStep("design");
+    setFormError("");
+    setShowDesignPreview(false);
+    setShowSignatureModal(false);
+
+    // Then refresh from the server.
+    if (!selectedAccountId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const fresh = await fetchConfigFromServer(
+          selectedAccountId,
+          memberType,
+        );
+        if (cancelled || !fresh) return;
+        setTemplateId(fresh.templateId);
+        setSwatch(fresh.accentColor);
+        setSocietyName(fresh.societyName ?? "");
+        setAddress(fresh.address ?? "");
+        setContactNumber(sanitizeContactNumber(fresh.contactNumber ?? ""));
+        setEmail(fresh.email ?? "");
+        setSignature(fresh.signature);
+      } catch (e) {
+        console.warn("[GenerateBillModal] config fetch failed:", e);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [visible, memberType]);
+  }, [visible, memberType, selectedAccountId]);
 
   const selectedTemplate =
     templates.find((t) => t.id === templateId) ?? templates[0];
@@ -189,7 +242,12 @@ export default function GenerateBillModal({
     setStep("sign");
   };
 
-  const handleSaveTemplate = () => {
+  const handleSaveTemplate = async () => {
+    if (!selectedAccountId) {
+      Alert.alert("Error", "No account selected.");
+      return;
+    }
+
     const config: SavedBillConfig = {
       templateId: selectedTemplate.id,
       accentColor: swatch,
@@ -199,16 +257,8 @@ export default function GenerateBillModal({
       email: email.trim(),
       signature,
       updatedAt: new Date().toISOString(),
-
-      // ✅ Snapshot the full layout at save time. This makes the owner
-      // and staff configs truly independent — the PDF generator uses
-      // this snapshot directly instead of looking up the shared
-      // templates array by id.
       layoutSnapshot: {
-        colors: {
-          ...selectedTemplate.colors,
-          primary: swatch, // honor the accent override
-        },
+        colors: { ...selectedTemplate.colors, primary: swatch },
         fontFamily: selectedTemplate.fontFamily,
         logoPosition: selectedTemplate.logoPosition,
         showBorder: selectedTemplate.showBorder,
@@ -221,9 +271,22 @@ export default function GenerateBillModal({
       },
     };
 
-    setBillConfig(memberType, config);
-    onSaved?.(config);
-    onClose();
+    setSaving(true);
+    try {
+      const saved = await saveConfigToServer(
+        selectedAccountId,
+        memberType,
+        config,
+      );
+      onSaved?.(saved);
+      Alert.alert("Saved", "Bill template saved for the whole society.", [
+        { text: "OK", onPress: onClose },
+      ]);
+    } catch (e: any) {
+      Alert.alert("Save failed", e?.message ?? "Could not save template.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleSwitchMemberType = (next: BillMemberType) => {
@@ -282,9 +345,6 @@ export default function GenerateBillModal({
     );
   };
 
-  /* ----------------------------------------------------------------
-     Template thumbnail (mini preview) — shows real layout difference
-  ---------------------------------------------------------------- */
   const renderTemplateThumb = (t: (typeof templates)[number]) => {
     if (t.layoutVariant === "bold") {
       return (
@@ -427,7 +487,6 @@ export default function GenerateBillModal({
       );
     }
 
-    // minimal
     return (
       <View
         style={[styles.templateThumb, { backgroundColor: t.colors.background }]}
@@ -491,10 +550,6 @@ export default function GenerateBillModal({
     );
   };
 
-  /* ----------------------------------------------------------------
-     Full preview card (used in sign step + design preview modal)
-     Each layout variant renders a genuinely different bill.
-  ---------------------------------------------------------------- */
   const renderPreviewCard = (useRealCommonDetails: boolean) => {
     const displaySociety = useRealCommonDetails
       ? societyName || "Your Society Name"
@@ -523,8 +578,6 @@ export default function GenerateBillModal({
       .map((w) => w[0])
       .join("")
       .slice(0, 3);
-
-    /* ---------- shared body pieces, styled per variant ---------- */
 
     const bodyBg =
       variant === "bold"
@@ -668,7 +721,6 @@ export default function GenerateBillModal({
               marginTop: 12,
             };
 
-    /* ---------- body rows (info) ---------- */
     const infoRows = [
       { label: "Owner/Staff Name", value: dummy.rows[0][1] },
       ...dummy.rows.slice(1),
@@ -721,17 +773,10 @@ export default function GenerateBillModal({
             borderColor: "#cbd5e1",
             borderRadius: 0,
           },
-          variant === "bold" && {
-            borderWidth: 0,
-            borderRadius: 14,
-          },
-          variant === "minimal" && {
-            borderWidth: 0,
-            borderRadius: 0,
-          },
+          variant === "bold" && { borderWidth: 0, borderRadius: 14 },
+          variant === "minimal" && { borderWidth: 0, borderRadius: 0 },
         ]}
       >
-        {/* ---------- Header — varies strongly per variant ---------- */}
         {variant === "bold" ? (
           <View style={[styles.previewHeaderBold, { backgroundColor: swatch }]}>
             <View style={styles.previewHeaderLogo}>
@@ -786,15 +831,11 @@ export default function GenerateBillModal({
           </View>
         )}
 
-        {/* ---------- Body ---------- */}
         <View style={[styles.previewBody, { backgroundColor: bodyBg }]}>
-          {/* Bill title — strongly different per variant */}
           <Text style={titleStyle}>{dummy.docTitle}</Text>
 
-          {/* Info panel */}
           {renderInfoPanel()}
 
-          {/* Amount breakdown */}
           <View style={panelStyle}>
             <View style={rowDividerStyle}>
               <View
@@ -820,7 +861,6 @@ export default function GenerateBillModal({
             </View>
           </View>
 
-          {/* Total row */}
           <View style={totalStyle}>
             <Text
               style={{
@@ -845,7 +885,6 @@ export default function GenerateBillModal({
             </Text>
           </View>
 
-          {/* Signature */}
           <View
             style={[
               styles.signatureArea,
@@ -917,7 +956,6 @@ export default function GenerateBillModal({
             </TouchableOpacity>
           </View>
 
-          {/* Owner / Staff toggle */}
           <View style={styles.memberTypeToggle}>
             <TouchableOpacity
               style={[
@@ -973,8 +1011,6 @@ export default function GenerateBillModal({
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
           >
-            {/* ================= DESIGN ================= */}
-
             {step === "design" && (
               <View>
                 <Text style={styles.sectionTitle}>Choose a Design</Text>
@@ -1061,8 +1097,6 @@ export default function GenerateBillModal({
                 </TouchableOpacity>
               </View>
             )}
-
-            {/* ================= DETAILS ================= */}
 
             {step === "details" && (
               <View>
@@ -1218,8 +1252,6 @@ export default function GenerateBillModal({
               </View>
             )}
 
-            {/* ================= SIGN ================= */}
-
             {step === "sign" && (
               <View>
                 <Text style={styles.sectionTitle}>Signature & Preview</Text>
@@ -1274,22 +1306,27 @@ export default function GenerateBillModal({
                 <TouchableOpacity
                   style={[
                     styles.saveTemplateButton,
-                    { backgroundColor: accentColor },
+                    { backgroundColor: accentColor, opacity: saving ? 0.7 : 1 },
                   ]}
                   onPress={handleSaveTemplate}
+                  disabled={saving}
                   activeOpacity={0.85}
                 >
-                  <Ionicons name="save-outline" size={20} color="#fff" />
-                  <Text style={styles.saveTemplateButtonText}>
-                    Save Template
-                  </Text>
+                  {saving ? (
+                    <ActivityIndicator color="#fff" />
+                  ) : (
+                    <>
+                      <Ionicons name="save-outline" size={20} color="#fff" />
+                      <Text style={styles.saveTemplateButtonText}>
+                        Save Template
+                      </Text>
+                    </>
+                  )}
                 </TouchableOpacity>
               </View>
             )}
           </ScrollView>
         </View>
-
-        {/* ================= DESIGN PREVIEW ================= */}
 
         {showDesignPreview && (
           <View style={styles.previewOverlay}>
@@ -1326,8 +1363,6 @@ export default function GenerateBillModal({
             </View>
           </View>
         )}
-
-        {/* ================= SIGNATURE ================= */}
 
         <SignatureCanvas
           visible={showSignatureModal}
@@ -1658,13 +1693,11 @@ const styles = StyleSheet.create({
     fontWeight: "700",
   },
 
-  /* ---------- Preview card wrapper ---------- */
   previewCard: {
     overflow: "hidden",
     marginBottom: 14,
   },
 
-  /* ---------- Bold preview header ---------- */
   previewHeaderBold: {
     padding: 16,
     flexDirection: "row",
@@ -1696,7 +1729,6 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
-  /* ---------- Classic preview header ---------- */
   previewHeaderClassic: {
     paddingTop: 18,
     paddingHorizontal: 16,
@@ -1721,7 +1753,6 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
 
-  /* ---------- Minimal preview header ---------- */
   previewHeaderMinimal: {
     paddingTop: 12,
     paddingHorizontal: 4,
@@ -1740,14 +1771,12 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
 
-  /* ---------- Body ---------- */
   previewBody: {
     paddingHorizontal: 16,
     paddingBottom: 16,
     paddingTop: 0,
   },
 
-  /* ---------- Signature ---------- */
   signatureArea: {
     marginTop: 20,
     alignItems: "center",
@@ -1765,7 +1794,6 @@ const styles = StyleSheet.create({
     marginTop: 28,
   },
 
-  /* ---------- Misc ---------- */
   dummyTag: {
     fontSize: 10,
     color: "#94a3b8",
@@ -1774,7 +1802,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
 
-  /* ---------- Signature buttons ---------- */
   addSignatureButton: {
     borderWidth: 2,
     borderStyle: "dashed",
@@ -1820,7 +1847,6 @@ const styles = StyleSheet.create({
     color: "#fff",
   },
 
-  /* ---------- Design preview modal ---------- */
   previewOverlay: {
     ...StyleSheet.absoluteFill,
     zIndex: 900,

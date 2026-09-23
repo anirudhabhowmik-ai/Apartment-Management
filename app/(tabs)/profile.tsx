@@ -3,7 +3,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -27,7 +27,7 @@ import { useAccounts } from "../../hooks/useAccounts";
 import { useUserRole } from "../../hooks/useUserRole";
 import { startRazorpayPayment } from "../../services/paymentService";
 import { useAccountStore } from "../../store/accountStore";
-import { BillMemberType, SavedBillConfig } from "../../store/billStore";
+import { BillMemberType } from "../../store/billStore";
 import { useAuthStore } from "../../store/useAuthStore";
 
 // ============================================================================
@@ -96,14 +96,13 @@ interface HistoryEntry {
 }
 
 // ============================================================================
-// STYLES
+// STYLES (unchanged from your file)
 // ============================================================================
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#F5F7FB" },
   scrollContent: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 40 },
 
-  /* ---------- ACCOUNT HERO CARD (clean white) ---------- */
   heroCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 24,
@@ -119,10 +118,7 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 2,
   },
-  heroTopRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
+  heroTopRow: { flexDirection: "row", alignItems: "center" },
   avatarWrap: {
     width: 76,
     height: 76,
@@ -146,10 +142,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  avatarImage: {
-    width: "100%",
-    height: "100%",
-  },
+  avatarImage: { width: "100%", height: "100%" },
   avatarInitials: {
     color: "#FFFFFF",
     fontSize: 26,
@@ -157,10 +150,7 @@ const styles = StyleSheet.create({
     letterSpacing: 0.6,
   },
 
-  heroHeaderText: {
-    flex: 1,
-    minWidth: 0,
-  },
+  heroHeaderText: { flex: 1, minWidth: 0 },
   accountName: {
     color: "#0F172A",
     fontSize: 19,
@@ -198,7 +188,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.4,
   },
 
-  /* Owner info mini-card */
   ownerMiniCard: {
     marginTop: 16,
     flexDirection: "row",
@@ -220,10 +209,7 @@ const styles = StyleSheet.create({
     marginRight: 10,
     overflow: "hidden",
   },
-  ownerMiniAvatarImage: {
-    width: "100%",
-    height: "100%",
-  },
+  ownerMiniAvatarImage: { width: "100%", height: "100%" },
   ownerMiniAvatarText: {
     color: "#1D4ED8",
     fontSize: 14,
@@ -250,7 +236,6 @@ const styles = StyleSheet.create({
     marginTop: 1,
   },
 
-  /* Manage CTA */
   manageCta: {
     marginTop: 14,
     flexDirection: "row",
@@ -283,11 +268,7 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     letterSpacing: -0.1,
   },
-  manageCtaSubtitle: {
-    color: "#64748B",
-    fontSize: 11,
-    marginTop: 2,
-  },
+  manageCtaSubtitle: { color: "#64748B", fontSize: 11, marginTop: 2 },
   manageCtaChevron: {
     width: 26,
     height: 26,
@@ -300,7 +281,6 @@ const styles = StyleSheet.create({
     borderColor: "#DBEAFE",
   },
 
-  /* ---------- ADMIN & OWNERS (for non-owners) ---------- */
   adminCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 20,
@@ -328,16 +308,8 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   adminHeaderContent: { flex: 1, minWidth: 0 },
-  adminHeaderTitle: {
-    color: "#0F172A",
-    fontSize: 15,
-    fontWeight: "800",
-  },
-  adminHeaderSubtitle: {
-    color: "#64748B",
-    fontSize: 11,
-    marginTop: 3,
-  },
+  adminHeaderTitle: { color: "#0F172A", fontSize: 15, fontWeight: "800" },
+  adminHeaderSubtitle: { color: "#64748B", fontSize: 11, marginTop: 3 },
   adminRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -356,10 +328,7 @@ const styles = StyleSheet.create({
     marginRight: 11,
     overflow: "hidden",
   },
-  adminRowAvatarImage: {
-    width: "100%",
-    height: "100%",
-  },
+  adminRowAvatarImage: { width: "100%", height: "100%" },
   ownerRowAvatar: { backgroundColor: "#DBEAFE" },
   adminRowAvatarBg: { backgroundColor: "#EDE9FE" },
   adminRowAvatarText: {
@@ -381,11 +350,7 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     flexShrink: 1,
   },
-  adminRowPhone: {
-    color: "#64748B",
-    fontSize: 11.5,
-    marginTop: 3,
-  },
+  adminRowPhone: { color: "#64748B", fontSize: 11.5, marginTop: 3 },
   adminRowBadge: {
     borderRadius: 9,
     paddingHorizontal: 9,
@@ -407,7 +372,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
 
-  /* Withdraw admin button */
   withdrawAdminButton: {
     paddingHorizontal: 12,
     paddingVertical: 7,
@@ -423,7 +387,6 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
 
-  /* ---------- LOGOUT BUTTON ---------- */
   logoutButton: {
     marginTop: 20,
     marginBottom: 6,
@@ -448,7 +411,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
 
-  /* ---------- SUBSCRIPTION ---------- */
   subscriptionCard: {
     backgroundColor: "#0F1E33",
     borderRadius: 20,
@@ -550,7 +512,6 @@ const styles = StyleSheet.create({
   subscriptionExpiry: { color: "rgba(255,255,255,0.7)", fontSize: 11 },
   subscriptionExpiryStrong: { color: "#FFFFFF", fontWeight: "700" },
 
-  /* ---------- MENU ---------- */
   menuSection: { marginTop: 14 },
   menuSectionTitle: {
     color: "#64748B",
@@ -596,7 +557,6 @@ const styles = StyleSheet.create({
   menuItemTitle: { color: "#1E293B", fontSize: 14, fontWeight: "700" },
   menuItemDescription: { color: "#94A3B8", fontSize: 10, marginTop: 3 },
 
-  /* ---------- HISTORY ---------- */
   historyCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 18,
@@ -660,7 +620,6 @@ const styles = StyleSheet.create({
   historyItemDate: { fontSize: 10, color: "#94A3B8" },
   historyItemAmount: { fontSize: 14, fontWeight: "800", color: "#0F172A" },
 
-  /* ---------- HISTORY MODAL ---------- */
   historyModalOverlay: {
     flex: 1,
     backgroundColor: "rgba(15, 23, 42, 0.58)",
@@ -706,7 +665,6 @@ const styles = StyleSheet.create({
   historyModalScroll: { flex: 1, minHeight: 200 },
   historyModalContent: { paddingBottom: 20, paddingTop: 4 },
 
-  /* ---------- FOOTER ---------- */
   footer: { alignItems: "center", paddingTop: 24, paddingBottom: 8 },
   footerLogo: {
     width: 32,
@@ -720,7 +678,6 @@ const styles = StyleSheet.create({
   versionText: { color: "#64748B", fontSize: 11, fontWeight: "600" },
   versionNumber: { color: "#CBD5E1", fontSize: 10, marginTop: 3 },
 
-  /* ---------- TOOLTIP (for non-owner phone tap) ---------- */
   tooltipOverlay: {
     flex: 1,
     backgroundColor: "rgba(15, 23, 42, 0.58)",
@@ -793,7 +750,6 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
 
-  /* ---------- WITHDRAW ADMIN MODAL ---------- */
   withdrawModal: {
     width: "100%",
     maxWidth: 400,
@@ -860,7 +816,7 @@ const styles = StyleSheet.create({
 // SCREEN
 // ============================================================================
 
-export default function ProfileTabScreen() {
+export default function ProfileTabScreen(): React.ReactElement {
   const router = useRouter();
   const { user, logout, refreshProfile } = useAuthStore();
   const { selectedAccount } = useAccounts();
@@ -868,6 +824,9 @@ export default function ProfileTabScreen() {
 
   const isOwner = selectedAccount?.ownerId === user?.id;
   const showAdminDirectory = !isOwner;
+
+  // ✅ CHANGED: owner OR admin can manage bills
+  const canManageBills = isOwner || isAdmin;
 
   const canSeeSubscription = isAdmin || isMember;
   const canManageSubscription = isAdmin;
@@ -889,22 +848,17 @@ export default function ProfileTabScreen() {
     useState<BillingPeriod>("monthly");
   const plans = DEFAULT_PLANS;
 
-  // ── Account people (owner + admins) fetched from API ──
   const [accountPeople, setAccountPeople] =
     useState<AccountPeopleResponse | null>(null);
   const [peopleLoading, setPeopleLoading] = useState(false);
 
-  // ── Withdraw admin modal ──
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
   const [withdrawSubmitting, setWithdrawSubmitting] = useState(false);
 
-  // Refresh the user's own profile (name + photo) whenever this screen
-  // mounts or regains focus, so `user.photoUrl` stays current.
   useEffect(() => {
     refreshProfile().catch(() => {});
   }, [refreshProfile]);
 
-  // ── Close profile-page modals when the account switcher opens ──
   const isSwitcherOpen = useAccountStore((s) => s.isAccountSwitcherOpen);
 
   useEffect(() => {
@@ -917,7 +871,6 @@ export default function ProfileTabScreen() {
     }
   }, [isSwitcherOpen]);
 
-  // ── Auth token helper ──
   const getAuthToken = useCallback(async (): Promise<string | null> => {
     try {
       return await SecureStore.getItemAsync("auth_token");
@@ -927,7 +880,6 @@ export default function ProfileTabScreen() {
     }
   }, []);
 
-  // ── Load owner + admins from API (non-owners only) ──
   const loadAccountPeople = useCallback(async () => {
     if (!selectedAccount?.id || isOwner) {
       setAccountPeople(null);
@@ -962,7 +914,6 @@ export default function ProfileTabScreen() {
     loadAccountPeople();
   }, [loadAccountPeople]);
 
-  // ── Admin directory (for non-owners) ─────────────────────────
   const adminDirectory = useMemo(() => {
     if (!accountPeople?.admins) return [];
     return accountPeople.admins.map((a) => ({
@@ -1155,12 +1106,13 @@ export default function ProfileTabScreen() {
     }
   };
 
-  const handleBillSaved = (config: SavedBillConfig) => {
+  // Called after the template is saved to the DB. We just add a local
+  // history entry so the user sees confirmation in the Activity feed.
+  const handleBillSaved = () => {
     addHistoryEntry(
       "template_saved",
       "Bill Template Saved",
-      `Bill template "${config.templateId}" saved successfully`,
-      { details: { template: config.templateId, accent: config.accentColor } },
+      "Bill template updated",
     );
   };
 
@@ -1273,7 +1225,6 @@ export default function ProfileTabScreen() {
     }
   };
 
-  // ── Withdraw own admin access ──
   const confirmWithdrawAdmin = async () => {
     if (!selectedAccount?.id || !user?.id) return;
     const token = await getAuthToken();
@@ -1335,6 +1286,13 @@ export default function ProfileTabScreen() {
       icon: "document-text-outline",
       color: "#2563EB",
       onPress: () => {
+        if (!canManageBills) {
+          Alert.alert(
+            "Permission denied",
+            "Only the account owner or an admin can manage bill templates.",
+          );
+          return;
+        }
         setBillMemberType("owner");
         setShowGenerateBill(true);
       },
@@ -1410,6 +1368,7 @@ export default function ProfileTabScreen() {
     },
   ];
 
+  // ✅ CHANGED: BILLING section is gated by `canManageBills` (owner OR admin)
   const settingsSections = useMemo(() => {
     const sections = [
       { title: "BILLING", itemIds: ["generate_bill"] },
@@ -1425,9 +1384,9 @@ export default function ProfileTabScreen() {
         ],
       },
     ];
-    if (isAdmin) return sections;
+    if (canManageBills) return sections;
     return sections.filter((s) => s.title !== "BILLING");
-  }, [isAdmin]);
+  }, [canManageBills]);
 
   const renderMenuItem = (item: MenuItem, index: number, items: MenuItem[]) => (
     <TouchableOpacity
@@ -1563,10 +1522,6 @@ export default function ProfileTabScreen() {
 
   const accountName = selectedAccount?.name || "Apartment";
 
-  // ---- OWNER / SELF RESOLUTION ----
-  // For an owner viewing their own account, `user` IS the owner.
-  // For an admin/member/staff viewing someone else's account, we need
-  // the actual owner's data from the `/people` endpoint.
   const selfName = (user as any)?.name || "You";
   const selfPhone = user?.phone || "—";
   const selfPhotoUri = user?.photoUrl ?? null;
@@ -1579,7 +1534,6 @@ export default function ProfileTabScreen() {
     ? selfPhotoUri
     : (accountPeople?.owner?.photo_url ?? null);
 
-  // Account hero avatar = account's own photo (society logo)
   const accountPhotoUri: string | null = selectedAccount?.photoUri ?? null;
 
   return (
@@ -1622,7 +1576,6 @@ export default function ProfileTabScreen() {
             </View>
           </View>
 
-          {/* Owner mini-card — shows the owner's personal photo */}
           <View style={styles.ownerMiniCard}>
             <View style={styles.ownerMiniAvatar}>
               {ownerPhotoUri ? (
@@ -1657,7 +1610,6 @@ export default function ProfileTabScreen() {
             </View>
           </View>
 
-          {/* Manage Account Profile CTA — OWNER ONLY */}
           {isOwner && (
             <TouchableOpacity
               style={styles.manageCta}
@@ -1682,7 +1634,7 @@ export default function ProfileTabScreen() {
           )}
         </View>
 
-        {/* ADMIN & OWNERS — for non-owners only */}
+        {/* ADMIN & OWNERS */}
         {showAdminDirectory && (
           <View style={styles.adminCard}>
             <View style={styles.adminCardHeader}>
@@ -1697,7 +1649,6 @@ export default function ProfileTabScreen() {
               </View>
             </View>
 
-            {/* Owner row */}
             <View
               style={[
                 styles.adminRow,
@@ -1734,7 +1685,6 @@ export default function ProfileTabScreen() {
               </View>
             </View>
 
-            {/* Admins */}
             {peopleLoading && adminDirectory.length === 0 ? (
               <View style={[styles.adminRow, styles.adminRowLast]}>
                 <ActivityIndicator size="small" color="#2563EB" />
@@ -1968,7 +1918,11 @@ export default function ProfileTabScreen() {
                   <View
                     style={[
                       styles.historyIconContainer,
-                      { backgroundColor: iconInfo.bg, width: 32, height: 32 },
+                      {
+                        backgroundColor: iconInfo.bg,
+                        width: 32,
+                        height: 32,
+                      },
                     ]}
                   >
                     <Ionicons
@@ -2093,7 +2047,6 @@ export default function ProfileTabScreen() {
         </Modal>
       )}
 
-      {/* WITHDRAW ADMIN ACCESS MODAL */}
       {showWithdrawModal && (
         <Modal
           transparent
@@ -2161,11 +2114,13 @@ export default function ProfileTabScreen() {
         </Modal>
       )}
 
-      {isAdmin && (
+      {/* ✅ CHANGED: only render the modal for owner/admin with an account */}
+      {canManageBills && selectedAccount?.id && (
         <GenerateBillModal
           visible={showGenerateBill}
           onClose={() => setShowGenerateBill(false)}
           memberType={billMemberType}
+          onMemberTypeChange={setBillMemberType}
           onSaved={handleBillSaved}
         />
       )}

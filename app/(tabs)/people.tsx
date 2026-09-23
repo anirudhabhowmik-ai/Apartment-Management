@@ -317,7 +317,6 @@ const formatBadgeDate = (dateStr: string): string => {
   return `${parts.day}/${parts.month}/${parts.year}`;
 };
 
-// Indian digit grouping (12,34,567) without relying on Intl support.
 const formatINR = (value: number): string => {
   const n = Math.round(Number.isFinite(value) ? value : 0);
   const negative = n < 0;
@@ -487,18 +486,6 @@ const getCalculatedStaffSalary = (
   return Math.round((salary / daysInMonth) * paidDays);
 };
 
-// ---------------------------------------------------------------------------
-// resolveDueAmount — FIXED
-//
-// Previous bug: the early return on `payment.netAmount` short-circuited the
-// attendance adjustment for staff, so a staff member with an additional
-// amount stored in `monthlyPayments[month].netAmount` always showed the raw
-// (base + additional) amount even after marking absences.
-//
-// New logic: resolve the attendance-adjusted base FIRST. Only trust the
-// stored `netAmount` when there is no attendance adjustment to apply (i.e.
-// apartment tabs, or staff with no attendance record for the month).
-// ---------------------------------------------------------------------------
 const resolveDueAmount = (
   member: any,
   month: string | null,
@@ -522,7 +509,6 @@ const resolveDueAmount = (
     ? Number(member?.maintenanceAmount) || 0
     : Number(member?.monthlySalary) || 0;
 
-  // Resolve the attendance-adjusted base FIRST (staff only).
   let effectiveBase = base;
   let hasAttendanceAdjustment = false;
 
@@ -537,9 +523,6 @@ const resolveDueAmount = (
     }
   }
 
-  // Only trust the stored netAmount when there is nothing to re-adjust
-  // locally. Otherwise the stored value is stale — it was computed from the
-  // un-adjusted base salary at save time.
   if (
     !hasAttendanceAdjustment &&
     payment?.netAmount != null &&
@@ -577,7 +560,6 @@ interface GroupedCard {
   phone: string | null;
   photo_url: string | null;
   records: any[];
-  /** Number of records before a Paid/Due filter was applied. */
   totalCount?: number;
 }
 
@@ -627,10 +609,6 @@ const EMPTY_TEMPLATE_MISSING: TemplateMissingState = {
   memberType: "owner",
   isApartment: true,
 };
-
-// ---------------------------------------------------------------------------
-// Small presentational pieces
-// ---------------------------------------------------------------------------
 
 function SummaryStat({
   label,
@@ -692,7 +670,14 @@ export default function PeopleScreen() {
   const clearRecord = useAttendanceStore((state) => state.clearRecord);
   const attendanceVersion = useAttendanceStore((state) => state.version);
 
-  const { getBillConfig, templates: billTemplates } = useBillStore();
+  // ✅ CHANGED: also pull fetchConfigFromServer so we can hit the DB if the
+  // in-memory cache is empty (fresh device, or another admin saved it).
+  const {
+    getBillConfig,
+    fetchConfigFromServer,
+    templates: billTemplates,
+  } = useBillStore();
+
   const { isAdmin, isMember } = useUserRole();
 
   const canEdit = isAdmin;
@@ -766,10 +751,6 @@ export default function PeopleScreen() {
   const isApartmentTab = activeTab === "apartment";
   const isStaffTab = activeTab === "staff";
   const isExpenseTab = activeTab === "expense";
-
-  // -------------------------------------------------------------------------
-  // Data fetching
-  // -------------------------------------------------------------------------
 
   useEffect(() => {
     if (!selectedAccountId) return;
@@ -908,7 +889,6 @@ export default function PeopleScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedAccountId, selectedMonth, staffHook.items]);
 
-  // Hide the floating add button while the keyboard is open.
   const [keyboardVisible, setKeyboardVisible] = useState(false);
   useEffect(() => {
     const showEvt =
@@ -922,10 +902,6 @@ export default function PeopleScreen() {
       h.remove();
     };
   }, []);
-
-  // -------------------------------------------------------------------------
-  // Derived data (ALL hooks live above the early return below)
-  // -------------------------------------------------------------------------
 
   const activeMembersSource = useMemo(
     () => membersHook.items.filter(isActiveRow),
@@ -998,9 +974,6 @@ export default function PeopleScreen() {
   const visibleGroupedCards = useMemo<GroupedCard[]>(() => {
     if (activeFilter === "all") return searchedCards;
 
-    // A person can own several flats / hold several roles with mixed
-    // statuses. Keep only the records that match the filter so a "Due"
-    // filter never shows a paid flat (and vice versa).
     const result: GroupedCard[] = [];
     for (const card of searchedCards) {
       const matching = card.records.filter(
@@ -1069,10 +1042,6 @@ export default function PeopleScreen() {
     month,
     attendanceVersion,
   ]);
-
-  // -------------------------------------------------------------------------
-  // Actions
-  // -------------------------------------------------------------------------
 
   const handleAdd = async (type: ManagementType) => {
     if (!canEdit) return;
@@ -1159,9 +1128,6 @@ export default function PeopleScreen() {
       deductionNote: showDeduction ? deductionNote.trim() || null : null,
     };
 
-    // Compute the netAmount we should cache locally, taking attendance into
-    // account for staff. We deliberately do NOT persist this to the server
-    // as the server's own netAmount (if any) will be recomputed on refresh.
     const baseForNet = isApartmentTab
       ? Number(paymentMember?.maintenanceAmount) || 0
       : Number(paymentMember?.monthlySalary) || 0;
@@ -1265,7 +1231,20 @@ export default function PeopleScreen() {
       }
 
       const memberType: BillMemberType = isApartmentTab ? "owner" : "staff";
-      const billConfig = getBillConfig(memberType);
+
+      // ✅ CHANGED: try the in-memory cache first, then hit the server so
+      // any admin on any device can download the bill with the shared template.
+      let billConfig = getBillConfig(memberType);
+      if (!billConfig && selectedAccountId) {
+        try {
+          billConfig = await fetchConfigFromServer(
+            selectedAccountId,
+            memberType,
+          );
+        } catch (e) {
+          console.warn("[people] fetch bill config failed:", e);
+        }
+      }
 
       if (!billConfig) {
         setGeneratingBill(null);
@@ -1274,7 +1253,7 @@ export default function PeopleScreen() {
       }
 
       const selectedTemplate =
-        billTemplates.find((t) => t.id === billConfig.templateId) ??
+        billTemplates.find((t) => t.id === billConfig!.templateId) ??
         billTemplates[0];
 
       if (!selectedTemplate) {
@@ -1302,10 +1281,6 @@ export default function PeopleScreen() {
         layoutVariant: selectedTemplate.layoutVariant ?? "bold",
       };
 
-      // -----------------------------------------------------------------
-      // FIXED: for staff, use the attendance-adjusted base salary so the
-      // printed bill matches what the People tab shows as due/paid.
-      // -----------------------------------------------------------------
       let staffAdjustedBase = Number(member.monthlySalary) || 0;
       if (!isApartmentTab && m) {
         const att = getAttendanceRecord(member.id, m);
@@ -1402,10 +1377,6 @@ export default function PeopleScreen() {
     setSelectedMonth(navigateMonth(selectedMonth, "next"));
   };
 
-  // -------------------------------------------------------------------------
-  // Early return — safe now, every hook has already run.
-  // -------------------------------------------------------------------------
-
   if (!selectedAccountId) {
     return (
       <View style={styles.container}>
@@ -1437,10 +1408,6 @@ export default function PeopleScreen() {
       </View>
     );
   }
-
-  // -------------------------------------------------------------------------
-  // Render-only derived values
-  // -------------------------------------------------------------------------
 
   const baseSalary = paymentMember
     ? isApartmentTab
@@ -1497,7 +1464,6 @@ export default function PeopleScreen() {
   const filterLabel =
     activeFilter === "all" ? "All" : activeFilter === "paid" ? "Paid" : "Due";
 
-  // Extra room at the bottom so the floating add button never covers the last card.
   const listBottomPadding = Math.max(insets.bottom, 16) + (canEdit ? 96 : 40);
 
   const showSummary = showFinancialInfo && groupedCards.length > 0;
@@ -1546,7 +1512,6 @@ export default function PeopleScreen() {
 
   return (
     <View style={styles.container}>
-      {/* ============================ HEADER ============================ */}
       <View style={styles.header}>
         <View style={styles.headerTop}>
           <View style={styles.headerTitleArea}>
@@ -1631,7 +1596,6 @@ export default function PeopleScreen() {
         </View>
       </View>
 
-      {/* ---------- Search + filter (fixed, outside the scroll area) ---------- */}
       {showToolbar ? (
         <View style={styles.stickyToolbar}>
           <View style={styles.searchBox}>
@@ -1712,7 +1676,6 @@ export default function PeopleScreen() {
         </View>
       ) : null}
 
-      {/* ============================ CONTENT ============================ */}
       <ScrollView
         style={styles.scrollArea}
         showsVerticalScrollIndicator={false}
@@ -1724,7 +1687,6 @@ export default function PeopleScreen() {
         keyboardDismissMode="on-drag"
         automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
       >
-        {/* ---------- Summary (scrolls away) ---------- */}
         {showSummary ? (
           <View style={styles.summaryCard}>
             {summary.kind === "expense" ? (
@@ -1796,7 +1758,6 @@ export default function PeopleScreen() {
           </View>
         ) : null}
 
-        {/* ---------- Cards ---------- */}
         {visibleGroupedCards.length === 0 ? (
           <View style={styles.emptyCard}>
             <View
@@ -1880,7 +1841,6 @@ export default function PeopleScreen() {
             {visibleGroupedCards.map((card) => {
               const primaryRecord = card.records[0];
 
-              // ---------------- Expense / transaction card ----------------
               if (isExpenseTab) {
                 const txn = primaryRecord;
                 const isIncome = getTransactionTypeLabel(txn) === "income";
@@ -1988,7 +1948,6 @@ export default function PeopleScreen() {
                 );
               }
 
-              // ---------------- Member / staff card ----------------
               const isSelf = myUserId === card.user_id;
               const subline = [
                 card.phone ? formatPhoneForDisplay(card.phone) : null,
@@ -2025,7 +1984,6 @@ export default function PeopleScreen() {
                     }
                   }}
                 >
-                  {/* Person row */}
                   <View style={styles.memberTop}>
                     <View
                       style={[
@@ -2085,7 +2043,6 @@ export default function PeopleScreen() {
                     ) : null}
                   </View>
 
-                  {/* Records */}
                   {card.records.map((record: any) => {
                     const monthlyPaymentData = getPaymentForMonth(
                       record,
@@ -2343,7 +2300,6 @@ export default function PeopleScreen() {
         )}
       </ScrollView>
 
-      {/* ============================ FLOATING ADD BUTTON ============================ */}
       {canEdit && !keyboardVisible ? (
         <Pressable
           style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}
@@ -2363,7 +2319,6 @@ export default function PeopleScreen() {
         onSelect={setSelectedMonth}
       />
 
-      {/* ============================ PAYMENT MODAL ============================ */}
       {canEdit && (
         <Modal
           transparent
@@ -2777,7 +2732,6 @@ export default function PeopleScreen() {
         </Modal>
       )}
 
-      {/* ============================ TEMPLATE NOT SET UP ============================ */}
       <Modal
         transparent
         animationType="fade"
@@ -2834,7 +2788,6 @@ export default function PeopleScreen() {
         </Pressable>
       </Modal>
 
-      {/* ============================ GENERATE BILL MODAL (inline) ============================ */}
       <GenerateBillModal
         visible={showGenerateBillModal}
         memberType={generateBillMemberType}
@@ -2848,15 +2801,15 @@ export default function PeopleScreen() {
       <DatePickerModal
         visible={showPaidDatePicker}
         value={paidDate}
-        onClose={() => setShowPaidDatePicker(false)}
         onSelect={setPaidDate}
+        onClose={() => setShowPaidDatePicker(false)}
       />
     </View>
   );
 }
 
 // ---------------------------------------------------------------------------
-// Styles
+// Styles (identical to your existing ones — no changes)
 // ---------------------------------------------------------------------------
 
 const cardShadow = {
@@ -2872,7 +2825,6 @@ const styles = StyleSheet.create({
   scrollArea: { flex: 1 },
   pressedButton: { opacity: 0.7 },
 
-  // ----- Header -----
   header: {
     paddingHorizontal: 16,
     paddingTop: 14,
@@ -2961,10 +2913,8 @@ const styles = StyleSheet.create({
   },
   tabTextActive: { color: COLORS.primary, fontWeight: "700" },
 
-  // ----- Scroll content -----
   listContent: { paddingHorizontal: 16, paddingTop: 16 },
 
-  // ----- Summary -----
   summaryCard: {
     padding: 16,
     marginBottom: 14,
@@ -3026,7 +2976,6 @@ const styles = StyleSheet.create({
     color: COLORS.secondary,
   },
 
-  // ----- Search + chips (fixed under the header) -----
   stickyToolbar: {
     paddingHorizontal: 16,
     paddingTop: 12,
@@ -3090,7 +3039,6 @@ const styles = StyleSheet.create({
     color: COLORS.secondary,
   },
 
-  // ----- Floating add button -----
   fab: {
     position: "absolute",
     right: 16,
@@ -3119,7 +3067,6 @@ const styles = StyleSheet.create({
 
   cardsWrap: {},
 
-  // ----- Empty state -----
   emptyCard: {
     alignItems: "center",
     paddingHorizontal: 24,
@@ -3169,7 +3116,6 @@ const styles = StyleSheet.create({
   },
   clearFiltersText: { fontSize: 13, fontWeight: "700", color: COLORS.primary },
 
-  // ----- Member card -----
   memberCard: {
     padding: 16,
     marginBottom: 14,
@@ -3239,7 +3185,6 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primaryLight,
   },
 
-  // ----- Record block -----
   recordBlock: {
     marginTop: 14,
     padding: 12,
@@ -3338,7 +3283,6 @@ const styles = StyleSheet.create({
     color: "#fff",
   },
 
-  // ----- Transaction card -----
   txnRow: { flexDirection: "row", alignItems: "center" },
   txnIcon: {
     width: 48,
@@ -3374,7 +3318,6 @@ const styles = StyleSheet.create({
   statusPillDue: { backgroundColor: COLORS.dangerLight },
   statusPillText: { fontSize: 12, fontWeight: "700" },
 
-  // ----- No property -----
   noPropertyState: {
     flex: 1,
     alignItems: "center",
@@ -3422,7 +3365,6 @@ const styles = StyleSheet.create({
     color: COLORS.white,
   },
 
-  // ----- Payment modal -----
   modalOverlay: {
     flex: 1,
     alignItems: "center",
@@ -3703,7 +3645,6 @@ const styles = StyleSheet.create({
     color: COLORS.white,
   },
 
-  // ----- Template missing modal -----
   templateBackdrop: {
     flex: 1,
     backgroundColor: "rgba(15, 23, 42, 0.6)",
