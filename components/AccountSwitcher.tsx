@@ -12,6 +12,7 @@ import {
   FlatList,
   GestureResponderEvent,
   Image,
+  Keyboard,
   Modal,
   PanResponder,
   Platform,
@@ -558,6 +559,30 @@ export function AccountSwitcherHost() {
 
   const [editingNameId, setEditingNameId] = useState<string | null>(null);
   const [tempName, setTempName] = useState("");
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
+
+  // Keep the custom account sheet above the native phone keyboard.
+  // KeyboardAvoidingView cannot reliably move this absolute-positioned sheet
+  // because the sheet is rendered inside our own overlay container.
+  useEffect(() => {
+    const showEvent =
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent =
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+
+    const showSubscription = Keyboard.addListener(showEvent, (event) => {
+      setKeyboardHeight(event.endCoordinates?.height || 0);
+    });
+
+    const hideSubscription = Keyboard.addListener(hideEvent, () => {
+      setKeyboardHeight(0);
+    });
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, []);
 
   const [showPhotoOptions, setShowPhotoOptions] = useState(false);
   const [rawImage, setRawImage] = useState<RawImage | null>(null);
@@ -713,6 +738,8 @@ export function AccountSwitcherHost() {
   };
 
   const cancelEditName = () => {
+    Keyboard.dismiss();
+    setKeyboardHeight(0);
     setEditingNameId(null);
     setTempName("");
   };
@@ -720,6 +747,8 @@ export function AccountSwitcherHost() {
   const saveEditName = async (accountId: string) => {
     const trimmed = tempName.trim();
 
+    Keyboard.dismiss();
+    setKeyboardHeight(0);
     setEditingNameId(null);
     setTempName("");
 
@@ -754,11 +783,23 @@ export function AccountSwitcherHost() {
           <Pressable
             style={[
               styles.sheet,
-              // Pad the bottom of the sheet by the device's safe-area inset
-              // (home indicator on iOS / gesture bar on Android) so the
-              // "Join With New Property" button never ends up hidden
-              // underneath it.
-              { paddingBottom: 20 + insets.bottom },
+              {
+                // The sheet is manually lifted by the real keyboard height.
+                // This works even though the sheet lives inside our custom
+                // absolute overlay instead of a native Modal.
+                marginBottom: keyboardHeight,
+                paddingBottom: 20 + insets.bottom,
+                maxHeight:
+                  keyboardHeight > 0
+                    ? Math.max(
+                        240,
+                        Dimensions.get("window").height -
+                          keyboardHeight -
+                          insets.top -
+                          16,
+                      )
+                    : "78%",
+              },
             ]}
             onPress={() => {}}
           >
@@ -794,7 +835,9 @@ export function AccountSwitcherHost() {
             <FlatList
               data={accounts}
               keyExtractor={(item) => item.id}
+              style={styles.accountList}
               showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
               contentContainerStyle={
                 accounts.length === 0
                   ? styles.emptyListContent
@@ -1168,6 +1211,7 @@ const styles = StyleSheet.create({
     // paddingBottom is set inline so we can add the device's safe-area
     // bottom inset on top of the base 20px spacing (see render below).
     maxHeight: "78%",
+    flexShrink: 1,
   },
   handle: {
     width: 38,
@@ -1220,6 +1264,9 @@ const styles = StyleSheet.create({
   },
   countText: { fontSize: 11, fontWeight: "700", color: COLORS.primary },
 
+  accountList: {
+    flexShrink: 1,
+  },
   listContent: { paddingBottom: 8 },
   emptyListContent: { flexGrow: 1, justifyContent: "center" },
 
