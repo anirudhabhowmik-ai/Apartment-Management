@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker, {
   type DateTimePickerChangeEvent,
+  type DateTimePickerEvent,
 } from "@react-native-community/datetimepicker";
 import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
@@ -71,7 +72,10 @@ function useAuthToken(): string | null | undefined {
 
 function useAuthUser(): any | null {
   const authState: any = useAuthStore();
-  return authState?.user ?? null;
+  const u = authState?.user ?? null;
+  if (!u) return null;
+  const id = u.id ?? u.userId ?? u.user_id ?? null;
+  return { ...u, id };
 }
 
 /* ========================================================================== */
@@ -82,6 +86,8 @@ type Role = "admin" | "owner" | "member";
 type ActiveView = "calendar" | "approvals" | "myRequests";
 type CardContext = "day" | "approvals" | "myRequests";
 type RsvpMode = "accept" | "reject" | null;
+type RsvpDetailsTab = "accepted" | "rejected";
+type KindFilter = "all" | "notice" | "event";
 
 type StatusMeta = {
   label: string;
@@ -89,6 +95,26 @@ type StatusMeta = {
   bg: string;
   icon: string;
 };
+
+/* ========================================================================== */
+/* HELPERS                                                                    */
+/* ========================================================================== */
+
+function getUserIdOf(u: any): string | null {
+  if (!u) return null;
+  return u.id ?? u.userId ?? u.user_id ?? null;
+}
+
+function isOwnPostStatic(item: CalendarEvent, user: any): boolean {
+  const uid = getUserIdOf(user);
+  return !!uid && item.createdById === uid;
+}
+
+function firstLetterOf(name?: string | null): string {
+  const s = (name ?? "").trim();
+  if (!s) return "?";
+  return s.charAt(0).toUpperCase();
+}
 
 /* ========================================================================== */
 /* CONSTANTS                                                                  */
@@ -155,6 +181,58 @@ const TYPE_META: Record<
     icon: "calendar",
   },
 };
+
+/* ========================================================================== */
+/* USER AVATAR                                                                */
+/* ========================================================================== */
+
+function UserAvatar({
+  name,
+  photoUrl,
+  size = 28,
+}: {
+  name?: string | null;
+  photoUrl?: string | null;
+  size?: number;
+}) {
+  const radius = size / 2;
+  const hasPhoto = typeof photoUrl === "string" && photoUrl.length > 0;
+  if (hasPhoto) {
+    return (
+      <Image
+        source={{ uri: photoUrl as string }}
+        style={{
+          width: size,
+          height: size,
+          borderRadius: radius,
+          backgroundColor: "#e2e8f0",
+        }}
+      />
+    );
+  }
+  return (
+    <View
+      style={{
+        width: size,
+        height: size,
+        borderRadius: radius,
+        backgroundColor: "#e2e8f0",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <Text
+        style={{
+          fontSize: size * 0.45,
+          fontWeight: "800",
+          color: "#475569",
+        }}
+      >
+        {firstLetterOf(name)}
+      </Text>
+    </View>
+  );
+}
 
 /* ========================================================================== */
 /* HELPERS                                                                    */
@@ -468,6 +546,52 @@ async function shareDataUri(
 }
 
 /* ========================================================================== */
+/* PLATFORM TIME PICKER                                                       */
+/* ========================================================================== */
+
+function PlatformTimePicker({
+  value,
+  onChangeSelected,
+  onDismiss,
+}: {
+  value: Date;
+  onChangeSelected: (d: Date) => void;
+  onDismiss?: () => void;
+}) {
+  if (Platform.OS === "ios") {
+    const handle = (event: DateTimePickerEvent, selected?: Date) => {
+      if (event.type !== "set") return;
+      if (!selected) return;
+      onChangeSelected(selected);
+    };
+    return (
+      <DateTimePicker
+        value={value}
+        mode="time"
+        display="spinner"
+        is24Hour={false}
+        onChange={handle}
+      />
+    );
+  }
+
+  const handle = (_event: DateTimePickerChangeEvent, selected: Date) => {
+    if (!selected) return;
+    onChangeSelected(selected);
+  };
+  return (
+    <DateTimePicker
+      value={value}
+      mode="time"
+      display="default"
+      is24Hour={false}
+      onValueChange={handle}
+      onDismiss={onDismiss}
+    />
+  );
+}
+
+/* ========================================================================== */
 /* SSR WRAPPER                                                                */
 /* ========================================================================== */
 
@@ -497,10 +621,13 @@ function CalendarScreenImpl() {
   const token = useAuthToken();
   const user = useAuthUser();
   const accountId = useAccountStore((s: any) => s.selectedAccountId) ?? "";
-
-  /* ------------------------------------------------------------------------ */
-  /* STATE                                                                    */
-  /* ------------------------------------------------------------------------ */
+  const currentUserId = getUserIdOf(user);
+  const currentUserPhoto: string | null =
+    (user?.photoUrl as string | undefined) ??
+    (user?.photo_url as string | undefined) ??
+    null;
+  const currentUserName: string | null =
+    (user?.name as string | undefined) ?? null;
 
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(false);
@@ -513,6 +640,7 @@ function CalendarScreenImpl() {
   });
   const [selectedDate, setSelectedDate] = useState<Date>(new Date());
   const [dayFilter, setDayFilter] = useState<"all" | "day">("all");
+  const [kindFilter, setKindFilter] = useState<KindFilter>("all");
   const [activeView, setActiveView] = useState<ActiveView>("calendar");
 
   const [showAddModal, setShowAddModal] = useState(false);
@@ -549,12 +677,18 @@ function CalendarScreenImpl() {
   const [rsvpReason, setRsvpReason] = useState("");
   const [rsvpSubmitting, setRsvpSubmitting] = useState(false);
 
+  const [confirmingDeleteResponse, setConfirmingDeleteResponse] =
+    useState(false);
+  const [deleteResponseSubmitting, setDeleteResponseSubmitting] =
+    useState(false);
+
+  const [rsvpDetailsEvent, setRsvpDetailsEvent] =
+    useState<CalendarEvent | null>(null);
+  const [rsvpDetailsTab, setRsvpDetailsTab] =
+    useState<RsvpDetailsTab>("accepted");
+
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [tempSelectedDate, setTempSelectedDate] = useState<Date>(new Date());
-
-  /* ------------------------------------------------------------------------ */
-  /* DATA LOADING                                                             */
-  /* ------------------------------------------------------------------------ */
 
   const monthKey = `${currentMonth.getFullYear()}-${pad(
     currentMonth.getMonth() + 1,
@@ -599,37 +733,39 @@ function CalendarScreenImpl() {
     if (fresh && fresh !== viewingEvent) setViewingEvent(fresh);
   }, [events]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  /* ------------------------------------------------------------------------ */
-  /* DERIVED                                                                  */
-  /* ------------------------------------------------------------------------ */
+  useEffect(() => {
+    if (!rsvpDetailsEvent) return;
+    const fresh = events.find((e) => e.id === rsvpDetailsEvent.id);
+    if (fresh && fresh !== rsvpDetailsEvent) setRsvpDetailsEvent(fresh);
+  }, [events]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const approvedEvents = useMemo(
+    () => events.filter((e) => e.status === "approved"),
+    [events],
+  );
+
+  const approvedEventsFiltered = useMemo(() => {
+    if (kindFilter === "all") return approvedEvents;
+    return approvedEvents.filter((e) => e.type === kindFilter);
+  }, [approvedEvents, kindFilter]);
 
   const eventsByDate = useMemo(() => {
     const map = new Map<string, CalendarEvent[]>();
-    events.forEach((e) => {
-      if (e.status === "rejected" && e.createdById !== user?.id && !canApprove)
-        return;
-      if (e.status === "pending" && e.createdById !== user?.id && !canApprove)
-        return;
-
+    approvedEventsFiltered.forEach((e) => {
       const list = map.get(e.date) ?? [];
       list.push(e);
       map.set(e.date, list);
     });
     return map;
-  }, [events, user?.id, canApprove]);
+  }, [approvedEventsFiltered]);
 
   const bookedDates = useMemo(() => {
     const dates = new Set<string>();
-    events.forEach((e) => {
-      if (
-        e.type === "event" &&
-        (e.status === "approved" || e.status === "pending")
-      ) {
-        dates.add(e.date);
-      }
+    approvedEventsFiltered.forEach((e) => {
+      if (e.type === "event") dates.add(e.date);
     });
     return dates;
-  }, [events]);
+  }, [approvedEventsFiltered]);
 
   const pendingApprovals = useMemo(
     () => events.filter((e) => e.status === "pending"),
@@ -637,15 +773,16 @@ function CalendarScreenImpl() {
   );
 
   const myRequests = useMemo(
-    () => events.filter((e) => e.createdById === user?.id),
-    [events, user?.id],
+    () =>
+      events.filter((e) => isOwnPostStatic(e, user) && e.status !== "approved"),
+    [events, user],
   );
 
   const gridCells = useMemo(() => buildMonthGrid(currentMonth), [currentMonth]);
 
   const listEventsForDay = useMemo(() => {
     if (dayFilter === "all") {
-      return [...events].sort((a, b) => {
+      return [...approvedEventsFiltered].sort((a, b) => {
         if (a.date !== b.date) return a.date.localeCompare(b.date);
         if (!!a.isImportant !== !!b.isImportant) return a.isImportant ? -1 : 1;
         if (a.type !== b.type) return a.type === "notice" ? -1 : 1;
@@ -658,11 +795,7 @@ function CalendarScreenImpl() {
       if (a.type !== b.type) return a.type === "notice" ? -1 : 1;
       return (a.startTime ?? "").localeCompare(b.startTime ?? "");
     });
-  }, [dayFilter, events, eventsByDate, selectedDate]);
-
-  /* ------------------------------------------------------------------------ */
-  /* NAVIGATION                                                               */
-  /* ------------------------------------------------------------------------ */
+  }, [dayFilter, approvedEventsFiltered, eventsByDate, selectedDate]);
 
   const goToMonth = (delta: number) => {
     setCurrentMonth((m) => new Date(m.getFullYear(), m.getMonth() + delta, 1));
@@ -793,7 +926,7 @@ function CalendarScreenImpl() {
   };
 
   /* ------------------------------------------------------------------------ */
-  /* TIME PICKER - FIXED for onValueChange type                               */
+  /* TIME PICKER                                                              */
   /* ------------------------------------------------------------------------ */
 
   const openTimePicker = (mode: "start" | "end") => {
@@ -803,15 +936,8 @@ function CalendarScreenImpl() {
     setTimePickerMode(mode);
   };
 
-  // FIXED: onValueChange callback signature uses DateTimePickerChangeEvent
-  // and the date parameter is required (not optional).
-  const onTimePickerValueChange = (
-    event: DateTimePickerChangeEvent,
-    selected: Date,
-  ) => {
+  const handleTimeSelected = (selected: Date) => {
     setTimePickerValue(selected);
-
-    // On Android, the picker closes immediately after selection
     if (Platform.OS === "android") {
       const formatted = formatTimeFromDate(selected);
       if (timePickerMode === "start") setStartTime(formatted);
@@ -821,18 +947,13 @@ function CalendarScreenImpl() {
   };
 
   const onTimePickerDismiss = () => {
-    if (Platform.OS === "android") {
-      setTimePickerMode(null);
-    }
+    if (Platform.OS === "android") setTimePickerMode(null);
   };
 
   const confirmIosTime = () => {
     const formatted = formatTimeFromDate(timePickerValue);
-    if (timePickerMode === "start") {
-      setStartTime(formatted);
-    } else if (timePickerMode === "end") {
-      setEndTime(formatted);
-    }
+    if (timePickerMode === "start") setStartTime(formatted);
+    else if (timePickerMode === "end") setEndTime(formatted);
     setTimePickerMode(null);
   };
 
@@ -1130,10 +1251,6 @@ function CalendarScreenImpl() {
     }
   };
 
-  /* ------------------------------------------------------------------------ */
-  /* APPROVE / REJECT / RESEND / DELETE                                       */
-  /* ------------------------------------------------------------------------ */
-
   const handleApprove = async (id: string) => {
     if (busyId) return;
     setBusyId(id);
@@ -1196,21 +1313,48 @@ function CalendarScreenImpl() {
     }
   };
 
-  const canEdit = (item: CalendarEvent) =>
-    isAdminOrOwner ||
-    (item.createdById === user?.id && item.status === "pending");
+  const confirmDeleteResponse = async () => {
+    const id = viewingEvent?.id;
+    if (!id || deleteResponseSubmitting) return;
 
-  const canDelete = (item: CalendarEvent) =>
-    isAdminOrOwner ||
-    (item.createdById === user?.id && item.status !== "approved");
+    setDeleteResponseSubmitting(true);
+    try {
+      const updated = await calendarStore.deleteResponse(accountId, id, token);
+      setViewingEvent(updated);
+      setEvents((cur) => cur.map((e) => (e.id === updated.id ? updated : e)));
+      setConfirmingDeleteResponse(false);
+    } catch (e: any) {
+      Alert.alert(
+        "Could not remove response",
+        e?.message || "Please try again.",
+      );
+    } finally {
+      setDeleteResponseSubmitting(false);
+    }
+  };
+
+  const canEdit = (item: CalendarEvent) => {
+    const hasResponses = (item.responses?.length ?? 0) > 0;
+    if (hasResponses) return false;
+    if (!isOwnPostStatic(item, user)) return false;
+    if (isAdminOrOwner) return true;
+    return item.status !== "approved";
+  };
+
+  const canDelete = (item: CalendarEvent) => {
+    const hasResponses = (item.responses?.length ?? 0) > 0;
+    if (hasResponses) return false;
+    if (!isOwnPostStatic(item, user)) return false;
+    if (isAdminOrOwner) return true;
+    return item.status !== "approved";
+  };
+
+  const canResend = (item: CalendarEvent) =>
+    isOwnPostStatic(item, user) && item.status === "rejected";
 
   const isDateBooked = (dateKey: string) => bookedDates.has(dateKey);
 
-  /* ------------------------------------------------------------------------ */
-  /* CONTACT                                                                  */
-  /* ------------------------------------------------------------------------ */
-
-  const isOwnPost = (item: CalendarEvent) => item.createdById === user?.id;
+  const isOwnPost = (item: CalendarEvent) => isOwnPostStatic(item, user);
 
   const callNumber = (raw?: string | null) => {
     if (!raw) return;
@@ -1234,8 +1378,21 @@ function CalendarScreenImpl() {
     setRsvpReasonMode(mode);
   };
 
+  const cancelRsvpReason = () => {
+    if (rsvpSubmitting) return;
+    setRsvpReasonMode(null);
+    setRsvpReason("");
+  };
+
   const confirmRsvp = async () => {
-    if (!viewingEvent || !rsvpReasonMode || rsvpSubmitting) return;
+    if (!viewingEvent) return;
+    if (!rsvpReasonMode) return;
+    if (rsvpSubmitting) return;
+    if (!accountId) {
+      Alert.alert("No account", "Please select an account first.");
+      return;
+    }
+
     const mode = rsvpReasonMode;
     const note = rsvpReason;
     const id = viewingEvent.id;
@@ -1252,15 +1409,95 @@ function CalendarScreenImpl() {
         },
         token,
       );
+
       setViewingEvent(updated);
+      setEvents((cur) => cur.map((e) => (e.id === updated.id ? updated : e)));
+
       setRsvpReasonMode(null);
       setRsvpReason("");
-      await load({ silent: true });
     } catch (e: any) {
-      Alert.alert("Error", e?.message || "Failed to save response");
+      setRsvpReasonMode(null);
+      Alert.alert("Could not save response", e?.message || "Please try again.");
     } finally {
       setRsvpSubmitting(false);
     }
+  };
+
+  const openRsvpDetails = (
+    item: CalendarEvent,
+    tab: RsvpDetailsTab = "accepted",
+  ) => {
+    setRsvpDetailsTab(tab);
+    setRsvpDetailsEvent(item);
+  };
+
+  /* ======================================================================== */
+  /* REUSABLE PERSON ROW                                                      */
+  /* ======================================================================== */
+
+  const renderPersonRow = (opts: {
+    name?: string | null;
+    photoUrl?: string | null;
+    isSelf: boolean;
+    role?: Role | null;
+    phone?: string | null;
+    avatarSize?: number;
+    phoneIsLink?: boolean;
+  }) => {
+    const {
+      name,
+      photoUrl,
+      isSelf,
+      role,
+      phone,
+      avatarSize = 22,
+      phoneIsLink = false,
+    } = opts;
+
+    const roleMeta = role ? ROLE_META[role] : null;
+    const phoneText = phone ? formatPhoneForDisplay(phone) : null;
+
+    return (
+      <View style={styles.personRow}>
+        <UserAvatar name={name} photoUrl={photoUrl} size={avatarSize} />
+
+        {isSelf ? (
+          <View style={styles.youBadge}>
+            <Ionicons name="person" size={9} color="#7c3aed" />
+            <Text style={styles.youBadgeText}>You</Text>
+          </View>
+        ) : (
+          <Text style={styles.personNameText} numberOfLines={1}>
+            {name || "User"}
+          </Text>
+        )}
+
+        {roleMeta ? (
+          <View style={[styles.roleBadge, { backgroundColor: roleMeta.bg }]}>
+            <Text style={[styles.roleBadgeText, { color: roleMeta.color }]}>
+              {roleMeta.label}
+            </Text>
+          </View>
+        ) : null}
+
+        {phoneText && phoneIsLink ? (
+          <TouchableOpacity
+            onPress={(e) => {
+              e.stopPropagation?.();
+              callNumber(phone);
+            }}
+            style={styles.phonePill}
+            activeOpacity={0.75}
+            hitSlop={6}
+          >
+            <Ionicons name="call" size={10} color="#1a73e8" />
+            <Text style={styles.phonePillText}>{phoneText}</Text>
+          </TouchableOpacity>
+        ) : phoneText ? (
+          <Text style={styles.metaPhonePlain}>{phoneText}</Text>
+        ) : null}
+      </View>
+    );
   };
 
   /* ------------------------------------------------------------------------ */
@@ -1269,8 +1506,6 @@ function CalendarScreenImpl() {
 
   const renderEventCard = (item: CalendarEvent, context: CardContext) => {
     const meta = STATUS_META[item.status];
-    const roleMeta =
-      ROLE_META[(item.createdByRole as Role) ?? "member"] ?? ROLE_META.member;
 
     const iconName: string =
       item.type === "notice"
@@ -1293,9 +1528,7 @@ function CalendarScreenImpl() {
 
     const rowBusy = busyId === item.id;
 
-    const hasApprover = Boolean(
-      (item as any).approvedByPhone || (item as any).approvedById,
-    );
+    const hasApprover = Boolean(item.approvedByPhone || item.approvedById);
     const showStatusBadge =
       (item.status === "approved" && hasApprover) ||
       (own && (item.status === "pending" || item.status === "rejected"));
@@ -1344,132 +1577,132 @@ function CalendarScreenImpl() {
           ) : null}
         </View>
 
-        <View style={styles.metaRow}>
-          <View style={[styles.roleBadge, { backgroundColor: roleMeta.bg }]}>
-            <Text style={[styles.roleBadgeText, { color: roleMeta.color }]}>
-              {roleMeta.label}
+        {renderPersonRow({
+          name: item.createdByName,
+          photoUrl: item.createdByPhoto,
+          isSelf: own,
+          role: (item.createdByRole as Role) ?? "member",
+          phone: item.createdByPhone,
+          avatarSize: 22,
+          phoneIsLink: !own,
+        })}
+
+        <View style={styles.oneLineRow}>
+          <View style={styles.dateBadge}>
+            <Ionicons name="calendar-outline" size={11} color="#334155" />
+            <Text style={styles.dateBadgeText}>
+              {formatDdMmYyyy(item.date)}
             </Text>
           </View>
 
-          {own && (
-            <View style={styles.youBadge}>
-              <Ionicons name="person" size={9} color="#7c3aed" />
-              <Text style={styles.youBadgeText}>You</Text>
+          {(item.startTime || item.endTime) && (
+            <View style={styles.pill}>
+              <Ionicons name="time" size={10} color="#475569" />
+              <Text style={styles.pillText}>
+                {item.startTime}
+                {item.startTime && item.endTime ? " - " : ""}
+                {item.endTime}
+              </Text>
             </View>
           )}
 
-          {item.createdByPhone ? (
-            own ? (
-              <Text style={styles.metaPhonePlain}>
-                {formatPhoneForDisplay(item.createdByPhone)}
+          {item.resource && (
+            <View style={styles.pill}>
+              <Ionicons name="location" size={10} color="#475569" />
+              <Text style={styles.pillText} numberOfLines={1}>
+                {item.resource}
               </Text>
-            ) : (
+            </View>
+          )}
+
+          {attachmentCount > 0 && (
+            <View style={styles.pill}>
+              <Ionicons name="attach" size={10} color="#475569" />
+              <Text style={styles.pillText}>{attachmentCount}</Text>
+            </View>
+          )}
+
+          {item.rsvpEnabled && (acceptedCount > 0 || rejectedCount > 0) ? (
+            <>
               <TouchableOpacity
+                style={styles.rsvpChip}
                 onPress={(e) => {
                   e.stopPropagation?.();
-                  callNumber(item.createdByPhone);
+                  openRsvpDetails(item, "accepted");
                 }}
-                style={styles.phonePill}
                 activeOpacity={0.75}
                 hitSlop={6}
               >
-                <Ionicons name="call" size={10} color="#1a73e8" />
-                <Text style={styles.phonePillText}>
-                  {formatPhoneForDisplay(item.createdByPhone)}
-                </Text>
-              </TouchableOpacity>
-            )
-          ) : null}
-        </View>
-
-        <View style={styles.dateBadge}>
-          <Ionicons name="calendar-outline" size={11} color="#334155" />
-          <Text style={styles.dateBadgeText}>{formatDdMmYyyy(item.date)}</Text>
-        </View>
-
-        <View style={styles.cardBottomRow}>
-          <View style={styles.pillRow}>
-            {(item.startTime || item.endTime) && (
-              <View style={styles.pill}>
-                <Ionicons name="time" size={10} color="#475569" />
-                <Text style={styles.pillText}>
-                  {item.startTime}
-                  {item.startTime && item.endTime ? " - " : ""}
-                  {item.endTime}
-                </Text>
-              </View>
-            )}
-
-            {item.resource && (
-              <View style={styles.pill}>
-                <Ionicons name="location" size={10} color="#475569" />
-                <Text style={styles.pillText}>{item.resource}</Text>
-              </View>
-            )}
-
-            {attachmentCount > 0 && (
-              <View style={styles.pill}>
-                <Ionicons name="attach" size={10} color="#475569" />
-                <Text style={styles.pillText}>
-                  {attachmentCount} {attachmentCount === 1 ? "file" : "files"}
-                </Text>
-              </View>
-            )}
-          </View>
-
-          {item.rsvpEnabled && (acceptedCount > 0 || rejectedCount > 0) ? (
-            <View style={styles.rsvpCountsRow}>
-              <View style={styles.rsvpChip}>
                 <Ionicons name="checkmark" size={10} color="#059669" />
                 <Text style={styles.rsvpChipText}>{acceptedCount}</Text>
-              </View>
-              <View style={[styles.rsvpChip, styles.rsvpChipReject]}>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.rsvpChip, styles.rsvpChipReject]}
+                onPress={(e) => {
+                  e.stopPropagation?.();
+                  openRsvpDetails(item, "rejected");
+                }}
+                activeOpacity={0.75}
+                hitSlop={6}
+              >
                 <Ionicons name="close" size={10} color="#dc2626" />
                 <Text style={[styles.rsvpChipText, { color: "#dc2626" }]}>
                   {rejectedCount}
                 </Text>
-              </View>
-            </View>
+              </TouchableOpacity>
+            </>
           ) : null}
         </View>
 
         {context === "approvals" && canApprove && item.status === "pending" && (
-          <View style={styles.approvalActionsRow}>
+          <View style={styles.approvalActionsRowSingle}>
             <TouchableOpacity
-              style={[
-                styles.rejectSmallButton,
-                busyId !== null && { opacity: 0.6 },
-              ]}
-              onPress={() => setRejectingId(item.id)}
-              activeOpacity={0.7}
-              disabled={busyId !== null}
+              style={styles.viewSmallButton}
+              onPress={() => setViewingEvent(item)}
+              activeOpacity={0.75}
             >
-              <Text style={styles.rejectSmallButtonText}>Reject</Text>
+              <Ionicons name="eye-outline" size={13} color="#1a73e8" />
+              <Text style={styles.viewSmallButtonText}>View</Text>
             </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.approveSmallButton, rowBusy && { opacity: 0.7 }]}
-              onPress={() => handleApprove(item.id)}
-              activeOpacity={0.8}
-              disabled={busyId !== null}
-            >
-              {rowBusy ? (
-                <>
-                  <ActivityIndicator size="small" color="#fff" />
-                  <Text style={styles.approveSmallButtonText}>Approving…</Text>
-                </>
-              ) : (
-                <>
-                  <Ionicons name="checkmark" size={14} color="#fff" />
-                  <Text style={styles.approveSmallButtonText}>Approve</Text>
-                </>
-              )}
-            </TouchableOpacity>
+
+            <View style={styles.approvalRightGroup}>
+              <TouchableOpacity
+                style={[
+                  styles.rejectSmallButton,
+                  busyId !== null && { opacity: 0.6 },
+                ]}
+                onPress={() => setRejectingId(item.id)}
+                activeOpacity={0.7}
+                disabled={busyId !== null}
+              >
+                <Ionicons name="close" size={13} color="#dc2626" />
+                <Text style={styles.rejectSmallButtonText}>Reject</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.approveSmallButton, rowBusy && { opacity: 0.7 }]}
+                onPress={() => handleApprove(item.id)}
+                activeOpacity={0.8}
+                disabled={busyId !== null}
+              >
+                {rowBusy ? (
+                  <>
+                    <ActivityIndicator size="small" color="#fff" />
+                    <Text style={styles.approveSmallButtonText}>
+                      Approving…
+                    </Text>
+                  </>
+                ) : (
+                  <>
+                    <Ionicons name="checkmark" size={14} color="#fff" />
+                    <Text style={styles.approveSmallButtonText}>Approve</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
         )}
 
-        {(context === "day" ||
-          context === "myRequests" ||
-          context === "approvals") && (
+        {!(context === "approvals" && item.status === "pending") && (
           <View style={styles.footerActionsRow}>
             <TouchableOpacity
               style={styles.viewButton}
@@ -1481,7 +1714,26 @@ function CalendarScreenImpl() {
             </TouchableOpacity>
 
             <View style={styles.editDeleteGroup}>
-              {canEdit(item) && context !== "approvals" && (
+              {canResend(item) && (
+                <TouchableOpacity
+                  style={[
+                    styles.resendSmallButton,
+                    busyId === item.id && { opacity: 0.6 },
+                  ]}
+                  onPress={(e) => {
+                    e.stopPropagation?.();
+                    handleResend(item.id);
+                  }}
+                  activeOpacity={0.75}
+                  disabled={busyId === item.id}
+                  hitSlop={6}
+                >
+                  <Ionicons name="refresh" size={13} color="#fff" />
+                  <Text style={styles.resendSmallButtonText}>Resend</Text>
+                </TouchableOpacity>
+              )}
+
+              {canEdit(item) && (
                 <TouchableOpacity
                   style={styles.editSmallButton}
                   onPress={(e) => {
@@ -1495,6 +1747,7 @@ function CalendarScreenImpl() {
                   <Text style={styles.editSmallButtonText}>Edit</Text>
                 </TouchableOpacity>
               )}
+
               {canDelete(item) && (
                 <TouchableOpacity
                   style={styles.deleteSmallButton}
@@ -1521,13 +1774,8 @@ function CalendarScreenImpl() {
   /* ------------------------------------------------------------------------ */
 
   const myResponse = viewingEvent?.responses?.find(
-    (r) => r.userId === user?.id,
+    (r) => r.userId === currentUserId,
   );
-
-  const acceptedList =
-    viewingEvent?.responses?.filter((r) => r.response === "accept") ?? [];
-  const rejectedList =
-    viewingEvent?.responses?.filter((r) => r.response === "reject") ?? [];
 
   const viewingTypeMeta = viewingEvent
     ? TYPE_META[viewingEvent.type]
@@ -1563,7 +1811,6 @@ function CalendarScreenImpl() {
           </Text>
         </View>
 
-        {/* ---------------------------- Tabs ---------------------------- */}
         {isAdminOrOwner && (
           <View style={styles.tabSwitcher}>
             <TouchableOpacity
@@ -1665,18 +1912,15 @@ function CalendarScreenImpl() {
               >
                 My Requests
               </Text>
-              {myRequests.filter((e) => e.status === "pending").length > 0 && (
+              {myRequests.length > 0 && (
                 <View style={styles.tabBadge}>
-                  <Text style={styles.tabBadgeText}>
-                    {myRequests.filter((e) => e.status === "pending").length}
-                  </Text>
+                  <Text style={styles.tabBadgeText}>{myRequests.length}</Text>
                 </View>
               )}
             </TouchableOpacity>
           </View>
         )}
 
-        {/* ---------------------------- Content ---------------------------- */}
         {loading ? (
           <View style={styles.emptyDayBox}>
             <ActivityIndicator color="#1a73e8" />
@@ -1730,9 +1974,6 @@ function CalendarScreenImpl() {
                   const hasApprovedEvent = dayEvents.some(
                     (e) => e.type === "event" && e.status === "approved",
                   );
-                  const hasPendingEvent = dayEvents.some(
-                    (e) => e.status === "pending",
-                  );
 
                   return (
                     <TouchableOpacity
@@ -1771,11 +2012,6 @@ function CalendarScreenImpl() {
                             style={[styles.dot, { backgroundColor: "#059669" }]}
                           />
                         )}
-                        {hasPendingEvent && (
-                          <View
-                            style={[styles.dot, { backgroundColor: "#d97706" }]}
-                          />
-                        )}
                       </View>
                       {isBooked && (
                         <View style={styles.bookedIndicator}>
@@ -1798,10 +2034,6 @@ function CalendarScreenImpl() {
                 <Text style={styles.legendText}>Approved Event</Text>
               </View>
               <View style={styles.legendItem}>
-                <View style={[styles.dot, { backgroundColor: "#d97706" }]} />
-                <Text style={styles.legendText}>Pending</Text>
-              </View>
-              <View style={styles.legendItem}>
                 <View
                   style={[
                     styles.legendBookedDot,
@@ -1813,10 +2045,11 @@ function CalendarScreenImpl() {
             </View>
 
             <View style={styles.selectedDateSection}>
+              {/* Title + All/Day chips */}
               <View style={styles.filterRowTop}>
                 <Text style={styles.selectedDateLabel}>
                   {dayFilter === "all"
-                    ? "All events this month"
+                    ? "All approved posts this month"
                     : formatSelectedDate(selectedDate)}
                 </Text>
 
@@ -1863,12 +2096,86 @@ function CalendarScreenImpl() {
                 </View>
               </View>
 
+              {/* Kind filter:  All / Notices / Events */}
+              <View style={styles.kindTabs}>
+                <TouchableOpacity
+                  style={[
+                    styles.kindTab,
+                    kindFilter === "all" && styles.kindTabActive,
+                  ]}
+                  onPress={() => setKindFilter("all")}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons
+                    name="apps"
+                    size={13}
+                    color={kindFilter === "all" ? "#ffffff" : "#64748b"}
+                  />
+                  <Text
+                    style={[
+                      styles.kindTabText,
+                      kindFilter === "all" && styles.kindTabTextActive,
+                    ]}
+                  >
+                    All
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.kindTab,
+                    kindFilter === "notice" && styles.kindTabActive,
+                  ]}
+                  onPress={() => setKindFilter("notice")}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons
+                    name="megaphone"
+                    size={13}
+                    color={kindFilter === "notice" ? "#ffffff" : "#1a73e8"}
+                  />
+                  <Text
+                    style={[
+                      styles.kindTabText,
+                      kindFilter === "notice" && styles.kindTabTextActive,
+                    ]}
+                  >
+                    Notices
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.kindTab,
+                    kindFilter === "event" && styles.kindTabActive,
+                  ]}
+                  onPress={() => setKindFilter("event")}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons
+                    name="calendar"
+                    size={13}
+                    color={kindFilter === "event" ? "#ffffff" : "#7c3aed"}
+                  />
+                  <Text
+                    style={[
+                      styles.kindTabText,
+                      kindFilter === "event" && styles.kindTabTextActive,
+                    ]}
+                  >
+                    Events
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
               {listEventsForDay.length === 0 ? (
                 <View style={styles.emptyDayBox}>
                   <Ionicons name="calendar-outline" size={32} color="#cbd5e1" />
                   <Text style={styles.emptyDayText}>
                     {dayFilter === "all"
-                      ? "No events in this month"
+                      ? kindFilter === "all"
+                        ? "No events in this month"
+                        : kindFilter === "notice"
+                          ? "No notices in this month"
+                          : "No events in this month"
                       : "Nothing scheduled for this day"}
                   </Text>
                 </View>
@@ -1959,7 +2266,7 @@ function CalendarScreenImpl() {
         </TouchableOpacity>
       )}
 
-      {/* ----------------------------- Add/Edit Modal ------------------------ */}
+      {/* ==================== Add/Edit modal ==================== */}
       <Modal
         visible={showAddModal}
         transparent
@@ -2094,25 +2401,24 @@ function CalendarScreenImpl() {
                 />
               </View>
 
-              {isAdminOrOwner && (
-                <View style={styles.toggleRow}>
-                  <View style={styles.toggleTexts}>
-                    <Text style={styles.toggleTitle}>
-                      Enable Accept / Reject
-                    </Text>
-                    <Text style={styles.toggleSubtitle}>
-                      Members can accept or reject with an optional note
-                    </Text>
-                  </View>
-                  <Switch
-                    value={rsvpEnabled}
-                    onValueChange={setRsvpEnabled}
-                    trackColor={{ false: "#cbd5e1", true: "#93c5fd" }}
-                    thumbColor={rsvpEnabled ? "#1a73e8" : "#f1f5f9"}
-                    disabled={submitting}
-                  />
+              {/* RSVP toggle: now visible for ALL (admin/owner AND members) */}
+              <View style={styles.toggleRow}>
+                <View style={styles.toggleTexts}>
+                  <Text style={styles.toggleTitle}>Enable Accept / Reject</Text>
+                  <Text style={styles.toggleSubtitle}>
+                    {isAdminOrOwner
+                      ? "Members can accept or reject with an optional note"
+                      : "Ask members to accept or reject once this is approved"}
+                  </Text>
                 </View>
-              )}
+                <Switch
+                  value={rsvpEnabled}
+                  onValueChange={setRsvpEnabled}
+                  trackColor={{ false: "#cbd5e1", true: "#93c5fd" }}
+                  thumbColor={rsvpEnabled ? "#1a73e8" : "#f1f5f9"}
+                  disabled={submitting}
+                />
+              </View>
 
               {type === "event" && (
                 <>
@@ -2364,7 +2670,7 @@ function CalendarScreenImpl() {
         </KeyboardAvoidingView>
       </Modal>
 
-      {/* ------------------------ Time Picker (iOS) ------------------------- */}
+      {/* ==================== iOS time picker ==================== */}
       {Platform.OS === "ios" && timePickerMode !== null && (
         <Modal
           transparent
@@ -2376,18 +2682,15 @@ function CalendarScreenImpl() {
             style={styles.modalBackdropCenter}
             onPress={() => setTimePickerMode(null)}
           >
-            <Pressable style={styles.timePickerCard} onPress={() => {}}>
+            <View style={styles.timePickerCard}>
               <Text style={styles.timePickerTitle}>
                 {timePickerMode === "start"
                   ? "Select Start Time"
                   : "Select End Time"}
               </Text>
-              <DateTimePicker
+              <PlatformTimePicker
                 value={timePickerValue}
-                mode="time"
-                display="spinner"
-                is24Hour={false}
-                onValueChange={onTimePickerValueChange}
+                onChangeSelected={handleTimeSelected}
               />
               <View style={styles.modalButtonRow}>
                 <TouchableOpacity
@@ -2405,24 +2708,21 @@ function CalendarScreenImpl() {
                   <Text style={styles.modalSubmitText}>Done</Text>
                 </TouchableOpacity>
               </View>
-            </Pressable>
+            </View>
           </Pressable>
         </Modal>
       )}
 
-      {/* ------------------------ Time Picker (Android) --------------------- */}
+      {/* ==================== Android time picker ==================== */}
       {Platform.OS === "android" && timePickerMode !== null && (
-        <DateTimePicker
+        <PlatformTimePicker
           value={timePickerValue}
-          mode="time"
-          display="default"
-          is24Hour={false}
-          onValueChange={onTimePickerValueChange}
+          onChangeSelected={handleTimeSelected}
           onDismiss={onTimePickerDismiss}
         />
       )}
 
-      {/* ----------------------------- Photo Options ------------------------- */}
+      {/* ==================== Photo options ==================== */}
       <Modal
         visible={showPhotoOptions}
         transparent
@@ -2433,7 +2733,7 @@ function CalendarScreenImpl() {
           style={styles.modalBackdropCenter}
           onPress={() => setShowPhotoOptions(false)}
         >
-          <Pressable style={styles.photoOptionsCard} onPress={() => {}}>
+          <View style={styles.photoOptionsCard}>
             <View style={styles.modalHandle} />
             <Text style={styles.photoOptionsTitle}>Add Attachment</Text>
             <Text style={styles.photoOptionsSubtitle}>
@@ -2504,11 +2804,11 @@ function CalendarScreenImpl() {
             >
               <Text style={styles.photoOptionsCancelText}>Cancel</Text>
             </TouchableOpacity>
-          </Pressable>
+          </View>
         </Pressable>
       </Modal>
 
-      {/* ----------------------------- Date Picker --------------------------- */}
+      {/* ==================== Date picker ==================== */}
       <Modal
         visible={showDatePicker}
         transparent
@@ -2519,7 +2819,7 @@ function CalendarScreenImpl() {
           style={styles.modalBackdropCenter}
           onPress={() => setShowDatePicker(false)}
         >
-          <Pressable style={styles.datePickerCard} onPress={() => {}}>
+          <View style={styles.datePickerCard}>
             <Text style={styles.datePickerTitle}>Select Date</Text>
 
             <View style={styles.miniCalendarHeader}>
@@ -2624,16 +2924,30 @@ function CalendarScreenImpl() {
                 <Text style={styles.datePickerConfirmText}>Confirm</Text>
               </TouchableOpacity>
             </View>
-          </Pressable>
+          </View>
         </Pressable>
       </Modal>
 
-      {/* ----------------------------- View Details Modal -------------------- */}
+      {/* ==================== View Details modal ==================== */}
       <Modal
         visible={viewingEvent !== null}
         transparent
         animationType="fade"
-        onRequestClose={() => setViewingEvent(null)}
+        onRequestClose={() => {
+          if (rsvpDetailsEvent !== null) {
+            setRsvpDetailsEvent(null);
+            return;
+          }
+          if (confirmingDeleteResponse) {
+            setConfirmingDeleteResponse(false);
+            return;
+          }
+          if (rsvpReasonMode !== null) {
+            cancelRsvpReason();
+            return;
+          }
+          setViewingEvent(null);
+        }}
       >
         <View style={styles.modalOverlayCenter}>
           {viewingEvent && (
@@ -2694,347 +3008,809 @@ function CalendarScreenImpl() {
 
                 <TouchableOpacity
                   style={styles.detailClose}
-                  onPress={() => setViewingEvent(null)}
+                  onPress={() => {
+                    if (rsvpDetailsEvent !== null) {
+                      setRsvpDetailsEvent(null);
+                      return;
+                    }
+                    if (confirmingDeleteResponse) {
+                      setConfirmingDeleteResponse(false);
+                      return;
+                    }
+                    if (rsvpReasonMode !== null) {
+                      cancelRsvpReason();
+                      return;
+                    }
+                    setViewingEvent(null);
+                  }}
                   hitSlop={8}
                 >
                   <Ionicons name="close" size={18} color="#64748b" />
                 </TouchableOpacity>
               </View>
 
-              <ScrollView
-                style={styles.detailScroll}
-                contentContainerStyle={styles.detailScrollContent}
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-                nestedScrollEnabled
-              >
-                <Text style={styles.viewTitle}>{viewingEvent.title}</Text>
-
-                {viewingEvent.description ? (
-                  <View style={styles.viewSection}>
-                    <Text style={styles.viewSectionLabel}>Description</Text>
-                    <Text style={styles.viewDescriptionText}>
-                      {viewingEvent.description}
-                    </Text>
-                  </View>
-                ) : null}
-
-                <View style={styles.viewSection}>
-                  <Text style={styles.viewSectionLabel}>Schedule</Text>
-
-                  <View style={styles.viewDetailRow}>
-                    <Ionicons
-                      name="calendar-outline"
-                      size={17}
-                      color="#64748b"
-                    />
-                    <Text style={styles.viewDetailText}>
-                      {formatLongDate(viewingEvent.date)}
-                    </Text>
-                  </View>
-
-                  {(viewingEvent.startTime || viewingEvent.endTime) && (
-                    <View style={styles.viewDetailRow}>
-                      <Ionicons name="time-outline" size={17} color="#64748b" />
-                      <Text style={styles.viewDetailText}>
-                        {viewingEvent.startTime}
-                        {viewingEvent.startTime && viewingEvent.endTime
-                          ? " – "
-                          : ""}
-                        {viewingEvent.endTime}
-                      </Text>
-                    </View>
-                  )}
-
-                  {viewingEvent.resource && (
-                    <View style={styles.viewDetailRow}>
-                      <Ionicons
-                        name="location-outline"
-                        size={17}
-                        color="#64748b"
-                      />
-                      <Text style={styles.viewDetailText}>
-                        {viewingEvent.resource}
-                      </Text>
-                    </View>
-                  )}
-                </View>
-
-                {viewingAttachments.length > 0 && (
-                  <View style={styles.viewSection}>
-                    <Text style={styles.viewSectionLabel}>
-                      Attachments ({viewingAttachments.length})
-                    </Text>
-                    <View style={styles.viewAttachmentList}>
-                      {viewingAttachments.map((att, i) => {
-                        const isImg = isImageAttachment(att);
-                        return (
-                          <View
-                            key={`${att.uri.slice(0, 40)}-${i}`}
-                            style={styles.viewAttachmentCard}
-                          >
-                            <View
-                              style={[
-                                styles.viewAttachmentThumb,
-                                isImg ? null : styles.attachmentFileIcon,
-                              ]}
-                            >
-                              {isImg ? (
-                                <Image
-                                  source={{ uri: att.uri }}
-                                  style={{ width: "100%", height: "100%" }}
-                                />
-                              ) : (
-                                <Ionicons
-                                  name={fileIconFor(att)}
-                                  size={16}
-                                  color="#d97706"
-                                />
-                              )}
-                            </View>
-
-                            <View style={styles.viewAttachmentMeta}>
-                              <Text
-                                style={styles.viewAttachmentName}
-                                numberOfLines={1}
-                              >
-                                {att.name || `Attachment ${i + 1}`}
-                              </Text>
-                              <Text style={styles.viewAttachmentSub}>
-                                {isImg ? "Image" : fileKindLabel(att)}
-                              </Text>
-                            </View>
-
-                            <TouchableOpacity
-                              style={styles.downloadButton}
-                              onPress={() => openAttachment(att)}
-                              activeOpacity={0.8}
-                              hitSlop={6}
-                            >
-                              <Ionicons
-                                name="download-outline"
-                                size={14}
-                                color="#fff"
-                              />
-                              <Text style={styles.downloadButtonText}>
-                                Download
-                              </Text>
-                            </TouchableOpacity>
-                          </View>
-                        );
-                      })}
-                    </View>
-                  </View>
-                )}
-
-                <View style={styles.viewSection}>
-                  <Text style={styles.viewSectionLabel}>Posted by</Text>
-                  <View style={styles.viewDetailRow}>
-                    <Ionicons name="person-outline" size={17} color="#64748b" />
-                    <Text style={styles.viewDetailText}>
-                      {viewingEvent.createdByName || "Unknown"}
-                      {viewingIsOwnPost ? " (You)" : ""}
-                    </Text>
-                  </View>
-
-                  {viewingEvent.createdByPhone ? (
-                    <View style={styles.viewDetailRow}>
-                      <Ionicons name="call-outline" size={17} color="#64748b" />
-                      {viewingIsOwnPost ? (
-                        <Text style={styles.viewDetailText}>
-                          {formatPhoneForDisplay(viewingEvent.createdByPhone)}
-                        </Text>
-                      ) : (
-                        <TouchableOpacity
-                          onPress={() =>
-                            callNumber(viewingEvent.createdByPhone)
+              {rsvpReasonMode !== null ? (
+                <KeyboardAvoidingView
+                  behavior={Platform.OS === "ios" ? "padding" : "height"}
+                  keyboardVerticalOffset={Platform.OS === "ios" ? 60 : 0}
+                >
+                  <ScrollView
+                    style={styles.detailScroll}
+                    contentContainerStyle={styles.detailScrollContent}
+                    showsVerticalScrollIndicator={false}
+                    keyboardShouldPersistTaps="handled"
+                    nestedScrollEnabled
+                  >
+                    <View style={{ alignItems: "center", gap: 12 }}>
+                      <View
+                        style={[
+                          styles.modalIconCircle,
+                          {
+                            backgroundColor:
+                              rsvpReasonMode === "accept"
+                                ? "#ecfdf5"
+                                : "#fef2f2",
+                          },
+                        ]}
+                      >
+                        <Ionicons
+                          name={
+                            rsvpReasonMode === "accept"
+                              ? "checkmark-circle"
+                              : "close-circle"
                           }
-                          activeOpacity={0.75}
-                          hitSlop={6}
-                        >
-                          <Text
-                            style={[
-                              styles.viewDetailText,
-                              styles.viewDetailLink,
-                            ]}
-                          >
-                            {formatPhoneForDisplay(viewingEvent.createdByPhone)}
-                          </Text>
-                        </TouchableOpacity>
-                      )}
-                    </View>
-                  ) : null}
+                          size={36}
+                          color={
+                            rsvpReasonMode === "accept" ? "#059669" : "#dc2626"
+                          }
+                        />
+                      </View>
 
-                  {viewingEvent.createdAt ? (
-                    <View style={styles.viewDetailRow}>
-                      <Ionicons name="time-outline" size={17} color="#64748b" />
-                      <Text style={styles.viewDetailText}>
-                        {formatDateTime(viewingEvent.createdAt)}
+                      <Text style={styles.modalTitle}>
+                        {rsvpReasonMode === "accept"
+                          ? "Accept this?"
+                          : "Reject this?"}
                       </Text>
-                    </View>
-                  ) : null}
-                </View>
 
-                {viewingEvent.status === "approved" &&
-                  (viewingEvent.approvedByPhone ||
-                    viewingEvent.approvedById) && (
-                    <View style={styles.approvedBox}>
-                      <Ionicons
-                        name="checkmark-circle"
-                        size={18}
-                        color="#059669"
+                      <Text style={styles.modalMessage}>
+                        {rsvpReasonMode === "accept"
+                          ? "You can optionally add a note for the organizer."
+                          : "Please let the organizer know why you are rejecting."}
+                      </Text>
+
+                      <TextInput
+                        style={[
+                          styles.textInput,
+                          styles.textArea,
+                          { width: "100%" },
+                        ]}
+                        placeholder={
+                          rsvpReasonMode === "accept"
+                            ? "Note (optional)"
+                            : "Reason (optional)"
+                        }
+                        placeholderTextColor="#999"
+                        value={rsvpReason}
+                        onChangeText={setRsvpReason}
+                        multiline
+                        numberOfLines={2}
+                        editable={!rsvpSubmitting}
                       />
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.approvedLabel}>
-                          Approved by{" "}
-                          {viewingEvent.approvedByName ||
-                            (viewingEvent.approvedByRole
-                              ? viewingEvent.approvedByRole
-                              : "")}
-                        </Text>
-                        {viewingEvent.approvedByPhone ? (
-                          <Text style={styles.approvedPhone}>
-                            {formatPhoneForDisplay(
-                              viewingEvent.approvedByPhone,
-                            )}
-                          </Text>
-                        ) : null}
+
+                      <View style={[styles.modalButtonRow, { width: "100%" }]}>
+                        <TouchableOpacity
+                          style={[
+                            styles.modalCancelButton,
+                            rsvpSubmitting && { opacity: 0.5 },
+                          ]}
+                          onPress={cancelRsvpReason}
+                          activeOpacity={0.8}
+                          disabled={rsvpSubmitting}
+                        >
+                          <Text style={styles.modalCancelText}>Cancel</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={[
+                            styles.modalConfirmButton,
+                            {
+                              backgroundColor:
+                                rsvpReasonMode === "accept"
+                                  ? "#059669"
+                                  : "#dc2626",
+                            },
+                            rsvpSubmitting && { opacity: 0.75 },
+                          ]}
+                          onPress={confirmRsvp}
+                          activeOpacity={0.8}
+                          disabled={rsvpSubmitting}
+                        >
+                          {rsvpSubmitting ? (
+                            <>
+                              <ActivityIndicator size="small" color="#ffffff" />
+                              <Text style={styles.modalConfirmText}>
+                                {rsvpReasonMode === "accept"
+                                  ? "Accepting…"
+                                  : "Rejecting…"}
+                              </Text>
+                            </>
+                          ) : (
+                            <>
+                              <Ionicons
+                                name={
+                                  rsvpReasonMode === "accept"
+                                    ? "checkmark"
+                                    : "close"
+                                }
+                                size={14}
+                                color="#ffffff"
+                              />
+                              <Text style={styles.modalConfirmText}>
+                                {rsvpReasonMode === "accept"
+                                  ? "Accept"
+                                  : "Reject"}
+                              </Text>
+                            </>
+                          )}
+                        </TouchableOpacity>
                       </View>
                     </View>
-                  )}
-
-                {viewingEvent.status === "pending" && canApprove && (
-                  <View style={styles.viewSection}>
-                    <Text style={styles.viewSectionLabel}>
-                      Approval Required
-                    </Text>
-                    <View style={styles.pendingApprovalBox}>
-                      <Ionicons name="time" size={16} color="#d97706" />
-                      <Text style={styles.pendingApprovalText}>
-                        This event is waiting for your approval.
-                      </Text>
+                  </ScrollView>
+                </KeyboardAvoidingView>
+              ) : confirmingDeleteResponse ? (
+                <View style={styles.detailScrollContent}>
+                  <View style={{ alignItems: "center", gap: 12 }}>
+                    <View style={styles.deleteIconCircle}>
+                      <Ionicons
+                        name="trash-outline"
+                        size={32}
+                        color="#dc2626"
+                      />
                     </View>
-                    <View style={styles.approvalActionsRowLarge}>
+                    <Text style={styles.modalTitle}>Remove your response?</Text>
+                    <Text style={styles.modalMessage}>
+                      Your acceptance or rejection will be removed. You can
+                      respond again later.
+                    </Text>
+                    <View style={[styles.modalButtonRow, { width: "100%" }]}>
                       <TouchableOpacity
-                        style={styles.rejectLargeButton}
-                        onPress={() => {
-                          setRejectingId(viewingEvent.id);
-                        }}
-                        activeOpacity={0.85}
+                        style={[
+                          styles.modalCancelButton,
+                          deleteResponseSubmitting && { opacity: 0.5 },
+                        ]}
+                        onPress={() => setConfirmingDeleteResponse(false)}
+                        activeOpacity={0.8}
+                        disabled={deleteResponseSubmitting}
                       >
-                        <Ionicons name="close" size={16} color="#dc2626" />
-                        <Text style={styles.rejectLargeButtonText}>Reject</Text>
+                        <Text style={styles.modalCancelText}>Cancel</Text>
                       </TouchableOpacity>
                       <TouchableOpacity
                         style={[
-                          styles.approveLargeButton,
-                          busyId === viewingEvent.id && { opacity: 0.7 },
+                          styles.deleteConfirmButton,
+                          deleteResponseSubmitting && { opacity: 0.75 },
                         ]}
-                        onPress={() => handleApprove(viewingEvent.id)}
-                        activeOpacity={0.85}
-                        disabled={busyId === viewingEvent.id}
+                        onPress={confirmDeleteResponse}
+                        activeOpacity={0.8}
+                        disabled={deleteResponseSubmitting}
                       >
-                        {busyId === viewingEvent.id ? (
+                        {deleteResponseSubmitting ? (
                           <>
-                            <ActivityIndicator size="small" color="#fff" />
-                            <Text style={styles.approveLargeButtonText}>
-                              Approving…
+                            <ActivityIndicator size="small" color="#ffffff" />
+                            <Text style={styles.deleteConfirmText}>
+                              Removing…
                             </Text>
                           </>
                         ) : (
                           <>
-                            <Ionicons name="checkmark" size={16} color="#fff" />
-                            <Text style={styles.approveLargeButtonText}>
-                              Approve
-                            </Text>
+                            <Ionicons
+                              name="trash-outline"
+                              size={14}
+                              color="#ffffff"
+                            />
+                            <Text style={styles.deleteConfirmText}>Remove</Text>
                           </>
                         )}
                       </TouchableOpacity>
                     </View>
                   </View>
-                )}
+                </View>
+              ) : rsvpDetailsEvent !== null ? (
+                <ScrollView
+                  style={styles.rsvpDetailsInlineScroll}
+                  contentContainerStyle={styles.rsvpDetailsInlineContent}
+                  showsVerticalScrollIndicator={false}
+                >
+                  <View style={styles.rsvpDetailsTabs}>
+                    <TouchableOpacity
+                      style={[
+                        styles.rsvpDetailsTab,
+                        rsvpDetailsTab === "accepted" &&
+                          styles.rsvpDetailsTabActive,
+                      ]}
+                      onPress={() => setRsvpDetailsTab("accepted")}
+                      activeOpacity={0.85}
+                    >
+                      <Ionicons
+                        name="checkmark-circle"
+                        size={15}
+                        color={
+                          rsvpDetailsTab === "accepted" ? "#ffffff" : "#059669"
+                        }
+                      />
+                      <Text
+                        style={[
+                          styles.rsvpDetailsTabText,
+                          rsvpDetailsTab === "accepted" &&
+                            styles.rsvpDetailsTabTextActive,
+                        ]}
+                      >
+                        Accepted (
+                        {rsvpDetailsEvent.responses?.filter(
+                          (r) => r.response === "accept",
+                        ).length ?? 0}
+                        )
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.rsvpDetailsTab,
+                        rsvpDetailsTab === "rejected" &&
+                          styles.rsvpDetailsTabActive,
+                      ]}
+                      onPress={() => setRsvpDetailsTab("rejected")}
+                      activeOpacity={0.85}
+                    >
+                      <Ionicons
+                        name="close-circle"
+                        size={15}
+                        color={
+                          rsvpDetailsTab === "rejected" ? "#ffffff" : "#dc2626"
+                        }
+                      />
+                      <Text
+                        style={[
+                          styles.rsvpDetailsTabText,
+                          rsvpDetailsTab === "rejected" &&
+                            styles.rsvpDetailsTabTextActive,
+                        ]}
+                      >
+                        Rejected (
+                        {rsvpDetailsEvent.responses?.filter(
+                          (r) => r.response === "reject",
+                        ).length ?? 0}
+                        )
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
 
-                {viewingEvent.status === "rejected" &&
-                  (viewingIsOwnPost || canApprove) && (
+                  {(rsvpDetailsEvent.responses ?? [])
+                    .filter((r) =>
+                      rsvpDetailsTab === "accepted"
+                        ? r.response === "accept"
+                        : r.response === "reject",
+                    )
+                    .map((r) => {
+                      const rr = r.role ? ROLE_META[r.role as Role] : null;
+                      const isSelf = r.userId === currentUserId;
+                      return (
+                        <View
+                          key={`${r.userId}-${r.response}`}
+                          style={styles.rsvpRowCard}
+                        >
+                          <View style={styles.rsvpRowTop}>
+                            <UserAvatar
+                              name={r.name}
+                              photoUrl={r.photo}
+                              size={40}
+                            />
+                            <View style={{ flex: 1, minWidth: 0 }}>
+                              <View style={styles.rsvpRowNameRow}>
+                                {isSelf ? (
+                                  <View style={styles.youBadge}>
+                                    <Ionicons
+                                      name="person"
+                                      size={9}
+                                      color="#7c3aed"
+                                    />
+                                    <Text style={styles.youBadgeText}>You</Text>
+                                  </View>
+                                ) : (
+                                  <Text
+                                    style={styles.rsvpRowName}
+                                    numberOfLines={1}
+                                  >
+                                    {r.name}
+                                  </Text>
+                                )}
+                                {rr ? (
+                                  <View
+                                    style={[
+                                      styles.responseRoleBadge,
+                                      { backgroundColor: rr.bg },
+                                    ]}
+                                  >
+                                    <Text
+                                      style={[
+                                        styles.responseRoleBadgeText,
+                                        { color: rr.color },
+                                      ]}
+                                    >
+                                      {rr.label}
+                                    </Text>
+                                  </View>
+                                ) : null}
+                              </View>
+                              {r.phone ? (
+                                <Text style={styles.rsvpRowPhone}>
+                                  {formatPhoneForDisplay(r.phone)}
+                                </Text>
+                              ) : null}
+                              {r.at ? (
+                                <Text style={styles.rsvpRowTime}>
+                                  {formatDateTime(r.at)}
+                                </Text>
+                              ) : null}
+                            </View>
+                            <Ionicons
+                              name={
+                                r.response === "accept"
+                                  ? "checkmark-circle"
+                                  : "close-circle"
+                              }
+                              size={22}
+                              color={
+                                r.response === "accept" ? "#059669" : "#dc2626"
+                              }
+                            />
+                          </View>
+
+                          {r.reason || r.note ? (
+                            <View
+                              style={[
+                                styles.rsvpRowNoteBox,
+                                r.response === "accept"
+                                  ? styles.rsvpRowNoteBoxAccept
+                                  : styles.rsvpRowNoteBoxReject,
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  styles.rsvpRowNoteText,
+                                  {
+                                    color:
+                                      r.response === "accept"
+                                        ? "#065f46"
+                                        : "#b91c1c",
+                                  },
+                                ]}
+                              >
+                                “{r.reason || r.note}”
+                              </Text>
+                            </View>
+                          ) : null}
+                        </View>
+                      );
+                    })}
+
+                  {(rsvpDetailsEvent.responses ?? []).filter((r) =>
+                    rsvpDetailsTab === "accepted"
+                      ? r.response === "accept"
+                      : r.response === "reject",
+                  ).length === 0 ? (
+                    <View style={styles.rsvpDetailsEmpty}>
+                      <Ionicons
+                        name={
+                          rsvpDetailsTab === "accepted"
+                            ? "checkmark-circle-outline"
+                            : "close-circle-outline"
+                        }
+                        size={40}
+                        color="#cbd5e1"
+                      />
+                      <Text style={styles.rsvpDetailsEmptyText}>
+                        No {rsvpDetailsTab} responses yet
+                      </Text>
+                    </View>
+                  ) : null}
+                </ScrollView>
+              ) : (
+                <ScrollView
+                  style={styles.detailScroll}
+                  contentContainerStyle={styles.detailScrollContent}
+                  showsVerticalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                  nestedScrollEnabled
+                >
+                  <Text style={styles.viewTitle}>{viewingEvent.title}</Text>
+
+                  {viewingEvent.description ? (
                     <View style={styles.viewSection}>
-                      <Text style={styles.viewSectionLabel}>Rejection</Text>
+                      <Text style={styles.viewSectionLabel}>Description</Text>
+                      <Text style={styles.viewDescriptionText}>
+                        {viewingEvent.description}
+                      </Text>
+                    </View>
+                  ) : null}
 
-                      <View style={styles.rejectionReasonBox}>
+                  <View style={styles.viewSection}>
+                    <Text style={styles.viewSectionLabel}>Schedule</Text>
+
+                    <View style={styles.viewDetailRow}>
+                      <Ionicons
+                        name="calendar-outline"
+                        size={17}
+                        color="#64748b"
+                      />
+                      <Text style={styles.viewDetailText}>
+                        {formatLongDate(viewingEvent.date)}
+                      </Text>
+                    </View>
+
+                    {(viewingEvent.startTime || viewingEvent.endTime) && (
+                      <View style={styles.viewDetailRow}>
                         <Ionicons
-                          name="information-circle"
-                          size={14}
-                          color="#dc2626"
+                          name="time-outline"
+                          size={17}
+                          color="#64748b"
                         />
-                        <Text style={styles.rejectionReasonText}>
-                          {viewingEvent.rejectionReason ||
-                            "No reason provided."}
+                        <Text style={styles.viewDetailText}>
+                          {viewingEvent.startTime}
+                          {viewingEvent.startTime && viewingEvent.endTime
+                            ? " – "
+                            : ""}
+                          {viewingEvent.endTime}
                         </Text>
                       </View>
+                    )}
 
-                      {viewingIsOwnPost ? (
-                        <View style={styles.rejectActionsRow}>
-                          <TouchableOpacity
-                            style={[
-                              styles.resendButton,
-                              busyId === viewingEvent.id && { opacity: 0.7 },
-                            ]}
-                            onPress={() => handleResend(viewingEvent.id)}
-                            activeOpacity={0.85}
-                            disabled={busyId === viewingEvent.id}
-                          >
-                            {busyId === viewingEvent.id ? (
-                              <>
-                                <ActivityIndicator size="small" color="#fff" />
-                                <Text style={styles.resendButtonText}>
-                                  Resending…
+                    {viewingEvent.resource && (
+                      <View style={styles.viewDetailRow}>
+                        <Ionicons
+                          name="location-outline"
+                          size={17}
+                          color="#64748b"
+                        />
+                        <Text style={styles.viewDetailText}>
+                          {viewingEvent.resource}
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+
+                  {viewingAttachments.length > 0 && (
+                    <View style={styles.viewSection}>
+                      <Text style={styles.viewSectionLabel}>
+                        Attachments ({viewingAttachments.length})
+                      </Text>
+                      <View style={styles.viewAttachmentList}>
+                        {viewingAttachments.map((att, i) => {
+                          const isImg = isImageAttachment(att);
+                          return (
+                            <View
+                              key={`${att.uri.slice(0, 40)}-${i}`}
+                              style={styles.viewAttachmentCard}
+                            >
+                              <View
+                                style={[
+                                  styles.viewAttachmentThumb,
+                                  isImg ? null : styles.attachmentFileIcon,
+                                ]}
+                              >
+                                {isImg ? (
+                                  <Image
+                                    source={{ uri: att.uri }}
+                                    style={{ width: "100%", height: "100%" }}
+                                  />
+                                ) : (
+                                  <Ionicons
+                                    name={fileIconFor(att)}
+                                    size={16}
+                                    color="#d97706"
+                                  />
+                                )}
+                              </View>
+
+                              <View style={styles.viewAttachmentMeta}>
+                                <Text
+                                  style={styles.viewAttachmentName}
+                                  numberOfLines={1}
+                                >
+                                  {att.name || `Attachment ${i + 1}`}
                                 </Text>
-                              </>
-                            ) : (
-                              <>
+                                <Text style={styles.viewAttachmentSub}>
+                                  {isImg ? "Image" : fileKindLabel(att)}
+                                </Text>
+                              </View>
+
+                              <TouchableOpacity
+                                style={styles.downloadButton}
+                                onPress={() => openAttachment(att)}
+                                activeOpacity={0.8}
+                                hitSlop={6}
+                              >
                                 <Ionicons
-                                  name="refresh"
-                                  size={16}
+                                  name="download-outline"
+                                  size={14}
                                   color="#fff"
                                 />
-                                <Text style={styles.resendButtonText}>
-                                  Resend for approval
+                                <Text style={styles.downloadButtonText}>
+                                  Download
                                 </Text>
-                              </>
-                            )}
-                          </TouchableOpacity>
-
-                          <TouchableOpacity
-                            style={styles.deleteInViewButton}
-                            onPress={() => {
-                              const id = viewingEvent.id;
-                              const title = viewingEvent.title;
-                              setViewingEvent(null);
-                              setDeletingId(id);
-                              setDeletingTitle(title);
-                            }}
-                            activeOpacity={0.8}
-                          >
-                            <Ionicons
-                              name="trash-outline"
-                              size={16}
-                              color="#dc2626"
-                            />
-                            <Text style={styles.deleteInViewText}>Delete</Text>
-                          </TouchableOpacity>
-                        </View>
-                      ) : null}
+                              </TouchableOpacity>
+                            </View>
+                          );
+                        })}
+                      </View>
                     </View>
                   )}
 
-                {viewingEvent.status === "approved" &&
-                  viewingEvent.rsvpEnabled && (
-                    <View style={styles.viewSection}>
-                      <Text style={styles.viewSectionLabel}>Responses</Text>
+                  <View style={styles.postedByCard}>
+                    <View style={styles.postedByCardTop}>
+                      <UserAvatar
+                        name={viewingEvent.createdByName}
+                        photoUrl={viewingEvent.createdByPhoto}
+                        size={40}
+                      />
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.postedByLabel}>
+                          {viewingIsOwnPost ? "Posted by you" : "Posted by"}
+                        </Text>
+                        {!viewingIsOwnPost ? (
+                          <Text style={styles.postedByName} numberOfLines={1}>
+                            {viewingEvent.createdByName || "Member"}
+                          </Text>
+                        ) : null}
+                      </View>
+                      {viewingEvent.createdByRole ? (
+                        <View
+                          style={[
+                            styles.postedByRoleBadge,
+                            {
+                              backgroundColor:
+                                ROLE_META[viewingEvent.createdByRole as Role]
+                                  ?.bg ?? "#f1f5f9",
+                            },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.postedByRoleBadgeText,
+                              {
+                                color:
+                                  ROLE_META[viewingEvent.createdByRole as Role]
+                                    ?.color ?? "#475569",
+                              },
+                            ]}
+                          >
+                            {
+                              ROLE_META[viewingEvent.createdByRole as Role]
+                                ?.label
+                            }
+                          </Text>
+                        </View>
+                      ) : null}
+                    </View>
 
-                      {viewingIsOwnPost ? (
-                        <>
-                          {acceptedList.length === 0 &&
-                          rejectedList.length === 0 ? (
+                    {viewingEvent.createdByPhone || viewingEvent.createdAt ? (
+                      <View style={styles.postedByBottom}>
+                        {viewingEvent.createdByPhone ? (
+                          viewingIsOwnPost ? (
+                            <View style={styles.postedByPhonePill}>
+                              <Ionicons name="call" size={11} color="#075985" />
+                              <Text style={styles.postedByPhoneText}>
+                                {formatPhoneForDisplay(
+                                  viewingEvent.createdByPhone,
+                                )}
+                              </Text>
+                            </View>
+                          ) : (
+                            <TouchableOpacity
+                              onPress={() =>
+                                callNumber(viewingEvent.createdByPhone)
+                              }
+                              activeOpacity={0.75}
+                              hitSlop={6}
+                              style={styles.postedByPhonePill}
+                            >
+                              <Ionicons name="call" size={11} color="#075985" />
+                              <Text style={styles.postedByPhoneText}>
+                                {formatPhoneForDisplay(
+                                  viewingEvent.createdByPhone,
+                                )}
+                              </Text>
+                            </TouchableOpacity>
+                          )
+                        ) : null}
+
+                        {viewingEvent.createdAt ? (
+                          <Text style={styles.postedByTimeText}>
+                            {formatDateTime(viewingEvent.createdAt)}
+                          </Text>
+                        ) : null}
+                      </View>
+                    ) : null}
+                  </View>
+
+                  {viewingEvent.status === "approved" &&
+                    (viewingEvent.approvedByPhone ||
+                      viewingEvent.approvedById) && (
+                      <View style={styles.approvedCard}>
+                        <View style={styles.approvedCardTop}>
+                          <UserAvatar
+                            name={
+                              viewingEvent.approvedById === currentUserId
+                                ? currentUserName ||
+                                  viewingEvent.approvedByName ||
+                                  "Admin"
+                                : viewingEvent.approvedByName || "Admin"
+                            }
+                            photoUrl={
+                              viewingEvent.approvedByPhoto ??
+                              (viewingEvent.approvedById === currentUserId
+                                ? currentUserPhoto
+                                : null)
+                            }
+                            size={40}
+                          />
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.approvedCardLabel}>
+                              {viewingEvent.approvedById === currentUserId
+                                ? "Approved by you"
+                                : "Approved by"}
+                            </Text>
+                            {viewingEvent.approvedById !== currentUserId ? (
+                              <Text
+                                style={styles.approvedCardName}
+                                numberOfLines={1}
+                              >
+                                {viewingEvent.approvedByName || "Admin"}
+                              </Text>
+                            ) : null}
+                          </View>
+                          {viewingEvent.approvedByRole ? (
+                            <View
+                              style={[
+                                styles.approvedCardRoleBadge,
+                                {
+                                  backgroundColor:
+                                    ROLE_META[
+                                      viewingEvent.approvedByRole as Role
+                                    ]?.bg ?? "#f1f5f9",
+                                },
+                              ]}
+                            >
+                              <Text
+                                style={[
+                                  styles.approvedCardRoleBadgeText,
+                                  {
+                                    color:
+                                      ROLE_META[
+                                        viewingEvent.approvedByRole as Role
+                                      ]?.color ?? "#475569",
+                                  },
+                                ]}
+                              >
+                                {
+                                  ROLE_META[viewingEvent.approvedByRole as Role]
+                                    ?.label
+                                }
+                              </Text>
+                            </View>
+                          ) : null}
+                        </View>
+
+                        {viewingEvent.approvedById !== currentUserId &&
+                        viewingEvent.approvedByPhone ? (
+                          <View style={styles.approvedCardBottom}>
+                            <TouchableOpacity
+                              onPress={() =>
+                                callNumber(viewingEvent.approvedByPhone)
+                              }
+                              activeOpacity={0.75}
+                              hitSlop={6}
+                              style={styles.approvedCardPhonePill}
+                            >
+                              <Ionicons name="call" size={11} color="#065f46" />
+                              <Text style={styles.approvedCardPhoneText}>
+                                {formatPhoneForDisplay(
+                                  viewingEvent.approvedByPhone,
+                                )}
+                              </Text>
+                            </TouchableOpacity>
+                          </View>
+                        ) : viewingEvent.approvedByPhone ? (
+                          <View style={styles.approvedCardBottom}>
+                            <Ionicons name="call" size={11} color="#065f46" />
+                            <Text style={styles.approvedCardPhoneText}>
+                              {formatPhoneForDisplay(
+                                viewingEvent.approvedByPhone,
+                              )}
+                            </Text>
+                          </View>
+                        ) : null}
+                      </View>
+                    )}
+
+                  {viewingEvent.status === "pending" && canApprove && (
+                    <View style={styles.viewSection}>
+                      <Text style={styles.viewSectionLabel}>
+                        Approval Required
+                      </Text>
+                      <View style={styles.pendingApprovalBox}>
+                        <Ionicons name="time" size={16} color="#d97706" />
+                        <Text style={styles.pendingApprovalText}>
+                          This event is waiting for your approval.
+                        </Text>
+                      </View>
+                      <View style={styles.approvalActionsRowLarge}>
+                        <TouchableOpacity
+                          style={styles.rejectLargeButton}
+                          onPress={() => setRejectingId(viewingEvent.id)}
+                          activeOpacity={0.85}
+                        >
+                          <Ionicons name="close" size={16} color="#dc2626" />
+                          <Text style={styles.rejectLargeButtonText}>
+                            Reject
+                          </Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={[
+                            styles.approveLargeButton,
+                            busyId === viewingEvent.id && { opacity: 0.7 },
+                          ]}
+                          onPress={() => handleApprove(viewingEvent.id)}
+                          activeOpacity={0.85}
+                          disabled={busyId === viewingEvent.id}
+                        >
+                          {busyId === viewingEvent.id ? (
+                            <>
+                              <ActivityIndicator size="small" color="#fff" />
+                              <Text style={styles.approveLargeButtonText}>
+                                Approving…
+                              </Text>
+                            </>
+                          ) : (
+                            <>
+                              <Ionicons
+                                name="checkmark"
+                                size={16}
+                                color="#fff"
+                              />
+                              <Text style={styles.approveLargeButtonText}>
+                                Approve
+                              </Text>
+                            </>
+                          )}
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  )}
+
+                  {viewingEvent.status === "rejected" &&
+                    (viewingIsOwnPost || canApprove) && (
+                      <View style={styles.viewSection}>
+                        <Text style={styles.viewSectionLabel}>Rejection</Text>
+                        <View style={styles.rejectionReasonBox}>
+                          <Ionicons
+                            name="information-circle"
+                            size={14}
+                            color="#dc2626"
+                          />
+                          <Text style={styles.rejectionReasonText}>
+                            {viewingEvent.rejectionReason ||
+                              "No reason provided."}
+                          </Text>
+                        </View>
+                      </View>
+                    )}
+
+                  {viewingEvent.status === "approved" &&
+                    viewingEvent.rsvpEnabled && (
+                      <View style={styles.viewSection}>
+                        <Text style={styles.viewSectionLabel}>Responses</Text>
+
+                        {viewingIsOwnPost ? (
+                          (viewingEvent.responses?.length ?? 0) === 0 ? (
                             <View style={styles.posterWaitingBox}>
                               <Ionicons
                                 name="hourglass-outline"
@@ -3045,299 +3821,110 @@ function CalendarScreenImpl() {
                                 Waiting for members to respond…
                               </Text>
                             </View>
-                          ) : null}
-                        </>
-                      ) : myResponse ? (
-                        <View style={styles.myResponseBox}>
-                          <Ionicons
-                            name={
-                              myResponse.response === "accept"
-                                ? "checkmark-circle"
-                                : "close-circle"
-                            }
-                            size={18}
-                            color={
-                              myResponse.response === "accept"
-                                ? "#059669"
-                                : "#dc2626"
-                            }
-                          />
-                          <View style={{ flex: 1 }}>
-                            <Text
-                              style={[
-                                styles.myResponseText,
-                                {
-                                  color:
-                                    myResponse.response === "accept"
-                                      ? "#059669"
-                                      : "#dc2626",
-                                },
-                              ]}
-                            >
-                              You{" "}
-                              {myResponse.response === "accept"
-                                ? "accepted"
-                                : "rejected"}
-                            </Text>
-                            {myResponse.reason || myResponse.note ? (
-                              <Text style={styles.myResponseNote}>
-                                “{myResponse.reason || myResponse.note}”
+                          ) : null
+                        ) : myResponse ? (
+                          <View style={styles.myResponseBox}>
+                            <Ionicons
+                              name={
+                                myResponse.response === "accept"
+                                  ? "checkmark-circle"
+                                  : "close-circle"
+                              }
+                              size={18}
+                              color={
+                                myResponse.response === "accept"
+                                  ? "#059669"
+                                  : "#dc2626"
+                              }
+                            />
+                            <View style={{ flex: 1 }}>
+                              <Text
+                                style={[
+                                  styles.myResponseText,
+                                  {
+                                    color:
+                                      myResponse.response === "accept"
+                                        ? "#059669"
+                                        : "#dc2626",
+                                  },
+                                ]}
+                              >
+                                You{" "}
+                                {myResponse.response === "accept"
+                                  ? "accepted"
+                                  : "rejected"}
                               </Text>
-                            ) : null}
+                              {myResponse.reason || myResponse.note ? (
+                                <Text style={styles.myResponseNote}>
+                                  “{myResponse.reason || myResponse.note}”
+                                </Text>
+                              ) : null}
+                            </View>
+
+                            <TouchableOpacity
+                              style={styles.deleteResponseButton}
+                              onPress={() => setConfirmingDeleteResponse(true)}
+                              activeOpacity={0.75}
+                              hitSlop={6}
+                            >
+                              <Ionicons
+                                name="trash-outline"
+                                size={16}
+                                color="#dc2626"
+                              />
+                            </TouchableOpacity>
                           </View>
-                        </View>
-                      ) : (
-                        <View style={styles.rsvpButtonsRow}>
-                          <TouchableOpacity
-                            style={styles.rsvpAcceptButton}
-                            onPress={() => openRsvpReason("accept")}
-                            activeOpacity={0.85}
-                          >
-                            <Ionicons name="checkmark" size={16} color="#fff" />
-                            <Text style={styles.rsvpAcceptText}>Accept</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            style={styles.rsvpRejectButton}
-                            onPress={() => openRsvpReason("reject")}
-                            activeOpacity={0.85}
-                          >
-                            <Ionicons name="close" size={16} color="#fff" />
-                            <Text style={styles.rsvpRejectText}>Reject</Text>
-                          </TouchableOpacity>
-                        </View>
-                      )}
-
-                      <View style={styles.rsvpSummaryRow}>
-                        <View style={styles.rsvpSummaryBox}>
-                          <Ionicons
-                            name="checkmark-circle"
-                            size={16}
-                            color="#059669"
-                          />
-                          <Text style={styles.rsvpSummaryCount}>
-                            {acceptedList.length}
-                          </Text>
-                          <Text style={styles.rsvpSummaryLabel}>Accepted</Text>
-                        </View>
-                        <View style={styles.rsvpSummaryBox}>
-                          <Ionicons
-                            name="close-circle"
-                            size={16}
-                            color="#dc2626"
-                          />
-                          <Text style={styles.rsvpSummaryCount}>
-                            {rejectedList.length}
-                          </Text>
-                          <Text style={styles.rsvpSummaryLabel}>Rejected</Text>
-                        </View>
-                      </View>
-
-                      {acceptedList.length > 0 && (
-                        <View style={styles.responseListBox}>
-                          <Text style={styles.responseListTitle}>
-                            Accepted by
-                          </Text>
-                          {acceptedList.map((r) => (
-                            <View
-                              key={`${r.userId}-a`}
-                              style={styles.responseRejectRow}
+                        ) : canApprove ? null : (
+                          <View style={styles.rsvpButtonsRow}>
+                            <TouchableOpacity
+                              style={styles.rsvpAcceptButton}
+                              onPress={() => openRsvpReason("accept")}
+                              activeOpacity={0.85}
                             >
-                              <View style={styles.responseRejectTop}>
-                                <Ionicons
-                                  name="checkmark-circle"
-                                  size={14}
-                                  color="#059669"
-                                />
-                                <Text style={styles.responseRowName}>
-                                  {r.name}
-                                </Text>
-                                {r.phone ? (
-                                  <Text style={styles.responseRowPhone}>
-                                    {formatPhoneForDisplay(r.phone)}
-                                  </Text>
-                                ) : null}
-                              </View>
-                              {r.reason || r.note ? (
-                                <Text style={styles.responseAcceptNote}>
-                                  “{r.reason || r.note}”
-                                </Text>
-                              ) : null}
-                            </View>
-                          ))}
-                        </View>
-                      )}
-
-                      {rejectedList.length > 0 && (
-                        <View style={styles.responseListBox}>
-                          <Text style={styles.responseListTitle}>
-                            Rejected by
-                          </Text>
-                          {rejectedList.map((r) => (
-                            <View
-                              key={`${r.userId}-r`}
-                              style={styles.responseRejectRow}
+                              <Ionicons
+                                name="checkmark"
+                                size={16}
+                                color="#fff"
+                              />
+                              <Text style={styles.rsvpAcceptText}>Accept</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={styles.rsvpRejectButton}
+                              onPress={() => openRsvpReason("reject")}
+                              activeOpacity={0.85}
                             >
-                              <View style={styles.responseRejectTop}>
-                                <Ionicons
-                                  name="close-circle"
-                                  size={14}
-                                  color="#dc2626"
-                                />
-                                <Text style={styles.responseRowName}>
-                                  {r.name}
-                                </Text>
-                                {r.phone ? (
-                                  <Text style={styles.responseRowPhone}>
-                                    {formatPhoneForDisplay(r.phone)}
-                                  </Text>
-                                ) : null}
-                              </View>
-                              {r.reason || r.note ? (
-                                <Text style={styles.responseRejectReason}>
-                                  “{r.reason || r.note}”
-                                </Text>
-                              ) : null}
-                            </View>
-                          ))}
-                        </View>
-                      )}
-                    </View>
-                  )}
+                              <Ionicons name="close" size={16} color="#fff" />
+                              <Text style={styles.rsvpRejectText}>Reject</Text>
+                            </TouchableOpacity>
+                          </View>
+                        )}
 
-                {viewingEvent.status === "approved" &&
-                  !viewingEvent.rsvpEnabled &&
-                  !viewingIsOwnPost && (
-                    <View style={styles.viewSection}>
-                      <View style={styles.infoBox}>
-                        <Ionicons
-                          name="information-circle"
-                          size={16}
-                          color="#1a73e8"
-                        />
-                        <Text style={styles.infoBoxText}>
-                          This event doesn't require RSVP.
-                        </Text>
+                        <TouchableOpacity
+                          style={styles.viewAllResponsesButton}
+                          onPress={() =>
+                            openRsvpDetails(viewingEvent, "accepted")
+                          }
+                          activeOpacity={0.85}
+                        >
+                          <Ionicons
+                            name="list-outline"
+                            size={14}
+                            color="#1a73e8"
+                          />
+                          <Text style={styles.viewAllResponsesText}>
+                            View all responses
+                          </Text>
+                        </TouchableOpacity>
                       </View>
-                    </View>
-                  )}
-              </ScrollView>
+                    )}
+                </ScrollView>
+              )}
             </View>
           )}
         </View>
       </Modal>
 
-      {/* ----------------------------- RSVP Reason Modal --------------------- */}
-      <Modal
-        visible={rsvpReasonMode !== null}
-        transparent
-        animationType="fade"
-        onRequestClose={() => {
-          if (rsvpSubmitting) return;
-          setRsvpReasonMode(null);
-        }}
-      >
-        <Pressable
-          style={styles.modalBackdropCenter}
-          onPress={() => {
-            if (rsvpSubmitting) return;
-            setRsvpReasonMode(null);
-          }}
-        >
-          <Pressable style={styles.modalCardCenter} onPress={() => {}}>
-            <View
-              style={[
-                styles.modalIconCircle,
-                {
-                  backgroundColor:
-                    rsvpReasonMode === "accept" ? "#ecfdf5" : "#fef2f2",
-                },
-              ]}
-            >
-              <Ionicons
-                name={
-                  rsvpReasonMode === "accept"
-                    ? "checkmark-circle"
-                    : "close-circle"
-                }
-                size={36}
-                color={rsvpReasonMode === "accept" ? "#059669" : "#dc2626"}
-              />
-            </View>
-            <Text style={styles.modalTitle}>
-              {rsvpReasonMode === "accept" ? "Accept this?" : "Reject this?"}
-            </Text>
-            <Text style={styles.modalMessage}>
-              {rsvpReasonMode === "accept"
-                ? "You can optionally add a note for the organizer."
-                : "Please let the organizer know why you are rejecting."}
-            </Text>
-            <TextInput
-              style={[styles.textInput, styles.textArea, { width: "100%" }]}
-              placeholder={
-                rsvpReasonMode === "accept"
-                  ? "Note (optional)"
-                  : "Reason (optional)"
-              }
-              placeholderTextColor="#999"
-              value={rsvpReason}
-              onChangeText={setRsvpReason}
-              multiline
-              numberOfLines={2}
-              editable={!rsvpSubmitting}
-            />
-            <View style={styles.modalButtonRow}>
-              <TouchableOpacity
-                style={[
-                  styles.modalCancelButton,
-                  rsvpSubmitting && { opacity: 0.5 },
-                ]}
-                onPress={() => setRsvpReasonMode(null)}
-                activeOpacity={0.8}
-                disabled={rsvpSubmitting}
-              >
-                <Text style={styles.modalCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.modalConfirmButton,
-                  {
-                    backgroundColor:
-                      rsvpReasonMode === "accept" ? "#059669" : "#dc2626",
-                  },
-                  rsvpSubmitting && { opacity: 0.75 },
-                ]}
-                onPress={confirmRsvp}
-                activeOpacity={0.8}
-                disabled={rsvpSubmitting}
-              >
-                {rsvpSubmitting ? (
-                  <>
-                    <ActivityIndicator size="small" color="#ffffff" />
-                    <Text style={styles.modalConfirmText}>
-                      {rsvpReasonMode === "accept"
-                        ? "Accepting…"
-                        : "Rejecting…"}
-                    </Text>
-                  </>
-                ) : (
-                  <>
-                    <Ionicons
-                      name={rsvpReasonMode === "accept" ? "checkmark" : "close"}
-                      size={14}
-                      color="#ffffff"
-                    />
-                    <Text style={styles.modalConfirmText}>
-                      {rsvpReasonMode === "accept" ? "Accept" : "Reject"}
-                    </Text>
-                  </>
-                )}
-              </TouchableOpacity>
-            </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      {/* ----------------------------- Reject Modal (approval) --------------- */}
+      {/* ==================== Reject modal ==================== */}
       <Modal
         visible={rejectingId !== null}
         transparent
@@ -3347,14 +3934,19 @@ function CalendarScreenImpl() {
           setRejectingId(null);
         }}
       >
-        <Pressable
+        <KeyboardAvoidingView
           style={styles.modalBackdropCenter}
-          onPress={() => {
-            if (rejectSubmitting) return;
-            setRejectingId(null);
-          }}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={Platform.OS === "ios" ? 40 : 0}
         >
-          <Pressable style={styles.modalCardCenter} onPress={() => {}}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => {
+              if (rejectSubmitting) return;
+              setRejectingId(null);
+            }}
+          />
+          <View style={styles.modalCardCenter}>
             <View style={styles.modalIconCircle}>
               <Ionicons name="close-circle" size={36} color="#dc2626" />
             </View>
@@ -3410,11 +4002,11 @@ function CalendarScreenImpl() {
                 )}
               </TouchableOpacity>
             </View>
-          </Pressable>
-        </Pressable>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
 
-      {/* ----------------------------- Delete Modal -------------------------- */}
+      {/* ==================== Delete event modal ==================== */}
       <Modal
         visible={deletingId !== null}
         transparent
@@ -3431,7 +4023,7 @@ function CalendarScreenImpl() {
             setDeletingId(null);
           }}
         >
-          <Pressable style={styles.modalCardCenter} onPress={() => {}}>
+          <View style={styles.modalCardCenter}>
             <View style={styles.deleteIconCircle}>
               <Ionicons name="trash-outline" size={32} color="#dc2626" />
             </View>
@@ -3477,7 +4069,7 @@ function CalendarScreenImpl() {
                 )}
               </TouchableOpacity>
             </View>
-          </Pressable>
+          </View>
         </Pressable>
       </Modal>
     </View>
@@ -3526,6 +4118,28 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
   tabBadgeText: { color: "#fff", fontSize: 10, fontWeight: "700" },
+
+  /* Notice / Event kind tabs (now inside the list section) */
+  kindTabs: {
+    flexDirection: "row",
+    backgroundColor: "#f1f5f9",
+    borderRadius: 12,
+    padding: 4,
+    marginBottom: 12,
+    gap: 4,
+  },
+  kindTab: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 8,
+    borderRadius: 9,
+  },
+  kindTabActive: { backgroundColor: "#1a73e8" },
+  kindTabText: { fontSize: 12.5, fontWeight: "800", color: "#64748b" },
+  kindTabTextActive: { color: "#ffffff" },
 
   monthNavRow: {
     flexDirection: "row",
@@ -3693,7 +4307,6 @@ const styles = StyleSheet.create({
   dateBadge: {
     flexDirection: "row",
     alignItems: "center",
-    alignSelf: "flex-start",
     gap: 4,
     paddingHorizontal: 7,
     paddingVertical: 3,
@@ -3707,6 +4320,13 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: "#334155",
     letterSpacing: 0.2,
+  },
+
+  oneLineRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    alignItems: "center",
   },
 
   approvedBadgeSmall: {
@@ -3737,15 +4357,22 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
 
-  metaRow: {
+  personRow: {
     flexDirection: "row",
     alignItems: "center",
-    flexWrap: "wrap",
     gap: 6,
+    flexWrap: "wrap",
+  },
+  personNameText: {
+    fontSize: 11.5,
+    color: "#334155",
+    fontWeight: "700",
+    maxWidth: 140,
   },
   roleBadge: { paddingHorizontal: 6, paddingVertical: 1, borderRadius: 5 },
   roleBadgeText: { fontSize: 9.5, fontWeight: "800", letterSpacing: 0.3 },
   metaPhonePlain: { fontSize: 11, color: "#64748b", fontWeight: "500" },
+
   phonePill: {
     flexDirection: "row",
     alignItems: "center",
@@ -3777,26 +4404,17 @@ const styles = StyleSheet.create({
     letterSpacing: 0.3,
   },
 
-  cardBottomRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    flexWrap: "wrap",
-    gap: 6,
-  },
-  pillRow: { flexDirection: "row", flexWrap: "wrap", gap: 6 },
   pill: {
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
     backgroundColor: "#f1f5f9",
     paddingHorizontal: 7,
-    paddingVertical: 2,
+    paddingVertical: 3,
     borderRadius: 6,
   },
   pillText: { fontSize: 10.5, color: "#475569", fontWeight: "600" },
 
-  rsvpCountsRow: { flexDirection: "row", gap: 6 },
   rsvpChip: {
     flexDirection: "row",
     alignItems: "center",
@@ -3811,13 +4429,38 @@ const styles = StyleSheet.create({
   rsvpChipReject: { backgroundColor: "#fef2f2", borderColor: "#fecaca" },
   rsvpChipText: { fontSize: 10.5, fontWeight: "800", color: "#059669" },
 
-  approvalActionsRow: {
+  approvalActionsRowSingle: {
     flexDirection: "row",
-    justifyContent: "flex-end",
+    alignItems: "center",
+    justifyContent: "space-between",
     gap: 8,
     marginTop: 4,
   },
+  approvalRightGroup: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  viewSmallButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: "#eff6ff",
+    borderWidth: 1,
+    borderColor: "#dbeafe",
+  },
+  viewSmallButtonText: {
+    fontSize: 11.5,
+    fontWeight: "700",
+    color: "#1a73e8",
+  },
   rejectSmallButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 8,
@@ -3862,6 +4505,20 @@ const styles = StyleSheet.create({
   viewButtonText: { fontSize: 11.5, fontWeight: "700", color: "#1a73e8" },
 
   editDeleteGroup: { flexDirection: "row", alignItems: "center", gap: 8 },
+  resendSmallButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: "#1a73e8",
+  },
+  resendSmallButtonText: {
+    fontSize: 11.5,
+    fontWeight: "700",
+    color: "#fff",
+  },
   editSmallButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -3899,36 +4556,6 @@ const styles = StyleSheet.create({
     flex: 1,
     lineHeight: 16,
   },
-
-  rejectActionsRow: {
-    flexDirection: "row",
-    gap: 10,
-    marginTop: 10,
-  },
-  resendButton: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingVertical: 12,
-    borderRadius: 12,
-    backgroundColor: "#1a73e8",
-  },
-  resendButtonText: { color: "#fff", fontSize: 14, fontWeight: "700" },
-  deleteInViewButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#fecaca",
-    backgroundColor: "#fff5f5",
-  },
-  deleteInViewText: { color: "#dc2626", fontSize: 14, fontWeight: "700" },
 
   pendingApprovalBox: {
     flexDirection: "row",
@@ -4543,22 +5170,139 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
 
-  approvedBox: {
+  /* Posted-by card (blue) */
+  postedByCard: {
+    width: "100%",
+    backgroundColor: "#f0f9ff",
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: "#bae6fd",
+    gap: 10,
+  },
+  postedByCardTop: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
+  },
+  postedByLabel: {
+    fontSize: 11.5,
+    fontWeight: "800",
+    color: "#075985",
+    letterSpacing: 0.3,
+    textTransform: "uppercase",
+  },
+  postedByName: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#075985",
+    marginTop: 2,
+  },
+  postedByRoleBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  postedByRoleBadgeText: {
+    fontSize: 10.5,
+    fontWeight: "800",
+    letterSpacing: 0.3,
+  },
+  postedByBottom: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: "#bae6fd",
+    flexWrap: "wrap",
+  },
+  postedByPhonePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#ffffff",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#bae6fd",
+  },
+  postedByPhoneText: {
+    fontSize: 12.5,
+    fontWeight: "800",
+    color: "#075985",
+  },
+  postedByTimeText: {
+    fontSize: 11.5,
+    color: "#0369a1",
+    fontWeight: "600",
+    marginLeft: "auto",
+  },
+
+  /* Approved-by card (green) */
+  approvedCard: {
     width: "100%",
     backgroundColor: "#ecfdf5",
-    borderRadius: 12,
-    padding: 12,
-    marginBottom: 12,
+    borderRadius: 16,
+    padding: 14,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: "#bbf7d0",
+    gap: 10,
   },
-  approvedLabel: { fontSize: 11, color: "#065f46", fontWeight: "700" },
-  approvedPhone: {
-    fontSize: 13,
-    color: "#065f46",
+  approvedCardTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  approvedCardLabel: {
+    fontSize: 11.5,
     fontWeight: "800",
+    color: "#065f46",
+    letterSpacing: 0.3,
+    textTransform: "uppercase",
+  },
+  approvedCardName: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#065f46",
     marginTop: 2,
+  },
+  approvedCardRoleBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  approvedCardRoleBadgeText: {
+    fontSize: 10.5,
+    fontWeight: "800",
+    letterSpacing: 0.3,
+  },
+  approvedCardBottom: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: "#a7f3d0",
+  },
+  approvedCardPhonePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#ffffff",
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#a7f3d0",
+  },
+  approvedCardPhoneText: {
+    fontSize: 12.5,
+    fontWeight: "800",
+    color: "#065f46",
   },
 
   rsvpButtonsRow: {
@@ -4590,6 +5334,24 @@ const styles = StyleSheet.create({
   },
   rsvpRejectText: { fontSize: 14, fontWeight: "700", color: "#fff" },
 
+  viewAllResponsesButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    marginTop: 10,
+    paddingVertical: 12,
+    borderRadius: 12,
+    backgroundColor: "#eff6ff",
+    borderWidth: 1,
+    borderColor: "#dbeafe",
+  },
+  viewAllResponsesText: {
+    color: "#1a73e8",
+    fontSize: 13.5,
+    fontWeight: "700",
+  },
+
   myResponseBox: {
     flexDirection: "row",
     alignItems: "center",
@@ -4607,62 +5369,135 @@ const styles = StyleSheet.create({
     fontStyle: "italic",
     lineHeight: 16,
   },
+  deleteResponseButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: "#fef2f2",
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 4,
+  },
 
-  rsvpSummaryRow: { flexDirection: "row", gap: 10, marginBottom: 10 },
-  rsvpSummaryBox: {
+  responseRoleBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 5,
+  },
+  responseRoleBadgeText: {
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 0.3,
+  },
+
+  rsvpDetailsInlineScroll: {
+    maxHeight: SCREEN_HEIGHT * 0.7,
+    backgroundColor: "#ffffff",
+  },
+  rsvpDetailsInlineContent: {
+    paddingBottom: 24,
+  },
+  rsvpDetailsTabs: {
+    flexDirection: "row",
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 12,
+    gap: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#f1f5f9",
+  },
+  rsvpDetailsTab: {
     flex: 1,
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     gap: 6,
     paddingVertical: 10,
-    paddingHorizontal: 12,
     borderRadius: 10,
     backgroundColor: "#f8fafc",
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
   },
-  rsvpSummaryCount: { fontSize: 16, fontWeight: "800", color: "#0f172a" },
-  rsvpSummaryLabel: { fontSize: 12, color: "#64748b", fontWeight: "600" },
-
-  responseListBox: {
-    width: "100%",
-    backgroundColor: "#f8fafc",
-    borderRadius: 10,
-    padding: 10,
-    marginBottom: 10,
+  rsvpDetailsTabActive: {
+    backgroundColor: "#1a73e8",
+    borderColor: "#1a73e8",
   },
-  responseListTitle: {
-    fontSize: 11,
-    fontWeight: "800",
-    color: "#475569",
-    textTransform: "uppercase",
-    letterSpacing: 0.3,
-    marginBottom: 6,
-  },
-  responseRowName: {
+  rsvpDetailsTabText: {
     fontSize: 13,
-    fontWeight: "700",
+    fontWeight: "800",
+    color: "#334155",
+  },
+  rsvpDetailsTabTextActive: { color: "#ffffff" },
+
+  rsvpRowCard: {
+    backgroundColor: "#ffffff",
+    borderRadius: 14,
+    padding: 12,
+    marginTop: 10,
+    marginHorizontal: 16,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    gap: 10,
+  },
+  rsvpRowTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  rsvpRowNameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flexWrap: "wrap",
+  },
+  rsvpRowName: {
+    fontSize: 14.5,
+    fontWeight: "800",
     color: "#0f172a",
     flexShrink: 1,
   },
-  responseRowPhone: {
-    fontSize: 11.5,
+  rsvpRowPhone: {
+    fontSize: 12.5,
     color: "#64748b",
+    fontWeight: "600",
+    marginTop: 2,
+  },
+  rsvpRowTime: {
+    fontSize: 11,
+    color: "#94a3b8",
+    marginTop: 2,
     fontWeight: "500",
   },
-  responseRejectRow: { paddingVertical: 5, gap: 3 },
-  responseRejectTop: { flexDirection: "row", alignItems: "center", gap: 6 },
-  responseRejectReason: {
-    fontSize: 12,
-    color: "#b91c1c",
-    fontStyle: "italic",
-    marginLeft: 20,
-    lineHeight: 16,
+  rsvpRowNoteBox: {
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
-  responseAcceptNote: {
-    fontSize: 12,
-    color: "#065f46",
+  rsvpRowNoteBoxAccept: {
+    backgroundColor: "#ecfdf5",
+    borderWidth: 1,
+    borderColor: "#a7f3d0",
+  },
+  rsvpRowNoteBoxReject: {
+    backgroundColor: "#fef2f2",
+    borderWidth: 1,
+    borderColor: "#fecaca",
+  },
+  rsvpRowNoteText: {
+    fontSize: 13,
     fontStyle: "italic",
-    marginLeft: 20,
-    lineHeight: 16,
+    lineHeight: 18,
+  },
+  rsvpDetailsEmpty: {
+    alignItems: "center",
+    paddingVertical: 60,
+    gap: 10,
+    marginTop: 10,
+  },
+  rsvpDetailsEmptyText: {
+    fontSize: 13.5,
+    color: "#94a3b8",
+    fontWeight: "600",
   },
 
   modalCardCenter: {

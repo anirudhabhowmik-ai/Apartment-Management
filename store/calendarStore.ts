@@ -1,18 +1,8 @@
 // src/store/calendarStore.ts
-//
-// No zustand state. Exports types + constants + `calendarStore` API wrapper.
-
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
 
 export type CalendarEventType = "notice" | "event";
 export type CalendarEventStatus = "approved" | "pending" | "rejected";
 export type CalendarRole = "admin" | "owner" | "member";
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
 
 export const RESOURCE_OPTIONS = [
   "Clubhouse",
@@ -25,10 +15,6 @@ export const RESOURCE_OPTIONS = [
 ] as const;
 
 export type ResourceOption = (typeof RESOURCE_OPTIONS)[number];
-
-// ---------------------------------------------------------------------------
-// Domain types
-// ---------------------------------------------------------------------------
 
 export interface CalendarAttachment {
   uri: string;
@@ -45,6 +31,7 @@ export interface CalendarResponse {
   reason?: string;
   note?: string;
   at: string;
+  photo?: string;
 }
 
 export interface CalendarEvent {
@@ -67,11 +54,13 @@ export interface CalendarEvent {
   createdByName?: string;
   createdByPhone?: string;
   createdByRole?: CalendarRole;
+  createdByPhoto?: string;
 
   approvedById?: string;
   approvedByName?: string;
   approvedByPhone?: string;
   approvedByRole?: "admin" | "owner";
+  approvedByPhoto?: string;
   rejectionReason?: string;
 
   createdAt: string;
@@ -101,10 +90,6 @@ export interface RsvpPayload {
   note?: string;
 }
 
-// ---------------------------------------------------------------------------
-// API base URL
-// ---------------------------------------------------------------------------
-
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
 
 if (!API_BASE_URL) {
@@ -113,10 +98,6 @@ if (!API_BASE_URL) {
       "Add it to your .env and restart Expo.",
   );
 }
-
-// ---------------------------------------------------------------------------
-// HTTP helper
-// ---------------------------------------------------------------------------
 
 type RequestOptions = {
   method?: "GET" | "POST" | "PATCH" | "DELETE";
@@ -180,16 +161,8 @@ async function request<T = any>(
   return data as T;
 }
 
-// ---------------------------------------------------------------------------
-// URL builder
-// ---------------------------------------------------------------------------
-
 const eventsUrl = (accountId: string) =>
   `/accounts/${accountId}/calendar/events`;
-
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
 
 export const calendarStore = {
   loadEvents: (
@@ -282,6 +255,16 @@ export const calendarStore = {
     request<CalendarEvent>(`${eventsUrl(accountId)}/${id}/respond`, {
       method: "POST",
       body: payload,
+      token,
+    }),
+
+  deleteResponse: (
+    accountId: string,
+    id: string,
+    token?: string | null,
+  ): Promise<CalendarEvent> =>
+    request<CalendarEvent>(`${eventsUrl(accountId)}/${id}/respond`, {
+      method: "DELETE",
       token,
     }),
 };
