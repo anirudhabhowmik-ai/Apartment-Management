@@ -1,7 +1,18 @@
-import { create } from "zustand";
+// src/store/calendarStore.ts
+//
+// No zustand state. Exports types + constants + `calendarStore` API wrapper.
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 export type CalendarEventType = "notice" | "event";
 export type CalendarEventStatus = "approved" | "pending" | "rejected";
+export type CalendarRole = "admin" | "owner" | "member";
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
 
 export const RESOURCE_OPTIONS = [
   "Clubhouse",
@@ -15,168 +26,262 @@ export const RESOURCE_OPTIONS = [
 
 export type ResourceOption = (typeof RESOURCE_OPTIONS)[number];
 
+// ---------------------------------------------------------------------------
+// Domain types
+// ---------------------------------------------------------------------------
+
+export interface CalendarAttachment {
+  uri: string;
+  name: string;
+  mimeType?: string;
+}
+
+export interface CalendarResponse {
+  userId: string;
+  name: string;
+  phone?: string;
+  role?: CalendarRole;
+  response: "accept" | "reject";
+  reason?: string;
+  note?: string;
+  at: string;
+}
+
 export interface CalendarEvent {
   id: string;
   accountId: string;
   title: string;
   description?: string;
   type: CalendarEventType;
-  resource?: ResourceOption;
-  date: string; // "YYYY-MM-DD"
+  resource?: ResourceOption | string;
+  date: string;
   startTime?: string;
   endTime?: string;
   status: CalendarEventStatus;
+  isImportant: boolean;
+  rsvpEnabled: boolean;
+
+  attachments: CalendarAttachment[];
+
   createdById: string;
-  createdByName: string;
+  createdByName?: string;
   createdByPhone?: string;
-  createdByRole: "admin" | "owner";
+  createdByRole?: CalendarRole;
+
+  approvedById?: string;
+  approvedByName?: string;
+  approvedByPhone?: string;
+  approvedByRole?: "admin" | "owner";
   rejectionReason?: string;
+
   createdAt: string;
-  respondedAt?: string;
+  updatedAt?: string;
+
+  responses: CalendarResponse[];
 }
 
-type NewCalendarEvent = Omit<
-  CalendarEvent,
-  "id" | "createdAt" | "status" | "respondedAt" | "rejectionReason"
->;
-
-type CalendarEventUpdates = Partial<
-  Omit<
-    CalendarEvent,
-    | "id"
-    | "accountId"
-    | "createdById"
-    | "createdByName"
-    | "createdByPhone"
-    | "createdByRole"
-    | "createdAt"
-    | "status"
-    | "rejectionReason"
-    | "respondedAt"
-  >
->;
-
-interface CalendarState {
-  events: CalendarEvent[];
-  addEvent: (event: NewCalendarEvent) => CalendarEvent;
-  editEvent: (id: string, updates: CalendarEventUpdates) => void;
-  approveEvent: (id: string) => void;
-  rejectEvent: (id: string, reason?: string) => void;
-  deleteEvent: (id: string) => void;
-  getEventsForAccount: (accountId: string) => CalendarEvent[];
+export interface NewCalendarEvent {
+  title: string;
+  description?: string;
+  type: CalendarEventType;
+  resource?: string;
+  date: string;
+  startTime?: string;
+  endTime?: string;
+  isImportant?: boolean;
+  rsvpEnabled?: boolean;
+  attachments?: CalendarAttachment[];
 }
 
-// Seed data for demo
-const today = new Date();
-const seedDate = (offsetDays: number) => {
-  const d = new Date(today);
-  d.setDate(d.getDate() + offsetDays);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
-    d.getDate(),
-  ).padStart(2, "0")}`;
+export type CalendarEventUpdates = Partial<NewCalendarEvent>;
+
+export interface RsvpPayload {
+  response: "accept" | "reject";
+  reason?: string;
+  note?: string;
+}
+
+// ---------------------------------------------------------------------------
+// API base URL
+// ---------------------------------------------------------------------------
+
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
+
+if (!API_BASE_URL) {
+  console.error(
+    "[calendarStore] EXPO_PUBLIC_API_URL is not set. " +
+      "Add it to your .env and restart Expo.",
+  );
+}
+
+// ---------------------------------------------------------------------------
+// HTTP helper
+// ---------------------------------------------------------------------------
+
+type RequestOptions = {
+  method?: "GET" | "POST" | "PATCH" | "DELETE";
+  body?: unknown;
+  token?: string | null;
 };
 
-const DUMMY_EVENTS: CalendarEvent[] = [
-  {
-    id: "seed_notice_1",
-    accountId: "dummy_account_1",
-    title: "Water tank cleaning",
-    description: "Water supply will be interrupted from 10 AM to 1 PM.",
-    type: "notice",
-    date: seedDate(2),
-    status: "approved",
-    createdById: "admin_seed",
-    createdByName: "Secretary",
-    createdByRole: "admin",
-    createdAt: new Date().toISOString(),
+async function request<T = any>(
+  path: string,
+  { method = "GET", body, token }: RequestOptions = {},
+): Promise<T> {
+  if (!API_BASE_URL) {
+    const err: any = new Error("Backend API URL is not configured.");
+    err.code = "missing_api_url";
+    throw err;
+  }
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  const url = `${API_BASE_URL}${path}`;
+
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method,
+      headers,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  } catch (netErr: any) {
+    console.error(`[calendarStore] Network error on ${method} ${url}`, netErr);
+    const err: any = new Error(netErr?.message || "Network request failed");
+    err.code = "network_error";
+    throw err;
+  }
+
+  const text = await res.text();
+  let data: any = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = text;
+    }
+  }
+
+  if (!res.ok) {
+    const message =
+      (data && typeof data === "object" && (data as any).message) ||
+      `Request failed (${res.status})`;
+    console.warn(`[calendarStore] ${method} ${url} -> ${res.status}`, data);
+    const err: any = new Error(message);
+    err.code = (data as any)?.code ?? "request_failed";
+    err.status = res.status;
+    err.payload = data;
+    throw err;
+  }
+
+  return data as T;
+}
+
+// ---------------------------------------------------------------------------
+// URL builder
+// ---------------------------------------------------------------------------
+
+const eventsUrl = (accountId: string) =>
+  `/accounts/${accountId}/calendar/events`;
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+export const calendarStore = {
+  loadEvents: (
+    accountId: string,
+    { month }: { month?: string } = {},
+    token?: string | null,
+  ): Promise<CalendarEvent[]> => {
+    const qs = month ? `?month=${encodeURIComponent(month)}` : "";
+    return request<CalendarEvent[]>(`${eventsUrl(accountId)}${qs}`, { token });
   },
-  {
-    id: "seed_event_1",
-    accountId: "dummy_account_1",
-    title: "Diwali Get-together",
-    description: "Community celebration with snacks and games.",
-    type: "event",
-    resource: "Clubhouse",
-    date: seedDate(5),
-    startTime: "6:00 PM",
-    endTime: "9:00 PM",
-    status: "approved",
-    createdById: "admin_seed",
-    createdByName: "Secretary",
-    createdByRole: "admin",
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: "seed_event_2",
-    accountId: "dummy_account_1",
-    title: "Birthday Party",
-    description: "Requesting the community hall for a small birthday party.",
-    type: "event",
-    resource: "Community Hall",
-    date: seedDate(7),
-    startTime: "5:00 PM",
-    endTime: "8:00 PM",
-    status: "pending",
-    createdById: "owner_seed",
-    createdByName: "Rohan Mehta",
-    createdByPhone: "+91 9876500000",
-    createdByRole: "owner",
-    createdAt: new Date().toISOString(),
-  },
-];
 
-export const useCalendarStore = create<CalendarState>((set, get) => ({
-  events: DUMMY_EVENTS,
+  getEvent: (
+    accountId: string,
+    id: string,
+    token?: string | null,
+  ): Promise<CalendarEvent> =>
+    request<CalendarEvent>(`${eventsUrl(accountId)}/${id}`, { token }),
 
-  addEvent: (event) => {
-    const status: CalendarEventStatus =
-      event.type === "notice" || event.createdByRole === "admin"
-        ? "approved"
-        : "pending";
+  addEvent: (
+    accountId: string,
+    payload: NewCalendarEvent,
+    token?: string | null,
+  ): Promise<CalendarEvent> =>
+    request<CalendarEvent>(eventsUrl(accountId), {
+      method: "POST",
+      body: payload,
+      token,
+    }),
 
-    const newEvent: CalendarEvent = {
-      ...event,
-      id: `evt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-      status,
-      createdAt: new Date().toISOString(),
-    };
+  editEvent: (
+    accountId: string,
+    id: string,
+    payload: CalendarEventUpdates,
+    token?: string | null,
+  ): Promise<CalendarEvent> =>
+    request<CalendarEvent>(`${eventsUrl(accountId)}/${id}`, {
+      method: "PATCH",
+      body: payload,
+      token,
+    }),
 
-    set((s) => ({ events: [...s.events, newEvent] }));
-    return newEvent;
-  },
+  approveEvent: (
+    accountId: string,
+    id: string,
+    token?: string | null,
+  ): Promise<CalendarEvent> =>
+    request<CalendarEvent>(`${eventsUrl(accountId)}/${id}/approve`, {
+      method: "POST",
+      token,
+    }),
 
-  editEvent: (id, updates) => {
-    set((s) => ({
-      events: s.events.map((e) => (e.id === id ? { ...e, ...updates } : e)),
-    }));
-  },
+  rejectEvent: (
+    accountId: string,
+    id: string,
+    reason?: string,
+    token?: string | null,
+  ): Promise<CalendarEvent> =>
+    request<CalendarEvent>(`${eventsUrl(accountId)}/${id}/reject`, {
+      method: "POST",
+      body: { reason },
+      token,
+    }),
 
-  approveEvent: (id) =>
-    set((s) => ({
-      events: s.events.map((e) =>
-        e.id === id
-          ? { ...e, status: "approved", respondedAt: new Date().toISOString() }
-          : e,
-      ),
-    })),
+  resendEvent: (
+    accountId: string,
+    id: string,
+    token?: string | null,
+  ): Promise<CalendarEvent> =>
+    request<CalendarEvent>(`${eventsUrl(accountId)}/${id}/resend`, {
+      method: "POST",
+      token,
+    }),
 
-  rejectEvent: (id, reason) =>
-    set((s) => ({
-      events: s.events.map((e) =>
-        e.id === id
-          ? {
-              ...e,
-              status: "rejected",
-              rejectionReason: reason?.trim() || undefined,
-              respondedAt: new Date().toISOString(),
-            }
-          : e,
-      ),
-    })),
+  deleteEvent: (
+    accountId: string,
+    id: string,
+    token?: string | null,
+  ): Promise<{ success: boolean }> =>
+    request<{ success: boolean }>(`${eventsUrl(accountId)}/${id}`, {
+      method: "DELETE",
+      token,
+    }),
 
-  deleteEvent: (id) =>
-    set((s) => ({ events: s.events.filter((e) => e.id !== id) })),
-
-  getEventsForAccount: (accountId) =>
-    get().events.filter((e) => e.accountId === accountId),
-}));
+  respondToEvent: (
+    accountId: string,
+    id: string,
+    payload: RsvpPayload,
+    token?: string | null,
+  ): Promise<CalendarEvent> =>
+    request<CalendarEvent>(`${eventsUrl(accountId)}/${id}/respond`, {
+      method: "POST",
+      body: payload,
+      token,
+    }),
+};
