@@ -84,6 +84,18 @@ type PendingOwnershipOffer = {
   current_role: string | null;
 };
 
+type PendingVisibilityOffer = {
+  id: string;
+  account_id: string;
+  account_name: string;
+  account_photo_url: string | null;
+  invited_name: string | null;
+  invited_by_phone: string | null;
+  created_at: string;
+  current_role: string | null;
+  role: "member_visibility" | "staff_visibility";
+};
+
 type MyRole = {
   role:
     | "admin"
@@ -227,10 +239,6 @@ async function openingBalanceRequest<T>(
   return data as T;
 }
 
-/**
- * Fetch owner + admins for a given account using the existing
- * accountController.getAccountPeople endpoint.
- */
 async function fetchAccountOwnerContact(
   accountId: string,
 ): Promise<{ owner: OwnerContact | null; admins: OwnerContact[] }> {
@@ -551,7 +559,7 @@ function computeAllTimeFinance(
 }
 
 /* ============================================================
-   BILL MISSING MODAL — custom in-app alert with owner photo
+   BILL MISSING MODAL
    ============================================================ */
 
 function BillMissingModal({
@@ -957,6 +965,10 @@ function ToggleSwitch({
   );
 }
 
+/* ------------------------------------------------------------
+   PENDING OFFER BANNERS
+   ------------------------------------------------------------ */
+
 function PendingAdminOfferBanner({
   offer,
   busy,
@@ -1119,8 +1131,90 @@ function PendingOwnershipOfferBanner({
   );
 }
 
+/* ------------------- NEW: VISIBILITY OFFER BANNER ------------------- */
+
+function PendingVisibilityOfferBanner({
+  offer,
+  busy,
+  onAccept,
+  onReject,
+}: {
+  offer: PendingVisibilityOffer;
+  busy: boolean;
+  onAccept: () => void;
+  onReject: () => void;
+}) {
+  const isStaff = offer.role === "staff_visibility";
+  const title = isStaff ? "Staff access invite" : "Member access invite";
+  const roleTag = isStaff ? "STAFF" : "MEMBER";
+  const icon: keyof typeof Ionicons.glyphMap = isStaff ? "briefcase" : "home";
+  const bg = isStaff ? "#F5F3FF" : "#EFF6FF";
+  const fg = isStaff ? "#6D28D9" : "#1D4ED8";
+  const acceptBg = isStaff ? "#7C3AED" : "#2563EB";
+
+  return (
+    <View style={styles.offerBanner}>
+      <View style={styles.offerBannerHeader}>
+        <View style={[styles.offerBannerIcon, { backgroundColor: bg }]}>
+          <Ionicons name={icon} size={20} color={fg} />
+        </View>
+        <View style={styles.offerBannerHeaderText}>
+          <View style={styles.upgradeTitleRow}>
+            <Text style={styles.offerBannerTitle} numberOfLines={1}>
+              {title}
+            </Text>
+            <View style={[styles.upgradePillTo, { backgroundColor: bg }]}>
+              <Text style={[styles.upgradePillToText, { color: fg }]}>
+                {roleTag}
+              </Text>
+            </View>
+          </View>
+          <Text style={styles.offerBannerSubtitle} numberOfLines={2}>
+            {offer.account_name || "This account"} invited you to view{" "}
+            {isStaff ? "staff details" : "member details"} on this property.
+          </Text>
+        </View>
+      </View>
+
+      <View style={styles.offerBannerActions}>
+        <TouchableOpacity
+          style={[styles.offerBannerBtn, styles.offerBannerReject]}
+          onPress={onReject}
+          activeOpacity={0.8}
+          disabled={busy}
+        >
+          {busy ? (
+            <ActivityIndicator size="small" color="#DC2626" />
+          ) : (
+            <>
+              <Ionicons name="close-outline" size={16} color="#DC2626" />
+              <Text style={styles.offerBannerRejectText}>Reject</Text>
+            </>
+          )}
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.offerBannerBtn, { backgroundColor: acceptBg }]}
+          onPress={onAccept}
+          activeOpacity={0.85}
+          disabled={busy}
+        >
+          {busy ? (
+            <ActivityIndicator size="small" color="#FFFFFF" />
+          ) : (
+            <>
+              <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+              <Text style={styles.offerBannerAcceptText}>Accept</Text>
+            </>
+          )}
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
+}
+
 /* ============================================================
-   MONTH / YEAR PICKER MODAL
+   MONTH / YEAR PICKER
    ============================================================ */
 
 function MonthYearPickerModal({
@@ -1511,7 +1605,6 @@ export default function HomeScreen() {
     null,
   );
 
-  // Attendance modal (uses top-level month; no internal slider)
   const [attendanceModalStaffId, setAttendanceModalStaffId] = useState<
     string | null
   >(null);
@@ -1520,7 +1613,6 @@ export default function HomeScreen() {
     role: string;
   } | null>(null);
 
-  // Bill-missing modal
   const [billMissingVisible, setBillMissingVisible] = useState(false);
   const [billMissingOwner, setBillMissingOwner] = useState<OwnerContact | null>(
     null,
@@ -1534,6 +1626,9 @@ export default function HomeScreen() {
   >([]);
   const [pendingOwnershipOffers, setPendingOwnershipOffers] = useState<
     PendingOwnershipOffer[]
+  >([]);
+  const [pendingVisibilityOffers, setPendingVisibilityOffers] = useState<
+    PendingVisibilityOffer[]
   >([]);
   const [offersLoading, setOffersLoading] = useState(false);
   const [busyOfferId, setBusyOfferId] = useState<string | null>(null);
@@ -1567,6 +1662,38 @@ export default function HomeScreen() {
         .join(","),
     [accounts],
   );
+
+  /* ------------------------------------------------------------
+     ROLE-AWARE VISIBILITY
+     ------------------------------------------------------------ */
+
+  const hasMemberAccessOnAccount = useMemo(() => {
+    if (isAdmin) return true;
+    return myRoles.some((r) => r.role === "member_visibility");
+  }, [isAdmin, myRoles]);
+
+  const hasStaffAccessOnAccount = useMemo(() => {
+    if (isAdmin) return true;
+    return myRoles.some((r) => r.role === "staff_visibility");
+  }, [isAdmin, myRoles]);
+
+  const visibleMemberProfiles = useMemo(() => {
+    if (!user) return [];
+    if (!hasMemberAccessOnAccount) return [];
+    return apartmentMembers.filter((m: any) => m.userId === user.id);
+  }, [user, apartmentMembers, hasMemberAccessOnAccount]);
+
+  const visibleStaffProfiles = useMemo(() => {
+    if (!user) return [];
+    if (!hasStaffAccessOnAccount) return [];
+    return staffMembers.filter((s: any) => s.userId === user.id);
+  }, [user, staffMembers, hasStaffAccessOnAccount]);
+
+  const matchedMemberProfiles = visibleMemberProfiles;
+  const matchedStaffProfiles = visibleStaffProfiles;
+
+  const hasAnyProfile =
+    matchedMemberProfiles.length > 0 || matchedStaffProfiles.length > 0;
 
   const handleSelfPrevMonth = () => {
     if (selfMonth === 0) {
@@ -1605,6 +1732,7 @@ export default function HomeScreen() {
     if (!user?.phone) {
       setPendingAdminOffers([]);
       setPendingOwnershipOffers([]);
+      setPendingVisibilityOffers([]);
       return;
     }
 
@@ -1612,6 +1740,7 @@ export default function HomeScreen() {
     if (!token) {
       setPendingAdminOffers([]);
       setPendingOwnershipOffers([]);
+      setPendingVisibilityOffers([]);
       return;
     }
 
@@ -1624,6 +1753,7 @@ export default function HomeScreen() {
       if (!res.ok) {
         setPendingAdminOffers([]);
         setPendingOwnershipOffers([]);
+        setPendingVisibilityOffers([]);
         return;
       }
 
@@ -1638,6 +1768,7 @@ export default function HomeScreen() {
 
       const adminOffers: PendingAdminOffer[] = [];
       const ownershipOffers: PendingOwnershipOffer[] = [];
+      const visibilityOffers: PendingVisibilityOffer[] = [];
 
       for (const r of rows) {
         if (!r) continue;
@@ -1669,15 +1800,32 @@ export default function HomeScreen() {
             created_at: r.created_at ?? "",
             current_role: currentRole,
           });
+        } else if (
+          r.role === "member_visibility" ||
+          r.role === "staff_visibility"
+        ) {
+          visibilityOffers.push({
+            id: r.id,
+            account_id: r.account_id,
+            account_name: r.account_name ?? "",
+            account_photo_url: r.account_photo_url ?? null,
+            invited_name: r.invited_name ?? null,
+            invited_by_phone: r.invited_by_phone ?? null,
+            created_at: r.created_at ?? "",
+            current_role: currentRole,
+            role: r.role,
+          });
         }
       }
 
       setPendingAdminOffers(adminOffers);
       setPendingOwnershipOffers(ownershipOffers);
+      setPendingVisibilityOffers(visibilityOffers);
     } catch (e) {
       console.warn("[home] loadPendingOffers failed:", e);
       setPendingAdminOffers([]);
       setPendingOwnershipOffers([]);
+      setPendingVisibilityOffers([]);
     } finally {
       setOffersLoading(false);
     }
@@ -1887,6 +2035,65 @@ export default function HomeScreen() {
     }
   };
 
+  /* ── Accept / Reject visibility invites ── */
+  const handleAcceptVisibility = async (offer: PendingVisibilityOffer) => {
+    const token = await getAuthToken();
+    if (!token) return;
+    setBusyOfferId(offer.id);
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/invitations/${offer.id}/accept`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+      if (!res.ok) {
+        await loadPendingOffers();
+        return;
+      }
+      setPendingVisibilityOffers((prev) =>
+        prev.filter((o) => o.id !== offer.id),
+      );
+      await Promise.all([
+        refreshAccounts(),
+        loadMyRoles(),
+        membersHook.refresh({ force: true }),
+        staffHook.refresh({ force: true }),
+      ]);
+    } catch (e) {
+      console.warn("[home] accept visibility failed:", e);
+    } finally {
+      setBusyOfferId(null);
+    }
+  };
+
+  const handleRejectVisibility = async (offer: PendingVisibilityOffer) => {
+    const token = await getAuthToken();
+    if (!token) return;
+    setBusyOfferId(offer.id);
+    try {
+      const res = await fetch(
+        `${API_BASE_URL}/invitations/${offer.id}/reject`,
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+      if (!res.ok) {
+        await loadPendingOffers();
+        return;
+      }
+      setPendingVisibilityOffers((prev) =>
+        prev.filter((o) => o.id !== offer.id),
+      );
+    } catch (e) {
+      console.warn("[home] reject visibility failed:", e);
+    } finally {
+      setBusyOfferId(null);
+    }
+  };
+
   /* ── Withdraw modal ── */
   const openWithdrawModal = useCallback(async () => {
     if (!selectedAccount?.id || !user?.id) return;
@@ -2064,23 +2271,11 @@ export default function HomeScreen() {
     };
   }, [selectedAccount?.id]);
 
-  const matchedMemberProfiles = useMemo(() => {
-    if (!user || !selectedAccount) return [];
-    return apartmentMembers.filter((m: any) => m.userId === user.id);
-  }, [user, selectedAccount, apartmentMembers]);
-
-  const matchedStaffProfiles = useMemo(() => {
-    if (!user || !selectedAccount) return [];
-    return staffMembers.filter((s: any) => s.userId === user.id);
-  }, [user, selectedAccount, staffMembers]);
-
-  const hasAnyProfile =
-    matchedMemberProfiles.length > 0 || matchedStaffProfiles.length > 0;
-
   /* ── Fetch attendance for own staff profiles across all accounts ── */
   useEffect(() => {
     if (!user?.id) return;
     if (!accounts.length) return;
+    if (!hasStaffAccessOnAccount) return;
 
     let cancelled = false;
 
@@ -2147,7 +2342,7 @@ export default function HomeScreen() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, accounts, selfMonthKey]);
+  }, [user?.id, accounts, selfMonthKey, hasStaffAccessOnAccount]);
 
   const dashboardData = useMemo(() => {
     const emptyData = {
@@ -2455,7 +2650,6 @@ export default function HomeScreen() {
               My Roles on this Property
             </Text>
 
-            {/* Shared month/year slider */}
             <View style={styles.roleMonthSwitcher}>
               <TouchableOpacity
                 onPress={handleSelfPrevMonth}
@@ -2486,7 +2680,6 @@ export default function HomeScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* MEMBER ROWS — no navigation on tap, informational only */}
             {hasMembers ? (
               <View style={styles.groupCard}>
                 <Pressable
@@ -2555,7 +2748,6 @@ export default function HomeScreen() {
                             styles.roleRowWrapLast,
                         ]}
                       >
-                        {/* Read-only row (no navigation) */}
                         <View style={styles.roleRowTop}>
                           <View style={styles.groupRowInfo}>
                             <Text
@@ -2680,7 +2872,6 @@ export default function HomeScreen() {
               </View>
             ) : null}
 
-            {/* STAFF ROWS — no navigation on tap, informational only */}
             {hasStaff ? (
               <View style={styles.groupCard}>
                 <Pressable
@@ -2763,7 +2954,6 @@ export default function HomeScreen() {
                             styles.roleRowWrapLast,
                         ]}
                       >
-                        {/* Read-only row (no navigation) */}
                         <View style={styles.roleRowTop}>
                           <View style={styles.groupRowInfo}>
                             <Text
@@ -3249,7 +3439,8 @@ export default function HomeScreen() {
   const renderPendingOffers = () => {
     if (
       pendingAdminOffers.length === 0 &&
-      pendingOwnershipOffers.length === 0
+      pendingOwnershipOffers.length === 0 &&
+      pendingVisibilityOffers.length === 0
     ) {
       return null;
     }
@@ -3272,6 +3463,15 @@ export default function HomeScreen() {
             busy={busyOfferId === offer.id}
             onAccept={() => handleAcceptOffer(offer)}
             onReject={() => handleRejectOffer(offer)}
+          />
+        ))}
+        {pendingVisibilityOffers.map((offer) => (
+          <PendingVisibilityOfferBanner
+            key={offer.id}
+            offer={offer}
+            busy={busyOfferId === offer.id}
+            onAccept={() => handleAcceptVisibility(offer)}
+            onReject={() => handleRejectVisibility(offer)}
           />
         ))}
       </View>
@@ -3326,7 +3526,6 @@ export default function HomeScreen() {
 
           {renderProfileBlock()}
 
-          {/* Society blocks only for members (not staff-only) */}
           {isMember ? (
             <>
               <View style={styles.section}>
@@ -4040,7 +4239,6 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
 
-  /* ── Bill missing modal ── */
   billModalCard: {
     width: "100%",
     maxWidth: 400,
@@ -4072,10 +4270,7 @@ const styles = StyleSheet.create({
     marginTop: 8,
     maxWidth: 330,
   },
-  billContactsWrap: {
-    width: "100%",
-    marginTop: 16,
-  },
+  billContactsWrap: { width: "100%", marginTop: 16 },
   billContactsLabel: {
     fontSize: 11,
     fontWeight: "800",
