@@ -4,7 +4,6 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
   Image,
   Keyboard,
   KeyboardAvoidingView,
@@ -16,7 +15,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  View,
+  View
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -32,7 +31,6 @@ import {
 } from "../../hooks/useManagement";
 import { usePayments } from "../../hooks/usePayments";
 import { useUserRole } from "../../hooks/useUserRole";
-import { generateBillPDF, savePDFToDevice } from "../../services/pdfGenerator";
 import { useAttendanceStore } from "../../store/attendanceStore";
 import { BillMemberType, useBillStore } from "../../store/billStore";
 import { useAuthStore } from "../../store/useAuthStore";
@@ -716,6 +714,50 @@ const getCalculatedStaffSalary = (
   return Math.round((salary / daysInMonth) * paidDays);
 };
 
+/* ------------------------------------------------------------
+   Paid days helpers (for staff attendance visibility)
+   ------------------------------------------------------------ */
+
+/**
+ * Count paid days for a staff member in a given month using the
+ * statuses we already have cached/fetched. Weekends with no explicit
+ * entry count as paid; anything marked `absent` does not.
+ */
+const getPaidDaysCount = (
+  month: string | null,
+  statuses: Record<string, AttendanceStatus> | undefined,
+): number | null => {
+  if (!month) return null;
+  const daysInMonth = new Date(
+    Number(month.slice(0, 4)),
+    Number(month.slice(5, 7)),
+    0,
+  ).getDate();
+  if (!daysInMonth || daysInMonth < 1) return null;
+
+  const map = statuses ?? {};
+  let paid = 0;
+  for (let d = 1; d <= daysInMonth; d++) {
+    const date = `${month}-${String(d).padStart(2, "0")}`;
+    const explicit = map[date];
+    const defaultStatus: AttendanceStatus =
+      new Date(`${date}T00:00:00`).getDay() % 6 === 0 ? "weekend" : "present";
+    const status = explicit ?? defaultStatus;
+    if (status !== "absent") paid += 1;
+  }
+  return paid;
+};
+
+const getDaysInMonthCount = (month: string | null): number | null => {
+  if (!month) return null;
+  const days = new Date(
+    Number(month.slice(0, 4)),
+    Number(month.slice(5, 7)),
+    0,
+  ).getDate();
+  return days > 0 ? days : null;
+};
+
 const resolveDueAmount = (
   member: any,
   month: string | null,
@@ -900,11 +942,7 @@ export default function PeopleScreen() {
   const clearRecord = useAttendanceStore((state) => state.clearRecord);
   const attendanceVersion = useAttendanceStore((state) => state.version);
 
-  const {
-    getBillConfig,
-    fetchConfigFromServer,
-    templates: billTemplates,
-  } = useBillStore();
+  const { templates: billTemplates } = useBillStore();
 
   const { isAdmin, isMember } = useUserRole();
 
@@ -916,6 +954,10 @@ export default function PeopleScreen() {
   const canSeeExpenseTab = isAdmin;
   const canSeeMemberTab = true;
   const canSeeStaffTab = true;
+
+  // Paid days visibility — only members (flat owners) see it.
+  // Admins already manage attendance, staff shouldn't see their own.
+  const canSeePaidDays = isMember && !isAdmin;
 
   const visibleTabTypes: ManagementType[] = [];
   if (canSeeMemberTab) visibleTabTypes.push("apartment");
@@ -944,7 +986,6 @@ export default function PeopleScreen() {
   const [deductionNote, setDeductionNote] = useState("");
   const [refreshKey, setRefreshKey] = useState(0);
   const [saving, setSaving] = useState(false);
-  const [generatingBill, setGeneratingBill] = useState<string | null>(null);
 
   const [templateMissing, setTemplateMissing] = useState<TemplateMissingState>(
     EMPTY_TEMPLATE_MISSING,
@@ -1442,191 +1483,6 @@ export default function PeopleScreen() {
     } finally {
       setSaving(false);
       setPaymentMember(null);
-    }
-  };
-
-  const handleDownloadBill = async (member: any) => {
-    if (generatingBill || !canEdit) return;
-
-    if (isExpenseTab) {
-      showAlert({
-        variant: "info",
-        title: "Not available",
-        message:
-          "Bills can only be downloaded for members or staff, not transactions.",
-      });
-      return;
-    }
-
-    try {
-      setGeneratingBill(member.id);
-
-      const m = selectedMonth || new Date().toISOString().slice(0, 7);
-      const monthlyPayment = getPaymentForMonth(member, m);
-
-      if (monthlyPayment.status !== "paid") {
-        showAlert({
-          variant: "warning",
-          title: "No paid bill yet",
-          message:
-            "Mark the payment as paid for this month before downloading a bill.",
-        });
-        setGeneratingBill(null);
-        return;
-      }
-
-      let memberType: BillMemberType;
-      if (isApartmentTab) {
-        memberType = "owner";
-      } else if (isStaffTab) {
-        memberType = "staff";
-      } else {
-        setGeneratingBill(null);
-        return;
-      }
-
-      let billConfig = getBillConfig(memberType);
-      if (!billConfig && selectedAccountId) {
-        try {
-          billConfig = await fetchConfigFromServer(
-            selectedAccountId,
-            memberType,
-          );
-        } catch (e) {
-          console.warn("[people] fetch bill config failed:", e);
-        }
-      }
-
-      if (!billConfig) {
-        setGeneratingBill(null);
-        openTemplateMissingModal(memberType, isApartmentTab);
-        return;
-      }
-
-      const selectedTemplate =
-        billTemplates.find((t) => t.id === billConfig!.templateId) ??
-        billTemplates[0];
-
-      if (!selectedTemplate) {
-        setGeneratingBill(null);
-        showAlert({
-          variant: "error",
-          title: "Template not found",
-          message:
-            "The saved template could not be resolved. Please re-save it from Profile → Generate Bill.",
-        });
-        return;
-      }
-
-      const template = {
-        colors: {
-          ...selectedTemplate.colors,
-          primary: billConfig.accentColor ?? selectedTemplate.colors.primary,
-        },
-        fontFamily: selectedTemplate.fontFamily ?? "Roboto",
-        logoPosition: selectedTemplate.logoPosition ?? "top-left",
-        showBorder: selectedTemplate.showBorder ?? true,
-        borderColor: selectedTemplate.borderColor ?? "#e0e0e0",
-        borderWidth: selectedTemplate.borderWidth ?? 1,
-        borderRadius: selectedTemplate.borderRadius ?? 8,
-        showWatermark: selectedTemplate.showWatermark ?? true,
-        watermarkText: selectedTemplate.watermarkText ?? "Society Management",
-        layoutVariant: selectedTemplate.layoutVariant ?? "bold",
-      };
-
-      let staffAdjustedBase = Number(member.monthlySalary) || 0;
-      if (!isApartmentTab && m) {
-        const att = getAttendanceRecord(member.id, m);
-        if (att?.calculatedSalary != null) {
-          staffAdjustedBase = att.calculatedSalary;
-        } else if (att?.statuses && Object.keys(att.statuses).length > 0) {
-          staffAdjustedBase = getCalculatedStaffSalary(
-            Number(member.monthlySalary) || 0,
-            m,
-            att.statuses as Record<string, AttendanceStatus>,
-          );
-        }
-      }
-
-      const baseAmount = isApartmentTab
-        ? member.maintenanceAmount || 0
-        : staffAdjustedBase;
-
-      const additionalAmount = monthlyPayment.additionalAmount || 0;
-      const deductionAmount = monthlyPayment.deductionAmount || 0;
-      const netAmount = baseAmount + additionalAmount - deductionAmount;
-
-      const billNumber = `BILL-${member.id.slice(0, 4)}-${Date.now()
-        .toString()
-        .slice(-6)}`;
-
-      const billData = {
-        billNumber,
-        apartmentName: member.wing || "Apartment",
-        address: billConfig.address || (selectedAccount as any)?.address || "",
-        societyName:
-          billConfig.societyName ||
-          selectedAccount?.name ||
-          "Apartment Society",
-        contactNumber: billConfig.contactNumber || "",
-        email: billConfig.email || "",
-        memberName: member.name,
-        flatNumber: member.flatNumber || "",
-        amount: baseAmount,
-        month: formatMonthLong(m),
-        paidDate:
-          monthlyPayment.paidDate || new Date().toISOString().slice(0, 10),
-        additionalAmount: additionalAmount || undefined,
-        additionalNote: monthlyPayment.additionalNote,
-        deductionAmount: deductionAmount || undefined,
-        deductionNote: monthlyPayment.deductionNote,
-        netAmount,
-        signData: billConfig.signature,
-        template,
-        billType: isApartmentTab
-          ? ("maintenance" as const)
-          : ("salary" as const),
-        staffRole: isApartmentTab ? undefined : member.role,
-      };
-
-      const pdfUri = await generateBillPDF(billData);
-
-      if (!pdfUri) {
-        throw new Error("PDF generation returned no URI.");
-      }
-
-      const safeName = (member.name || "Member").replace(/[^\w\-]+/g, "_");
-      const fileName = `Bill-${safeName}-${m}.pdf`;
-
-      const result = await savePDFToDevice(pdfUri, fileName);
-
-      setGeneratingBill(null);
-
-      if (result.saved) {
-        showAlert({
-          variant: "success",
-          title: "Downloaded",
-          message: "Bill saved successfully.",
-        });
-      } else if (result.message !== "Permission denied") {
-        showAlert({
-          variant: "error",
-          title: "Download failed",
-          message:
-            result.message || "Could not save the bill. Please try again.",
-        });
-      }
-    } catch (error) {
-      console.error("Error generating bill:", error);
-      showAlert({
-        variant: "error",
-        title: "Something went wrong",
-        message:
-          error instanceof Error
-            ? error.message
-            : "Failed to generate bill. Please try again.",
-      });
-      setGeneratingBill(null);
     }
   };
 
@@ -2350,10 +2206,21 @@ export default function PeopleScreen() {
                       ? `${formatINR(Number(record.maintenanceAmount) || 0)} / month`
                       : `${formatINR(Number(record.monthlySalary) || 0)} / month`;
 
-                    const showPay = showFinancialInfo;
-                    const showAttendance = isStaffTab;
-                    const showBill =
-                      showFinancialInfo && isPaidThisMonth && !isExpenseTab;
+                    // ---- Paid days chip (staff only, visible to members) ----
+                    const att = isStaffTab
+                      ? getAttendanceRecord(record.id, month)
+                      : undefined;
+                    const attStatuses =
+                      (att?.statuses as
+                        | Record<string, AttendanceStatus>
+                        | undefined) ?? modalAttendance?.statuses;
+                    const totalDays = getDaysInMonthCount(month);
+                    const paidDays = getPaidDaysCount(month, attStatuses);
+                    const showPaidDaysChip =
+                      canSeePaidDays && isStaffTab && paidDays != null;
+
+                    const showPay = canEdit && showFinancialInfo;
+                    const showAttendance = canEdit && isStaffTab;
 
                     return (
                       <View key={record.id} style={styles.recordBlock}>
@@ -2409,6 +2276,20 @@ export default function PeopleScreen() {
                               >
                                 {baseLabel}
                               </Text>
+
+                              {showPaidDaysChip ? (
+                                <View style={styles.paidDaysChip}>
+                                  <Ionicons
+                                    name="checkmark-circle"
+                                    size={11}
+                                    color="#15803D"
+                                  />
+                                  <Text style={styles.paidDaysChipText}>
+                                    Paid days: {paidDays}
+                                    {totalDays ? `/${totalDays}` : ""}
+                                  </Text>
+                                </View>
+                              ) : null}
                             </View>
                           </View>
 
@@ -2460,7 +2341,7 @@ export default function PeopleScreen() {
                           ) : null}
                         </Pressable>
 
-                        {canEdit && (showPay || showAttendance || showBill) ? (
+                        {canEdit && (showPay || showAttendance) ? (
                           <View style={styles.recordActionsRow}>
                             {showAttendance ? (
                               <Pressable
@@ -2518,42 +2399,6 @@ export default function PeopleScreen() {
                                 <Text style={styles.recordActionText}>
                                   Payment
                                 </Text>
-                              </Pressable>
-                            ) : null}
-
-                            {showBill ? (
-                              <Pressable
-                                style={({ pressed }) => [
-                                  styles.recordActionButton,
-                                  styles.recordActionButtonPrimary,
-                                  pressed && styles.recordActionButtonPressed,
-                                ]}
-                                onPress={(event) => {
-                                  event.stopPropagation();
-                                  Keyboard.dismiss();
-                                  handleDownloadBill(record);
-                                }}
-                                disabled={generatingBill === record.id}
-                              >
-                                {generatingBill === record.id ? (
-                                  <ActivityIndicator
-                                    size="small"
-                                    color="#fff"
-                                  />
-                                ) : (
-                                  <>
-                                    <Ionicons
-                                      name="download-outline"
-                                      size={16}
-                                      color="#fff"
-                                    />
-                                    <Text
-                                      style={styles.recordActionTextPrimary}
-                                    >
-                                      Download bill
-                                    </Text>
-                                  </>
-                                )}
                               </Pressable>
                             ) : null}
                           </View>
@@ -3079,7 +2924,7 @@ export default function PeopleScreen() {
 }
 
 // ---------------------------------------------------------------------------
-// Styles (identical to your existing ones)
+// Styles
 // ---------------------------------------------------------------------------
 
 const cardShadow = {
@@ -3509,6 +3354,24 @@ const styles = StyleSheet.create({
   statusInlineText: { fontSize: 12, fontWeight: "700" },
   statusDot: { width: 7, height: 7, borderRadius: 4 },
 
+  /* Paid days chip — visible only to member (flat owner) */
+  paidDaysChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+    backgroundColor: COLORS.successLight,
+    borderWidth: 1,
+    borderColor: COLORS.successBorder,
+  },
+  paidDaysChipText: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: COLORS.successDark,
+  },
+
   recordActionsRow: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -3520,7 +3383,7 @@ const styles = StyleSheet.create({
   },
   recordActionButton: {
     flexGrow: 1,
-    flexBasis: "40%",
+    flexBasis: "45%",
     height: 42,
     flexDirection: "row",
     alignItems: "center",
@@ -3537,20 +3400,10 @@ const styles = StyleSheet.create({
     borderColor: COLORS.purpleBorder,
   },
   recordActionButtonPressed: { opacity: 0.75 },
-  recordActionButtonPrimary: {
-    flexBasis: "100%",
-    backgroundColor: COLORS.success,
-    borderColor: COLORS.success,
-  },
   recordActionText: {
     fontSize: 13.5,
     fontWeight: "700",
     color: COLORS.primary,
-  },
-  recordActionTextPrimary: {
-    fontSize: 13.5,
-    fontWeight: "700",
-    color: "#fff",
   },
 
   txnRow: { flexDirection: "row", alignItems: "center" },
