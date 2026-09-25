@@ -4,6 +4,7 @@ import DateTimePicker, {
   type DateTimePickerEvent,
 } from "@react-native-community/datetimepicker";
 import * as DocumentPicker from "expo-document-picker";
+import * as FileSystemModern from "expo-file-system";
 import * as FileSystem from "expo-file-system/legacy";
 import * as ImagePicker from "expo-image-picker";
 import * as SecureStore from "expo-secure-store";
@@ -17,6 +18,7 @@ import {
   KeyboardAvoidingView,
   Linking,
   Modal,
+  NativeModules,
   Platform,
   Pressable,
   ScrollView,
@@ -519,44 +521,6 @@ function mimeFromExtension(ext: string): string {
   }
 }
 
-function mimeToUti(mime: string): string {
-  switch (mime) {
-    case "application/pdf":
-      return "com.adobe.pdf";
-    case "image/png":
-      return "public.png";
-    case "image/jpeg":
-    case "image/jpg":
-      return "public.jpeg";
-    case "image/gif":
-      return "com.compuserve.gif";
-    case "image/webp":
-      return "org.webmproject.webp";
-    case "image/heic":
-      return "public.heic";
-    case "text/plain":
-      return "public.plain-text";
-    case "text/csv":
-      return "public.comma-separated-values-text";
-    case "application/msword":
-      return "com.microsoft.word.doc";
-    case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-      return "org.openxmlformats.wordprocessingml.document";
-    case "application/vnd.ms-excel":
-      return "com.microsoft.excel.xls";
-    case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
-      return "org.openxmlformats.spreadsheetml.sheet";
-    case "application/vnd.ms-powerpoint":
-      return "com.microsoft.powerpoint.ppt";
-    case "application/vnd.openxmlformats-officedocument.presentationml.presentation":
-      return "org.openxmlformats.presentationml.presentation";
-    case "application/zip":
-      return "public.zip-archive";
-    default:
-      return "public.data";
-  }
-}
-
 /* ========================================================================== */
 /* FILE ACCESS — expo-file-system / fetch based (no native module needed)     */
 /* ========================================================================== */
@@ -715,75 +679,197 @@ async function readUriAsDataUri(
   throw new Error("Could not read file from provider");
 }
 
-/**
- * Share / open a base64 data URI.
- *
- * Android:  Writes the file to cache, converts to a content:// URI and
- *           fires the system "Open with" chooser (Gmail / Drive / Messenger
- *           / WhatsApp / etc. all appear).
- * iOS:      Writes the file to cache and calls the share sheet with the
- *           correct UTI so third-party apps appear.
- */
-async function shareDataUri(
-  dataUri: string,
-  fileName: string,
-  mimeType: string,
-): Promise<void> {
-  const match = dataUri.match(/^data:([^;]+);base64,([\s\S]*)$/);
-  if (!match) throw new Error("Invalid data URI");
-  const base64 = match[2];
+/* ========================================================================== */
+/* SAVE FILE — native ACTION_CREATE_DOCUMENT → SAF → Sharing                  */
+/* ========================================================================== */
+//
+// Priority order:
+//   1. Android: native IntentModule.createDocument()  → true "Save to
+//      Downloads / Documents / SD card" picker.
+//   2. Android: StorageAccessFramework.requestDirectoryPermissionsAsync()
+//      via the NON-LEGACY expo-file-system import → folder picker.
+//   3. iOS / Web / fallback: Sharing.shareAsync() → share sheet (iOS has
+//      "Save to Files").
+//
+// The legacy `expo-file-system/legacy` module does NOT export
+// StorageAccessFramework, which is why the folder picker never opened.
+// We now also import `expo-file-system` (modern) to reach it.
 
-  const safeName = (fileName || "file").replace(/[^\w.\-]+/g, "_");
-  const tempUri = `${FileSystem.cacheDirectory}${Date.now()}_${safeName}`;
+const saveFileWithFolderPicker = async (
+  base64OrLocalUri: string,
+  suggestedName: string,
+  sourceHint?: string | null,
+): Promise<{ savedUri: string } | null> => {
+  const safeBase = (suggestedName || "file").replace(/[^\w\-]+/g, "_");
+  const ext = extensionFromMime(sourceHint);
+  const mimeType = mimeFromExtension(ext);
+  const fileName = `${safeBase}.${ext}`;
 
-  await FileSystem.writeAsStringAsync(tempUri, base64, {
-    encoding: FileSystem.EncodingType.Base64,
-  });
-
-  if (Platform.OS === "android") {
+  // ----------------------------------------------------------------------
+  // WEB
+  // ----------------------------------------------------------------------
+  if (Platform.OS === "web") {
     try {
-      const contentUri = await FileSystem.getContentUriAsync(tempUri);
-      const canOpen = await Linking.canOpenURL(contentUri).catch(() => false);
-      if (canOpen) {
-        await Linking.openURL(contentUri);
-        return;
+      let href = base64OrLocalUri;
+      let isBlob = false;
+      if (base64OrLocalUri.startsWith("data:")) {
+        const match = base64OrLocalUri.match(/^data:([^;]+);base64,(.*)$/);
+        if (!match) throw new Error("Invalid data URI");
+        const mime = match[1] || mimeType;
+        const b64 = match[2];
+        const binary = atob(b64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) {
+          bytes[i] = binary.charCodeAt(i);
+        }
+        const blob = new Blob([bytes], { type: mime });
+        href = URL.createObjectURL(blob);
+        isBlob = true;
       }
-    } catch (e) {
-      console.warn("[shareDataUri] android content uri failed:", e);
+      const a = document.createElement("a");
+      a.href = href;
+      a.download = fileName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      if (isBlob) setTimeout(() => URL.revokeObjectURL(href), 1000);
+      return { savedUri: fileName };
+    } catch (e: any) {
+      throw new Error(e?.message || "Browser download failed.");
     }
-
-    if (await Sharing.isAvailableAsync()) {
-      await Sharing.shareAsync(tempUri, {
-        mimeType,
-        dialogTitle: `Share ${safeName}`,
-      });
-      FileSystem.deleteAsync(tempUri, { idempotent: true }).catch(() => {});
-      return;
-    }
-
-    throw new Error("No app available to open this file.");
   }
 
-  if (Platform.OS === "ios") {
-    if (await Sharing.isAvailableAsync()) {
-      await Sharing.shareAsync(tempUri, {
-        mimeType,
-        UTI: mimeToUti(mimeType),
-        dialogTitle: `Share ${safeName}`,
-      });
-      FileSystem.deleteAsync(tempUri, { idempotent: true }).catch(() => {});
-      return;
+  // ----------------------------------------------------------------------
+  // ANDROID — path 1: native IntentModule (ACTION_CREATE_DOCUMENT)
+  // ----------------------------------------------------------------------
+  if (Platform.OS === "android") {
+    const IntentModule: any = (NativeModules as any).IntentModule;
+
+    if (IntentModule?.createDocument) {
+      try {
+        let base64: string;
+
+        if (base64OrLocalUri.startsWith("data:")) {
+          const match = base64OrLocalUri.match(/^data:([^;]+);base64,(.*)$/);
+          if (!match) throw new Error("Invalid data URI");
+          base64 = match[2];
+        } else if (base64OrLocalUri.startsWith("file://")) {
+          base64 = await FileSystem.readAsStringAsync(base64OrLocalUri, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+        } else {
+          const cacheDir = FileSystem.cacheDirectory;
+          if (!cacheDir) throw new Error("Cache directory not available.");
+          const tmp = `${cacheDir}dl_${Date.now()}_${fileName}`;
+          await FileSystem.downloadAsync(base64OrLocalUri, tmp);
+          base64 = await FileSystem.readAsStringAsync(tmp, {
+            encoding: FileSystem.EncodingType.Base64,
+          });
+        }
+
+        const created = await IntentModule.createDocument(
+          base64,
+          fileName,
+          mimeType,
+        );
+
+        if (created) {
+          return { savedUri: fileName };
+        }
+        // User dismissed the native picker.
+        return null;
+      } catch (e: any) {
+        console.warn(
+          "[saveFile] native ACTION_CREATE_DOCUMENT failed, falling back to SAF:",
+          e?.message || e,
+        );
+      }
     }
-    throw new Error("Sharing is not available on this device.");
   }
 
+  // ----------------------------------------------------------------------
+  // Prepare cache file for remaining fallbacks
+  // ----------------------------------------------------------------------
+  const cacheDir = FileSystem.cacheDirectory;
+  if (!cacheDir) throw new Error("Cache directory not available.");
+  const tempUri = `${cacheDir}${fileName}`;
+
+  try {
+    if (base64OrLocalUri.startsWith("data:")) {
+      const match = base64OrLocalUri.match(/^data:([^;]+);base64,(.*)$/);
+      if (!match) throw new Error("Invalid data URI");
+      const b64 = match[2];
+      await FileSystem.writeAsStringAsync(tempUri, b64, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+    } else if (base64OrLocalUri.startsWith("file://")) {
+      await FileSystem.copyAsync({ from: base64OrLocalUri, to: tempUri });
+    } else {
+      await FileSystem.downloadAsync(base64OrLocalUri, tempUri);
+    }
+  } catch (e: any) {
+    throw new Error(e?.message || "Failed to prepare file for saving.");
+  }
+
+  // ----------------------------------------------------------------------
+  // ANDROID — path 2: SAF folder picker via the MODERN expo-file-system
+  // ----------------------------------------------------------------------
+  if (Platform.OS === "android") {
+    const SAF: any =
+      (FileSystemModern as any)?.StorageAccessFramework ??
+      (FileSystem as any)?.StorageAccessFramework;
+
+    if (SAF?.requestDirectoryPermissionsAsync) {
+      try {
+        const perm = await SAF.requestDirectoryPermissionsAsync();
+        if (!perm?.granted || !perm.directoryUri) {
+          // User cancelled folder picker.
+          return null;
+        }
+
+        const base64Data = await FileSystem.readAsStringAsync(tempUri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+
+        const fileUri = await SAF.createFileAsync(
+          perm.directoryUri,
+          fileName,
+          mimeType,
+        );
+
+        await FileSystem.writeAsStringAsync(fileUri, base64Data, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+
+        return { savedUri: fileUri };
+      } catch (e: any) {
+        console.warn(
+          "[saveFile] SAF requestDirectoryPermissionsAsync failed:",
+          e?.message || e,
+        );
+        // fall through to Sharing
+      }
+    } else {
+      console.warn(
+        "[saveFile] StorageAccessFramework is unavailable on this build.",
+      );
+    }
+  }
+
+  // ----------------------------------------------------------------------
+  // FINAL FALLBACK — Sharing.shareAsync (share sheet)
+  // ----------------------------------------------------------------------
   if (await Sharing.isAvailableAsync()) {
-    await Sharing.shareAsync(tempUri, { mimeType, dialogTitle: safeName });
-    FileSystem.deleteAsync(tempUri, { idempotent: true }).catch(() => {});
-    return;
+    await Sharing.shareAsync(tempUri, {
+      mimeType,
+      dialogTitle: `Save ${fileName}`,
+      UTI: Platform.OS === "ios" ? undefined : undefined,
+    });
+    return { savedUri: tempUri };
   }
-  throw new Error("Sharing is not available on this device.");
-}
+
+  throw new Error("Saving is not available on this device.");
+};
 
 /* ========================================================================== */
 /* PLATFORM TIME PICKER                                                       */
@@ -1410,19 +1496,24 @@ function CalendarScreenImpl() {
     const mime = att.mimeType || mimeFromExtension(ext);
     const rawName = att.name || `attachment.${ext}`;
     const fileName = /\.\w+$/.test(rawName) ? rawName : `${rawName}.${ext}`;
+    const baseName = fileName.replace(/\.[^.]+$/, "");
 
+    // 1) base64 data URI -> save via folder picker
     if (uri.startsWith("data:")) {
       try {
-        await shareDataUri(uri, fileName, mime);
+        const result = await saveFileWithFolderPicker(uri, baseName, mime);
+        if (!result) return; // user cancelled
+        Alert.alert("Downloaded", "Attachment saved successfully.");
       } catch (e: any) {
         Alert.alert(
-          "Cannot open",
-          e?.message || "Unable to open this attachment.",
+          "Cannot save",
+          e?.message || "Unable to save this attachment.",
         );
       }
       return;
     }
 
+    // 2) remote URL -> open in browser
     if (/^https?:\/\//i.test(uri)) {
       try {
         await Linking.openURL(uri);
@@ -1432,13 +1523,16 @@ function CalendarScreenImpl() {
       return;
     }
 
+    // 3) local file -> read to data URI, then save via folder picker
     try {
       const { dataUri } = await readUriAsDataUri(uri, mime);
-      await shareDataUri(dataUri, fileName, mime);
+      const result = await saveFileWithFolderPicker(dataUri, baseName, mime);
+      if (!result) return; // user cancelled
+      Alert.alert("Downloaded", "Attachment saved successfully.");
     } catch (e: any) {
       console.warn("[CalendarScreen] openAttachment failed:", e);
       Alert.alert(
-        "Cannot open",
+        "Cannot save",
         e?.message ||
           "This attachment's local file is no longer available on this device.",
       );
@@ -3850,12 +3944,12 @@ function CalendarScreenImpl() {
                                 hitSlop={6}
                               >
                                 <Ionicons
-                                  name="share-outline"
+                                  name="download-outline"
                                   size={14}
                                   color="#fff"
                                 />
                                 <Text style={styles.downloadButtonText}>
-                                  Open
+                                  Download
                                 </Text>
                               </TouchableOpacity>
                             </View>
@@ -4961,8 +5055,6 @@ const styles = StyleSheet.create({
   },
   addModalTitle: { fontSize: 18, fontWeight: "800", color: "#0f172a" },
 
-  /* Reduced bottom padding for the ScrollView inside the add modal.
-     The actions row uses its own paddingBottom (see JSX). */
   addModalScrollContent: {
     paddingBottom: 8,
   },
