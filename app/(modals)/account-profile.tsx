@@ -137,7 +137,7 @@ const roleLabelShort = (role: InvitationRole): string => {
 };
 
 // ============================================================================
-// INLINE CUSTOM ALERT (self-contained, no external imports)
+// INLINE CUSTOM ALERT
 // ============================================================================
 
 type AlertVariant = "info" | "success" | "warning" | "error" | "question";
@@ -871,7 +871,7 @@ function GrantAvatar({
 }
 
 // ============================================================================
-// REVOKE ACCESS MODAL (unchanged from your file)
+// REVOKE ACCESS MODAL
 // ============================================================================
 
 type RevokeTab = "admin" | "member" | "staff" | "ownership";
@@ -1723,7 +1723,7 @@ function DeletePendingModal({
 }
 
 // ============================================================================
-// DELETE PROPERTY MODAL (owner only, requires checkbox)
+// DELETE PROPERTY MODAL
 // ============================================================================
 
 interface DeletePropertyModalProps {
@@ -2578,7 +2578,6 @@ export default function AccountProfileScreen() {
             text: "OK",
             style: "default",
             onPress: () => {
-              // Send back to the tabs root, then to Profile
               try {
                 router.replace("/(tabs)/profile");
               } catch {
@@ -2952,38 +2951,25 @@ export default function AccountProfileScreen() {
                   })
                 }
               />
+
+              {/* ── Single entry point for BOTH member & staff visibility ── */}
               <MenuRow
-                icon="person-add-outline"
+                icon="eye-outline"
                 color="#16A34A"
-                title="Manage Apartment Owner Visibility"
-                description="Give visibility access to apartment owners"
+                title="Manage Visibility"
+                description="Manage apartment owner and staff visibility access"
                 onPress={() =>
                   router.push({
                     pathname: "/(modals)/grant-access",
                     params: {
                       accountId: selectedAccount?.id || "",
                       role: "member_visibility",
-                      memberType: "owner",
+                      visibilityTabs: "true",
                     },
                   })
                 }
               />
-              <MenuRow
-                icon="briefcase-outline"
-                color="#0891B2"
-                title="Manage Staff Visibility"
-                description="Give visibility access to society staff members"
-                onPress={() =>
-                  router.push({
-                    pathname: "/(modals)/grant-access",
-                    params: {
-                      accountId: selectedAccount?.id || "",
-                      role: "staff_visibility",
-                      memberType: "staff",
-                    },
-                  })
-                }
-              />
+
               <MenuRow
                 icon="swap-horizontal-outline"
                 color="#D97706"
@@ -3532,7 +3518,7 @@ export default function AccountProfileScreen() {
         onNotify={(opts) => showAlert(opts)}
       />
 
-      {/* DELETE PROPERTY MODAL (owner only, requires checkbox) */}
+      {/* DELETE PROPERTY MODAL */}
       <DeletePropertyModal
         visible={showDeletePropertyModal}
         propertyName={selectedAccount?.name || "this property"}
@@ -4326,7 +4312,6 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
 
-  /* ---------- DELETE PROPERTY MODAL ---------- */
   deletePropertyModal: {
     width: "100%",
     maxWidth: 420,

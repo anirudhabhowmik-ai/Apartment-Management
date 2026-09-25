@@ -325,7 +325,7 @@ function groupStaffByPerson(rows: any[]): GroupedPerson[] {
 }
 
 // ============================================================================
-// Toggle Switch component
+// Toggle Switch
 // ============================================================================
 
 interface ToggleSwitchProps {
@@ -357,15 +357,18 @@ function ToggleSwitch({
   );
 }
 
-// Admin records returned by the backend, used to source ownership
-// candidates that don't have a `members` row (e.g. an old owner who kept
-// only the `admin` role).
 interface AdminRecord {
   user_id: string;
   name: string;
   phone: string;
   photo_url: string | null;
 }
+
+// ============================================================================
+// Visibility tab key (only used when visibilityTabs=true)
+// ============================================================================
+
+type VisibilityTab = "member" | "staff";
 
 export default function GrantAccessScreen() {
   const router = useRouter();
@@ -377,11 +380,17 @@ export default function GrantAccessScreen() {
     accountId,
     role: roleParamRaw,
     memberType,
+    visibilityTabs: visibilityTabsRaw,
   } = useLocalSearchParams<{
     accountId: string;
     role: string;
     memberType?: MemberType;
+    visibilityTabs?: string;
   }>();
+
+  // When this is true, we render BOTH member & staff visibility in one
+  // screen behind a tab bar. Only set from the "Manage Visibility" entry.
+  const showVisibilityTabs = visibilityTabsRaw === "true";
 
   const role: InvitationRole =
     (roleParamRaw as InvitationRole | undefined) ?? "member_visibility";
@@ -411,6 +420,9 @@ export default function GrantAccessScreen() {
     renameByPhone: renameStaffByPhone,
     isLoading: staffLoading,
   } = useStaff(accountId ?? null);
+
+  // Local tab state for the tabbed visibility mode
+  const [visibilityTab, setVisibilityTab] = useState<VisibilityTab>("member");
 
   const [source, setSource] = useState<RecipientSource>("new");
   const [name, setName] = useState("");
@@ -450,8 +462,6 @@ export default function GrantAccessScreen() {
     new Set(),
   );
 
-  // Full admin records (user_id, name, phone, photo_url).
-  // Used to source ownership candidates that don't have a `members` row.
   const [adminRecords, setAdminRecords] = useState<AdminRecord[]>([]);
 
   const [invitationsReady, setInvitationsReady] = useState(false);
@@ -488,14 +498,21 @@ export default function GrantAccessScreen() {
   const isOwnershipFlow =
     memberType === "ownership" || getRole() === "ownership_transfer";
 
+  // staff-only when the caller explicitly requested staff flow (and not tabs)
   const isStaffFlow =
+    !showVisibilityTabs &&
     !isOwnershipFlow &&
     (memberType === "staff" || getRole() === "staff_visibility");
 
+  // member-visibility flow (either standalone or default)
   const isVisibilityFlow =
+    !showVisibilityTabs &&
     !isOwnershipFlow &&
     !isStaffFlow &&
     (memberType === "owner" || getRole() === "member_visibility");
+
+  // When tabs are enabled, we treat the screen as "both" flows
+  const isTabbedVisibility = showVisibilityTabs;
 
   const visibilityTitle = isStaffFlow
     ? "Manage Staff Visibility"
@@ -507,37 +524,47 @@ export default function GrantAccessScreen() {
       ? ACCESS_ROLE_LABEL["staff_visibility"]
       : ACCESS_ROLE_LABEL[accessKey];
 
-  const introTitle = isStaffFlow
-    ? visibilityTitle
-    : isVisibilityFlow
+  const introTitle = isTabbedVisibility
+    ? "Manage Visibility"
+    : isStaffFlow
       ? visibilityTitle
-      : isOwnershipFlow
-        ? "Transfer account ownership"
-        : `Grant ${title} access`;
+      : isVisibilityFlow
+        ? visibilityTitle
+        : isOwnershipFlow
+          ? "Transfer account ownership"
+          : `Grant ${title} access`;
 
-  const introDescription = isStaffFlow
-    ? "Select one or more staff members to grant visibility access."
-    : isVisibilityFlow
-      ? "Select one or more apartment owners to grant visibility access."
-      : isOwnershipFlow
-        ? "Transfer full ownership of this account to another person. They will become the new owner after accepting."
-        : "Choose who should receive access to this account.";
+  const introDescription = isTabbedVisibility
+    ? "Grant apartment owners and staff visibility access to this property. Switch tabs to choose who can see what."
+    : isStaffFlow
+      ? "Select one or more staff members to grant visibility access."
+      : isVisibilityFlow
+        ? "Select one or more apartment owners to grant visibility access."
+        : isOwnershipFlow
+          ? "Transfer full ownership of this account to another person. They will become the new owner after accepting."
+          : "Choose who should receive access to this account.";
 
-  const introIcon: keyof typeof Ionicons.glyphMap = isStaffFlow
-    ? "briefcase-outline"
-    : isVisibilityFlow
-      ? "person-add-outline"
-      : isOwnershipFlow
-        ? "swap-horizontal-outline"
-        : "shield-checkmark-outline";
+  const introIcon: keyof typeof Ionicons.glyphMap = isTabbedVisibility
+    ? "eye-outline"
+    : isStaffFlow
+      ? "briefcase-outline"
+      : isVisibilityFlow
+        ? "person-add-outline"
+        : isOwnershipFlow
+          ? "swap-horizontal-outline"
+          : "shield-checkmark-outline";
 
-  const saveLabel = isStaffFlow
-    ? `Grant ${visibilityTitle.replace("Manage ", "")}`
-    : isVisibilityFlow
+  const saveLabel = isTabbedVisibility
+    ? visibilityTab === "member"
+      ? "Grant Member Visibility"
+      : "Grant Staff Visibility"
+    : isStaffFlow
       ? `Grant ${visibilityTitle.replace("Manage ", "")}`
-      : isOwnershipFlow
-        ? "Transfer account ownership"
-        : `Grant ${title} Access`;
+      : isVisibilityFlow
+        ? `Grant ${visibilityTitle.replace("Manage ", "")}`
+        : isOwnershipFlow
+          ? "Transfer account ownership"
+          : `Grant ${title} Access`;
 
   const apartmentRowsActive = useMemo(
     () => rawApartmentMembers.filter(isActiveRow),
@@ -634,7 +661,6 @@ export default function GrantAccessScreen() {
           else if (inv.role === "staff_visibility") pendStaff.add(ten);
         }
 
-        // Parse the new `admins` array.
         const rawAdminRecords: any[] = Array.isArray(data?.admins)
           ? data.admins
           : [];
@@ -675,7 +701,7 @@ export default function GrantAccessScreen() {
 
   const visibilityCandidates = useMemo(() => {
     if (!invitationsReady) return [];
-    if (!isVisibilityFlow) return apartmentPeople;
+    if (!isVisibilityFlow && !isTabbedVisibility) return apartmentPeople;
     return apartmentPeople.filter((p) => {
       if (!p.phone) return false;
       if (blockedMemberPhones.has(p.phone)) return false;
@@ -692,6 +718,7 @@ export default function GrantAccessScreen() {
     blockedAdminPhones,
     pendingMemberPhones,
     isVisibilityFlow,
+    isTabbedVisibility,
   ]);
 
   const adminCandidates = useMemo(() => {
@@ -711,19 +738,6 @@ export default function GrantAccessScreen() {
     pendingAdminPhones,
   ]);
 
-  // ── Ownership candidates: members ∪ admins, deduped ──
-  //
-  // Sources:
-  //   1. apartmentPeople  — everyone with a `members` row.
-  //   2. adminRecords     — active admins from account_members.
-  //
-  // Rules:
-  //   • Exclude the current owner (blockedOwnerPhones).
-  //   • Exclude anyone with a pending ownership invite.
-  //   • DO NOT exclude admins — being admin is not a blocker for ownership.
-  //
-  // Dedup key matches the one used by apartmentPeople (`u:<userId>` or
-  // `p:<phone>`) so the ownership picker never shows the same person twice.
   const ownershipCandidates = useMemo(() => {
     if (!invitationsReady) return [];
 
@@ -764,12 +778,14 @@ export default function GrantAccessScreen() {
   const activeMembers = useMemo(() => {
     if (isVisibilityFlow) return visibilityCandidates;
     if (isOwnershipFlow) return ownershipCandidates;
-    if (!isVisibilityFlow && !isStaffFlow) return adminCandidates;
+    if (!isVisibilityFlow && !isStaffFlow && !isTabbedVisibility)
+      return adminCandidates;
     return apartmentPeople;
   }, [
     isVisibilityFlow,
     isOwnershipFlow,
     isStaffFlow,
+    isTabbedVisibility,
     visibilityCandidates,
     ownershipCandidates,
     adminCandidates,
@@ -778,7 +794,7 @@ export default function GrantAccessScreen() {
 
   const staffCandidates = useMemo(() => {
     if (!invitationsReady) return [];
-    if (!isStaffFlow) return staffPeople;
+    if (!isStaffFlow && !isTabbedVisibility) return staffPeople;
     return staffPeople.filter((p) => {
       if (!p.phone) return false;
       if (blockedStaffPhones.has(p.phone)) return false;
@@ -795,6 +811,7 @@ export default function GrantAccessScreen() {
     blockedAdminPhones,
     pendingStaffPhones,
     isStaffFlow,
+    isTabbedVisibility,
   ]);
 
   const currentUserMember = useMemo(() => {
@@ -832,7 +849,11 @@ export default function GrantAccessScreen() {
   const inviterPhone = currentUser?.phone || "";
 
   const typedPhone10 =
-    source === "new" && !isVisibilityFlow && !isStaffFlow && phone.length === 10
+    source === "new" &&
+    !isVisibilityFlow &&
+    !isStaffFlow &&
+    !isTabbedVisibility &&
+    phone.length === 10
       ? phone
       : "";
 
@@ -1048,6 +1069,14 @@ export default function GrantAccessScreen() {
     setSelectedStaffIds([]);
     setError("");
   };
+
+  // Reset selections when switching tabs
+  useEffect(() => {
+    if (showVisibilityTabs) {
+      setSearch("");
+      setError("");
+    }
+  }, [visibilityTab, showVisibilityTabs]);
 
   const getAuthToken = async (): Promise<string | null> => {
     try {
@@ -1471,6 +1500,91 @@ export default function GrantAccessScreen() {
       return;
     }
 
+    // ---- Tabbed visibility mode: route by active tab ----
+    if (isTabbedVisibility) {
+      if (visibilityTab === "member") {
+        if (selectedMemberIds.length === 0) {
+          setError("Please select at least one apartment owner.");
+          return;
+        }
+        let allOk = true;
+        for (const personId of selectedMemberIds) {
+          const person = visibilityCandidates.find((p) => p.id === personId);
+          if (!person) continue;
+          const ok = await sendInviteWithAlerts({
+            phone: person.phone,
+            name: person.name,
+            role: "member_visibility",
+            targetMemberId: person.memberIds[0],
+          });
+          if (!ok) {
+            allOk = false;
+            break;
+          }
+        }
+        if (allOk) {
+          showFeedback({
+            tone: "success",
+            title: "Invitations sent",
+            message:
+              selectedMemberIds.length === 1
+                ? "The apartment owner has been invited to view this account."
+                : `${selectedMemberIds.length} apartment owners have been invited.`,
+            primaryLabel: "Done",
+            primaryTone: "primary",
+            onPrimaryPress: () => router.back(),
+          });
+        }
+        return;
+      } else {
+        if (selectedStaffIds.length === 0) {
+          setError("Please select at least one staff member.");
+          return;
+        }
+        let allOk = true;
+        for (const personId of selectedStaffIds) {
+          const person = staffCandidates.find((p) => p.id === personId);
+          if (!person) continue;
+          if (person.phone.length !== 10) {
+            showFeedback({
+              tone: "warning",
+              title: "Missing phone",
+              message: `${person.name} doesn't have a valid phone number on file.`,
+              primaryLabel: "OK",
+            });
+            allOk = false;
+            break;
+          }
+          const ok = await sendInviteWithAlerts({
+            phone: person.phone,
+            name: person.name,
+            role: "staff_visibility",
+            targetStaffId: person.staffIds[0],
+          });
+          if (!ok) {
+            allOk = false;
+            break;
+          }
+        }
+        if (allOk) {
+          showFeedback({
+            tone: "success",
+            title: "Invitations sent",
+            message:
+              selectedStaffIds.length === 1
+                ? "Staff member has been invited to view this account."
+                : `${selectedStaffIds.length} staff members have been invited.`,
+            primaryLabel: "Done",
+            primaryTone: "primary",
+            onPrimaryPress: () => router.back(),
+          });
+        }
+        return;
+      }
+    }
+
+    // ---- Non-tabbed: keep the original behaviour ----
+
     if (
       source === "new" &&
       !isVisibilityFlow &&
@@ -1791,7 +1905,6 @@ export default function GrantAccessScreen() {
     }
     let allOk = true;
     for (const personId of selectedMemberIds) {
-      // FIX: for ownership flow, resolve from members ∪ admins.
       const person =
         apartmentPeople.find((p) => p.id === personId) ??
         (isOwnershipFlow
@@ -2246,7 +2359,7 @@ export default function GrantAccessScreen() {
                 <Text style={styles.toggleSubtitle} numberOfLines={1}>
                   {currentUserStaff.name}
                   {currentUserStaff.staffSummary
-                    ? `  •  ${currentUserStaff.staffSummary}`
+                    ? `  ·  ${currentUserStaff.staffSummary}`
                     : ""}
                 </Text>
               </View>
@@ -2274,19 +2387,31 @@ export default function GrantAccessScreen() {
     return "No members are available.";
   };
 
-  const saveButtonDisabled =
-    submitting ||
-    !pageReady ||
-    (isStaffFlow && selectedStaffIds.length === 0) ||
-    (!isStaffFlow &&
-      !isVisibilityFlow &&
-      source === "new" &&
-      phone.length !== 10) ||
-    (isVisibilityFlow && selectedMemberIds.length === 0) ||
-    (!isStaffFlow &&
+  const saveButtonDisabled = (() => {
+    if (submitting || !pageReady) return true;
+
+    if (isTabbedVisibility) {
+      if (visibilityTab === "member") return selectedMemberIds.length === 0;
+      return selectedStaffIds.length === 0;
+    }
+
+    if (isStaffFlow) return selectedStaffIds.length === 0;
+
+    if (!isVisibilityFlow && source === "new" && phone.length !== 10)
+      return true;
+
+    if (isVisibilityFlow && selectedMemberIds.length === 0) return true;
+
+    if (
+      !isStaffFlow &&
       !isVisibilityFlow &&
       source === "existing" &&
-      selectedMemberIds.length === 0);
+      selectedMemberIds.length === 0
+    )
+      return true;
+
+    return false;
+  })();
 
   return (
     <KeyboardAvoidingView
@@ -2322,7 +2447,60 @@ export default function GrantAccessScreen() {
           </View>
         ) : (
           <>
-            {!isVisibilityFlow && !isStaffFlow ? (
+            {/* ── Tab bar for tabbed visibility mode ── */}
+            {isTabbedVisibility ? (
+              <View style={styles.visibilityTabs}>
+                {[
+                  {
+                    key: "member" as const,
+                    label: "Member",
+                    icon: "home-outline" as const,
+                    color: "#2563EB",
+                    bg: "#EFF6FF",
+                  },
+                  {
+                    key: "staff" as const,
+                    label: "Staff",
+                    icon: "briefcase-outline" as const,
+                    color: "#7C3AED",
+                    bg: "#F5F3FF",
+                  },
+                ].map((t) => {
+                  const active = visibilityTab === t.key;
+                  return (
+                    <TouchableOpacity
+                      key={t.key}
+                      style={[
+                        styles.visibilityTab,
+                        active && {
+                          backgroundColor: t.bg,
+                          borderColor: t.color + "40",
+                        },
+                      ]}
+                      onPress={() => setVisibilityTab(t.key)}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons
+                        name={t.icon}
+                        size={17}
+                        color={active ? t.color : "#64748B"}
+                      />
+                      <Text
+                        style={[
+                          styles.visibilityTabText,
+                          active && { color: t.color, fontWeight: "800" },
+                        ]}
+                      >
+                        {t.label}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+            ) : null}
+
+            {/* Recipient picker (hidden in tabbed mode) */}
+            {!isTabbedVisibility && !isVisibilityFlow && !isStaffFlow ? (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>RECIPIENT</Text>
                 <View style={styles.sourceRow}>
@@ -2422,7 +2600,10 @@ export default function GrantAccessScreen() {
               </View>
             ) : null}
 
-            {!isVisibilityFlow && !isStaffFlow && source === "new" ? (
+            {!isTabbedVisibility &&
+            !isVisibilityFlow &&
+            !isStaffFlow &&
+            source === "new" ? (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>PERSON DETAILS</Text>
                 <View style={styles.formCard}>
@@ -2494,7 +2675,10 @@ export default function GrantAccessScreen() {
 
             {renderAfterTransferSection()}
 
-            {!isVisibilityFlow && !isStaffFlow && source === "existing" ? (
+            {!isTabbedVisibility &&
+            !isVisibilityFlow &&
+            !isStaffFlow &&
+            source === "existing" ? (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>SELECT PEOPLE</Text>
                 {activeMembers.length > 0 ? (
@@ -2609,7 +2793,9 @@ export default function GrantAccessScreen() {
               </View>
             ) : null}
 
-            {isVisibilityFlow ? (
+            {/* ── Member visibility list (standalone or tabbed) ── */}
+            {isVisibilityFlow ||
+            (isTabbedVisibility && visibilityTab === "member") ? (
               <View style={styles.section}>
                 {hasMembers ? (
                   <>
@@ -2712,7 +2898,9 @@ export default function GrantAccessScreen() {
               </View>
             ) : null}
 
-            {isStaffFlow ? (
+            {/* ── Staff visibility list (standalone or tabbed) ── */}
+            {isStaffFlow ||
+            (isTabbedVisibility && visibilityTab === "staff") ? (
               <View style={styles.section}>
                 {hasStaff ? (
                   <>
@@ -2941,6 +3129,30 @@ const styles = StyleSheet.create({
     color: "#64748B",
     fontSize: 13,
     fontWeight: "600",
+  },
+
+  /* ── Visibility tab bar (only in tabbed mode) ── */
+  visibilityTabs: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 18,
+  },
+  visibilityTab: {
+    flex: 1,
+    height: 48,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    borderRadius: 14,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1.5,
+    borderColor: "#E2E8F0",
+  },
+  visibilityTabText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#64748B",
   },
 
   section: { marginBottom: 20 },
