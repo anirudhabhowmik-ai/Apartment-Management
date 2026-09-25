@@ -1,14 +1,22 @@
 // app/(tabs)/profile.tsx
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Switch,
   Text,
@@ -16,6 +24,7 @@ import {
   TouchableWithoutFeedback,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import GenerateBillModal from "../../components/GenerateBillModal";
 import SubscriptionPlanModal, {
@@ -31,9 +40,8 @@ import { BillMemberType } from "../../store/billStore";
 import { useAuthStore } from "../../store/useAuthStore";
 
 // ============================================================================
-// Inline custom alert — self-contained, no external imports
+// Inline custom alert
 // ============================================================================
-
 type AlertVariant = "info" | "success" | "warning" | "error" | "question";
 
 interface AlertButton {
@@ -82,9 +90,7 @@ function AppAlert({
 
   const handlePress = (btn: AlertButton) => {
     onDismiss();
-    if (btn.onPress) {
-      setTimeout(btn.onPress, 0);
-    }
+    if (btn.onPress) setTimeout(btn.onPress, 0);
   };
 
   const hasTwo = buttons.length === 2;
@@ -184,9 +190,7 @@ function useAppAlert() {
     [],
   );
 
-  const dismiss = useCallback(() => {
-    setState(EMPTY_ALERT);
-  }, []);
+  const dismiss = useCallback(() => setState(EMPTY_ALERT), []);
 
   return { state, show, dismiss };
 }
@@ -265,7 +269,6 @@ const inlineAlertStyles = StyleSheet.create({
 // ============================================================================
 // API
 // ============================================================================
-
 const API_URL = (
   process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000"
 ).replace(/\/api\/?$/, "");
@@ -285,7 +288,6 @@ interface AccountPeopleResponse {
 // ============================================================================
 // TYPES
 // ============================================================================
-
 interface MenuItem {
   id: string;
   title: string;
@@ -313,7 +315,11 @@ interface HistoryEntry {
     | "subscription_changed"
     | "plan_upgraded"
     | "plan_downgraded"
-    | "subscription_cancelled";
+    | "subscription_cancelled"
+    | "phone_changed"
+    | "merge_users"
+    | "opening_balance"
+    | "calendar_event";
   title: string;
   description: string;
   amount?: number;
@@ -321,16 +327,401 @@ interface HistoryEntry {
   memberName?: string;
   timestamp: number;
   date: string;
-  markedBy: any;
+  markedBy: string;
+  actorRole?: string | null;
+  actorPhoto?: string | null;
+  targetName?: string | null;
+  targetPhoto?: string | null;
+  actorPhone?: string | null;
+  targetPhone?: string | null;
+  actorIsSelf?: boolean;
+  targetIsSelf?: boolean;
   details?: Record<string, any>;
   oldValue?: string;
   newValue?: string;
 }
 
+interface AuditRow {
+  id: number;
+  account_id: string | null;
+  actor_user_id: string | null;
+  actor_name: string | null;
+  actor_phone: string | null;
+  actor_photo: string | null;
+  actor_role: string | null;
+  target_user_id: string | null;
+  target_name: string | null;
+  target_phone: string | null;
+  target_photo: string | null;
+  entity_type: string;
+  entity_id: string | null;
+  action: string;
+  before: any;
+  after: any;
+  metadata: any;
+  visibility: string;
+  summary: string | null;
+  created_at: string;
+}
+
+// ============================================================================
+// HELPERS
+// ============================================================================
+function humanRole(role?: string | null): string {
+  if (!role) return "";
+  switch (role) {
+    case "owner":
+      return "Owner";
+    case "admin":
+      return "Admin";
+    case "member_visibility":
+      return "Member";
+    case "staff_visibility":
+      return "Staff";
+    case "ownership_transfer":
+      return "Ownership Transfer";
+    default:
+      return role;
+  }
+}
+
+function shortRoleLabel(role?: string | null): string {
+  if (!role) return "";
+  switch (role) {
+    case "owner":
+      return "Owner";
+    case "admin":
+      return "Admin";
+    case "member_visibility":
+      return "Member";
+    case "staff_visibility":
+      return "Staff";
+    case "ownership_transfer":
+      return "Ownership Transfer";
+    default:
+      return role;
+  }
+}
+
+function prettyPhone(phone?: string | null): string {
+  if (!phone) return "";
+  const ten = String(phone).replace(/\D/g, "").slice(-10);
+  return ten.length === 10 ? `${ten.slice(0, 5)} ${ten.slice(5)}` : "";
+}
+
+function initialsOf(name?: string | null): string {
+  if (!name) return "?";
+  const result = name
+    .split(" ")
+    .filter(Boolean)
+    .map((p) => p[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+  return result || "?";
+}
+
+const HIDDEN_ACTIONS = new Set<string>(["staff.attendance_marked"]);
+
+function isHiddenAuditRow(row: AuditRow): boolean {
+  return HIDDEN_ACTIONS.has(`${row.entity_type}.${row.action}`);
+}
+
+function classifyAuditRow(row: AuditRow): HistoryEntry["type"] {
+  const k = `${row.entity_type}.${row.action}`;
+  switch (k) {
+    case "member.payment_paid":
+      return "maintenance_paid";
+    case "member.payment_due":
+      return "maintenance_due";
+    case "staff.payment_paid":
+      return "payment";
+    case "staff.payment_due":
+      return "payment";
+    case "staff.attendance_marked":
+      return "amount_changed";
+    case "member.create":
+      return "member_added";
+    case "member.delete":
+      return "member_removed";
+    case "staff.create":
+      return "staff_added";
+    case "staff.delete":
+      return "staff_removed";
+    case "member.update":
+    case "staff.update":
+    case "account.update":
+      return "amount_changed";
+    case "account.create":
+    case "account.delete":
+    case "account.transfer_ownership":
+    case "account_member.role_granted":
+    case "account_member.role_revoked":
+    case "invitation.create":
+    case "invitation.delete":
+    case "invitation.reject":
+    case "invitation.accept":
+      return "role_changed";
+    case "expense.create":
+      return "bill_generated";
+    case "expense.update":
+    case "expense.delete":
+      return "amount_changed";
+    case "calendar_event.create":
+    case "calendar_event.update":
+    case "calendar_event.approve":
+    case "calendar_event.reject":
+    case "calendar_event.delete":
+      return "calendar_event";
+    case "opening_balance.create":
+    case "opening_balance.update":
+      return "opening_balance";
+    case "user.phone_changed":
+      return "phone_changed";
+    case "user.merge_users":
+      return "merge_users";
+    default:
+      return "amount_changed";
+  }
+}
+
+function buildHistoryTitle(
+  row: AuditRow,
+  actorIsSelf: boolean,
+  targetIsSelf: boolean,
+): string {
+  const actor = actorIsSelf
+    ? "You"
+    : row.actor_name && row.actor_name.trim()
+      ? row.actor_name
+      : humanRole(row.actor_role) || "Someone";
+
+  const target = targetIsSelf
+    ? "you"
+    : row.target_name && row.target_name.trim()
+      ? row.target_name
+      : null;
+
+  const meta = row.metadata ?? {};
+  const role = meta.role ? humanRole(meta.role) : "a role";
+  const kind = meta.kind ?? "an event";
+  const k = `${row.entity_type}.${row.action}`;
+
+  switch (k) {
+    // ── Account ────────────────────────────────────────────────────────
+    case "account.create":
+      return `${actor} created the account`;
+    case "account.update":
+      return `${actor} updated the account`;
+    case "account.delete":
+      return `${actor} deleted the account`;
+    case "account.transfer_ownership":
+      if (actorIsSelf && targetIsSelf) return `You transferred ownership`;
+      if (targetIsSelf) return `${actor} transferred ownership to you`;
+      return target
+        ? `${actor} transferred ownership to ${target}`
+        : `${actor} transferred ownership`;
+
+    // ── Member (property) ──────────────────────────────────────────────
+    case "member.create":
+      if (targetIsSelf) return `${actor} added your property`;
+      return target
+        ? `${actor} added property for ${target}`
+        : `${actor} added a property`;
+    case "member.update":
+      if (targetIsSelf) return `${actor} updated your property details`;
+      return target
+        ? `${actor} updated ${target}'s property details`
+        : `${actor} updated a property`;
+    case "member.delete":
+      if (targetIsSelf) return `${actor} removed your property`;
+      return target
+        ? `${actor} removed property from ${target}`
+        : `${actor} removed a property`;
+
+    // ── Staff (role) ───────────────────────────────────────────────────
+    case "staff.create":
+      if (targetIsSelf) return `${actor} added your staff role`;
+      return target
+        ? `${actor} added staff role for ${target}`
+        : `${actor} added a staff role`;
+    case "staff.update":
+      if (targetIsSelf) return `${actor} updated your staff details`;
+      return target
+        ? `${actor} updated ${target}'s staff details`
+        : `${actor} updated a staff member`;
+    case "staff.delete":
+      if (targetIsSelf) return `${actor} removed your staff role`;
+      return target
+        ? `${actor} removed staff role from ${target}`
+        : `${actor} removed a staff role`;
+
+    // ── Payments ───────────────────────────────────────────────────────
+    case "member.payment_paid":
+      if (targetIsSelf) return `${actor} marked your maintenance PAID`;
+      return target
+        ? `${actor} marked maintenance PAID for ${target}`
+        : `${actor} marked maintenance PAID`;
+    case "member.payment_due":
+      if (targetIsSelf) return `${actor} marked your maintenance DUE`;
+      return target
+        ? `${actor} marked maintenance DUE for ${target}`
+        : `${actor} marked maintenance DUE`;
+    case "staff.payment_paid":
+      if (targetIsSelf) return `${actor} marked your salary PAID`;
+      return target
+        ? `${actor} marked salary PAID for ${target}`
+        : `${actor} marked salary PAID`;
+    case "staff.payment_due":
+      if (targetIsSelf) return `${actor} marked your salary DUE`;
+      return target
+        ? `${actor} marked salary DUE for ${target}`
+        : `${actor} marked salary DUE`;
+
+    // ── Expenses ───────────────────────────────────────────────────────
+    case "expense.create":
+      return `${actor} added an expense`;
+    case "expense.update":
+      return `${actor} updated an expense`;
+    case "expense.delete":
+      return `${actor} deleted an expense`;
+
+    // ── Account member role changes ────────────────────────────────────
+    case "account_member.role_granted":
+      if (actorIsSelf && targetIsSelf) return `You got ${role} access`;
+      if (targetIsSelf) return `${actor} granted you ${role} access`;
+      if (actorIsSelf)
+        return `You granted ${role} access to ${target ?? "a user"}`;
+      return target
+        ? `${actor} granted ${role} access to ${target}`
+        : `${actor} granted ${role} access`;
+    case "account_member.role_revoked":
+      if (actorIsSelf && targetIsSelf) return `You removed your ${role} access`;
+      if (targetIsSelf) return `${actor} removed your ${role} access`;
+      if (actorIsSelf)
+        return `You removed ${role} access from ${target ?? "a user"}`;
+      return target
+        ? `${actor} removed ${role} access from ${target}`
+        : `${actor} removed ${role} access`;
+
+    // ── Invitations ────────────────────────────────────────────────────
+    case "invitation.create":
+      if (actorIsSelf && targetIsSelf)
+        return `You invited yourself for ${role} access`;
+      if (targetIsSelf) return `${actor} invited you for ${role} access`;
+      if (actorIsSelf)
+        return `You invited ${target ?? "a user"} for ${role} access`;
+      return target
+        ? `${actor} invited ${target} for ${role} access`
+        : `${actor} invited a user for ${role} access`;
+    case "invitation.delete":
+      return target
+        ? `${actor} cancelled invitation for ${target}`
+        : `${actor} cancelled an invitation`;
+    case "invitation.reject":
+      if (actorIsSelf) return `You rejected the invitation`;
+      return `${actor} rejected the invitation`;
+    case "invitation.accept":
+      if (actorIsSelf) return `You accepted invitation for ${role} access`;
+      return `${actor} accepted invitation for ${role} access`;
+
+    // ── Calendar ───────────────────────────────────────────────────────
+    case "calendar_event.create":
+      return `${actor} posted ${kind}`;
+    case "calendar_event.update":
+      return `${actor} updated ${kind}`;
+    case "calendar_event.approve":
+      return `${actor} approved ${kind}`;
+    case "calendar_event.reject":
+      return `${actor} rejected ${kind}`;
+    case "calendar_event.delete":
+      return `${actor} deleted ${kind}`;
+
+    // ── Opening balance ────────────────────────────────────────────────
+    case "opening_balance.create":
+      return `${actor} added opening balance`;
+    case "opening_balance.update":
+      return `${actor} updated opening balance`;
+
+    // ── Users ──────────────────────────────────────────────────────────
+    case "user.phone_changed":
+      return actorIsSelf
+        ? "You changed your phone number"
+        : `${actor} changed their phone number`;
+    case "user.merge_users":
+      return actorIsSelf ? "You merged accounts" : `${actor} merged accounts`;
+
+    default:
+      return `${actor} performed ${k}`;
+  }
+}
+
+function mapAuditRowToHistoryEntry(
+  row: AuditRow,
+  currentUserId?: string | null,
+): HistoryEntry {
+  const before = row.before ?? {};
+  const after = row.after ?? {};
+  const meta = row.metadata ?? {};
+
+  const amount =
+    after.netAmount ??
+    before.netAmount ??
+    after.amount ??
+    before.amount ??
+    meta.netAmount ??
+    meta.amount ??
+    undefined;
+
+  const statusRaw = after.status ?? before.status;
+  const status =
+    statusRaw === "paid" || statusRaw === "due" ? statusRaw : undefined;
+
+  const actorIsSelf = !!currentUserId && row.actor_user_id === currentUserId;
+  const targetIsSelf = !!currentUserId && row.target_user_id === currentUserId;
+
+  const actorName = actorIsSelf
+    ? "You"
+    : row.actor_name && row.actor_name.trim()
+      ? row.actor_name
+      : humanRole(row.actor_role) || "Unknown user";
+
+  const targetName = targetIsSelf
+    ? "You"
+    : row.target_name && row.target_name.trim()
+      ? row.target_name
+      : null;
+
+  const title = buildHistoryTitle(row, actorIsSelf, targetIsSelf);
+
+  return {
+    id: String(row.id),
+    type: classifyAuditRow(row),
+    title,
+    description: title,
+    amount: typeof amount === "number" ? amount : undefined,
+    status,
+    memberName: targetName ?? undefined,
+    timestamp: new Date(row.created_at).getTime(),
+    date: row.created_at,
+    markedBy: actorName,
+    actorRole: row.actor_role,
+    actorPhoto: row.actor_photo ?? null,
+    targetName: targetName,
+    targetPhoto: row.target_photo ?? null,
+    actorPhone: row.actor_phone ?? null,
+    targetPhone: row.target_phone ?? null,
+    actorIsSelf,
+    targetIsSelf,
+    oldValue: Object.keys(before).length ? JSON.stringify(before) : undefined,
+    newValue: Object.keys(after).length ? JSON.stringify(after) : undefined,
+    details: meta,
+  };
+}
+
 // ============================================================================
 // STYLES
 // ============================================================================
-
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#F5F7FB" },
   scrollContent: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 40 },
@@ -828,10 +1219,10 @@ const styles = StyleSheet.create({
   },
   viewAllHistoryText: { color: "#2563EB", fontSize: 13, fontWeight: "800" },
   historyItem: {
-    paddingVertical: 12,
-    paddingHorizontal: 4,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
     borderBottomWidth: 1,
-    borderBottomColor: "#F5F7FA",
+    borderBottomColor: "#F1F5F9",
   },
   historyItemLast: { borderBottomWidth: 0 },
   historyItemHeader: {
@@ -847,56 +1238,69 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     flexShrink: 0,
   },
-  historyItemContent: { flex: 1 },
+  historyItemContent: { flex: 1, minWidth: 0 },
   historyItemTitle: { fontSize: 14, fontWeight: "700", color: "#0F172A" },
   historyItemDescription: { fontSize: 12, color: "#64748B", marginTop: 2 },
   historyItemDate: { fontSize: 10, color: "#94A3B8" },
   historyItemAmount: { fontSize: 14, fontWeight: "800", color: "#0F172A" },
 
-  historyModalOverlay: {
+  historyModalRoot: {
     flex: 1,
-    backgroundColor: "rgba(15, 23, 42, 0.58)",
-    justifyContent: "flex-end",
+    backgroundColor: "#F5F7FB",
   },
-  historyModalCard: {
-    width: "100%",
-    backgroundColor: "#FFFFFF",
-    borderTopLeftRadius: 26,
-    borderTopRightRadius: 26,
-    paddingHorizontal: 18,
-    paddingTop: 20,
-    maxHeight: "92%",
-    minHeight: "50%",
-  },
-  historyModalHandle: {
-    width: 42,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "#CBD5E1",
-    alignSelf: "center",
-    marginBottom: 16,
-  },
-  historyModalHeader: {
+  historyModalHeaderBar: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 12,
-    paddingBottom: 12,
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 14,
+    backgroundColor: "#FFFFFF",
     borderBottomWidth: 1,
-    borderBottomColor: "#F1F5F9",
+    borderBottomColor: "#E8EEF6",
   },
-  historyModalTitle: { fontSize: 18, fontWeight: "800", color: "#0F172A" },
-  historyModalSubtitle: { fontSize: 12, color: "#64748B", marginTop: 2 },
-  historyModalCloseButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+  historyModalBackBtn: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
     backgroundColor: "#F1F5F9",
     alignItems: "center",
     justifyContent: "center",
+    marginRight: 12,
   },
-  historyModalScroll: { flex: 1, minHeight: 200 },
-  historyModalContent: { paddingBottom: 20, paddingTop: 4 },
+  historyModalTitleCol: { flex: 1, minWidth: 0 },
+  historyModalTitleBig: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#0F172A",
+    letterSpacing: -0.2,
+  },
+  historyModalSubtitleBig: {
+    fontSize: 12,
+    color: "#64748B",
+    marginTop: 2,
+  },
+  historyModalCountPill: {
+    paddingHorizontal: 12,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "#EFF6FF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 8,
+  },
+  historyModalCountPillText: {
+    color: "#2563EB",
+    fontSize: 13,
+    fontWeight: "800",
+  },
+  historyModalBody: {
+    flex: 1,
+  },
+  historyModalBodyContent: {
+    paddingHorizontal: 16,
+    paddingTop: 14,
+    paddingBottom: 40,
+  },
 
   footer: { alignItems: "center", paddingTop: 24, paddingBottom: 8 },
   footerLogo: {
@@ -1046,9 +1450,128 @@ const styles = StyleSheet.create({
 });
 
 // ============================================================================
+// Person chip styles
+// ============================================================================
+const chipStyles = StyleSheet.create({
+  block: { gap: 6 },
+  row: { flexDirection: "row", alignItems: "center", gap: 10 },
+  avatar: {
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  avatarText: { fontWeight: "800", letterSpacing: 0.3 },
+  info: { flex: 1, minWidth: 0 },
+  name: { color: "#0F172A", fontSize: 13, fontWeight: "700" },
+  phone: { color: "#475569", fontSize: 11, fontWeight: "600", marginTop: 1 },
+  role: {
+    color: "#94A3B8",
+    fontSize: 10,
+    fontWeight: "700",
+    letterSpacing: 0.4,
+    textTransform: "uppercase",
+    marginTop: 1,
+  },
+  selfBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 6,
+    backgroundColor: "#DBEAFE",
+    marginLeft: 6,
+  },
+  selfBadgeText: {
+    color: "#1D4ED8",
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 0.4,
+  },
+  connectorWrap: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingLeft: 8,
+    marginVertical: 2,
+  },
+  connectorLine: { width: 14, height: 1, backgroundColor: "#CBD5E1" },
+  connectorArrow: { color: "#94A3B8", fontSize: 12, fontWeight: "800" },
+});
+
+// ============================================================================
+// History icon mapping
+// ============================================================================
+function getHistoryIcon(type: HistoryEntry["type"]): {
+  icon: keyof typeof Ionicons.glyphMap;
+  color: string;
+  bg: string;
+} {
+  switch (type) {
+    case "maintenance_paid":
+    case "payment":
+      return { icon: "checkmark-circle", color: "#16A34A", bg: "#DCFCE7" };
+    case "maintenance_due":
+      return { icon: "time-outline", color: "#DC2626", bg: "#FEE2E2" };
+    case "amount_changed":
+      return {
+        icon: "swap-horizontal-outline",
+        color: "#2563EB",
+        bg: "#EFF6FF",
+      };
+    case "template_saved":
+      return {
+        icon: "document-text-outline",
+        color: "#7C3AED",
+        bg: "#F3E8FF",
+      };
+    case "member_added":
+    case "staff_added":
+      return { icon: "person-add-outline", color: "#2563EB", bg: "#DBEAFE" };
+    case "member_removed":
+    case "staff_removed":
+      return {
+        icon: "person-remove-outline",
+        color: "#DC2626",
+        bg: "#FEE2E2",
+      };
+    case "bill_generated":
+      return { icon: "receipt-outline", color: "#D97706", bg: "#FEF3C7" };
+    case "role_changed":
+      return { icon: "shield-outline", color: "#7C3AED", bg: "#F3E8FF" };
+    case "subscription_changed":
+    case "plan_upgraded":
+    case "plan_downgraded":
+      return { icon: "ribbon-outline", color: "#D97706", bg: "#FEF3C7" };
+    case "subscription_cancelled":
+      return {
+        icon: "close-circle-outline",
+        color: "#DC2626",
+        bg: "#FEE2E2",
+      };
+    case "phone_changed":
+      return { icon: "call-outline", color: "#0891B2", bg: "#CFFAFE" };
+    case "merge_users":
+      return {
+        icon: "git-merge-outline",
+        color: "#7C3AED",
+        bg: "#F3E8FF",
+      };
+    case "opening_balance":
+      return { icon: "wallet-outline", color: "#059669", bg: "#D1FAE5" };
+    case "calendar_event":
+      return { icon: "calendar-outline", color: "#7C3AED", bg: "#F3E8FF" };
+    default:
+      return {
+        icon: "information-circle-outline",
+        color: "#64748B",
+        bg: "#F1F5F9",
+      };
+  }
+}
+
+// ============================================================================
 // SCREEN
 // ============================================================================
-
 export default function ProfileTabScreen(): React.ReactElement {
   const router = useRouter();
   const { user, logout, refreshProfile } = useAuthStore();
@@ -1059,23 +1582,39 @@ export default function ProfileTabScreen(): React.ReactElement {
   const showAdminDirectory = !isOwner;
 
   const canManageBills = isOwner || isAdmin;
-
   const canSeeSubscription = isAdmin || isMember;
   const canManageSubscription = isAdmin;
+
+  const historyScope: "full" | "self" | "none" =
+    isOwner || isAdmin ? "full" : "self";
 
   const alert = useAppAlert();
   const showAlert = alert.show;
 
+  // ── Safe-area insets ────────────────────────────────────────────────
+  // Read once at the screen level (where SafeAreaProvider context is
+  // available) and pass them down as plain numbers to the modal body.
+  // SafeAreaView used *inside* a Modal frequently returns zero insets
+  // because the modal renders in its own native root.
+  const insets = useSafeAreaInsets();
+
+  const topInset = Math.max(
+    insets.top,
+    Platform.OS === "ios" ? 44 : (StatusBar.currentHeight ?? 0),
+  );
+  const bottomInset = Math.max(insets.bottom, Platform.OS === "ios" ? 34 : 0);
+
   const [notifications, setNotifications] = useState(true);
   const [darkMode, setDarkMode] = useState(false);
-
   const [showPhoneTooltip, setShowPhoneTooltip] = useState(false);
-
   const [showGenerateBill, setShowGenerateBill] = useState(false);
   const [billMemberType, setBillMemberType] = useState<BillMemberType>("owner");
 
   const [history, setHistory] = useState<HistoryEntry[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [showHistoryModal, setShowHistoryModal] = useState(false);
+
+  const hasLoadedHistoryOnce = useRef(false);
 
   const [showPlansModal, setShowPlansModal] = useState(false);
   const [activePlan, setActivePlan] = useState<string>("pro");
@@ -1093,6 +1632,12 @@ export default function ProfileTabScreen(): React.ReactElement {
   useEffect(() => {
     refreshProfile().catch(() => {});
   }, [refreshProfile]);
+
+  useEffect(() => {
+    SecureStore.getItemAsync("notifications_enabled").then((v) => {
+      if (v !== null) setNotifications(v === "true");
+    });
+  }, []);
 
   const isSwitcherOpen = useAccountStore((s) => s.isAccountSwitcherOpen);
 
@@ -1149,6 +1694,68 @@ export default function ProfileTabScreen(): React.ReactElement {
     loadAccountPeople();
   }, [loadAccountPeople]);
 
+  const loadHistory = useCallback(
+    async (silent = false) => {
+      if (!selectedAccount?.id) {
+        setHistory([]);
+        return;
+      }
+
+      if (!silent) setHistoryLoading(true);
+
+      try {
+        const token = await getAuthToken();
+        if (!token) {
+          if (!silent) setHistory([]);
+          return;
+        }
+
+        const url =
+          historyScope === "full"
+            ? `${API_URL}/api/accounts/${selectedAccount.id}/history?limit=100`
+            : `${API_URL}/api/accounts/${selectedAccount.id}/history/me?limit=100`;
+
+        const res = await fetch(url, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+
+        if (!res.ok) {
+          if (!silent) setHistory([]);
+          return;
+        }
+
+        const data = await res.json();
+        const rows: AuditRow[] = Array.isArray(data?.history)
+          ? data.history
+          : [];
+
+        const visibleRows = rows.filter((r) => !isHiddenAuditRow(r));
+
+        setHistory(
+          visibleRows.map((r) => mapAuditRowToHistoryEntry(r, user?.id)),
+        );
+        hasLoadedHistoryOnce.current = true;
+      } catch (err) {
+        console.warn("[profile] loadHistory failed:", err);
+        if (!silent) setHistory([]);
+      } finally {
+        if (!silent) setHistoryLoading(false);
+      }
+    },
+    [selectedAccount?.id, historyScope, getAuthToken, user?.id],
+  );
+
+  useEffect(() => {
+    loadHistory(false);
+  }, [loadHistory]);
+
+  useFocusEffect(
+    useCallback(() => {
+      loadHistory(true);
+      loadAccountPeople();
+    }, [loadHistory, loadAccountPeople]),
+  );
+
   const adminDirectory = useMemo(() => {
     if (!accountPeople?.admins) return [];
     return accountPeople.admins.map((a) => ({
@@ -1159,131 +1766,6 @@ export default function ProfileTabScreen(): React.ReactElement {
       isSelf: a.user_id === user?.id,
     }));
   }, [accountPeople, user?.id]);
-
-  const addHistoryEntry = (
-    type: HistoryEntry["type"],
-    title: string,
-    description: string,
-    options?: {
-      amount?: number;
-      status?: "paid" | "due";
-      memberName?: string;
-      details?: Record<string, any>;
-      oldValue?: string;
-      newValue?: string;
-    },
-  ) => {
-    const newEntry: HistoryEntry = {
-      id: Date.now().toString(),
-      type,
-      title,
-      description,
-      timestamp: Date.now(),
-      date: new Date().toISOString(),
-      markedBy: user?.phone,
-      ...options,
-    };
-    setHistory((prev) => [newEntry, ...prev]);
-  };
-
-  useEffect(() => {
-    const sampleHistory: HistoryEntry[] = [
-      {
-        id: "1",
-        type: "maintenance_paid",
-        title: "Maintenance Paid",
-        description: "Ramesh Kumar paid maintenance for January 2024",
-        amount: 2500,
-        status: "paid",
-        memberName: "Ramesh Kumar",
-        timestamp: Date.now() - 30 * 24 * 60 * 60 * 1000,
-        date: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString(),
-        markedBy: "Admin (You)",
-        details: { month: "January 2024", flat: "A-204" },
-      },
-      {
-        id: "2",
-        type: "maintenance_due",
-        title: "Maintenance Due",
-        description: "Priya Sharma has pending maintenance for February 2024",
-        amount: 1800,
-        status: "due",
-        memberName: "Priya Sharma",
-        timestamp: Date.now() - 15 * 24 * 60 * 60 * 1000,
-        date: new Date(Date.now() - 15 * 24 * 60 * 60 * 1000).toISOString(),
-        markedBy: "System",
-        details: { month: "February 2024", flat: "B-101" },
-      },
-      {
-        id: "3",
-        type: "amount_changed",
-        title: "Maintenance Amount Changed",
-        description:
-          "Amit Singh's maintenance amount changed from ₹3,000 to ₹3,200",
-        amount: 3200,
-        memberName: "Amit Singh",
-        timestamp: Date.now() - 5 * 24 * 60 * 60 * 1000,
-        date: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000).toISOString(),
-        markedBy: "Admin (You)",
-        oldValue: "₹3,000",
-        newValue: "₹3,200",
-        details: { flat: "C-505" },
-      },
-    ];
-    setHistory(sampleHistory);
-  }, []);
-
-  const getHistoryIcon = (type: HistoryEntry["type"]) => {
-    switch (type) {
-      case "maintenance_paid":
-      case "payment":
-        return { icon: "checkmark-circle", color: "#16A34A", bg: "#DCFCE7" };
-      case "maintenance_due":
-        return { icon: "time-outline", color: "#DC2626", bg: "#FEE2E2" };
-      case "amount_changed":
-        return {
-          icon: "swap-horizontal-outline",
-          color: "#2563EB",
-          bg: "#EFF6FF",
-        };
-      case "template_saved":
-        return {
-          icon: "document-text-outline",
-          color: "#7C3AED",
-          bg: "#F3E8FF",
-        };
-      case "member_added":
-      case "staff_added":
-        return { icon: "person-add-outline", color: "#2563EB", bg: "#DBEAFE" };
-      case "member_removed":
-      case "staff_removed":
-        return {
-          icon: "person-remove-outline",
-          color: "#DC2626",
-          bg: "#FEE2E2",
-        };
-      case "bill_generated":
-        return { icon: "receipt-outline", color: "#D97706", bg: "#FEF3C7" };
-      case "role_changed":
-        return { icon: "shield-outline", color: "#7C3AED", bg: "#F3E8FF" };
-      case "subscription_changed":
-      case "plan_upgraded":
-      case "plan_downgraded":
-        return { icon: "ribbon-outline", color: "#D97706", bg: "#FEF3C7" };
-      case "subscription_cancelled":
-        return {
-          icon: "close-circle-outline",
-          color: "#DC2626",
-          bg: "#FEE2E2",
-        };
-      default:
-        return {
-          icon: "information-circle-outline",
-          color: "#64748B",
-          bg: "#F1F5F9",
-        };
-    }
-  };
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString);
@@ -1331,10 +1813,14 @@ export default function ProfileTabScreen(): React.ReactElement {
   };
 
   const handleBillSaved = () => {
-    addHistoryEntry(
-      "template_saved",
-      "Bill Template Saved",
-      "Bill template updated",
+    loadHistory(true);
+  };
+
+  const toggleNotifications = async (value: boolean) => {
+    setNotifications(value);
+    await SecureStore.setItemAsync(
+      "notifications_enabled",
+      value ? "true" : "false",
     );
   };
 
@@ -1357,40 +1843,9 @@ export default function ProfileTabScreen(): React.ReactElement {
     amount: number;
     paymentId?: string;
   }) => {
-    const { plan, period, isUpgrade, isDowngrade, amount, paymentId } = payload;
-    const currentPlan = plans.find((p) => p.id === activePlan);
-    const actionType: HistoryEntry["type"] = isUpgrade
-      ? "plan_upgraded"
-      : isDowngrade
-        ? "plan_downgraded"
-        : "subscription_changed";
-    const actionTitle = isUpgrade
-      ? "Plan Upgraded"
-      : isDowngrade
-        ? "Plan Downgraded"
-        : "Plan Changed";
-    const actionDescription = isUpgrade
-      ? `Upgraded from ${currentPlan?.name ?? "Unknown"} to ${plan.name} (${period})`
-      : isDowngrade
-        ? `Downgraded from ${currentPlan?.name ?? "Unknown"} to ${plan.name} (${period})`
-        : `Changed plan from ${currentPlan?.name ?? "Unknown"} to ${plan.name} (${period})`;
-
-    addHistoryEntry(actionType, actionTitle, actionDescription, {
-      amount,
-      oldValue: currentPlan?.name ?? "Unknown",
-      newValue: plan.name,
-      details: {
-        from: currentPlan?.name ?? "Unknown",
-        to: plan.name,
-        price: amount,
-        period,
-        paymentId: paymentId ?? null,
-      },
-    });
-
+    const { plan, period, isUpgrade, isDowngrade } = payload;
     setActivePlan(plan.id);
     setActivePlanPeriod(period);
-
     showAlert({
       variant: "success",
       title: "Plan Updated",
@@ -1406,18 +1861,6 @@ export default function ProfileTabScreen(): React.ReactElement {
 
   const handleCancelSubscription = () => {
     if (!canManageSubscription) return;
-    const currentPlan = plans.find((p) => p.id === activePlan);
-    addHistoryEntry(
-      "subscription_cancelled",
-      "Subscription Cancelled",
-      `Cancelled ${currentPlan?.name ?? "current"} plan`,
-      {
-        details: {
-          plan: currentPlan?.name ?? "Unknown",
-          cancelledAt: new Date().toISOString(),
-        },
-      },
-    );
     setActivePlan("free");
     setActivePlanPeriod("monthly");
     showAlert({
@@ -1492,6 +1935,7 @@ export default function ProfileTabScreen(): React.ReactElement {
 
       setShowWithdrawModal(false);
       await loadAccountPeople();
+      await loadHistory(true);
 
       showAlert({
         variant: "success",
@@ -1537,7 +1981,7 @@ export default function ProfileTabScreen(): React.ReactElement {
       description: "Receive important account updates",
       icon: "notifications-outline",
       color: "#F59E0B",
-      onPress: () => setNotifications((e) => !e),
+      onPress: () => toggleNotifications(!notifications),
       showArrow: false,
     },
     {
@@ -1647,7 +2091,7 @@ export default function ProfileTabScreen(): React.ReactElement {
       {item.id === "notifications" ? (
         <Switch
           value={notifications}
-          onValueChange={setNotifications}
+          onValueChange={toggleNotifications}
           trackColor={{ false: "#CBD5E1", true: "#93C5FD" }}
           thumbColor={notifications ? "#2563EB" : "#FFFFFF"}
         />
@@ -1664,89 +2108,330 @@ export default function ProfileTabScreen(): React.ReactElement {
     </TouchableOpacity>
   );
 
+  const renderPersonChip = (
+    person: {
+      name: string | null;
+      phone: string | null;
+      photo: string | null;
+      role: string | null;
+      isSelf: boolean;
+    },
+    compact: boolean,
+  ) => {
+    const avatarSize = compact ? 30 : 36;
+
+    if (person.isSelf) {
+      return (
+        <View style={chipStyles.row}>
+          <View
+            style={[
+              chipStyles.avatar,
+              {
+                width: avatarSize,
+                height: avatarSize,
+                borderRadius: avatarSize / 2,
+                backgroundColor: "#DBEAFE",
+              },
+            ]}
+          >
+            {person.photo ? (
+              <Image
+                source={{ uri: person.photo }}
+                style={{ width: "100%", height: "100%" }}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+                transition={100}
+              />
+            ) : (
+              <Ionicons
+                name="person"
+                size={compact ? 14 : 16}
+                color="#1D4ED8"
+              />
+            )}
+          </View>
+          <View style={chipStyles.info}>
+            <View style={{ flexDirection: "row", alignItems: "center" }}>
+              <Text
+                style={[
+                  chipStyles.name,
+                  compact && { fontSize: 12 },
+                  { color: "#1D4ED8" },
+                ]}
+              >
+                You
+              </Text>
+              <View style={chipStyles.selfBadge}>
+                <Text style={chipStyles.selfBadgeText}>YOU</Text>
+              </View>
+            </View>
+          </View>
+        </View>
+      );
+    }
+
+    const displayName =
+      person.name && person.name.trim()
+        ? person.name
+        : prettyPhone(person.phone) || "Unknown user";
+
+    const phoneText =
+      prettyPhone(person.phone) && person.name?.trim()
+        ? prettyPhone(person.phone)
+        : null;
+
+    const roleText = shortRoleLabel(person.role);
+
+    return (
+      <View style={chipStyles.row}>
+        <View
+          style={[
+            chipStyles.avatar,
+            {
+              width: avatarSize,
+              height: avatarSize,
+              borderRadius: avatarSize / 2,
+              backgroundColor: "#F1F5F9",
+            },
+          ]}
+        >
+          {person.photo ? (
+            <Image
+              source={{ uri: person.photo }}
+              style={{ width: "100%", height: "100%" }}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              transition={100}
+            />
+          ) : (
+            <Text
+              style={[
+                chipStyles.avatarText,
+                {
+                  color: "#64748B",
+                  fontSize: compact ? 11 : 12,
+                },
+              ]}
+            >
+              {initialsOf(person.name)}
+            </Text>
+          )}
+        </View>
+
+        <View style={chipStyles.info}>
+          <Text
+            style={[chipStyles.name, compact && { fontSize: 12 }]}
+            numberOfLines={1}
+          >
+            {displayName}
+          </Text>
+
+          {phoneText ? (
+            <Text
+              style={[chipStyles.phone, compact && { fontSize: 10 }]}
+              numberOfLines={1}
+            >
+              {phoneText}
+            </Text>
+          ) : null}
+
+          {roleText ? (
+            <Text
+              style={[chipStyles.role, compact && { fontSize: 9 }]}
+              numberOfLines={1}
+            >
+              {roleText}
+            </Text>
+          ) : null}
+        </View>
+      </View>
+    );
+  };
+
+  const renderHistoryRow = (
+    item: HistoryEntry,
+    isLast: boolean,
+    compact = false,
+  ) => {
+    const iconInfo = getHistoryIcon(item.type);
+
+    const actorIsSelf = !!item.actorIsSelf;
+    const targetIsSelf = !!item.targetIsSelf;
+
+    const actor = {
+      name: actorIsSelf ? "You" : item.markedBy,
+      phone: item.actorPhone ?? null,
+      photo: item.actorPhoto ?? null,
+      role: item.actorRole ?? null,
+      isSelf: actorIsSelf,
+    };
+
+    const showTarget = !!item.targetName && item.targetName !== item.markedBy;
+
+    const target = showTarget
+      ? {
+          name: targetIsSelf ? "You" : item.targetName!,
+          phone: item.targetPhone ?? null,
+          photo: item.targetPhoto ?? null,
+          role: null,
+          isSelf: targetIsSelf,
+        }
+      : null;
+
+    return (
+      <View
+        key={item.id}
+        style={[
+          styles.historyItem,
+          isLast && styles.historyItemLast,
+          compact && { paddingHorizontal: 14, paddingVertical: 12 },
+        ]}
+      >
+        <View style={styles.historyItemHeader}>
+          <View
+            style={[
+              styles.historyIconContainer,
+              {
+                backgroundColor: iconInfo.bg,
+                ...(compact ? { width: 32, height: 32 } : {}),
+              },
+            ]}
+          >
+            <Ionicons
+              name={iconInfo.icon}
+              size={compact ? 16 : 18}
+              color={iconInfo.color}
+            />
+          </View>
+
+          <View style={styles.historyItemContent}>
+            <Text
+              style={[styles.historyItemTitle, compact && { fontSize: 13 }]}
+              numberOfLines={2}
+            >
+              {item.title}
+            </Text>
+          </View>
+
+          {item.amount ? (
+            <Text
+              style={[styles.historyItemAmount, compact && { fontSize: 13 }]}
+            >
+              {formatCurrency(item.amount)}
+            </Text>
+          ) : null}
+        </View>
+
+        <View
+          style={[
+            chipStyles.block,
+            { paddingLeft: compact ? 42 : 46, marginTop: compact ? 6 : 8 },
+          ]}
+        >
+          {renderPersonChip(actor, compact)}
+
+          {target ? (
+            <View style={chipStyles.connectorWrap}>
+              <View style={chipStyles.connectorLine} />
+              <Text style={chipStyles.connectorArrow}>→</Text>
+            </View>
+          ) : null}
+
+          {target ? renderPersonChip(target, compact) : null}
+        </View>
+
+        <Text
+          style={[
+            styles.historyItemDate,
+            compact && { fontSize: 9 },
+            {
+              marginTop: 8,
+              paddingLeft: compact ? 42 : 46,
+            },
+          ]}
+        >
+          {formatDate(item.date)}
+        </Text>
+      </View>
+    );
+  };
+
+  // ==========================================================================
+  // Full-screen history modal — safe area applied directly via insets.
+  // ==========================================================================
   const renderHistoryModal = () => (
     <Modal
       visible={showHistoryModal}
-      transparent
       animationType="slide"
       onRequestClose={() => setShowHistoryModal(false)}
+      presentationStyle="fullScreen"
     >
-      <View style={styles.historyModalOverlay}>
-        <View style={styles.historyModalCard}>
-          <View style={styles.historyModalHandle} />
-          <View style={styles.historyModalHeader}>
-            <View>
-              <Text style={styles.historyModalTitle}>Activity History</Text>
-              <Text style={styles.historyModalSubtitle}>
-                {history.length} events recorded
-              </Text>
-            </View>
-            <TouchableOpacity
-              style={styles.historyModalCloseButton}
-              onPress={() => setShowHistoryModal(false)}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="close" size={22} color="#475569" />
-            </TouchableOpacity>
+      <View
+        style={[
+          styles.historyModalRoot,
+          {
+            paddingTop: topInset,
+            paddingBottom: bottomInset,
+          },
+        ]}
+      >
+        <View style={styles.historyModalHeaderBar}>
+          <TouchableOpacity
+            style={styles.historyModalBackBtn}
+            onPress={() => setShowHistoryModal(false)}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="arrow-back" size={22} color="#475569" />
+          </TouchableOpacity>
+
+          <View style={styles.historyModalTitleCol}>
+            <Text style={styles.historyModalTitleBig}>
+              {historyScope === "full" ? "Account History" : "My History"}
+            </Text>
+            <Text style={styles.historyModalSubtitleBig}>
+              {historyScope === "full"
+                ? "Every action in this account"
+                : "Your activity in this account"}
+            </Text>
           </View>
 
-          <ScrollView
-            style={styles.historyModalScroll}
-            contentContainerStyle={styles.historyModalContent}
-            showsVerticalScrollIndicator
-          >
-            {history.length === 0 ? (
-              <View style={styles.noHistoryContainer}>
-                <View style={styles.noHistoryIcon}>
-                  <Ionicons name="time-outline" size={28} color="#94A3B8" />
-                </View>
-                <Text style={styles.noHistoryTitle}>No history found</Text>
-                <Text style={styles.noHistoryText}>
-                  No events match the selected filter.
-                </Text>
-              </View>
-            ) : (
-              history.map((item, index) => {
-                const iconInfo = getHistoryIcon(item.type);
-                return (
-                  <View
-                    key={item.id}
-                    style={[
-                      styles.historyItem,
-                      index === history.length - 1 && styles.historyItemLast,
-                    ]}
-                  >
-                    <View style={styles.historyItemHeader}>
-                      <View
-                        style={[
-                          styles.historyIconContainer,
-                          { backgroundColor: iconInfo.bg },
-                        ]}
-                      >
-                        <Ionicons
-                          name={iconInfo.icon as any}
-                          size={18}
-                          color={iconInfo.color}
-                        />
-                      </View>
-                      <View style={styles.historyItemContent}>
-                        <Text style={styles.historyItemTitle}>
-                          {item.title}
-                        </Text>
-                        <Text style={styles.historyItemDescription}>
-                          {item.description}
-                        </Text>
-                        <Text style={styles.historyItemDate}>
-                          {formatDate(item.date)} • by {item.markedBy}
-                        </Text>
-                      </View>
-                    </View>
-                  </View>
-                );
-              })
-            )}
-          </ScrollView>
+          <View style={styles.historyModalCountPill}>
+            <Text style={styles.historyModalCountPillText}>
+              {history.length}
+            </Text>
+          </View>
         </View>
+
+        <ScrollView
+          style={styles.historyModalBody}
+          contentContainerStyle={styles.historyModalBodyContent}
+          showsVerticalScrollIndicator
+        >
+          {historyLoading && !hasLoadedHistoryOnce.current ? (
+            <View style={styles.noHistoryContainer}>
+              <ActivityIndicator size="small" color="#2563EB" />
+              <Text style={[styles.noHistoryText, { marginTop: 12 }]}>
+                Loading history…
+              </Text>
+            </View>
+          ) : history.length === 0 ? (
+            <View style={styles.noHistoryContainer}>
+              <View style={styles.noHistoryIcon}>
+                <Ionicons name="time-outline" size={28} color="#94A3B8" />
+              </View>
+              <Text style={styles.noHistoryTitle}>No history yet</Text>
+              <Text style={styles.noHistoryText}>
+                Activity on this account will appear here.
+              </Text>
+            </View>
+          ) : (
+            <View style={styles.historyCard}>
+              {history.map((item, index) =>
+                renderHistoryRow(item, index === history.length - 1, false),
+              )}
+            </View>
+          )}
+        </ScrollView>
       </View>
     </Modal>
   );
@@ -2121,9 +2806,13 @@ export default function ProfileTabScreen(): React.ReactElement {
         <View style={styles.historyCard}>
           <View style={styles.historyHeader}>
             <View>
-              <Text style={styles.historyTitle}>Activity History</Text>
+              <Text style={styles.historyTitle}>
+                {historyScope === "full" ? "Account History" : "My History"}
+              </Text>
               <Text style={styles.historySubtitle}>
-                Track all activities in your society
+                {historyScope === "full"
+                  ? "Track all activities in your society"
+                  : "Your activity on this account"}
               </Text>
             </View>
             <View style={styles.historyTotalBadge}>
@@ -2131,57 +2820,31 @@ export default function ProfileTabScreen(): React.ReactElement {
             </View>
           </View>
 
-          {history.slice(0, 3).map((item, index) => {
-            const iconInfo = getHistoryIcon(item.type);
-            return (
-              <View
-                key={item.id}
-                style={[
-                  styles.historyItem,
-                  index === 2 && styles.historyItemLast,
-                  { paddingHorizontal: 15, paddingVertical: 10 },
-                ]}
-              >
-                <View style={styles.historyItemHeader}>
-                  <View
-                    style={[
-                      styles.historyIconContainer,
-                      {
-                        backgroundColor: iconInfo.bg,
-                        width: 32,
-                        height: 32,
-                      },
-                    ]}
-                  >
-                    <Ionicons
-                      name={iconInfo.icon as any}
-                      size={16}
-                      color={iconInfo.color}
-                    />
-                  </View>
-                  <View style={styles.historyItemContent}>
-                    <Text style={[styles.historyItemTitle, { fontSize: 13 }]}>
-                      {item.title}
-                    </Text>
-                    <Text
-                      style={[styles.historyItemDescription, { fontSize: 11 }]}
-                      numberOfLines={1}
-                    >
-                      {item.description}
-                    </Text>
-                    <Text style={[styles.historyItemDate, { fontSize: 9 }]}>
-                      {formatDate(item.date)} • by {item.markedBy}
-                    </Text>
-                  </View>
-                  {item.amount && (
-                    <Text style={[styles.historyItemAmount, { fontSize: 13 }]}>
-                      {formatCurrency(item.amount)}
-                    </Text>
-                  )}
-                </View>
+          {historyLoading && !hasLoadedHistoryOnce.current ? (
+            <View style={styles.noHistoryContainer}>
+              <ActivityIndicator size="small" color="#2563EB" />
+            </View>
+          ) : history.length === 0 ? (
+            <View style={styles.noHistoryContainer}>
+              <View style={styles.noHistoryIcon}>
+                <Ionicons name="time-outline" size={28} color="#94A3B8" />
               </View>
-            );
-          })}
+              <Text style={styles.noHistoryTitle}>No history yet</Text>
+              <Text style={styles.noHistoryText}>
+                Activity on this account will appear here.
+              </Text>
+            </View>
+          ) : (
+            history
+              .slice(0, 3)
+              .map((item, index) =>
+                renderHistoryRow(
+                  item,
+                  index === Math.min(history.length, 3) - 1,
+                  true,
+                ),
+              )
+          )}
 
           <TouchableOpacity
             style={styles.viewAllHistoryButton}
@@ -2193,7 +2856,6 @@ export default function ProfileTabScreen(): React.ReactElement {
           </TouchableOpacity>
         </View>
 
-        {/* LOG OUT — visible for every role */}
         <TouchableOpacity
           style={styles.logoutButton}
           onPress={handleLogout}
