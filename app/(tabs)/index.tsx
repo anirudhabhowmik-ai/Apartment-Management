@@ -22,9 +22,16 @@ import {
 import { useAccounts } from "../../hooks/useAccounts";
 import { useExpenses, useMembers, useStaff } from "../../hooks/useManagement";
 import { useUserRole } from "../../hooks/useUserRole";
+import { generateBillPDF, savePDFToDevice } from "../../services/pdfGenerator";
+import { useAttendanceStore } from "../../store/attendanceStore";
+import { BillMemberType, useBillStore } from "../../store/billStore";
 import { useAuthStore } from "../../store/useAuthStore";
-import type { Member } from "../../types";
+import type { AttendanceStatus, Member } from "../../types";
 import { PaymentCategory } from "../../types/payment";
+
+/* ============================================================
+   TYPES
+   ============================================================ */
 
 interface QuickAction {
   id: string;
@@ -35,14 +42,13 @@ interface QuickAction {
   tab: "apartment" | "staff" | "expense";
 }
 
-type AttendanceStatus = "present" | "absent" | "holiday" | "half_day" | "none";
-
-interface AttendanceRecord {
-  date: string;
-  status: AttendanceStatus;
-  checkIn?: string;
-  checkOut?: string;
-}
+type AttendanceStatusUI =
+  | "present"
+  | "absent"
+  | "holiday"
+  | "half_day"
+  | "weekend"
+  | "none";
 
 type TransactionType = "income" | "expense";
 
@@ -105,6 +111,15 @@ type RevokePreview = {
   } | null;
 };
 
+type OwnerContact = {
+  name: string;
+  phone: string | null;
+};
+
+/* ============================================================
+   CONSTANTS
+   ============================================================ */
+
 const ADMIN_QUICK_ACTIONS: QuickAction[] = [
   {
     id: "members",
@@ -132,28 +147,6 @@ const ADMIN_QUICK_ACTIONS: QuickAction[] = [
   },
 ];
 
-const ROLE_COLORS: Record<string, string> = {
-  sweeper: "#8B5CF6",
-  security: "#EF4444",
-  maintenance: "#F59E0B",
-  maid: "#16A34A",
-  driver: "#2563EB",
-  cook: "#92400E",
-  gardener: "#65A30D",
-  other: "#64748B",
-};
-
-const ROLE_LABELS: Record<string, string> = {
-  sweeper: "Sweeper",
-  security: "Security",
-  maintenance: "Maintenance",
-  maid: "Maid",
-  driver: "Driver",
-  cook: "Cook",
-  gardener: "Gardener",
-  other: "Staff",
-};
-
 const MONTHS = [
   "January",
   "February",
@@ -172,19 +165,24 @@ const MONTHS = [
 const WEEKDAYS = ["S", "M", "T", "W", "T", "F", "S"];
 
 const STATUS_COLORS: Record<
-  AttendanceStatus,
+  AttendanceStatusUI,
   { bg: string; text: string; label: string }
 > = {
   present: { bg: "#DCFCE7", text: "#15803D", label: "Present" },
   absent: { bg: "#FEE2E2", text: "#DC2626", label: "Absent" },
   holiday: { bg: "#DBEAFE", text: "#2563EB", label: "Holiday" },
   half_day: { bg: "#FEF3C7", text: "#D97706", label: "Half Day" },
+  weekend: { bg: "#F1F5F9", text: "#64748B", label: "Weekend" },
   none: { bg: "#F1F5F9", text: "#94A3B8", label: "—" },
 };
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
 const AUTH_TOKEN_KEY = "auth_token";
 const OPENING_BALANCE_PREFIX = "/opening-balance";
+
+/* ============================================================
+   HELPERS
+   ============================================================ */
 
 async function getAuthToken(): Promise<string | null> {
   try {
@@ -224,6 +222,83 @@ async function openingBalanceRequest<T>(
     throw err;
   }
   return data as T;
+}
+
+/**
+ * Fetch the owner + admins (with name + phone) for a given account.
+ * Uses the existing accountController.getAccountPeople endpoint.
+ */
+async function fetchAccountOwnerContact(
+  accountId: string,
+): Promise<{ owner: OwnerContact | null; admins: OwnerContact[] }> {
+  const token = await getAuthToken();
+  if (!token || !API_BASE_URL) return { owner: null, admins: [] };
+
+  try {
+    const res = await fetch(`${API_BASE_URL}/accounts/${accountId}/people`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (!res.ok) return { owner: null, admins: [] };
+
+    const data: any = await res.json();
+
+    const norm = (p?: string | null) => {
+      if (!p) return null;
+      const d = String(p).replace(/\D/g, "");
+      return d.length > 10 ? d.slice(-10) : d;
+    };
+
+    return {
+      owner: data?.owner
+        ? {
+            name: String(data.owner.name || "").trim(),
+            phone: norm(data.owner.phone),
+          }
+        : null,
+      admins: Array.isArray(data?.admins)
+        ? data.admins.map((a: any) => ({
+            name: String(a.name || "").trim(),
+            phone: norm(a.phone),
+          }))
+        : [],
+    };
+  } catch {
+    return { owner: null, admins: [] };
+  }
+}
+
+/**
+ * Build the "bill template missing" alert body with owner contact info.
+ */
+function buildBillMissingMessage(
+  owner: OwnerContact | null,
+  admins: OwnerContact[],
+): string {
+  const lines: string[] = [
+    "The bill template hasn't been set up for this property yet.",
+    "Please request the owner/admin to generate it from Profile → Generate Bill.",
+  ];
+
+  const contacts: string[] = [];
+
+  if (owner && (owner.name || owner.phone)) {
+    contacts.push(
+      `${owner.name || "Owner"}${owner.phone ? ` · +91 ${owner.phone}` : ""}`,
+    );
+  }
+
+  for (const a of admins.slice(0, 2)) {
+    if (!a.name && !a.phone) continue;
+    contacts.push(`${a.name || "Admin"}${a.phone ? ` · +91 ${a.phone}` : ""}`);
+  }
+
+  if (contacts.length > 0) {
+    lines.push("");
+    lines.push(contacts.length === 1 ? "Owner:" : "Contacts:");
+    lines.push(contacts.join("\n"));
+  }
+
+  return lines.join("\n");
 }
 
 function formatCurrency(amount: number) {
@@ -326,6 +401,68 @@ function roleLabelFromId(role?: string | null): string {
   if (role === "ownership_transfer") return "Owner";
   return "Member";
 }
+
+function parseDateParts(raw: string): {
+  year: string;
+  month: string;
+  day: string;
+} | null {
+  if (!raw) return null;
+  const datePart = String(raw).trim().split(/[T ]/)[0];
+  const parts = datePart.split("-");
+  if (parts.length < 3) return null;
+  const [year, month, day] = parts;
+  if (!year || !month || !day || year.length !== 4) return null;
+  return { year, month: month.padStart(2, "0"), day: day.padStart(2, "0") };
+}
+
+function formatFullDate(dateStr: string) {
+  const parts = parseDateParts(dateStr);
+  if (!parts) return dateStr;
+  return `${parts.day}/${parts.month}/${parts.year}`;
+}
+
+function formatMonthLong(monthKey: string) {
+  const [y, m] = monthKey.split("-").map(Number);
+  return `${MONTHS[(m || 1) - 1]} ${y}`;
+}
+
+function getCalculatedStaffSalary(
+  salary: number,
+  month: string,
+  statuses: Record<string, AttendanceStatus | AttendanceStatusUI>,
+): number {
+  const daysInMonth = new Date(
+    Number(month.slice(0, 4)),
+    Number(month.slice(5, 7)),
+    0,
+  ).getDate();
+  const paidDays = Array.from({ length: daysInMonth }, (_, i) => i + 1).filter(
+    (day) => {
+      const date = `${month}-${String(day).padStart(2, "0")}`;
+      const defaultStatus: AttendanceStatus =
+        new Date(`${date}T00:00:00`).getDay() % 6 === 0 ? "weekend" : "present";
+      return (statuses[date] ?? defaultStatus) !== "absent";
+    },
+  ).length;
+  return Math.round((salary / daysInMonth) * paidDays);
+}
+
+function normalizeAttendanceStatus(raw: any): AttendanceStatusUI | "none" {
+  if (!raw) return "none";
+  const v = String(raw).trim().toLowerCase();
+  if (v === "present") return "present";
+  if (v === "absent") return "absent";
+  if (v === "holiday") return "holiday";
+  if (v === "half_day" || v === "half-day" || v === "halfday")
+    return "half_day";
+  if (v === "weekend") return "weekend";
+  return "none";
+}
+
+/* ============================================================
+   FINANCE HELPERS
+   ============================================================ */
 
 type PaidEntry = {
   category: PaymentCategory;
@@ -435,52 +572,9 @@ function computeAllTimeFinance(
   return { income, expense, net: income - expense };
 }
 
-function generateMockAttendance(
-  year: number,
-  month: number,
-): Record<string, AttendanceRecord> {
-  const result: Record<string, AttendanceRecord> = {};
-  const days = getDaysInMonth(year, month);
-  const today = new Date();
-  const isCurrentMonth =
-    today.getFullYear() === year && today.getMonth() === month;
-
-  for (let day = 1; day <= days; day++) {
-    const date = new Date(year, month, day);
-    const key = formatDateKey(year, month, day);
-
-    if (date.getDay() === 0) {
-      result[key] = { date: key, status: "holiday" };
-      continue;
-    }
-
-    if (isCurrentMonth && day > today.getDate()) {
-      result[key] = { date: key, status: "none" };
-      continue;
-    }
-
-    const seed = (day * 7 + month * 3) % 10;
-    if (seed === 0) {
-      result[key] = { date: key, status: "absent" };
-    } else if (seed === 5) {
-      result[key] = {
-        date: key,
-        status: "half_day",
-        checkIn: "10:00",
-        checkOut: "14:00",
-      };
-    } else {
-      result[key] = {
-        date: key,
-        status: "present",
-        checkIn: "09:05",
-        checkOut: "18:10",
-      };
-    }
-  }
-
-  return result;
-}
+/* ============================================================
+   REUSABLE COMPONENTS
+   ============================================================ */
 
 function GroupOverviewCard({
   title,
@@ -724,8 +818,6 @@ function MyRolesCard({
   );
 }
 
-/* ─────────────────────────── TOGGLE SWITCH ─────────────────────────── */
-
 interface ToggleSwitchProps {
   value: boolean;
   onValueChange: (next: boolean) => void;
@@ -754,8 +846,6 @@ function ToggleSwitch({
     />
   );
 }
-
-/* ─────────────────────────── OFFER BANNERS ─────────────────────────── */
 
 function PendingAdminOfferBanner({
   offer,
@@ -919,7 +1009,9 @@ function PendingOwnershipOfferBanner({
   );
 }
 
-/* ───────────────────────── MONTH/YEAR PICKER ───────────────────────── */
+/* ============================================================
+   MONTH / YEAR PICKER MODAL
+   ============================================================ */
 
 function MonthYearPickerModal({
   visible,
@@ -1054,47 +1146,49 @@ function MonthYearPickerModal({
   );
 }
 
-function AttendanceSection({
-  year,
+/* ============================================================
+   ATTENDANCE CALENDAR (used inside modal)
+   ============================================================ */
+
+function AttendanceCalendar({
+  staffId,
   month,
-  onChangeMonth,
+  year,
+  getStatuses,
 }: {
-  year: number;
+  staffId: string;
   month: number;
-  onChangeMonth: (year: number, month: number) => void;
+  year: number;
+  getStatuses: (
+    staffId: string,
+    monthKey: string,
+  ) =>
+    | {
+        statuses?: Record<string, any>;
+        calculatedSalary?: number | null;
+      }
+    | undefined;
 }) {
-  const [showPicker, setShowPicker] = useState(false);
+  const monthKey = `${year}-${String(month + 1).padStart(2, "0")}`;
+  const cache = getStatuses(staffId, monthKey);
 
-  const attendance = useMemo(
-    () => generateMockAttendance(year, month),
-    [year, month],
-  );
+  const statuses: Record<string, AttendanceStatusUI> = useMemo(() => {
+    const out: Record<string, AttendanceStatusUI> = {};
+    const raw = cache?.statuses ?? {};
+    for (const [k, v] of Object.entries(raw)) {
+      out[k] = normalizeAttendanceStatus(v);
+    }
+    return out;
+  }, [cache]);
 
-  const { days, summary } = useMemo(() => {
+  const daysCells = useMemo(() => {
     const daysInMonth = getDaysInMonth(year, month);
     const first = getFirstDayOfMonth(year, month);
-
-    let present = 0;
-    let absent = 0;
-    let holiday = 0;
-    let halfDay = 0;
-
-    Object.values(attendance).forEach((r) => {
-      if (r.status === "present") present++;
-      else if (r.status === "absent") absent++;
-      else if (r.status === "holiday") holiday++;
-      else if (r.status === "half_day") halfDay++;
-    });
-
     const cells: (number | null)[] = [];
     for (let i = 0; i < first; i++) cells.push(null);
     for (let d = 1; d <= daysInMonth; d++) cells.push(d);
-
-    return {
-      days: cells,
-      summary: { present, absent, holiday, halfDay },
-    };
-  }, [attendance, year, month]);
+    return cells;
+  }, [year, month]);
 
   const today = new Date();
   const todayKey = formatDateKey(
@@ -1102,48 +1196,41 @@ function AttendanceSection({
     today.getMonth(),
     today.getDate(),
   );
+  const isCurrentMonth =
+    today.getFullYear() === year && today.getMonth() === month;
 
-  const handlePrev = () => {
-    if (month === 0) onChangeMonth(year - 1, 11);
-    else onChangeMonth(year, month - 1);
-  };
+  const dayStatus = useCallback(
+    (day: number): AttendanceStatusUI => {
+      const key = formatDateKey(year, month, day);
+      const explicit = statuses[key];
+      if (explicit && explicit !== "none") return explicit;
 
-  const handleNext = () => {
-    if (month === 11) onChangeMonth(year + 1, 0);
-    else onChangeMonth(year, month + 1);
-  };
+      const dow = new Date(year, month, day).getDay();
+      if (dow === 0 || dow === 6) return "weekend";
+
+      if (isCurrentMonth && day > today.getDate()) return "none";
+      return "present";
+    },
+    [statuses, year, month, isCurrentMonth, today],
+  );
+
+  const summary = useMemo(() => {
+    const s = { present: 0, absent: 0, holiday: 0, halfDay: 0 };
+    const daysInMonth = getDaysInMonth(year, month);
+    for (let d = 1; d <= daysInMonth; d++) {
+      const st = dayStatus(d);
+      if (st === "present") s.present++;
+      else if (st === "absent") s.absent++;
+      else if (st === "holiday" || st === "weekend") s.holiday++;
+      else if (st === "half_day") s.halfDay++;
+    }
+    return s;
+  }, [dayStatus, year, month]);
+
+  const hasAnyRecord = Object.keys(statuses).length > 0;
 
   return (
-    <View style={styles.attendanceCard}>
-      <View style={styles.sliderRow}>
-        <TouchableOpacity
-          onPress={handlePrev}
-          style={styles.sliderArrow}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="chevron-back" size={20} color="#2563EB" />
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          onPress={() => setShowPicker(true)}
-          style={styles.sliderMonth}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.sliderMonthText}>
-            {MONTHS[month]} {year}
-          </Text>
-          <Ionicons name="chevron-down" size={16} color="#64748B" />
-        </TouchableOpacity>
-
-        <TouchableOpacity
-          onPress={handleNext}
-          style={styles.sliderArrow}
-          activeOpacity={0.7}
-        >
-          <Ionicons name="chevron-forward" size={20} color="#2563EB" />
-        </TouchableOpacity>
-      </View>
-
+    <View>
       <View style={styles.summaryRow}>
         <View style={styles.summaryItem}>
           <View
@@ -1187,56 +1274,82 @@ function AttendanceSection({
         </View>
       </View>
 
-      <View style={styles.weekRow}>
-        {WEEKDAYS.map((d, i) => (
-          <View key={i} style={styles.weekCell}>
-            <Text style={styles.weekText}>{d}</Text>
-          </View>
-        ))}
-      </View>
-
-      <View style={styles.calendarGrid}>
-        {days.map((day, index) => {
-          if (day === null) {
-            return <View key={`empty-${index}`} style={styles.calendarCell} />;
-          }
-
-          const key = formatDateKey(year, month, day);
-          const record = attendance[key];
-          const status = record?.status ?? "none";
-          const colors = STATUS_COLORS[status];
-          const isToday = key === todayKey;
-
-          return (
-            <View key={key} style={styles.calendarCell}>
-              <View
-                style={[
-                  styles.dayBubble,
-                  { backgroundColor: colors.bg },
-                  isToday && styles.dayBubbleToday,
-                ]}
-              >
-                <Text style={[styles.dayText, { color: colors.text }]}>
-                  {day}
-                </Text>
+      {!hasAnyRecord ? (
+        <View style={styles.attendanceEmpty}>
+          <Ionicons name="calendar-outline" size={26} color="#94A3B8" />
+          <Text style={styles.attendanceEmptyTitle}>
+            No attendance recorded yet
+          </Text>
+          <Text style={styles.attendanceEmptyText}>
+            Attendance for {MONTHS[month]} {year} hasn't been marked by the
+            admin yet.
+          </Text>
+        </View>
+      ) : (
+        <>
+          <View style={styles.weekRow}>
+            {WEEKDAYS.map((d, i) => (
+              <View key={i} style={styles.weekCell}>
+                <Text style={styles.weekText}>{d}</Text>
               </View>
-            </View>
-          );
-        })}
-      </View>
+            ))}
+          </View>
 
-      <MonthYearPickerModal
-        visible={showPicker}
-        year={year}
-        month={month}
-        onClose={() => setShowPicker(false)}
-        onSelect={(y, m) => onChangeMonth(y, m)}
-      />
+          <View style={styles.calendarGrid}>
+            {daysCells.map((day, index) => {
+              if (day === null) {
+                return (
+                  <View key={`empty-${index}`} style={styles.calendarCell} />
+                );
+              }
+              const key = formatDateKey(year, month, day);
+              const st = dayStatus(day);
+              const colors = STATUS_COLORS[st] ?? STATUS_COLORS.none;
+              const isToday = key === todayKey;
+
+              return (
+                <View key={key} style={styles.calendarCell}>
+                  <View
+                    style={[
+                      styles.dayBubble,
+                      { backgroundColor: colors.bg },
+                      isToday && styles.dayBubbleToday,
+                    ]}
+                  >
+                    <Text style={[styles.dayText, { color: colors.text }]}>
+                      {day}
+                    </Text>
+                  </View>
+                </View>
+              );
+            })}
+          </View>
+
+          <View style={styles.legendRow}>
+            {(
+              ["present", "absent", "half_day", "holiday", "weekend"] as const
+            ).map((k) => (
+              <View key={k} style={styles.legendItem}>
+                <View
+                  style={[
+                    styles.legendDot,
+                    { backgroundColor: STATUS_COLORS[k].bg },
+                    { borderColor: STATUS_COLORS[k].text },
+                  ]}
+                />
+                <Text style={styles.legendText}>{STATUS_COLORS[k].label}</Text>
+              </View>
+            ))}
+          </View>
+        </>
+      )}
     </View>
   );
 }
 
-/* ───────────────────────────── MAIN SCREEN ───────────────────────────── */
+/* ============================================================
+   MAIN SCREEN
+   ============================================================ */
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -1269,17 +1382,34 @@ export default function HomeScreen() {
   const showQuickActions = isAdmin;
   const showBalanceCard = isAdmin;
   const showFinance = isAdmin || isMember;
-  const showAttendance = isStaff;
 
   const [refreshing, setRefreshing] = useState(false);
-
   const [openingBalance, setOpeningBalance] = useState(0);
 
   const now = new Date();
-  const [attYear, setAttYear] = useState(now.getFullYear());
-  const [attMonth, setAttMonth] = useState(now.getMonth());
 
-  // ── Banners state ──
+  const [selfYear, setSelfYear] = useState(now.getFullYear());
+  const [selfMonth, setSelfMonth] = useState(now.getMonth());
+  const [showSelfPicker, setShowSelfPicker] = useState(false);
+
+  const selfMonthKey = useMemo(
+    () => `${selfYear}-${String(selfMonth + 1).padStart(2, "0")}`,
+    [selfYear, selfMonth],
+  );
+
+  const [downloadingBillKey, setDownloadingBillKey] = useState<string | null>(
+    null,
+  );
+
+  // Attendance modal (uses the shared top-level month; no internal slider)
+  const [attendanceModalStaffId, setAttendanceModalStaffId] = useState<
+    string | null
+  >(null);
+  const [attendanceModalMeta, setAttendanceModalMeta] = useState<{
+    name: string;
+    role: string;
+  } | null>(null);
+
   const [pendingAdminOffers, setPendingAdminOffers] = useState<
     PendingAdminOffer[]
   >([]);
@@ -1289,21 +1419,26 @@ export default function HomeScreen() {
   const [offersLoading, setOffersLoading] = useState(false);
   const [busyOfferId, setBusyOfferId] = useState<string | null>(null);
 
-  // ── My roles on the selected account ──
   const [myRoles, setMyRoles] = useState<MyRole[]>([]);
   const [myRolesLoading, setMyRolesLoading] = useState(true);
 
-  // ── Withdraw modal state ──
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
   const [withdrawPreview, setWithdrawPreview] = useState<RevokePreview | null>(
     null,
   );
   const [withdrawPreviewLoading, setWithdrawPreviewLoading] = useState(false);
   const [withdrawingAccess, setWithdrawingAccess] = useState(false);
-  // Toggle state — for admins: which sub-roles to keep. For non-admins:
-  // which roles to KEEP (so the ones turned OFF will be revoked).
   const [keepMemberVisibility, setKeepMemberVisibility] = useState(true);
   const [keepStaffVisibility, setKeepStaffVisibility] = useState(true);
+
+  const getAttendanceRecord = useAttendanceStore((s) => s.getRecord);
+  const cacheAttendance = useAttendanceStore((s) => s.saveRecord);
+
+  const {
+    getBillConfig,
+    fetchConfigFromServer,
+    templates: billTemplates,
+  } = useBillStore();
 
   const accountIdsKey = useMemo(
     () =>
@@ -1314,9 +1449,22 @@ export default function HomeScreen() {
     [accounts],
   );
 
-  const handleChangeAttendanceMonth = (y: number, m: number) => {
-    setAttYear(y);
-    setAttMonth(m);
+  const handleSelfPrevMonth = () => {
+    if (selfMonth === 0) {
+      setSelfYear((y) => y - 1);
+      setSelfMonth(11);
+    } else {
+      setSelfMonth((m) => m - 1);
+    }
+  };
+
+  const handleSelfNextMonth = () => {
+    if (selfMonth === 11) {
+      setSelfYear((y) => y + 1);
+      setSelfMonth(0);
+    } else {
+      setSelfMonth((m) => m + 1);
+    }
   };
 
   const handleOpenMembersGroup = useCallback(() => {
@@ -1333,7 +1481,7 @@ export default function HomeScreen() {
     });
   }, [router]);
 
-  // ── Load pending offers ──
+  /* ── Load pending offers ── */
   const loadPendingOffers = useCallback(async () => {
     if (!user?.phone) {
       setPendingAdminOffers([]);
@@ -1422,7 +1570,7 @@ export default function HomeScreen() {
     }
   }, [isFocused, loadPendingOffers]);
 
-  // ── Load the current user's grants for this account ──
+  /* ── Load my grants ── */
   const loadMyRoles = useCallback(async () => {
     if (!selectedAccount?.id || !user?.id) {
       setMyRoles([]);
@@ -1510,7 +1658,7 @@ export default function HomeScreen() {
     }, [accountId]),
   );
 
-  // ── Accept / Reject admin upgrade ──
+  /* ── Accept / Reject admin upgrade ── */
   const handleAcceptOffer = async (offer: PendingAdminOffer) => {
     const token = await getAuthToken();
     if (!token) return;
@@ -1561,7 +1709,7 @@ export default function HomeScreen() {
     }
   };
 
-  // ── Accept / Reject ownership transfer ──
+  /* ── Accept / Reject ownership transfer ── */
   const handleAcceptOwnership = async (offer: PendingOwnershipOffer) => {
     const token = await getAuthToken();
     if (!token) return;
@@ -1620,7 +1768,7 @@ export default function HomeScreen() {
     }
   };
 
-  // ── Open withdraw modal ──
+  /* ── Withdraw modal ── */
   const openWithdrawModal = useCallback(async () => {
     if (!selectedAccount?.id || !user?.id) return;
 
@@ -1683,8 +1831,6 @@ export default function HomeScreen() {
       }> = [];
 
       if (hasAdmin) {
-        // For admin: keepMemberVisibility / keepStaffVisibility tell the
-        // backend which sub-roles to KEEP after dropping admin.
         calls.push({
           role: "admin",
           body: {
@@ -1699,8 +1845,6 @@ export default function HomeScreen() {
           },
         });
       } else {
-        // For non-admin: the "keep*" toggles mean "keep this role". We only
-        // issue a revoke call for the role(s) whose toggle is OFF.
         if (hasMember && !keepMemberVisibility) {
           calls.push({ role: "member_visibility", body: {} });
         }
@@ -1751,7 +1895,6 @@ export default function HomeScreen() {
       if (hasAdmin && withdrawPreview?.staffProfile && keepStaffVisibility) {
         kept.push("Staff");
       }
-      // Non-admin case: any role whose toggle was kept is preserved.
       if (!hasAdmin && hasMember && keepMemberVisibility) {
         kept.push("Member");
       }
@@ -1814,6 +1957,78 @@ export default function HomeScreen() {
 
   const hasAnyProfile =
     matchedMemberProfiles.length > 0 || matchedStaffProfiles.length > 0;
+
+  /* ── Fetch attendance for own staff profiles (across all accounts) ── */
+  useEffect(() => {
+    if (!user?.id) return;
+    if (!accounts.length) return;
+
+    let cancelled = false;
+
+    (async () => {
+      const token = await getAuthToken();
+      if (!token) return;
+
+      for (const acct of accounts) {
+        try {
+          const staffRes = await fetch(
+            `${API_BASE_URL}/management/accounts/${acct.id}/staff`,
+            { headers: { Authorization: `Bearer ${token}` } },
+          );
+
+          if (cancelled) return;
+
+          const staffList: any[] = staffRes.ok ? await staffRes.json() : [];
+
+          const ownStaff = Array.isArray(staffList)
+            ? staffList.filter((s: any) => s.user_id === user.id)
+            : [];
+
+          for (const s of ownStaff) {
+            try {
+              const res = await fetch(
+                `${API_BASE_URL}/management/${acct.id}/staff/${s.id}/attendance/${selfMonthKey}`,
+                { headers: { Authorization: `Bearer ${token}` } },
+              );
+
+              if (cancelled) return;
+              if (!res.ok) continue;
+
+              const raw: any = await res.json();
+              if (cancelled) return;
+              if (!raw) continue;
+
+              const statuses: Record<string, any> = raw.statuses ?? {};
+              const rawCalc =
+                raw.calculated_salary ?? raw.calculatedSalary ?? null;
+              const calculatedSalary =
+                rawCalc != null && Number.isFinite(Number(rawCalc))
+                  ? Number(rawCalc)
+                  : null;
+
+              if (Object.keys(statuses).length > 0) {
+                cacheAttendance({
+                  memberId: s.id,
+                  month: selfMonthKey,
+                  statuses: statuses as any,
+                  calculatedSalary,
+                });
+              }
+            } catch {
+              // silent
+            }
+          }
+        } catch {
+          // silent
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id, accounts, selfMonthKey]);
 
   const dashboardData = useMemo(() => {
     const emptyData = {
@@ -1880,6 +2095,188 @@ export default function HomeScreen() {
   const overallNet = openingBalance + allTime.net;
   const isOverallPositive = overallNet >= 0;
 
+  /* ── Self bill download ── */
+  const handleSelfDownloadBill = useCallback(
+    async (opts: {
+      member: any;
+      memberType: BillMemberType;
+      isApartment: boolean;
+      accountId: string | null;
+    }) => {
+      const accId = opts.accountId ?? selectedAccount?.id ?? null;
+      if (!accId) return;
+      if (!opts.member?.id) return;
+
+      const key = `${opts.memberType}:${accId}:${opts.member.id}:${selfMonthKey}`;
+      if (downloadingBillKey === key) return;
+
+      setDownloadingBillKey(key);
+
+      try {
+        const mp = opts.member.monthlyPayments?.[selfMonthKey];
+        const paidStatus = mp?.status;
+        const paidDate = mp?.paidDate || opts.member.paidDate || null;
+
+        if (paidStatus !== "paid") {
+          setDownloadingBillKey(null);
+          Alert.alert(
+            "Not paid yet",
+            `This month's payment hasn't been marked paid for ${formatMonthLong(
+              selfMonthKey,
+            )}.`,
+          );
+          return;
+        }
+
+        let billConfig = getBillConfig(opts.memberType);
+        if (!billConfig) {
+          try {
+            billConfig = await fetchConfigFromServer(accId, opts.memberType);
+          } catch (e) {
+            console.warn("[home] fetch bill config failed:", e);
+          }
+        }
+
+        if (!billConfig) {
+          // Fetch owner/admin contact to tell the user who to ask
+          const { owner, admins } = await fetchAccountOwnerContact(accId);
+          setDownloadingBillKey(null);
+          Alert.alert(
+            "Bill template missing",
+            buildBillMissingMessage(owner, admins),
+          );
+          return;
+        }
+
+        const selectedTemplate =
+          billTemplates.find((t) => t.id === billConfig!.templateId) ??
+          billTemplates[0];
+
+        if (!selectedTemplate) {
+          setDownloadingBillKey(null);
+          Alert.alert(
+            "Template not found",
+            "Could not resolve the template. Please re-save it from Profile → Generate Bill.",
+          );
+          return;
+        }
+
+        const template = {
+          colors: {
+            ...selectedTemplate.colors,
+            primary: billConfig.accentColor ?? selectedTemplate.colors.primary,
+          },
+          fontFamily: selectedTemplate.fontFamily ?? "Roboto",
+          logoPosition: selectedTemplate.logoPosition ?? "top-left",
+          showBorder: selectedTemplate.showBorder ?? true,
+          borderColor: selectedTemplate.borderColor ?? "#e0e0e0",
+          borderWidth: selectedTemplate.borderWidth ?? 1,
+          borderRadius: selectedTemplate.borderRadius ?? 8,
+          showWatermark: selectedTemplate.showWatermark ?? true,
+          watermarkText: selectedTemplate.watermarkText ?? "Society Management",
+          layoutVariant: selectedTemplate.layoutVariant ?? "bold",
+        };
+
+        let baseAmount = opts.isApartment
+          ? Number(opts.member.maintenanceAmount) || 0
+          : Number(opts.member.monthlySalary) || 0;
+
+        if (!opts.isApartment) {
+          const att = getAttendanceRecord(opts.member.id, selfMonthKey);
+          if (att?.calculatedSalary != null) {
+            baseAmount = att.calculatedSalary;
+          } else if (att?.statuses && Object.keys(att.statuses).length > 0) {
+            baseAmount = getCalculatedStaffSalary(
+              Number(opts.member.monthlySalary) || 0,
+              selfMonthKey,
+              att.statuses as any,
+            );
+          }
+        }
+
+        const additionalAmount = Number(mp?.additionalAmount) || 0;
+        const deductionAmount = Number(mp?.deductionAmount) || 0;
+        const netAmount = Math.max(
+          0,
+          baseAmount + additionalAmount - deductionAmount,
+        );
+
+        const billNumber = `BILL-${opts.member.id
+          .slice(0, 4)
+          .toUpperCase()}-${Date.now().toString().slice(-6)}`;
+
+        const billData = {
+          billNumber,
+          apartmentName: opts.member.wing || "Apartment",
+          address:
+            billConfig.address || (selectedAccount as any)?.address || "",
+          societyName:
+            billConfig.societyName ||
+            selectedAccount?.name ||
+            "Apartment Society",
+          contactNumber: billConfig.contactNumber || "",
+          email: billConfig.email || "",
+          memberName: opts.member.name,
+          flatNumber: opts.member.flatNumber || "",
+          amount: baseAmount,
+          month: formatMonthLong(selfMonthKey),
+          paidDate: paidDate || new Date().toISOString().slice(0, 10),
+          additionalAmount: additionalAmount || undefined,
+          additionalNote: mp?.additionalNote || undefined,
+          deductionAmount: deductionAmount || undefined,
+          deductionNote: mp?.deductionNote || undefined,
+          netAmount,
+          signData: billConfig.signature,
+          template,
+          billType: opts.isApartment
+            ? ("maintenance" as const)
+            : ("salary" as const),
+          staffRole: opts.isApartment ? undefined : opts.member.role,
+        };
+
+        const pdfUri = await generateBillPDF(billData);
+        if (!pdfUri) throw new Error("PDF generation returned no URI.");
+
+        const safeName = (opts.member.name || "Member").replace(
+          /[^\w\-]+/g,
+          "_",
+        );
+        const fileName = `Bill-${safeName}-${selfMonthKey}.pdf`;
+
+        const result = await savePDFToDevice(pdfUri, fileName);
+
+        setDownloadingBillKey(null);
+
+        if (result.saved) {
+          Alert.alert("Downloaded", "Bill saved successfully.");
+        } else if (result.message !== "Permission denied") {
+          Alert.alert(
+            "Download failed",
+            result.message || "Could not save the bill. Please try again.",
+          );
+        }
+      } catch (error) {
+        console.error("[home] Error generating self bill:", error);
+        setDownloadingBillKey(null);
+        Alert.alert(
+          "Something went wrong",
+          error instanceof Error
+            ? error.message
+            : "Failed to generate bill. Please try again.",
+        );
+      }
+    },
+    [
+      selectedAccount,
+      selfMonthKey,
+      downloadingBillKey,
+      getBillConfig,
+      fetchConfigFromServer,
+      billTemplates,
+      getAttendanceRecord,
+    ],
+  );
+
   const onRefresh = async () => {
     setRefreshing(true);
     try {
@@ -1937,6 +2334,583 @@ export default function HomeScreen() {
     router.push("/(modals)/edit-profile");
   };
 
+  /* ============================================================
+     PROFILE BLOCK
+     ============================================================ */
+
+  const renderProfileBlock = () => {
+    const hasMembers = matchedMemberProfiles.length > 0;
+    const hasStaff = matchedStaffProfiles.length > 0;
+    const accountIsOwner = selectedAccount?.ownerId === user?.id;
+
+    return (
+      <>
+        <ProfileCard user={user} onEdit={handleOpenProfile} />
+
+        {!accountIsOwner ? (
+          <MyRolesCard
+            roles={myRoles}
+            busy={withdrawingAccess}
+            loading={myRolesLoading}
+            onWithdraw={openWithdrawModal}
+          />
+        ) : null}
+
+        {hasAnyProfile ? (
+          <View style={styles.rolesSection}>
+            <Text style={styles.rolesSectionTitle}>
+              My Roles on this Property
+            </Text>
+
+            {/* Shared month/year slider */}
+            <View style={styles.roleMonthSwitcher}>
+              <TouchableOpacity
+                onPress={handleSelfPrevMonth}
+                style={styles.roleMonthArrow}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="chevron-back" size={18} color="#2563EB" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => setShowSelfPicker(true)}
+                style={styles.roleMonthCenter}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="calendar-outline" size={14} color="#64748B" />
+                <Text style={styles.roleMonthText}>
+                  {MONTHS[selfMonth]} {selfYear}
+                </Text>
+                <Ionicons name="chevron-down" size={14} color="#64748B" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={handleSelfNextMonth}
+                style={styles.roleMonthArrow}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="chevron-forward" size={18} color="#2563EB" />
+              </TouchableOpacity>
+            </View>
+
+            {/* MEMBER ROWS */}
+            {hasMembers ? (
+              <View style={styles.groupCard}>
+                <Pressable
+                  onPress={handleOpenMembersGroup}
+                  style={({ pressed }) => [
+                    styles.groupCardHeader,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <View style={styles.groupCardHeaderLeft}>
+                    <View
+                      style={[
+                        styles.groupCardHeaderIcon,
+                        { backgroundColor: "#EFF6FF" },
+                      ]}
+                    >
+                      <Ionicons name="home-outline" size={16} color="#2563EB" />
+                    </View>
+                    <Text style={styles.groupCardHeaderTitle}>Member</Text>
+                  </View>
+                  <View style={styles.groupCardHeaderRight}>
+                    <View style={styles.groupCardHeaderBadge}>
+                      <Text style={styles.groupCardHeaderBadgeText}>
+                        {pluralizeAccounts(matchedMemberProfiles.length)}
+                      </Text>
+                    </View>
+                    <Ionicons
+                      name="chevron-forward"
+                      size={16}
+                      color="#94A3B8"
+                    />
+                  </View>
+                </Pressable>
+
+                <View style={styles.groupCardBody}>
+                  {matchedMemberProfiles.map((member: any, index: number) => {
+                    const unit =
+                      member.unit ||
+                      [member.wing, member.flatNumber]
+                        .filter(Boolean)
+                        .join(" · ") ||
+                      "Account";
+                    const roleLabel = getMemberRoleLabel(member.role);
+
+                    const mp = member.monthlyPayments?.[selfMonthKey];
+                    const isPaid = mp?.status === "paid";
+                    const paidDate = mp?.paidDate ?? null;
+
+                    const baseAmount = Number(member.maintenanceAmount) || 0;
+                    const add = Number(mp?.additionalAmount) || 0;
+                    const ded = Number(mp?.deductionAmount) || 0;
+                    const payableAmount =
+                      mp?.netAmount != null
+                        ? Number(mp.netAmount)
+                        : Math.max(0, baseAmount + add - ded);
+
+                    const downloadKey = `owner:${selectedAccount?.id}:${member.id}:${selfMonthKey}`;
+                    const isDownloading = downloadingBillKey === downloadKey;
+
+                    return (
+                      <View
+                        key={`member-${member.id}`}
+                        style={[
+                          styles.roleRowWrap,
+                          index === matchedMemberProfiles.length - 1 &&
+                            styles.roleRowWrapLast,
+                        ]}
+                      >
+                        <Pressable
+                          onPress={() => handleMemberPress(member)}
+                          style={({ pressed }) => [
+                            styles.roleRowTop,
+                            pressed && styles.pressed,
+                          ]}
+                        >
+                          <View style={styles.groupRowInfo}>
+                            <Text
+                              style={styles.groupRowTitle}
+                              numberOfLines={1}
+                            >
+                              {unit}
+                            </Text>
+                            <View style={styles.roleRowMetaRow}>
+                              <View
+                                style={[
+                                  styles.roleChip,
+                                  {
+                                    backgroundColor: "#EFF6FF",
+                                    borderColor: "#BFDBFE",
+                                  },
+                                ]}
+                              >
+                                <Text
+                                  style={[
+                                    styles.roleChipText,
+                                    { color: "#1D4ED8" },
+                                  ]}
+                                  numberOfLines={1}
+                                >
+                                  {roleLabel}
+                                </Text>
+                              </View>
+                              <Text
+                                style={styles.roleRowAmount}
+                                numberOfLines={1}
+                              >
+                                {formatCurrency(payableAmount)}
+                              </Text>
+                            </View>
+                          </View>
+
+                          <View style={styles.roleRowStatusWrap}>
+                            <View
+                              style={[
+                                styles.statusPill,
+                                isPaid
+                                  ? styles.statusPillPaid
+                                  : styles.statusPillDue,
+                              ]}
+                            >
+                              <View
+                                style={[
+                                  styles.selfStatusDot,
+                                  {
+                                    backgroundColor: isPaid
+                                      ? "#16A34A"
+                                      : "#DC2626",
+                                  },
+                                ]}
+                              />
+                              <Text
+                                style={[
+                                  styles.statusPillText,
+                                  {
+                                    color: isPaid ? "#15803D" : "#DC2626",
+                                  },
+                                ]}
+                              >
+                                {isPaid ? "Paid" : "Due"}
+                              </Text>
+                            </View>
+                            {isPaid && paidDate ? (
+                              <Text
+                                style={styles.roleRowPaidDate}
+                                numberOfLines={1}
+                              >
+                                {formatFullDate(paidDate)}
+                              </Text>
+                            ) : null}
+                          </View>
+                        </Pressable>
+
+                        {isPaid ? (
+                          <View style={styles.roleRowActions}>
+                            <TouchableOpacity
+                              style={[
+                                styles.roleRowBtn,
+                                styles.roleRowBtnPrimary,
+                                isDownloading && { opacity: 0.6 },
+                              ]}
+                              onPress={() =>
+                                handleSelfDownloadBill({
+                                  member,
+                                  memberType: "owner",
+                                  isApartment: true,
+                                  accountId: selectedAccount?.id ?? null,
+                                })
+                              }
+                              activeOpacity={0.85}
+                              disabled={isDownloading}
+                            >
+                              {isDownloading ? (
+                                <ActivityIndicator
+                                  size="small"
+                                  color="#FFFFFF"
+                                />
+                              ) : (
+                                <>
+                                  <Ionicons
+                                    name="download-outline"
+                                    size={15}
+                                    color="#FFFFFF"
+                                  />
+                                  <Text style={styles.roleRowBtnTextPrimary}>
+                                    Download bill
+                                  </Text>
+                                </>
+                              )}
+                            </TouchableOpacity>
+                          </View>
+                        ) : null}
+                      </View>
+                    );
+                  })}
+                </View>
+              </View>
+            ) : null}
+
+            {/* STAFF ROWS */}
+            {hasStaff ? (
+              <View style={styles.groupCard}>
+                <Pressable
+                  onPress={handleOpenStaffGroup}
+                  style={({ pressed }) => [
+                    styles.groupCardHeader,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <View style={styles.groupCardHeaderLeft}>
+                    <View
+                      style={[
+                        styles.groupCardHeaderIcon,
+                        { backgroundColor: "#F5F3FF" },
+                      ]}
+                    >
+                      <Ionicons
+                        name="briefcase-outline"
+                        size={16}
+                        color="#7C3AED"
+                      />
+                    </View>
+                    <Text style={styles.groupCardHeaderTitle}>Staff</Text>
+                  </View>
+                  <View style={styles.groupCardHeaderRight}>
+                    <View style={styles.groupCardHeaderBadge}>
+                      <Text style={styles.groupCardHeaderBadgeText}>
+                        {matchedStaffProfiles.length}{" "}
+                        {matchedStaffProfiles.length === 1 ? "role" : "roles"}
+                      </Text>
+                    </View>
+                    <Ionicons
+                      name="chevron-forward"
+                      size={16}
+                      color="#94A3B8"
+                    />
+                  </View>
+                </Pressable>
+
+                <View style={styles.groupCardBody}>
+                  {matchedStaffProfiles.map((staff: any, index: number) => {
+                    const roleLabel = getStaffRoleLabel(staff.role);
+
+                    const mp = staff.monthlyPayments?.[selfMonthKey];
+                    const isPaid = mp?.status === "paid";
+                    const paidDate = mp?.paidDate ?? null;
+
+                    const att = getAttendanceRecord(staff.id, selfMonthKey);
+                    const baseSalary = Number(staff.monthlySalary) || 0;
+                    let adjustedBase = baseSalary;
+                    if (att?.calculatedSalary != null) {
+                      adjustedBase = att.calculatedSalary;
+                    } else if (
+                      att?.statuses &&
+                      Object.keys(att.statuses).length > 0
+                    ) {
+                      adjustedBase = getCalculatedStaffSalary(
+                        baseSalary,
+                        selfMonthKey,
+                        att.statuses as any,
+                      );
+                    }
+
+                    const add = Number(mp?.additionalAmount) || 0;
+                    const ded = Number(mp?.deductionAmount) || 0;
+                    const payableAmount =
+                      mp?.netAmount != null
+                        ? Number(mp.netAmount)
+                        : Math.max(0, adjustedBase + add - ded);
+
+                    const downloadKey = `staff:${selectedAccount?.id}:${staff.id}:${selfMonthKey}`;
+                    const isDownloading = downloadingBillKey === downloadKey;
+
+                    return (
+                      <View
+                        key={`staff-${staff.id}`}
+                        style={[
+                          styles.roleRowWrap,
+                          index === matchedStaffProfiles.length - 1 &&
+                            styles.roleRowWrapLast,
+                        ]}
+                      >
+                        <Pressable
+                          onPress={() => handleStaffPress(staff)}
+                          style={({ pressed }) => [
+                            styles.roleRowTop,
+                            pressed && styles.pressed,
+                          ]}
+                        >
+                          <View style={styles.groupRowInfo}>
+                            <Text
+                              style={styles.groupRowTitle}
+                              numberOfLines={1}
+                            >
+                              {staff.name || "Staff"}
+                            </Text>
+                            <View style={styles.roleRowMetaRow}>
+                              <View
+                                style={[
+                                  styles.roleChip,
+                                  {
+                                    backgroundColor: "#F5F3FF",
+                                    borderColor: "#DDD6FE",
+                                  },
+                                ]}
+                              >
+                                <Text
+                                  style={[
+                                    styles.roleChipText,
+                                    { color: "#6D28D9" },
+                                  ]}
+                                  numberOfLines={1}
+                                >
+                                  {roleLabel}
+                                </Text>
+                              </View>
+                              <Text
+                                style={styles.roleRowAmount}
+                                numberOfLines={1}
+                              >
+                                {formatCurrency(payableAmount)}
+                              </Text>
+                            </View>
+                          </View>
+
+                          <View style={styles.roleRowStatusWrap}>
+                            <View
+                              style={[
+                                styles.statusPill,
+                                isPaid
+                                  ? styles.statusPillPaid
+                                  : styles.statusPillDue,
+                              ]}
+                            >
+                              <View
+                                style={[
+                                  styles.selfStatusDot,
+                                  {
+                                    backgroundColor: isPaid
+                                      ? "#16A34A"
+                                      : "#DC2626",
+                                  },
+                                ]}
+                              />
+                              <Text
+                                style={[
+                                  styles.statusPillText,
+                                  {
+                                    color: isPaid ? "#15803D" : "#DC2626",
+                                  },
+                                ]}
+                              >
+                                {isPaid ? "Paid" : "Due"}
+                              </Text>
+                            </View>
+                            {isPaid && paidDate ? (
+                              <Text
+                                style={styles.roleRowPaidDate}
+                                numberOfLines={1}
+                              >
+                                {formatFullDate(paidDate)}
+                              </Text>
+                            ) : null}
+                          </View>
+                        </Pressable>
+
+                        <View style={styles.roleRowActions}>
+                          <TouchableOpacity
+                            style={[styles.roleRowBtn, styles.roleRowBtnGhost]}
+                            onPress={() => {
+                              setAttendanceModalStaffId(staff.id);
+                              setAttendanceModalMeta({
+                                name: staff.name || "Staff",
+                                role: roleLabel,
+                              });
+                            }}
+                            activeOpacity={0.85}
+                          >
+                            <Ionicons
+                              name="calendar-outline"
+                              size={15}
+                              color="#7C3AED"
+                            />
+                            <Text style={styles.roleRowBtnTextGhost}>
+                              View attendance
+                            </Text>
+                          </TouchableOpacity>
+
+                          {isPaid ? (
+                            <TouchableOpacity
+                              style={[
+                                styles.roleRowBtn,
+                                styles.roleRowBtnPrimary,
+                                isDownloading && { opacity: 0.6 },
+                              ]}
+                              onPress={() =>
+                                handleSelfDownloadBill({
+                                  member: staff,
+                                  memberType: "staff",
+                                  isApartment: false,
+                                  accountId: selectedAccount?.id ?? null,
+                                })
+                              }
+                              activeOpacity={0.85}
+                              disabled={isDownloading}
+                            >
+                              {isDownloading ? (
+                                <ActivityIndicator
+                                  size="small"
+                                  color="#FFFFFF"
+                                />
+                              ) : (
+                                <>
+                                  <Ionicons
+                                    name="download-outline"
+                                    size={15}
+                                    color="#FFFFFF"
+                                  />
+                                  <Text style={styles.roleRowBtnTextPrimary}>
+                                    Download bill
+                                  </Text>
+                                </>
+                              )}
+                            </TouchableOpacity>
+                          ) : null}
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              </View>
+            ) : null}
+          </View>
+        ) : null}
+      </>
+    );
+  };
+
+  /* ============================================================
+     ATTENDANCE MODAL (uses top-level month; no internal slider)
+     ============================================================ */
+
+  const renderAttendanceModal = () => {
+    const visible = !!attendanceModalStaffId;
+
+    return (
+      <Modal
+        visible={visible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          setAttendanceModalStaffId(null);
+          setAttendanceModalMeta(null);
+        }}
+      >
+        <Pressable
+          style={styles.modalBackdrop}
+          onPress={() => {
+            setAttendanceModalStaffId(null);
+            setAttendanceModalMeta(null);
+          }}
+        >
+          <Pressable
+            style={styles.attendanceModalCard}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <View style={styles.attendanceModalHeader}>
+              <View style={styles.attendanceModalIcon}>
+                <Ionicons name="calendar-outline" size={20} color="#7C3AED" />
+              </View>
+              <View style={styles.attendanceModalInfo}>
+                <Text style={styles.attendanceModalTitle}>My Attendance</Text>
+                <Text style={styles.attendanceModalSubtitle} numberOfLines={1}>
+                  {attendanceModalMeta?.name || "Staff"}
+                  {attendanceModalMeta?.role
+                    ? `  ·  ${attendanceModalMeta.role}`
+                    : ""}
+                </Text>
+              </View>
+              <Pressable
+                style={styles.attendanceModalClose}
+                onPress={() => {
+                  setAttendanceModalStaffId(null);
+                  setAttendanceModalMeta(null);
+                }}
+              >
+                <Ionicons name="close" size={20} color="#64748B" />
+              </Pressable>
+            </View>
+
+            {/* Read-only month display — sourced from the top-level slider */}
+            <View style={styles.attendanceModalMonthPill}>
+              <Ionicons name="calendar-outline" size={14} color="#64748B" />
+              <Text style={styles.attendanceModalMonthPillText}>
+                {MONTHS[selfMonth]} {selfYear}
+              </Text>
+            </View>
+
+            <ScrollView
+              style={{ maxHeight: 460 }}
+              contentContainerStyle={{ paddingBottom: 8 }}
+              showsVerticalScrollIndicator={false}
+            >
+              {attendanceModalStaffId ? (
+                <AttendanceCalendar
+                  staffId={attendanceModalStaffId}
+                  month={selfMonth}
+                  year={selfYear}
+                  getStatuses={getAttendanceRecord}
+                />
+              ) : null}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
+    );
+  };
+
   const renderWithdrawModal = () => {
     const hasAdmin = myRoles.some((r) => r.role === "admin");
     const hasMember = myRoles.some((r) => r.role === "member_visibility");
@@ -1945,10 +2919,6 @@ export default function HomeScreen() {
     const hasMemberProfile = !!withdrawPreview?.memberProfile;
     const hasStaffProfile = !!withdrawPreview?.staffProfile;
 
-    // Which toggles to show?
-    //   • Admin path: keep-toggles for member / staff sub-roles if the
-    //     user actually has those profiles.
-    //   • Non-admin path: keep-toggles for each role the user has.
     const showMemberToggle = hasAdmin ? hasMemberProfile : hasMember;
     const showStaffToggle = hasAdmin ? hasStaffProfile : hasStaff;
 
@@ -1979,7 +2949,6 @@ export default function HomeScreen() {
           ? "Turn the toggle off to withdraw your member access."
           : "Turn the toggle off to withdraw your staff access.";
 
-    // Disable confirm when nothing would change.
     const nothingToWithdraw =
       !hasAdmin &&
       (!hasMember || keepMemberVisibility) &&
@@ -2025,7 +2994,11 @@ export default function HomeScreen() {
                       user?.name ||
                       "You"}
                     {withdrawPreview?.memberProfile?.flatNumber
-                      ? `  •  ${withdrawPreview.memberProfile.wing ? "Wing " + withdrawPreview.memberProfile.wing + " " : ""}Apt ${withdrawPreview.memberProfile.flatNumber}`
+                      ? `  •  ${
+                          withdrawPreview.memberProfile.wing
+                            ? "Wing " + withdrawPreview.memberProfile.wing + " "
+                            : ""
+                        }Apt ${withdrawPreview.memberProfile.flatNumber}`
                       : ""}
                   </Text>
                 </View>
@@ -2231,224 +3204,9 @@ export default function HomeScreen() {
         ? "Staff Portal"
         : "Portal";
 
-  const renderProfileBlock = () => {
-    const hasMembers = matchedMemberProfiles.length > 0;
-    const hasStaff = matchedStaffProfiles.length > 0;
-    const accountIsOwner = selectedAccount?.ownerId === user?.id;
-
-    return (
-      <>
-        <ProfileCard user={user} onEdit={handleOpenProfile} />
-
-        {!accountIsOwner ? (
-          <MyRolesCard
-            roles={myRoles}
-            busy={withdrawingAccess}
-            loading={myRolesLoading}
-            onWithdraw={openWithdrawModal}
-          />
-        ) : null}
-
-        {hasAnyProfile ? (
-          <View style={styles.rolesSection}>
-            <Text style={styles.rolesSectionTitle}>
-              My Roles on this Property
-            </Text>
-
-            {hasMembers ? (
-              <View style={styles.groupCard}>
-                <Pressable
-                  onPress={handleOpenMembersGroup}
-                  style={({ pressed }) => [
-                    styles.groupCardHeader,
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  <View style={styles.groupCardHeaderLeft}>
-                    <View
-                      style={[
-                        styles.groupCardHeaderIcon,
-                        { backgroundColor: "#EFF6FF" },
-                      ]}
-                    >
-                      <Ionicons name="home-outline" size={16} color="#2563EB" />
-                    </View>
-                    <Text style={styles.groupCardHeaderTitle}>Member</Text>
-                  </View>
-                  <View style={styles.groupCardHeaderRight}>
-                    <View style={styles.groupCardHeaderBadge}>
-                      <Text style={styles.groupCardHeaderBadgeText}>
-                        {pluralizeAccounts(matchedMemberProfiles.length)}
-                      </Text>
-                    </View>
-                    <Ionicons
-                      name="chevron-forward"
-                      size={16}
-                      color="#94A3B8"
-                    />
-                  </View>
-                </Pressable>
-
-                <View style={styles.groupCardBody}>
-                  {matchedMemberProfiles.map((member: any, index: number) => {
-                    const unit =
-                      member.unit ||
-                      [member.wing, member.flatNumber]
-                        .filter(Boolean)
-                        .join(" · ") ||
-                      "Account";
-                    const roleLabel = getMemberRoleLabel(member.role);
-
-                    return (
-                      <Pressable
-                        key={`member-${member.id}`}
-                        onPress={() => handleMemberPress(member)}
-                        style={({ pressed }) => [
-                          styles.groupRow,
-                          index === matchedMemberProfiles.length - 1 &&
-                            styles.groupRowLast,
-                          pressed && styles.pressed,
-                        ]}
-                      >
-                        <View style={styles.groupRowInfo}>
-                          <Text style={styles.groupRowTitle} numberOfLines={1}>
-                            {unit}
-                          </Text>
-                          <Text style={styles.groupRowSubtitle}>
-                            Maintenance{" "}
-                            {formatCurrency(member.maintenanceAmount || 0)} /
-                            month
-                          </Text>
-                        </View>
-
-                        <View
-                          style={[
-                            styles.roleChip,
-                            {
-                              backgroundColor: "#EFF6FF",
-                              borderColor: "#BFDBFE",
-                              marginRight: 8,
-                            },
-                          ]}
-                        >
-                          <Text
-                            style={[styles.roleChipText, { color: "#1D4ED8" }]}
-                            numberOfLines={1}
-                          >
-                            {roleLabel}
-                          </Text>
-                        </View>
-
-                        <Ionicons
-                          name="chevron-forward"
-                          size={16}
-                          color="#94A3B8"
-                        />
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              </View>
-            ) : null}
-
-            {hasStaff ? (
-              <View style={styles.groupCard}>
-                <Pressable
-                  onPress={handleOpenStaffGroup}
-                  style={({ pressed }) => [
-                    styles.groupCardHeader,
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  <View style={styles.groupCardHeaderLeft}>
-                    <View
-                      style={[
-                        styles.groupCardHeaderIcon,
-                        { backgroundColor: "#F5F3FF" },
-                      ]}
-                    >
-                      <Ionicons
-                        name="briefcase-outline"
-                        size={16}
-                        color="#7C3AED"
-                      />
-                    </View>
-                    <Text style={styles.groupCardHeaderTitle}>Staff</Text>
-                  </View>
-                  <View style={styles.groupCardHeaderRight}>
-                    <View style={styles.groupCardHeaderBadge}>
-                      <Text style={styles.groupCardHeaderBadgeText}>
-                        {matchedStaffProfiles.length}{" "}
-                        {matchedStaffProfiles.length === 1 ? "role" : "roles"}
-                      </Text>
-                    </View>
-                    <Ionicons
-                      name="chevron-forward"
-                      size={16}
-                      color="#94A3B8"
-                    />
-                  </View>
-                </Pressable>
-
-                <View style={styles.groupCardBody}>
-                  {matchedStaffProfiles.map((staff: any, index: number) => {
-                    const roleLabel = getStaffRoleLabel(staff.role);
-
-                    return (
-                      <Pressable
-                        key={`staff-${staff.id}`}
-                        onPress={() => handleStaffPress(staff)}
-                        style={({ pressed }) => [
-                          styles.groupRow,
-                          index === matchedStaffProfiles.length - 1 &&
-                            styles.groupRowLast,
-                          pressed && styles.pressed,
-                        ]}
-                      >
-                        <View style={styles.groupRowInfo}>
-                          <Text style={styles.groupRowTitle} numberOfLines={1}>
-                            {staff.name || "Staff"}
-                          </Text>
-                          <Text style={styles.groupRowSubtitle}>
-                            Salary {formatCurrency(staff.monthlySalary || 0)} /
-                            month
-                          </Text>
-                        </View>
-
-                        <View
-                          style={[
-                            styles.roleChip,
-                            {
-                              backgroundColor: "#F5F3FF",
-                              borderColor: "#DDD6FE",
-                              marginRight: 8,
-                            },
-                          ]}
-                        >
-                          <Text
-                            style={[styles.roleChipText, { color: "#6D28D9" }]}
-                            numberOfLines={1}
-                          >
-                            {roleLabel}
-                          </Text>
-                        </View>
-
-                        <Ionicons
-                          name="chevron-forward"
-                          size={16}
-                          color="#94A3B8"
-                        />
-                      </Pressable>
-                    );
-                  })}
-                </View>
-              </View>
-            ) : null}
-          </View>
-        ) : null}
-      </>
-    );
-  };
+  /* ============================================================
+     NON-ADMIN VIEW
+     ============================================================ */
 
   if (!isAdmin && (isMember || isStaff)) {
     return (
@@ -2485,24 +3243,6 @@ export default function HomeScreen() {
           </View>
 
           {renderProfileBlock()}
-
-          {isStaff ? (
-            <View style={styles.section}>
-              <View style={styles.sectionHeader}>
-                <View>
-                  <Text style={styles.sectionTitle}>My Attendance</Text>
-                  <Text style={styles.sectionSubtitle}>
-                    Tap the month to change it
-                  </Text>
-                </View>
-              </View>
-              <AttendanceSection
-                year={attYear}
-                month={attMonth}
-                onChangeMonth={handleChangeAttendanceMonth}
-              />
-            </View>
-          ) : null}
 
           {isMember ? (
             <>
@@ -2609,10 +3349,26 @@ export default function HomeScreen() {
           <View style={styles.bottomSpace} />
         </ScrollView>
 
+        <MonthYearPickerModal
+          visible={showSelfPicker}
+          year={selfYear}
+          month={selfMonth}
+          onClose={() => setShowSelfPicker(false)}
+          onSelect={(y, m) => {
+            setSelfYear(y);
+            setSelfMonth(m);
+          }}
+        />
+
+        {renderAttendanceModal()}
         {renderWithdrawModal()}
       </View>
     );
   }
+
+  /* ============================================================
+     ADMIN VIEW
+     ============================================================ */
 
   return (
     <View style={styles.container}>
@@ -2648,24 +3404,6 @@ export default function HomeScreen() {
         </View>
 
         {renderProfileBlock()}
-
-        {showAttendance ? (
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <View>
-                <Text style={styles.sectionTitle}>My Attendance</Text>
-                <Text style={styles.sectionSubtitle}>
-                  Tap the month to change it
-                </Text>
-              </View>
-            </View>
-            <AttendanceSection
-              year={attYear}
-              month={attMonth}
-              onChangeMonth={handleChangeAttendanceMonth}
-            />
-          </View>
-        ) : null}
 
         {showBalanceCard ? (
           <View style={styles.balanceCard}>
@@ -2842,12 +3580,25 @@ export default function HomeScreen() {
         <View style={styles.bottomSpace} />
       </ScrollView>
 
+      <MonthYearPickerModal
+        visible={showSelfPicker}
+        year={selfYear}
+        month={selfMonth}
+        onClose={() => setShowSelfPicker(false)}
+        onSelect={(y, m) => {
+          setSelfYear(y);
+          setSelfMonth(m);
+        }}
+      />
+
       {renderWithdrawModal()}
     </View>
   );
 }
 
-/* ────────────────────────────────── STYLES ────────────────────────────────── */
+/* ============================================================
+   STYLES
+   ============================================================ */
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#F8FAFC" },
@@ -2958,7 +3709,6 @@ const styles = StyleSheet.create({
   },
   profileEditText: { fontSize: 12, fontWeight: "700", color: "#2563EB" },
 
-  /* ── MY ACCESS CARD ── */
   myRolesCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 18,
@@ -2979,20 +3729,9 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 10,
   },
-  myRolesHeaderLeft: {
-    flex: 1,
-    minWidth: 0,
-  },
-  myRolesTitle: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#0F172A",
-  },
-  myRolesSubtitle: {
-    fontSize: 11.5,
-    color: "#94A3B8",
-    marginTop: 3,
-  },
+  myRolesHeaderLeft: { flex: 1, minWidth: 0 },
+  myRolesTitle: { fontSize: 13, fontWeight: "800", color: "#0F172A" },
+  myRolesSubtitle: { fontSize: 11.5, color: "#94A3B8", marginTop: 3 },
   myRolesChipsRight: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -3001,16 +3740,8 @@ const styles = StyleSheet.create({
     gap: 6,
     maxWidth: "55%",
   },
-  myRoleChip: {
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 8,
-  },
-  myRoleChipText: {
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.4,
-  },
+  myRoleChip: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8 },
+  myRoleChipText: { fontSize: 10, fontWeight: "800", letterSpacing: 0.4 },
   myRolesSkeletonChip: {
     width: 62,
     height: 22,
@@ -3049,7 +3780,6 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
 
-  /* ── WITHDRAW MODAL ── */
   modalBackdrop: {
     flex: 1,
     backgroundColor: "rgba(15, 23, 42, 0.58)",
@@ -3172,6 +3902,35 @@ const styles = StyleSheet.create({
     marginLeft: 2,
   },
 
+  roleMonthSwitcher: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 12,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+  },
+  roleMonthArrow: {
+    width: 36,
+    height: 36,
+    borderRadius: 11,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#EFF6FF",
+  },
+  roleMonthCenter: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  roleMonthText: { fontSize: 14, fontWeight: "800", color: "#0F172A" },
+
   groupCard: {
     backgroundColor: "#FFFFFF",
     borderRadius: 18,
@@ -3225,10 +3984,86 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#64748B",
   },
-  groupCardBody: {
-    paddingHorizontal: 0,
-    paddingVertical: 0,
+  groupCardBody: { paddingHorizontal: 0, paddingVertical: 0 },
+
+  roleRowWrap: {
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F1F5F9",
   },
+  roleRowWrapLast: { borderBottomWidth: 0 },
+  roleRowTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  groupRowInfo: { flex: 1, minWidth: 0 },
+  groupRowTitle: { fontSize: 14, fontWeight: "700", color: "#0F172A" },
+  roleRowMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 5,
+    flexWrap: "wrap",
+  },
+  roleChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  roleChipText: { fontSize: 10, fontWeight: "800", letterSpacing: 0.2 },
+  roleRowAmount: { fontSize: 12.5, fontWeight: "700", color: "#334155" },
+  roleRowStatusWrap: { alignItems: "flex-end" },
+  statusPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 9,
+  },
+  statusPillPaid: { backgroundColor: "#F0FDF4" },
+  statusPillDue: { backgroundColor: "#FEF2F2" },
+  statusPillText: { fontSize: 11.5, fontWeight: "800" },
+  selfStatusDot: { width: 6, height: 6, borderRadius: 3 },
+  roleRowPaidDate: { fontSize: 10.5, color: "#94A3B8", marginTop: 3 },
+  roleRowActions: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 10,
+  },
+  roleRowBtn: {
+    flexGrow: 1,
+    flexBasis: "45%",
+    minHeight: 40,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    borderRadius: 11,
+  },
+  roleRowBtnPrimary: { backgroundColor: "#2563EB" },
+  roleRowBtnGhost: {
+    backgroundColor: "#F5F3FF",
+    borderWidth: 1,
+    borderColor: "#DDD6FE",
+  },
+  roleRowBtnTextPrimary: {
+    fontSize: 12.5,
+    fontWeight: "800",
+    color: "#FFFFFF",
+  },
+  roleRowBtnTextGhost: {
+    fontSize: 12.5,
+    fontWeight: "800",
+    color: "#7C3AED",
+  },
+
   groupRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -3238,32 +4073,7 @@ const styles = StyleSheet.create({
     borderBottomColor: "#F1F5F9",
   },
   groupRowLast: { borderBottomWidth: 0 },
-  groupRowInfo: {
-    flex: 1,
-    minWidth: 0,
-    marginRight: 8,
-  },
-  groupRowTitle: {
-    fontSize: 13.5,
-    fontWeight: "700",
-    color: "#0F172A",
-  },
-  groupRowSubtitle: {
-    fontSize: 11.5,
-    color: "#64748B",
-    marginTop: 3,
-  },
-  roleChip: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
-    borderWidth: 1,
-  },
-  roleChipText: {
-    fontSize: 10,
-    fontWeight: "800",
-    letterSpacing: 0.2,
-  },
+  groupRowSubtitle: { fontSize: 11.5, color: "#64748B", marginTop: 3 },
 
   groupOverviewGrid: { flexDirection: "row", gap: 12 },
   groupOverviewCard: {
@@ -3328,7 +4138,6 @@ const styles = StyleSheet.create({
     color: "#94A3B8",
   },
 
-  /* ── OFFER BANNERS ── */
   offersSection: { marginBottom: 14, gap: 10 },
 
   offerBanner: {
@@ -3358,11 +4167,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   offerBannerHeaderText: { flex: 1, minWidth: 0 },
-  offerBannerTitle: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: "#0F172A",
-  },
+  offerBannerTitle: { fontSize: 14, fontWeight: "800", color: "#0F172A" },
   offerBannerSubtitle: {
     fontSize: 12,
     color: "#64748B",
@@ -3396,7 +4201,6 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
 
-  /* Role upgrade pills inside the admin banner */
   upgradeTitleRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -3414,24 +4218,15 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     backgroundColor: "#F1F5F9",
   },
-  upgradePillFromText: {
-    fontSize: 9,
-    fontWeight: "800",
-    color: "#475569",
-  },
+  upgradePillFromText: { fontSize: 9, fontWeight: "800", color: "#475569" },
   upgradePillTo: {
     paddingHorizontal: 7,
     paddingVertical: 2,
     borderRadius: 6,
     backgroundColor: "#EDE9FE",
   },
-  upgradePillToText: {
-    fontSize: 9,
-    fontWeight: "800",
-    color: "#7C3AED",
-  },
+  upgradePillToText: { fontSize: 9, fontWeight: "800", color: "#7C3AED" },
 
-  /* ── OWNERSHIP BANNER ── */
   ownershipBanner: {
     backgroundColor: "#FFFBEB",
     borderRadius: 18,
@@ -3459,11 +4254,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   ownershipBannerHeaderText: { flex: 1, minWidth: 0 },
-  ownershipBannerTitle: {
-    fontSize: 14,
-    fontWeight: "800",
-    color: "#78350F",
-  },
+  ownershipBannerTitle: { fontSize: 14, fontWeight: "800", color: "#78350F" },
   ownershipBannerSubtitle: {
     fontSize: 12,
     color: "#78350F",
@@ -3494,22 +4285,14 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     backgroundColor: "#FDE68A",
   },
-  ownershipPillFromText: {
-    fontSize: 9,
-    fontWeight: "800",
-    color: "#78350F",
-  },
+  ownershipPillFromText: { fontSize: 9, fontWeight: "800", color: "#78350F" },
   ownershipPillTo: {
     paddingHorizontal: 7,
     paddingVertical: 2,
     borderRadius: 6,
     backgroundColor: "#B45309",
   },
-  ownershipPillToText: {
-    fontSize: 9,
-    fontWeight: "800",
-    color: "#FFFFFF",
-  },
+  ownershipPillToText: { fontSize: 9, fontWeight: "800", color: "#FFFFFF" },
 
   balanceCard: {
     backgroundColor: "#FFFFFF",
@@ -3626,48 +4409,71 @@ const styles = StyleSheet.create({
   financialAmount: { fontSize: 17, fontWeight: "800", marginTop: 5 },
   financialPeriod: { fontSize: 10, color: "#94A3B8", marginTop: 4 },
 
-  attendanceCard: {
+  attendanceModalCard: {
+    width: "100%",
+    maxWidth: 420,
     backgroundColor: "#FFFFFF",
-    borderRadius: 20,
-    padding: 16,
-    borderWidth: 1,
-    borderColor: "#E2E8F0",
-    shadowColor: "#0F172A",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 12,
-    elevation: 2,
+    borderRadius: 22,
+    padding: 18,
   },
-  sliderRow: {
+  attendanceModalHeader: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 14,
+    marginBottom: 12,
   },
-  sliderArrow: {
-    width: 36,
-    height: 36,
+  attendanceModalIcon: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: "#F5F3FF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+  attendanceModalInfo: { flex: 1, minWidth: 0 },
+  attendanceModalTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#0F172A",
+  },
+  attendanceModalSubtitle: {
+    fontSize: 12,
+    color: "#64748B",
+    marginTop: 2,
+  },
+  attendanceModalClose: {
+    width: 34,
+    height: 34,
     borderRadius: 12,
-    backgroundColor: "#EFF6FF",
+    backgroundColor: "#F1F5F9",
     alignItems: "center",
     justifyContent: "center",
   },
-  sliderMonth: {
+
+  /* Read-only month pill inside attendance modal */
+  attendanceModalMonthPill: {
     flexDirection: "row",
     alignItems: "center",
+    alignSelf: "flex-start",
     gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 10,
     backgroundColor: "#F8FAFC",
-    borderRadius: 12,
     borderWidth: 1,
     borderColor: "#E2E8F0",
+    marginBottom: 14,
   },
-  sliderMonthText: { fontSize: 15, fontWeight: "700", color: "#0F172A" },
+  attendanceModalMonthPillText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#0F172A",
+  },
+
   summaryRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginBottom: 16,
+    marginBottom: 14,
     paddingBottom: 14,
     borderBottomWidth: 1,
     borderBottomColor: "#F1F5F9",
@@ -3676,6 +4482,7 @@ const styles = StyleSheet.create({
   summaryDot: { width: 8, height: 8, borderRadius: 4, marginBottom: 2 },
   summaryLabel: { fontSize: 10, color: "#94A3B8", fontWeight: "600" },
   summaryValue: { fontSize: 15, fontWeight: "800", color: "#0F172A" },
+
   weekRow: { flexDirection: "row", marginBottom: 6 },
   weekCell: { flex: 1, alignItems: "center", paddingVertical: 6 },
   weekText: { fontSize: 11, fontWeight: "700", color: "#94A3B8" },
@@ -3690,14 +4497,44 @@ const styles = StyleSheet.create({
   dayBubble: {
     width: "100%",
     aspectRatio: 1,
-    maxWidth: 36,
-    maxHeight: 36,
-    borderRadius: 18,
+    maxWidth: 34,
+    maxHeight: 34,
+    borderRadius: 17,
     alignItems: "center",
     justifyContent: "center",
   },
   dayBubbleToday: { borderWidth: 2, borderColor: "#2563EB" },
   dayText: { fontSize: 12, fontWeight: "700" },
+  attendanceEmpty: { paddingVertical: 26, alignItems: "center", gap: 8 },
+  attendanceEmptyTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#475569",
+    marginTop: 4,
+  },
+  attendanceEmptyText: {
+    fontSize: 12,
+    color: "#94A3B8",
+    textAlign: "center",
+    maxWidth: 260,
+  },
+  legendRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+    marginTop: 14,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: "#F1F5F9",
+  },
+  legendItem: { flexDirection: "row", alignItems: "center", gap: 5 },
+  legendDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    borderWidth: 1.5,
+  },
+  legendText: { fontSize: 11, color: "#64748B", fontWeight: "600" },
 
   pickerBackdrop: {
     flex: 1,
