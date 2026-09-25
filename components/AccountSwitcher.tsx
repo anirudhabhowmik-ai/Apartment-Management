@@ -26,6 +26,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAccounts } from "../hooks/useAccounts";
 import { useAccountStore } from "../store/accountStore";
+import { useAuthStore } from "../store/useAuthStore";
 import { Account } from "../types";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
@@ -544,11 +545,10 @@ export function AccountSwitcherHost() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
-  // NOTE: `refresh` is intentionally NOT destructured here. We do not
-  // want to refresh the account list when the sheet opens, because
-  // that toggles `isLoading` on the shared account store, which every
-  // tab screen (including Home) subscribes to — making Home re-render
-  // and look like it's "reloading".
+  // Current user — needed to determine whether each account row is owned
+  // by the caller (only the owner can edit name/photo).
+  const currentUserId = useAuthStore((s) => s.user?.id ?? null);
+
   const { accounts, selectedAccount, selectAccount, editAccount } =
     useAccounts();
 
@@ -561,9 +561,6 @@ export function AccountSwitcherHost() {
   const [tempName, setTempName] = useState("");
   const [keyboardHeight, setKeyboardHeight] = useState(0);
 
-  // Keep the custom account sheet above the native phone keyboard.
-  // KeyboardAvoidingView cannot reliably move this absolute-positioned sheet
-  // because the sheet is rendered inside our own overlay container.
   useEffect(() => {
     const showEvent =
       Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
@@ -784,9 +781,6 @@ export function AccountSwitcherHost() {
             style={[
               styles.sheet,
               {
-                // The sheet is manually lifted by the real keyboard height.
-                // This works even though the sheet lives inside our custom
-                // absolute overlay instead of a native Modal.
                 marginBottom: keyboardHeight,
                 paddingBottom: 20 + insets.bottom,
                 maxHeight:
@@ -846,6 +840,8 @@ export function AccountSwitcherHost() {
               renderItem={({ item }) => {
                 const isSelected = item.id === selectedAccount?.id;
                 const isEditingName = editingNameId === item.id;
+                const isOwnerOfThisAccount =
+                  !!currentUserId && item.ownerId === currentUserId;
 
                 return (
                   <Pressable
@@ -878,24 +874,26 @@ export function AccountSwitcherHost() {
                         </View>
                       )}
 
-                      <Pressable
-                        onPress={(e) => {
-                          e?.stopPropagation?.();
-                          showPhotoSelectionOptions(item.id);
-                        }}
-                        android_disableSound
-                        hitSlop={6}
-                        style={({ pressed }) => [
-                          styles.cameraBadge,
-                          pressed && styles.cameraBadgePressed,
-                        ]}
-                      >
-                        <Ionicons
-                          name="camera"
-                          size={11}
-                          color={COLORS.white}
-                        />
-                      </Pressable>
+                      {isOwnerOfThisAccount ? (
+                        <Pressable
+                          onPress={(e) => {
+                            e?.stopPropagation?.();
+                            showPhotoSelectionOptions(item.id);
+                          }}
+                          android_disableSound
+                          hitSlop={6}
+                          style={({ pressed }) => [
+                            styles.cameraBadge,
+                            pressed && styles.cameraBadgePressed,
+                          ]}
+                        >
+                          <Ionicons
+                            name="camera"
+                            size={11}
+                            color={COLORS.white}
+                          />
+                        </Pressable>
+                      ) : null}
                     </View>
 
                     <View style={styles.accountDetails}>
@@ -954,24 +952,26 @@ export function AccountSwitcherHost() {
                             <Text style={styles.itemName} numberOfLines={1}>
                               {item.name}
                             </Text>
-                            <Pressable
-                              onPress={(e) => {
-                                e?.stopPropagation?.();
-                                startEditName(item);
-                              }}
-                              android_disableSound
-                              hitSlop={6}
-                              style={({ pressed }) => [
-                                styles.editButton,
-                                pressed && styles.editButtonPressed,
-                              ]}
-                            >
-                              <Ionicons
-                                name="pencil-outline"
-                                size={14}
-                                color={COLORS.secondary}
-                              />
-                            </Pressable>
+                            {isOwnerOfThisAccount ? (
+                              <Pressable
+                                onPress={(e) => {
+                                  e?.stopPropagation?.();
+                                  startEditName(item);
+                                }}
+                                android_disableSound
+                                hitSlop={6}
+                                style={({ pressed }) => [
+                                  styles.editButton,
+                                  pressed && styles.editButtonPressed,
+                                ]}
+                              >
+                                <Ionicons
+                                  name="pencil-outline"
+                                  size={14}
+                                  color={COLORS.secondary}
+                                />
+                              </Pressable>
+                            ) : null}
                           </View>
 
                           <View style={styles.typeRow}>
@@ -1208,8 +1208,6 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 26,
     paddingHorizontal: 20,
     paddingTop: 10,
-    // paddingBottom is set inline so we can add the device's safe-area
-    // bottom inset on top of the base 20px spacing (see render below).
     maxHeight: "78%",
     flexShrink: 1,
   },
@@ -1475,7 +1473,6 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     padding: 24,
-    // paddingBottom is set inline (32 + insets.bottom), see render below.
     width: "100%",
     maxWidth: 480,
   },
