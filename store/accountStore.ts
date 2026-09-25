@@ -15,6 +15,9 @@ interface AccountState {
   hasHydrated: boolean;
   loadedForUserId: string | null;
 
+  /** Optional callback registered by the tab layout to trigger a role sync. */
+  requestRoleSync: (() => void) | null;
+
   setAccounts: (accounts: Account[]) => void;
   reconcileAccounts: (freshAccounts: Account[]) => boolean;
   addAccount: (account: Account) => void;
@@ -27,6 +30,10 @@ interface AccountState {
   setLoadedForUserId: (id: string | null) => void;
   reset: () => void;
   getSelectedAccount: () => Account | null;
+  setAccountRole: (accountId: string, role: string | null) => void;
+
+  /** Registers the role-sync callback. Called once by the tab layout. */
+  setRequestRoleSync: (fn: (() => void) | null) => void;
 }
 
 async function persistLastAccountToServer(accountId: string | null) {
@@ -56,16 +63,14 @@ export const useAccountStore = create<AccountState>()(
       isLoading: true,
       hasHydrated: false,
       loadedForUserId: null,
+      requestRoleSync: null,
 
       setAccounts: (accounts) => {
         const { selectedAccountId, hasHydrated } = get();
-
         if (!hasHydrated) {
           set({ accounts });
           return;
         }
-
-        // Keep the current selection if it still exists in the fresh list.
         if (
           selectedAccountId &&
           accounts.some((a) => a.id === selectedAccountId)
@@ -73,13 +78,11 @@ export const useAccountStore = create<AccountState>()(
           set({ accounts });
           return;
         }
-
         set({ accounts, selectedAccountId: null });
       },
 
       reconcileAccounts: (freshAccounts) => {
         const { accounts: oldAccounts, selectedAccountId } = get();
-
         const freshIds = new Set(freshAccounts.map((a) => a.id));
         const oldIds = new Set(oldAccounts.map((a) => a.id));
 
@@ -87,9 +90,6 @@ export const useAccountStore = create<AccountState>()(
           freshIds.size === oldIds.size &&
           [...freshIds].every((id) => oldIds.has(id));
 
-        // Even when the ID set is the same, the payload may differ
-        // (name / photo / type). Compare each field so a photo updated
-        // on another device replaces the cached value.
         const dataEqual =
           idsEqual &&
           freshAccounts.every((fresh) => {
@@ -99,28 +99,23 @@ export const useAccountStore = create<AccountState>()(
               old.name === fresh.name &&
               old.photoUri === fresh.photoUri &&
               old.type === fresh.type &&
-              old.ownerId === fresh.ownerId
+              old.ownerId === fresh.ownerId &&
+              (old as any).role === (fresh as any).role
             );
           });
 
         const lostSelection =
           !!selectedAccountId && !freshIds.has(selectedAccountId);
-
         const nextSelectedId = lostSelection ? null : selectedAccountId;
 
-        if (dataEqual && nextSelectedId === selectedAccountId) {
-          return false;
-        }
+        if (dataEqual && nextSelectedId === selectedAccountId) return false;
 
         set({
           accounts: freshAccounts,
           selectedAccountId: nextSelectedId,
         });
 
-        if (lostSelection) {
-          persistLastAccountToServer(null);
-        }
-
+        if (lostSelection) persistLastAccountToServer(null);
         return lostSelection;
       },
 
@@ -146,11 +141,7 @@ export const useAccountStore = create<AccountState>()(
           const remaining = state.accounts.filter((a) => a.id !== id);
           const wasSelected = state.selectedAccountId === id;
           const nextId = wasSelected ? null : state.selectedAccountId;
-
-          if (wasSelected) {
-            persistLastAccountToServer(null);
-          }
-
+          if (wasSelected) persistLastAccountToServer(null);
           return {
             accounts: remaining,
             selectedAccountId: nextId,
@@ -159,9 +150,7 @@ export const useAccountStore = create<AccountState>()(
 
       selectAccount: (id, opts) => {
         set({ selectedAccountId: id });
-        if (opts?.persist !== false) {
-          persistLastAccountToServer(id);
-        }
+        if (opts?.persist !== false) persistLastAccountToServer(id);
       },
 
       setAccountSwitcherOpen: (isAccountSwitcherOpen) =>
@@ -186,6 +175,16 @@ export const useAccountStore = create<AccountState>()(
         const { accounts, selectedAccountId } = get();
         return accounts.find((a) => a.id === selectedAccountId) ?? null;
       },
+
+      setAccountRole: (accountId, role) => {
+        set((state) => ({
+          accounts: state.accounts.map((a) =>
+            a.id === accountId ? ({ ...a, role } as Account) : a,
+          ),
+        }));
+      },
+
+      setRequestRoleSync: (fn) => set({ requestRoleSync: fn }),
     }),
     {
       name: "account-store",

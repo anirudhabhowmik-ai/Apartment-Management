@@ -1,5 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs, useFocusEffect, useRouter } from "expo-router";
+import * as SecureStore from "expo-secure-store";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AppState,
@@ -22,7 +23,12 @@ import { useAccounts } from "../../hooks/useAccounts";
 import { useMaintenance } from "../../hooks/useMaintenance";
 import { usePayments } from "../../hooks/usePayments";
 import { useUserRole } from "../../hooks/useUserRole";
+import { useAccountStore } from "../../store/accountStore";
 import { useAuthStore } from "../../store/useAuthStore";
+
+const API_URL = (
+  process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000"
+).replace(/\/api\/?$/, "");
 
 const COLORS = {
   primary: "#2563EB",
@@ -45,6 +51,7 @@ export default function TabsLayout() {
   const router = useRouter();
 
   const authUser = useAuthStore((s) => s.user);
+  const refreshProfile = useAuthStore((s) => s.refreshProfile);
   const { selectedAccount, accounts, hasLoaded, isLoading, refresh } =
     useAccounts();
   const { isAdmin, isMember, isStaff } = useUserRole();
@@ -59,15 +66,67 @@ export default function TabsLayout() {
   const hasRedirectedRef = useRef<"add" | "select" | null>(null);
   const lastRefreshRef = useRef<number>(0);
 
+  // -------------------------------------------------------------------------
+  // Inline role-sync. Fetches the caller's role for the selected account
+  // and pushes it into the store if it changed. No polling.
+  // -------------------------------------------------------------------------
+  const syncMyRole = useCallback(async () => {
+    const store = useAccountStore.getState();
+    const accountId = store.selectedAccountId;
+    if (!accountId) return;
+
+    try {
+      const token = await SecureStore.getItemAsync("auth_token");
+      if (!token) return;
+
+      const res = await fetch(`${API_URL}/api/accounts/${accountId}/my-role`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) return;
+
+      const data = await res.json();
+      const newRole: string | null = data?.role ?? null;
+
+      const current = store.getSelectedAccount();
+      if (!current) return;
+      if ((current as any).role === newRole) return;
+
+      useAccountStore.getState().setAccountRole(accountId, newRole);
+    } catch {
+      // ignore transient errors
+    }
+  }, []);
+
+  // -------------------------------------------------------------------------
+  // Register the sync function on the store so any other screen can trigger
+  // it after a role-changing action (accept invite, withdraw admin, etc.).
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    useAccountStore.getState().setRequestRoleSync(() => {
+      syncMyRole().catch(() => {});
+    });
+    return () => {
+      useAccountStore.getState().setRequestRoleSync(null);
+    };
+  }, [syncMyRole]);
+
+  // -------------------------------------------------------------------------
+  // Sync on tab focus (throttled to 1.5 s).
+  // -------------------------------------------------------------------------
   useFocusEffect(
     useCallback(() => {
       const now = Date.now();
       if (now - lastRefreshRef.current < 1500) return;
       lastRefreshRef.current = now;
       refresh();
-    }, [refresh]),
+      refreshProfile?.().catch(() => {});
+      syncMyRole();
+    }, [refresh, refreshProfile, syncMyRole]),
   );
 
+  // -------------------------------------------------------------------------
+  // Sync on app foreground.
+  // -------------------------------------------------------------------------
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
       if (state !== "active") return;
@@ -75,10 +134,15 @@ export default function TabsLayout() {
       if (now - lastRefreshRef.current < 1500) return;
       lastRefreshRef.current = now;
       refresh();
+      refreshProfile?.().catch(() => {});
+      syncMyRole();
     });
     return () => sub.remove();
-  }, [refresh]);
+  }, [refresh, refreshProfile, syncMyRole]);
 
+  // -------------------------------------------------------------------------
+  // Redirects to add/select-account modal.
+  // -------------------------------------------------------------------------
   useEffect(() => {
     if (!authUser) return;
     if (!hasLoaded || isLoading) return;
@@ -109,23 +173,14 @@ export default function TabsLayout() {
 
   const canSeeFinance = isAdmin || isMember;
   const canSeeCalendar = isAdmin || isMember;
-  // Staff can see the People tab too (they need a residents directory).
   const canSeeManagement = isAdmin || isMember || isStaff;
 
-  // Labels:
-  //   admin   → "Management"
-  //   member  → "Residents"
-  //   staff   → "Residents"
   const peopleTabTitle = isAdmin
     ? "Management"
     : isMember || isStaff
       ? "Residents"
       : "Management";
 
-  // Icons:
-  //   admin   → briefcase
-  //   member  → business (building)
-  //   staff   → business (building) — same as member
   const peopleTabIcon = (focused: boolean): keyof typeof Ionicons.glyphMap => {
     if (isAdmin) return focused ? "briefcase" : "briefcase-outline";
     if (isMember || isStaff) {
@@ -178,7 +233,7 @@ export default function TabsLayout() {
           headerRight: () => (
             <View style={styles.notificationMenu}>
               <TouchableOpacity
-                onPress={() => setShowNotifications((visible) => !visible)}
+                onPress={() => setShowNotifications((v) => !v)}
                 style={styles.notificationButton}
                 activeOpacity={0.7}
               >
@@ -505,7 +560,6 @@ export default function TabsLayout() {
         />
       </Tabs>
 
-      {/* The modal host — rendered ONCE for the whole tab navigator. */}
       <AccountSwitcherHost />
     </>
   );
