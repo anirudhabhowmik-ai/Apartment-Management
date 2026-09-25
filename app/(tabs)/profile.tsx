@@ -952,7 +952,6 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   adminRowAvatarImage: { width: "100%", height: "100%" },
-  ownerRowAvatar: { backgroundColor: "#DBEAFE" },
   adminRowAvatarBg: { backgroundColor: "#EDE9FE" },
   adminRowAvatarText: {
     color: "#1D4ED8",
@@ -980,14 +979,7 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     marginLeft: 8,
   },
-  ownerRowBadge: { backgroundColor: "#DBEAFE" },
   adminRowBadgeBg: { backgroundColor: "#EDE9FE" },
-  ownerRowBadgeText: {
-    color: "#1D4ED8",
-    fontSize: 9,
-    fontWeight: "800",
-    letterSpacing: 0.3,
-  },
   adminRowBadgeText: {
     color: "#7C3AED",
     fontSize: 9,
@@ -1591,11 +1583,6 @@ export default function ProfileTabScreen(): React.ReactElement {
   const alert = useAppAlert();
   const showAlert = alert.show;
 
-  // ── Safe-area insets ────────────────────────────────────────────────
-  // Read once at the screen level (where SafeAreaProvider context is
-  // available) and pass them down as plain numbers to the modal body.
-  // SafeAreaView used *inside* a Modal frequently returns zero insets
-  // because the modal renders in its own native root.
   const insets = useSafeAreaInsets();
 
   const topInset = Math.max(
@@ -2558,46 +2545,10 @@ export default function ProfileTabScreen(): React.ReactElement {
                 <Ionicons name="shield-checkmark" size={20} color="#2563EB" />
               </View>
               <View style={styles.adminHeaderContent}>
-                <Text style={styles.adminHeaderTitle}>Admin & Owners</Text>
+                <Text style={styles.adminHeaderTitle}>Admin</Text>
                 <Text style={styles.adminHeaderSubtitle}>
                   Contact the society admin for any help
                 </Text>
-              </View>
-            </View>
-
-            <View
-              style={[
-                styles.adminRow,
-                adminDirectory.length === 0 && styles.adminRowLast,
-              ]}
-            >
-              <View style={[styles.adminRowAvatar, styles.ownerRowAvatar]}>
-                {ownerPhotoUri ? (
-                  <Image
-                    source={{ uri: ownerPhotoUri }}
-                    style={styles.adminRowAvatarImage}
-                    contentFit="cover"
-                    cachePolicy="memory-disk"
-                    transition={120}
-                  />
-                ) : (
-                  <Text style={styles.adminRowAvatarText}>
-                    {getInitials(ownerName) || "O"}
-                  </Text>
-                )}
-              </View>
-              <View style={styles.adminRowContent}>
-                <View style={styles.adminRowNameRow}>
-                  <Text style={styles.adminRowName} numberOfLines={1}>
-                    {ownerName}
-                  </Text>
-                </View>
-                <Text style={styles.adminRowPhone} numberOfLines={1}>
-                  {ownerPhone}
-                </Text>
-              </View>
-              <View style={[styles.adminRowBadge, styles.ownerRowBadge]}>
-                <Text style={styles.ownerRowBadgeText}>OWNER</Text>
               </View>
             </View>
 
@@ -2611,6 +2562,17 @@ export default function ProfileTabScreen(): React.ReactElement {
                   ]}
                 >
                   Loading admins…
+                </Text>
+              </View>
+            ) : adminDirectory.length === 0 ? (
+              <View style={[styles.adminRow, styles.adminRowLast]}>
+                <Text
+                  style={[
+                    styles.adminRowPhone,
+                    { marginLeft: 0, marginTop: 0 },
+                  ]}
+                >
+                  No admins yet.
                 </Text>
               </View>
             ) : (
