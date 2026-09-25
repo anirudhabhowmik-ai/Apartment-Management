@@ -8,6 +8,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Linking,
   Modal,
   Pressable,
   RefreshControl,
@@ -112,8 +113,10 @@ type RevokePreview = {
 };
 
 type OwnerContact = {
+  userId: string;
   name: string;
   phone: string | null;
+  photoUrl: string | null;
 };
 
 /* ============================================================
@@ -225,8 +228,8 @@ async function openingBalanceRequest<T>(
 }
 
 /**
- * Fetch the owner + admins (with name + phone) for a given account.
- * Uses the existing accountController.getAccountPeople endpoint.
+ * Fetch owner + admins for a given account using the existing
+ * accountController.getAccountPeople endpoint.
  */
 async function fetchAccountOwnerContact(
   accountId: string,
@@ -248,57 +251,32 @@ async function fetchAccountOwnerContact(
       return d.length > 10 ? d.slice(-10) : d;
     };
 
+    const shape = (r: any): OwnerContact => ({
+      userId: r?.user_id ?? r?.userId ?? "",
+      name: String(r?.name || "").trim(),
+      phone: norm(r?.phone),
+      photoUrl: r?.photo_url ?? r?.photoUrl ?? null,
+    });
+
     return {
-      owner: data?.owner
-        ? {
-            name: String(data.owner.name || "").trim(),
-            phone: norm(data.owner.phone),
-          }
-        : null,
-      admins: Array.isArray(data?.admins)
-        ? data.admins.map((a: any) => ({
-            name: String(a.name || "").trim(),
-            phone: norm(a.phone),
-          }))
-        : [],
+      owner: data?.owner ? shape(data.owner) : null,
+      admins: Array.isArray(data?.admins) ? data.admins.map(shape) : [],
     };
   } catch {
     return { owner: null, admins: [] };
   }
 }
 
-/**
- * Build the "bill template missing" alert body with owner contact info.
- */
-function buildBillMissingMessage(
-  owner: OwnerContact | null,
-  admins: OwnerContact[],
-): string {
-  const lines: string[] = [
-    "The bill template hasn't been set up for this property yet.",
-    "Please request the owner/admin to generate it from Profile → Generate Bill.",
-  ];
-
-  const contacts: string[] = [];
-
-  if (owner && (owner.name || owner.phone)) {
-    contacts.push(
-      `${owner.name || "Owner"}${owner.phone ? ` · +91 ${owner.phone}` : ""}`,
-    );
+async function dialPhone(raw: string | null | undefined) {
+  if (!raw) return;
+  const digits = String(raw).replace(/\D/g, "");
+  const ten = digits.length > 10 ? digits.slice(-10) : digits;
+  if (ten.length !== 10) return;
+  try {
+    await Linking.openURL(`tel:+91${ten}`);
+  } catch (e) {
+    console.warn("[home] dial failed:", e);
   }
-
-  for (const a of admins.slice(0, 2)) {
-    if (!a.name && !a.phone) continue;
-    contacts.push(`${a.name || "Admin"}${a.phone ? ` · +91 ${a.phone}` : ""}`);
-  }
-
-  if (contacts.length > 0) {
-    lines.push("");
-    lines.push(contacts.length === 1 ? "Owner:" : "Contacts:");
-    lines.push(contacts.join("\n"));
-  }
-
-  return lines.join("\n");
 }
 
 function formatCurrency(amount: number) {
@@ -570,6 +548,138 @@ function computeAllTimeFinance(
   }
 
   return { income, expense, net: income - expense };
+}
+
+/* ============================================================
+   BILL MISSING MODAL — custom in-app alert with owner photo
+   ============================================================ */
+
+function BillMissingModal({
+  visible,
+  owner,
+  admins,
+  onClose,
+}: {
+  visible: boolean;
+  owner: OwnerContact | null;
+  admins: OwnerContact[];
+  onClose: () => void;
+}) {
+  const hasOwner = !!(owner && (owner.name || owner.phone));
+
+  const primaryContacts: OwnerContact[] = [];
+  if (hasOwner && owner) primaryContacts.push(owner);
+  for (const a of admins) {
+    if (a.name || a.phone) primaryContacts.push(a);
+  }
+
+  const renderContact = (
+    contact: OwnerContact,
+    idx: number,
+    isOwner: boolean,
+  ) => {
+    const initial = (contact.name || "?").charAt(0).toUpperCase();
+    const canCall = !!contact.phone;
+
+    return (
+      <View key={`contact-${idx}`} style={styles.billContactRow}>
+        <View
+          style={[
+            styles.billContactAvatar,
+            isOwner && styles.billContactAvatarOwner,
+          ]}
+        >
+          {contact.photoUrl ? (
+            <Image
+              source={{ uri: contact.photoUrl }}
+              style={styles.billContactAvatarImage}
+            />
+          ) : (
+            <Text style={styles.billContactInitial}>{initial}</Text>
+          )}
+        </View>
+
+        <View style={styles.billContactInfo}>
+          <View style={styles.billContactNameRow}>
+            <Text style={styles.billContactName} numberOfLines={1}>
+              {contact.name || (isOwner ? "Owner" : "Admin")}
+            </Text>
+            {isOwner ? (
+              <View style={styles.billOwnerBadge}>
+                <Ionicons name="shield-checkmark" size={10} color="#B45309" />
+                <Text style={styles.billOwnerBadgeText}>OWNER</Text>
+              </View>
+            ) : null}
+          </View>
+          <Text style={styles.billContactPhone} numberOfLines={1}>
+            {contact.phone ? `+91 ${contact.phone}` : "No phone on file"}
+          </Text>
+        </View>
+
+        {canCall ? (
+          <TouchableOpacity
+            style={styles.billCallButton}
+            onPress={() => dialPhone(contact.phone)}
+            activeOpacity={0.85}
+          >
+            <Ionicons name="call" size={16} color="#FFFFFF" />
+            <Text style={styles.billCallButtonText}>Call</Text>
+          </TouchableOpacity>
+        ) : null}
+      </View>
+    );
+  };
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="fade"
+      onRequestClose={onClose}
+    >
+      <Pressable style={styles.modalBackdrop} onPress={onClose}>
+        <Pressable
+          style={styles.billModalCard}
+          onPress={(e) => e.stopPropagation()}
+        >
+          <View style={styles.billModalIcon}>
+            <Ionicons name="document-text" size={26} color="#D97706" />
+          </View>
+
+          <Text style={styles.billModalTitle}>Bill template missing</Text>
+
+          <Text style={styles.billModalDesc}>
+            The bill template hasn't been set up for this property yet. Please
+            request the owner to generate it from{" "}
+            <Text style={{ fontWeight: "800" }}>Profile → Generate Bill</Text>.
+          </Text>
+
+          {primaryContacts.length > 0 ? (
+            <View style={styles.billContactsWrap}>
+              <Text style={styles.billContactsLabel}>
+                {primaryContacts.length === 1 ? "Contact" : "Contacts"}
+              </Text>
+              {primaryContacts
+                .slice(0, 3)
+                .map((c, i) => renderContact(c, i, i === 0 && hasOwner))}
+            </View>
+          ) : (
+            <Text style={styles.billModalNoContact}>
+              Owner contact is not available right now.
+            </Text>
+          )}
+
+          <TouchableOpacity
+            style={styles.billModalCloseBtn}
+            onPress={onClose}
+            activeOpacity={0.85}
+          >
+            <Text style={styles.billModalCloseBtnText}>Close</Text>
+          </TouchableOpacity>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
 }
 
 /* ============================================================
@@ -1147,7 +1257,7 @@ function MonthYearPickerModal({
 }
 
 /* ============================================================
-   ATTENDANCE CALENDAR (used inside modal)
+   ATTENDANCE CALENDAR
    ============================================================ */
 
 function AttendanceCalendar({
@@ -1401,7 +1511,7 @@ export default function HomeScreen() {
     null,
   );
 
-  // Attendance modal (uses the shared top-level month; no internal slider)
+  // Attendance modal (uses top-level month; no internal slider)
   const [attendanceModalStaffId, setAttendanceModalStaffId] = useState<
     string | null
   >(null);
@@ -1409,6 +1519,15 @@ export default function HomeScreen() {
     name: string;
     role: string;
   } | null>(null);
+
+  // Bill-missing modal
+  const [billMissingVisible, setBillMissingVisible] = useState(false);
+  const [billMissingOwner, setBillMissingOwner] = useState<OwnerContact | null>(
+    null,
+  );
+  const [billMissingAdmins, setBillMissingAdmins] = useState<OwnerContact[]>(
+    [],
+  );
 
   const [pendingAdminOffers, setPendingAdminOffers] = useState<
     PendingAdminOffer[]
@@ -1958,7 +2077,7 @@ export default function HomeScreen() {
   const hasAnyProfile =
     matchedMemberProfiles.length > 0 || matchedStaffProfiles.length > 0;
 
-  /* ── Fetch attendance for own staff profiles (across all accounts) ── */
+  /* ── Fetch attendance for own staff profiles across all accounts ── */
   useEffect(() => {
     if (!user?.id) return;
     if (!accounts.length) return;
@@ -2138,13 +2257,11 @@ export default function HomeScreen() {
         }
 
         if (!billConfig) {
-          // Fetch owner/admin contact to tell the user who to ask
           const { owner, admins } = await fetchAccountOwnerContact(accId);
           setDownloadingBillKey(null);
-          Alert.alert(
-            "Bill template missing",
-            buildBillMissingMessage(owner, admins),
-          );
+          setBillMissingOwner(owner);
+          setBillMissingAdmins(admins);
+          setBillMissingVisible(true);
           return;
         }
 
@@ -2306,30 +2423,6 @@ export default function HomeScreen() {
     });
   };
 
-  const handleStaffPress = (staff: any) => {
-    if (!selectedAccount?.id || !staff?.id) return;
-    router.push({
-      pathname: "/(modals)/edit-member",
-      params: {
-        memberId: staff.id,
-        accountId: selectedAccount.id,
-        groupType: "staff",
-      },
-    });
-  };
-
-  const handleMemberPress = (member: any) => {
-    if (!selectedAccount?.id || !member?.id) return;
-    router.push({
-      pathname: "/(modals)/edit-member",
-      params: {
-        memberId: member.id,
-        accountId: selectedAccount.id,
-        groupType: "apartment",
-      },
-    });
-  };
-
   const handleOpenProfile = () => {
     router.push("/(modals)/edit-profile");
   };
@@ -2393,7 +2486,7 @@ export default function HomeScreen() {
               </TouchableOpacity>
             </View>
 
-            {/* MEMBER ROWS */}
+            {/* MEMBER ROWS — no navigation on tap, informational only */}
             {hasMembers ? (
               <View style={styles.groupCard}>
                 <Pressable
@@ -2462,13 +2555,8 @@ export default function HomeScreen() {
                             styles.roleRowWrapLast,
                         ]}
                       >
-                        <Pressable
-                          onPress={() => handleMemberPress(member)}
-                          style={({ pressed }) => [
-                            styles.roleRowTop,
-                            pressed && styles.pressed,
-                          ]}
-                        >
+                        {/* Read-only row (no navigation) */}
+                        <View style={styles.roleRowTop}>
                           <View style={styles.groupRowInfo}>
                             <Text
                               style={styles.groupRowTitle}
@@ -2544,7 +2632,7 @@ export default function HomeScreen() {
                               </Text>
                             ) : null}
                           </View>
-                        </Pressable>
+                        </View>
 
                         {isPaid ? (
                           <View style={styles.roleRowActions}>
@@ -2592,7 +2680,7 @@ export default function HomeScreen() {
               </View>
             ) : null}
 
-            {/* STAFF ROWS */}
+            {/* STAFF ROWS — no navigation on tap, informational only */}
             {hasStaff ? (
               <View style={styles.groupCard}>
                 <Pressable
@@ -2675,13 +2763,8 @@ export default function HomeScreen() {
                             styles.roleRowWrapLast,
                         ]}
                       >
-                        <Pressable
-                          onPress={() => handleStaffPress(staff)}
-                          style={({ pressed }) => [
-                            styles.roleRowTop,
-                            pressed && styles.pressed,
-                          ]}
-                        >
+                        {/* Read-only row (no navigation) */}
+                        <View style={styles.roleRowTop}>
                           <View style={styles.groupRowInfo}>
                             <Text
                               style={styles.groupRowTitle}
@@ -2757,7 +2840,7 @@ export default function HomeScreen() {
                               </Text>
                             ) : null}
                           </View>
-                        </Pressable>
+                        </View>
 
                         <View style={styles.roleRowActions}>
                           <TouchableOpacity
@@ -2832,7 +2915,7 @@ export default function HomeScreen() {
   };
 
   /* ============================================================
-     ATTENDANCE MODAL (uses top-level month; no internal slider)
+     ATTENDANCE MODAL
      ============================================================ */
 
   const renderAttendanceModal = () => {
@@ -2883,7 +2966,6 @@ export default function HomeScreen() {
               </Pressable>
             </View>
 
-            {/* Read-only month display — sourced from the top-level slider */}
             <View style={styles.attendanceModalMonthPill}>
               <Ionicons name="calendar-outline" size={14} color="#64748B" />
               <Text style={styles.attendanceModalMonthPillText}>
@@ -3244,6 +3326,7 @@ export default function HomeScreen() {
 
           {renderProfileBlock()}
 
+          {/* Society blocks only for members (not staff-only) */}
           {isMember ? (
             <>
               <View style={styles.section}>
@@ -3362,6 +3445,17 @@ export default function HomeScreen() {
 
         {renderAttendanceModal()}
         {renderWithdrawModal()}
+
+        <BillMissingModal
+          visible={billMissingVisible}
+          owner={billMissingOwner}
+          admins={billMissingAdmins}
+          onClose={() => {
+            setBillMissingVisible(false);
+            setBillMissingOwner(null);
+            setBillMissingAdmins([]);
+          }}
+        />
       </View>
     );
   }
@@ -3592,6 +3686,17 @@ export default function HomeScreen() {
       />
 
       {renderWithdrawModal()}
+
+      <BillMissingModal
+        visible={billMissingVisible}
+        owner={billMissingOwner}
+        admins={billMissingAdmins}
+        onClose={() => {
+          setBillMissingVisible(false);
+          setBillMissingOwner(null);
+          setBillMissingAdmins([]);
+        }}
+      />
     </View>
   );
 }
@@ -3602,7 +3707,11 @@ export default function HomeScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#F8FAFC" },
-  scrollContent: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 30 },
+  scrollContent: {
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 30,
+  },
 
   loadingScreen: {
     flex: 1,
@@ -3643,7 +3752,11 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: "#0F172A",
   },
-  accountTypeRow: { flexDirection: "row", alignItems: "center", marginTop: 7 },
+  accountTypeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 7,
+  },
   accountStatusDot: {
     width: 7,
     height: 7,
@@ -3651,7 +3764,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#22C55E",
     marginRight: 6,
   },
-  accountTypeText: { fontSize: 12, color: "#64748B", fontWeight: "500" },
+  accountTypeText: {
+    fontSize: 12,
+    color: "#64748B",
+    fontWeight: "500",
+  },
   dotSeparator: {
     width: 3,
     height: 3,
@@ -3686,16 +3803,28 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   profileAvatarImage: { width: "100%", height: "100%" },
-  profileInitial: { fontSize: 24, fontWeight: "800", color: "#2563EB" },
+  profileInitial: {
+    fontSize: 24,
+    fontWeight: "800",
+    color: "#2563EB",
+  },
   profileInfo: { flex: 1, minWidth: 0 },
-  profileName: { fontSize: 19, fontWeight: "800", color: "#0F172A" },
+  profileName: {
+    fontSize: 19,
+    fontWeight: "800",
+    color: "#0F172A",
+  },
   profilePhoneRow: {
     flexDirection: "row",
     alignItems: "center",
     marginTop: 5,
     gap: 5,
   },
-  profilePhone: { fontSize: 13, color: "#64748B", fontWeight: "500" },
+  profilePhone: {
+    fontSize: 13,
+    color: "#64748B",
+    fontWeight: "500",
+  },
   profileEditChip: {
     flexDirection: "row",
     alignItems: "center",
@@ -3707,7 +3836,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#DBEAFE",
   },
-  profileEditText: { fontSize: 12, fontWeight: "700", color: "#2563EB" },
+  profileEditText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#2563EB",
+  },
 
   myRolesCard: {
     backgroundColor: "#FFFFFF",
@@ -3730,8 +3863,16 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   myRolesHeaderLeft: { flex: 1, minWidth: 0 },
-  myRolesTitle: { fontSize: 13, fontWeight: "800", color: "#0F172A" },
-  myRolesSubtitle: { fontSize: 11.5, color: "#94A3B8", marginTop: 3 },
+  myRolesTitle: {
+    fontSize: 13,
+    fontWeight: "800",
+    color: "#0F172A",
+  },
+  myRolesSubtitle: {
+    fontSize: 11.5,
+    color: "#94A3B8",
+    marginTop: 3,
+  },
   myRolesChipsRight: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -3740,8 +3881,16 @@ const styles = StyleSheet.create({
     gap: 6,
     maxWidth: "55%",
   },
-  myRoleChip: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: 8 },
-  myRoleChipText: { fontSize: 10, fontWeight: "800", letterSpacing: 0.4 },
+  myRoleChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+  },
+  myRoleChipText: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.4,
+  },
   myRolesSkeletonChip: {
     width: 62,
     height: 22,
@@ -3891,6 +4040,146 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
 
+  /* ── Bill missing modal ── */
+  billModalCard: {
+    width: "100%",
+    maxWidth: 400,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    padding: 22,
+    alignItems: "center",
+  },
+  billModalIcon: {
+    width: 60,
+    height: 60,
+    borderRadius: 20,
+    backgroundColor: "#FEF3C7",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+  billModalTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#0F172A",
+    textAlign: "center",
+  },
+  billModalDesc: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: "#64748B",
+    textAlign: "center",
+    marginTop: 8,
+    maxWidth: 330,
+  },
+  billContactsWrap: {
+    width: "100%",
+    marginTop: 16,
+  },
+  billContactsLabel: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#94A3B8",
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    marginBottom: 8,
+    marginLeft: 4,
+  },
+  billContactRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    borderRadius: 14,
+    padding: 10,
+    marginBottom: 8,
+    gap: 10,
+  },
+  billContactAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: "#E0F2FE",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+  },
+  billContactAvatarOwner: { backgroundColor: "#FEF3C7" },
+  billContactAvatarImage: { width: "100%", height: "100%" },
+  billContactInitial: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: "#0F172A",
+  },
+  billContactInfo: { flex: 1, minWidth: 0 },
+  billContactNameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  billContactName: {
+    flexShrink: 1,
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#0F172A",
+  },
+  billOwnerBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    backgroundColor: "#FDE68A",
+  },
+  billOwnerBadgeText: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: "#78350F",
+    letterSpacing: 0.3,
+  },
+  billContactPhone: {
+    fontSize: 12,
+    color: "#64748B",
+    marginTop: 3,
+  },
+  billCallButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 11,
+    backgroundColor: "#16A34A",
+  },
+  billCallButtonText: {
+    fontSize: 12.5,
+    fontWeight: "800",
+    color: "#FFFFFF",
+  },
+  billModalNoContact: {
+    fontSize: 12,
+    color: "#94A3B8",
+    textAlign: "center",
+    marginTop: 12,
+    marginBottom: 4,
+  },
+  billModalCloseBtn: {
+    width: "100%",
+    minHeight: 46,
+    borderRadius: 13,
+    backgroundColor: "#0F172A",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 16,
+  },
+  billModalCloseBtnText: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#FFFFFF",
+  },
+
   rolesSection: { marginBottom: 22 },
   rolesSectionTitle: {
     fontSize: 13,
@@ -3929,7 +4218,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
   },
-  roleMonthText: { fontSize: 14, fontWeight: "800", color: "#0F172A" },
+  roleMonthText: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#0F172A",
+  },
 
   groupCard: {
     backgroundColor: "#FFFFFF",
@@ -4000,7 +4293,11 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   groupRowInfo: { flex: 1, minWidth: 0 },
-  groupRowTitle: { fontSize: 14, fontWeight: "700", color: "#0F172A" },
+  groupRowTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#0F172A",
+  },
   roleRowMetaRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -4014,8 +4311,16 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     borderWidth: 1,
   },
-  roleChipText: { fontSize: 10, fontWeight: "800", letterSpacing: 0.2 },
-  roleRowAmount: { fontSize: 12.5, fontWeight: "700", color: "#334155" },
+  roleChipText: {
+    fontSize: 10,
+    fontWeight: "800",
+    letterSpacing: 0.2,
+  },
+  roleRowAmount: {
+    fontSize: 12.5,
+    fontWeight: "700",
+    color: "#334155",
+  },
   roleRowStatusWrap: { alignItems: "flex-end" },
   statusPill: {
     flexDirection: "row",
@@ -4029,7 +4334,11 @@ const styles = StyleSheet.create({
   statusPillDue: { backgroundColor: "#FEF2F2" },
   statusPillText: { fontSize: 11.5, fontWeight: "800" },
   selfStatusDot: { width: 6, height: 6, borderRadius: 3 },
-  roleRowPaidDate: { fontSize: 10.5, color: "#94A3B8", marginTop: 3 },
+  roleRowPaidDate: {
+    fontSize: 10.5,
+    color: "#94A3B8",
+    marginTop: 3,
+  },
   roleRowActions: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -4073,7 +4382,11 @@ const styles = StyleSheet.create({
     borderBottomColor: "#F1F5F9",
   },
   groupRowLast: { borderBottomWidth: 0 },
-  groupRowSubtitle: { fontSize: 11.5, color: "#64748B", marginTop: 3 },
+  groupRowSubtitle: {
+    fontSize: 11.5,
+    color: "#64748B",
+    marginTop: 3,
+  },
 
   groupOverviewGrid: { flexDirection: "row", gap: 12 },
   groupOverviewCard: {
@@ -4167,7 +4480,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   offerBannerHeaderText: { flex: 1, minWidth: 0 },
-  offerBannerTitle: { fontSize: 14, fontWeight: "800", color: "#0F172A" },
+  offerBannerTitle: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#0F172A",
+  },
   offerBannerSubtitle: {
     fontSize: 12,
     color: "#64748B",
@@ -4218,14 +4535,22 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     backgroundColor: "#F1F5F9",
   },
-  upgradePillFromText: { fontSize: 9, fontWeight: "800", color: "#475569" },
+  upgradePillFromText: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: "#475569",
+  },
   upgradePillTo: {
     paddingHorizontal: 7,
     paddingVertical: 2,
     borderRadius: 6,
     backgroundColor: "#EDE9FE",
   },
-  upgradePillToText: { fontSize: 9, fontWeight: "800", color: "#7C3AED" },
+  upgradePillToText: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: "#7C3AED",
+  },
 
   ownershipBanner: {
     backgroundColor: "#FFFBEB",
@@ -4254,7 +4579,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   ownershipBannerHeaderText: { flex: 1, minWidth: 0 },
-  ownershipBannerTitle: { fontSize: 14, fontWeight: "800", color: "#78350F" },
+  ownershipBannerTitle: {
+    fontSize: 14,
+    fontWeight: "800",
+    color: "#78350F",
+  },
   ownershipBannerSubtitle: {
     fontSize: 12,
     color: "#78350F",
@@ -4285,14 +4614,22 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     backgroundColor: "#FDE68A",
   },
-  ownershipPillFromText: { fontSize: 9, fontWeight: "800", color: "#78350F" },
+  ownershipPillFromText: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: "#78350F",
+  },
   ownershipPillTo: {
     paddingHorizontal: 7,
     paddingVertical: 2,
     borderRadius: 6,
     backgroundColor: "#B45309",
   },
-  ownershipPillToText: { fontSize: 9, fontWeight: "800", color: "#FFFFFF" },
+  ownershipPillToText: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: "#FFFFFF",
+  },
 
   balanceCard: {
     backgroundColor: "#FFFFFF",
@@ -4312,7 +4649,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
-  balanceLabel: { fontSize: 13, fontWeight: "700", color: "#475569" },
+  balanceLabel: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#475569",
+  },
   balancePeriod: { fontSize: 11, color: "#94A3B8", marginTop: 3 },
   balanceIcon: {
     width: 42,
@@ -4328,12 +4669,31 @@ const styles = StyleSheet.create({
     marginTop: 15,
     letterSpacing: -0.6,
   },
-  balanceDivider: { height: 1, backgroundColor: "#F1F5F9", marginVertical: 17 },
-  balanceBottom: { flexDirection: "row", justifyContent: "space-between" },
-  balanceMiniItem: { flexDirection: "row", alignItems: "center", flex: 1 },
+  balanceDivider: {
+    height: 1,
+    backgroundColor: "#F1F5F9",
+    marginVertical: 17,
+  },
+  balanceBottom: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+  },
+  balanceMiniItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    flex: 1,
+  },
   miniDot: { width: 8, height: 8, borderRadius: 4, marginRight: 8 },
-  miniLabel: { fontSize: 11, color: "#94A3B8", marginBottom: 2 },
-  miniValue: { fontSize: 13, fontWeight: "700", color: "#334155" },
+  miniLabel: {
+    fontSize: 11,
+    color: "#94A3B8",
+    marginBottom: 2,
+  },
+  miniValue: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#334155",
+  },
 
   section: { marginBottom: 25 },
   sectionHeader: {
@@ -4342,8 +4702,16 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: 13,
   },
-  sectionTitle: { fontSize: 18, fontWeight: "800", color: "#0F172A" },
-  sectionSubtitle: { fontSize: 12, color: "#94A3B8", marginTop: 3 },
+  sectionTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#0F172A",
+  },
+  sectionSubtitle: {
+    fontSize: 12,
+    color: "#94A3B8",
+    marginTop: 3,
+  },
   seeAllButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -4377,8 +4745,16 @@ const styles = StyleSheet.create({
     marginRight: 12,
   },
   quickActionContent: { flex: 1 },
-  quickActionTitle: { fontSize: 14, fontWeight: "700", color: "#0F172A" },
-  quickActionSubtitle: { fontSize: 11, color: "#94A3B8", marginTop: 3 },
+  quickActionTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#0F172A",
+  },
+  quickActionSubtitle: {
+    fontSize: 11,
+    color: "#94A3B8",
+    marginTop: 3,
+  },
   quickActionArrow: {
     width: 30,
     height: 30,
@@ -4405,9 +4781,21 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 10,
   },
-  financialLabel: { fontSize: 11, color: "#64748B", fontWeight: "600" },
-  financialAmount: { fontSize: 17, fontWeight: "800", marginTop: 5 },
-  financialPeriod: { fontSize: 10, color: "#94A3B8", marginTop: 4 },
+  financialLabel: {
+    fontSize: 11,
+    color: "#64748B",
+    fontWeight: "600",
+  },
+  financialAmount: {
+    fontSize: 17,
+    fontWeight: "800",
+    marginTop: 5,
+  },
+  financialPeriod: {
+    fontSize: 10,
+    color: "#94A3B8",
+    marginTop: 4,
+  },
 
   attendanceModalCard: {
     width: "100%",
@@ -4449,8 +4837,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
-  /* Read-only month pill inside attendance modal */
   attendanceModalMonthPill: {
     flexDirection: "row",
     alignItems: "center",
@@ -4479,9 +4865,22 @@ const styles = StyleSheet.create({
     borderBottomColor: "#F1F5F9",
   },
   summaryItem: { flex: 1, alignItems: "center", gap: 2 },
-  summaryDot: { width: 8, height: 8, borderRadius: 4, marginBottom: 2 },
-  summaryLabel: { fontSize: 10, color: "#94A3B8", fontWeight: "600" },
-  summaryValue: { fontSize: 15, fontWeight: "800", color: "#0F172A" },
+  summaryDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    marginBottom: 2,
+  },
+  summaryLabel: {
+    fontSize: 10,
+    color: "#94A3B8",
+    fontWeight: "600",
+  },
+  summaryValue: {
+    fontSize: 15,
+    fontWeight: "800",
+    color: "#0F172A",
+  },
 
   weekRow: { flexDirection: "row", marginBottom: 6 },
   weekCell: { flex: 1, alignItems: "center", paddingVertical: 6 },
@@ -4505,7 +4904,11 @@ const styles = StyleSheet.create({
   },
   dayBubbleToday: { borderWidth: 2, borderColor: "#2563EB" },
   dayText: { fontSize: 12, fontWeight: "700" },
-  attendanceEmpty: { paddingVertical: 26, alignItems: "center", gap: 8 },
+  attendanceEmpty: {
+    paddingVertical: 26,
+    alignItems: "center",
+    gap: 8,
+  },
   attendanceEmptyTitle: {
     fontSize: 14,
     fontWeight: "700",
@@ -4527,14 +4930,22 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderTopColor: "#F1F5F9",
   },
-  legendItem: { flexDirection: "row", alignItems: "center", gap: 5 },
+  legendItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+  },
   legendDot: {
     width: 10,
     height: 10,
     borderRadius: 5,
     borderWidth: 1.5,
   },
-  legendText: { fontSize: 11, color: "#64748B", fontWeight: "600" },
+  legendText: {
+    fontSize: 11,
+    color: "#64748B",
+    fontWeight: "600",
+  },
 
   pickerBackdrop: {
     flex: 1,
@@ -4556,7 +4967,11 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: 14,
   },
-  pickerTitle: { fontSize: 17, fontWeight: "800", color: "#0F172A" },
+  pickerTitle: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: "#0F172A",
+  },
   pickerClose: {
     width: 32,
     height: 32,
@@ -4582,7 +4997,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   yearChipActive: { backgroundColor: "#2563EB" },
-  yearChipText: { fontSize: 14, fontWeight: "700", color: "#475569" },
+  yearChipText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#475569",
+  },
   yearChipTextActive: { color: "#FFFFFF" },
   monthGrid: { flexDirection: "row", flexWrap: "wrap", gap: 8 },
   monthChip: {
@@ -4593,7 +5012,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   monthChipActive: { backgroundColor: "#2563EB" },
-  monthChipText: { fontSize: 13, fontWeight: "700", color: "#475569" },
+  monthChipText: {
+    fontSize: 13,
+    fontWeight: "700",
+    color: "#475569",
+  },
   monthChipTextActive: { color: "#FFFFFF" },
   pickerConfirm: {
     marginTop: 20,
@@ -4603,7 +5026,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  pickerConfirmText: { fontSize: 15, fontWeight: "700", color: "#FFFFFF" },
+  pickerConfirmText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
 
   footerMessage: {
     flexDirection: "row",
@@ -4614,7 +5041,11 @@ const styles = StyleSheet.create({
   },
   footerMessageText: { fontSize: 12, color: "#94A3B8" },
 
-  emptyScrollContent: { flexGrow: 1, justifyContent: "center", padding: 24 },
+  emptyScrollContent: {
+    flexGrow: 1,
+    justifyContent: "center",
+    padding: 24,
+  },
   emptyStateContainer: {
     alignItems: "center",
     backgroundColor: "#FFFFFF",
@@ -4662,7 +5093,11 @@ const styles = StyleSheet.create({
     shadowRadius: 10,
     elevation: 4,
   },
-  primaryButtonText: { fontSize: 15, fontWeight: "700", color: "#FFFFFF" },
+  primaryButtonText: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
   secondaryActionButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -4673,7 +5108,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#EFF6FF",
     gap: 6,
   },
-  secondaryButtonText: { fontSize: 13, color: "#2563EB", fontWeight: "600" },
+  secondaryButtonText: {
+    fontSize: 13,
+    color: "#2563EB",
+    fontWeight: "600",
+  },
 
   pressed: { opacity: 0.72 },
   bottomSpace: { height: 20 },
