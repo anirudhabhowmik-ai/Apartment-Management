@@ -27,6 +27,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useUserRole } from "../../hooks/useUserRole";
 import { useAccountStore } from "../../store/accountStore";
@@ -95,6 +96,36 @@ type StatusMeta = {
   bg: string;
   icon: string;
 };
+
+/* ========================================================================== */
+/* ATTACHMENT LIMITS — 2 max, matching server                                */
+/* ========================================================================== */
+
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+const MAX_TOTAL_ATTACHMENT_BYTES = 25 * 1024 * 1024;
+const MAX_ATTACHMENT_COUNT = 2;
+
+function formatBytes(bytes: number): string {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const mb = bytes / (1024 * 1024);
+  if (mb >= 1) return `${mb.toFixed(1)} MB`;
+  const kb = bytes / 1024;
+  return `${kb.toFixed(0)} KB`;
+}
+
+function attachmentSizeBytes(
+  att: { uri?: string; size?: number } | null | undefined,
+): number | null {
+  if (!att) return null;
+  if (typeof att.size === "number" && att.size > 0) return att.size;
+  const uri = att.uri ?? "";
+  const m = uri.match(/^data:([^;]+);base64,(.*)$/);
+  if (!m) return null;
+  const b64 = m[2];
+  const padding = b64.endsWith("==") ? 2 : b64.endsWith("=") ? 1 : 0;
+  const bytes = Math.floor((b64.length * 3) / 4) - padding;
+  return bytes > 0 ? bytes : null;
+}
 
 /* ========================================================================== */
 /* HELPERS                                                                    */
@@ -488,36 +519,211 @@ function mimeFromExtension(ext: string): string {
   }
 }
 
-async function waitForReadableFile(
+function mimeToUti(mime: string): string {
+  switch (mime) {
+    case "application/pdf":
+      return "com.adobe.pdf";
+    case "image/png":
+      return "public.png";
+    case "image/jpeg":
+    case "image/jpg":
+      return "public.jpeg";
+    case "image/gif":
+      return "com.compuserve.gif";
+    case "image/webp":
+      return "org.webmproject.webp";
+    case "image/heic":
+      return "public.heic";
+    case "text/plain":
+      return "public.plain-text";
+    case "text/csv":
+      return "public.comma-separated-values-text";
+    case "application/msword":
+      return "com.microsoft.word.doc";
+    case "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+      return "org.openxmlformats.wordprocessingml.document";
+    case "application/vnd.ms-excel":
+      return "com.microsoft.excel.xls";
+    case "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet":
+      return "org.openxmlformats.spreadsheetml.sheet";
+    case "application/vnd.ms-powerpoint":
+      return "com.microsoft.powerpoint.ppt";
+    case "application/vnd.openxmlformats-officedocument.presentationml.presentation":
+      return "org.openxmlformats.presentationml.presentation";
+    case "application/zip":
+      return "public.zip-archive";
+    default:
+      return "public.data";
+  }
+}
+
+/* ========================================================================== */
+/* FILE ACCESS — expo-file-system / fetch based (no native module needed)     */
+/* ========================================================================== */
+
+function blobToBase64(blob: Blob): Promise<string> {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () =>
+      reject(new Error("Failed to read file from provider"));
+    reader.onloadend = () => {
+      const result = reader.result;
+      if (typeof result !== "string") {
+        reject(new Error("Unexpected file reader result"));
+        return;
+      }
+      const comma = result.indexOf(",");
+      resolve(comma >= 0 ? result.slice(comma + 1) : result);
+    };
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function copyToOwnCache(
+  sourceUri: string,
+  extHint = ".bin",
+): Promise<{ uri: string; sizeBytes: number | null } | null> {
+  try {
+    const safeExt = String(extHint || ".bin").replace(/[^\w.]/g, "");
+    const destPath = `${FileSystem.cacheDirectory}upload_${Date.now()}_${Math.random()
+      .toString(36)
+      .slice(2, 8)}${safeExt}`;
+
+    try {
+      await FileSystem.copyAsync({ from: sourceUri, to: destPath });
+      let sizeBytes: number | null = null;
+      try {
+        const info: any = await FileSystem.getInfoAsync(destPath, {
+          size: true,
+        } as any);
+        if (info?.exists && typeof info.size === "number" && info.size > 0) {
+          sizeBytes = info.size;
+        }
+      } catch {
+        // optional
+      }
+      const uri = destPath.startsWith("file://")
+        ? destPath
+        : `file://${destPath}`;
+      return { uri, sizeBytes };
+    } catch (copyErr: any) {
+      console.warn(
+        "[copyToOwnCache] FileSystem.copyAsync failed, trying fetch:",
+        copyErr?.message || copyErr,
+      );
+    }
+
+    const res = await fetch(sourceUri);
+    if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
+    const blob = await res.blob();
+    if (!blob || blob.size === 0) throw new Error("Empty blob");
+
+    const base64 = await blobToBase64(blob);
+    await FileSystem.writeAsStringAsync(destPath, base64, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+
+    const uri = destPath.startsWith("file://")
+      ? destPath
+      : `file://${destPath}`;
+    return { uri, sizeBytes: blob.size };
+  } catch (e: any) {
+    console.warn("[copyToOwnCache] failed:", e?.message || e);
+    return null;
+  }
+}
+
+async function readUriAsDataUri(
   uri: string,
-  attempts = 6,
-  delayMs = 200,
-): Promise<boolean> {
-  for (let i = 0; i < attempts; i++) {
+  mimeType?: string,
+): Promise<{ dataUri: string; sizeBytes: number | null }> {
+  if (!uri) throw new Error("Empty URI");
+
+  const mime = mimeType || "application/octet-stream";
+
+  if (uri.startsWith("data:")) {
+    const m = uri.match(/^data:([^;]+);base64,(.*)$/);
+    if (m) {
+      const b64 = m[2];
+      const padding = b64.endsWith("==") ? 2 : b64.endsWith("=") ? 1 : 0;
+      const size = Math.floor((b64.length * 3) / 4) - padding;
+      return { dataUri: uri, sizeBytes: size > 0 ? size : null };
+    }
+    return { dataUri: uri, sizeBytes: null };
+  }
+
+  if (/^https?:\/\//i.test(uri)) {
+    return { dataUri: uri, sizeBytes: null };
+  }
+
+  if (uri.startsWith("file://")) {
     try {
       const info: any = await FileSystem.getInfoAsync(uri, {
         size: true,
       } as any);
-      if (info && info.exists && (info.size ?? 0) > 0) return true;
+      if (info?.exists) {
+        const base64 = await FileSystem.readAsStringAsync(uri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        if (base64) {
+          const sizeBytes =
+            typeof info.size === "number" && info.size > 0 ? info.size : null;
+          return { dataUri: `data:${mime};base64,${base64}`, sizeBytes };
+        }
+      }
     } catch {
-      // not ready yet
+      // fall through
     }
-    await new Promise((r) => setTimeout(r, delayMs));
   }
-  return false;
+
+  const extHint = `.${extensionFromMime(mime || uri)}`;
+  const copied = await copyToOwnCache(uri, extHint);
+  if (copied) {
+    try {
+      const base64 = await FileSystem.readAsStringAsync(copied.uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      if (base64) {
+        return {
+          dataUri: `data:${mime};base64,${base64}`,
+          sizeBytes: copied.sizeBytes,
+        };
+      }
+    } catch (e: any) {
+      console.warn("[readUriAsDataUri] copied read failed:", e?.message);
+    }
+  }
+
+  try {
+    const res = await fetch(uri);
+    if (res.ok) {
+      const blob = await res.blob();
+      if (blob && blob.size > 0) {
+        const base64 = await blobToBase64(blob);
+        if (base64) {
+          return {
+            dataUri: `data:${mime};base64,${base64}`,
+            sizeBytes: blob.size || null,
+          };
+        }
+      }
+    }
+  } catch {
+    // give up
+  }
+
+  throw new Error("Could not read file from provider");
 }
 
-async function assetToDataUri(uri: string, mimeType?: string): Promise<string> {
-  if (!uri) throw new Error("Empty URI");
-  if (uri.startsWith("data:") || /^https?:\/\//i.test(uri)) return uri;
-
-  const base64 = await FileSystem.readAsStringAsync(uri, {
-    encoding: FileSystem.EncodingType.Base64,
-  });
-  const mime = mimeType || "application/octet-stream";
-  return `data:${mime};base64,${base64}`;
-}
-
+/**
+ * Share / open a base64 data URI.
+ *
+ * Android:  Writes the file to cache, converts to a content:// URI and
+ *           fires the system "Open with" chooser (Gmail / Drive / Messenger
+ *           / WhatsApp / etc. all appear).
+ * iOS:      Writes the file to cache and calls the share sheet with the
+ *           correct UTI so third-party apps appear.
+ */
 async function shareDataUri(
   dataUri: string,
   fileName: string,
@@ -534,15 +740,49 @@ async function shareDataUri(
     encoding: FileSystem.EncodingType.Base64,
   });
 
-  if (await Sharing.isAvailableAsync()) {
-    await Sharing.shareAsync(tempUri, {
-      mimeType,
-      dialogTitle: `Save ${safeName}`,
-    });
-    FileSystem.deleteAsync(tempUri, { idempotent: true }).catch(() => {});
-  } else {
+  if (Platform.OS === "android") {
+    try {
+      const contentUri = await FileSystem.getContentUriAsync(tempUri);
+      const canOpen = await Linking.canOpenURL(contentUri).catch(() => false);
+      if (canOpen) {
+        await Linking.openURL(contentUri);
+        return;
+      }
+    } catch (e) {
+      console.warn("[shareDataUri] android content uri failed:", e);
+    }
+
+    if (await Sharing.isAvailableAsync()) {
+      await Sharing.shareAsync(tempUri, {
+        mimeType,
+        dialogTitle: `Share ${safeName}`,
+      });
+      FileSystem.deleteAsync(tempUri, { idempotent: true }).catch(() => {});
+      return;
+    }
+
+    throw new Error("No app available to open this file.");
+  }
+
+  if (Platform.OS === "ios") {
+    if (await Sharing.isAvailableAsync()) {
+      await Sharing.shareAsync(tempUri, {
+        mimeType,
+        UTI: mimeToUti(mimeType),
+        dialogTitle: `Share ${safeName}`,
+      });
+      FileSystem.deleteAsync(tempUri, { idempotent: true }).catch(() => {});
+      return;
+    }
     throw new Error("Sharing is not available on this device.");
   }
+
+  if (await Sharing.isAvailableAsync()) {
+    await Sharing.shareAsync(tempUri, { mimeType, dialogTitle: safeName });
+    FileSystem.deleteAsync(tempUri, { idempotent: true }).catch(() => {});
+    return;
+  }
+  throw new Error("Sharing is not available on this device.");
 }
 
 /* ========================================================================== */
@@ -610,6 +850,7 @@ export default function CalendarScreen() {
 /* ========================================================================== */
 
 function CalendarScreenImpl() {
+  const insets = useSafeAreaInsets();
   const { isAdmin, isMember, userMemberProfile } = useUserRole();
   const isOwner = (userMemberProfile as any)?.role === "owner";
   const isAdminOrOwner = isAdmin || isOwner;
@@ -876,41 +1117,6 @@ function CalendarScreenImpl() {
         : [],
     );
 
-    (async () => {
-      const needs = raw.some(
-        (a) =>
-          a &&
-          typeof a.uri === "string" &&
-          !a.uri.startsWith("data:") &&
-          !/^https?:\/\//i.test(a.uri),
-      );
-      if (!needs) return;
-      const fixed: CalendarAttachment[] = [];
-      for (const a of raw) {
-        if (
-          !a ||
-          typeof a.uri !== "string" ||
-          a.uri.startsWith("data:") ||
-          /^https?:\/\//i.test(a.uri)
-        ) {
-          fixed.push(a as CalendarAttachment);
-          continue;
-        }
-        try {
-          const ready = await waitForReadableFile(a.uri, 3, 150);
-          if (!ready) {
-            fixed.push(a);
-            continue;
-          }
-          const dataUri = await assetToDataUri(a.uri, a.mimeType);
-          fixed.push({ ...a, uri: dataUri });
-        } catch {
-          fixed.push(a);
-        }
-      }
-      setAttachments(fixed);
-    })();
-
     setShowAddModal(true);
   };
 
@@ -958,8 +1164,137 @@ function CalendarScreenImpl() {
   };
 
   /* ------------------------------------------------------------------------ */
-  /* ATTACHMENTS                                                              */
+  /* ATTACHMENT ADD                                                           */
   /* ------------------------------------------------------------------------ */
+
+  const currentTotalAttachmentBytes = () =>
+    attachments.reduce((sum, a) => sum + (attachmentSizeBytes(a) ?? 0), 0);
+
+  const addPickedAssets = async (
+    assets: Array<{
+      uri: string;
+      name?: string | null;
+      mimeType?: string | null;
+      size?: number | null;
+    }>,
+    sourceLabel: "photo" | "file",
+  ) => {
+    if (assets.length === 0) return;
+
+    const remainingSlots = MAX_ATTACHMENT_COUNT - attachments.length;
+    if (remainingSlots <= 0) {
+      Alert.alert(
+        "Attachment limit reached",
+        `You can attach at most ${MAX_ATTACHMENT_COUNT} files. Remove one to add more.`,
+      );
+      return;
+    }
+
+    setEncodingAttachment(true);
+
+    const encoded: CalendarAttachment[] = [];
+    const rejected: { name: string; reason: string }[] = [];
+    let runningTotal = currentTotalAttachmentBytes();
+    let processed = 0;
+
+    for (const asset of assets) {
+      if (processed >= remainingSlots) {
+        rejected.push({
+          name: asset.name || "File",
+          reason: `limit reached (${MAX_ATTACHMENT_COUNT} files)`,
+        });
+        continue;
+      }
+      processed += 1;
+
+      const displayName = asset.name || "File";
+      const mimeType =
+        asset.mimeType ||
+        mimeFromExtension(extensionFromMime(asset.name || asset.uri || "")) ||
+        "application/octet-stream";
+
+      try {
+        const { dataUri, sizeBytes } = await readUriAsDataUri(
+          asset.uri,
+          mimeType,
+        );
+
+        const effectiveSize =
+          sizeBytes ??
+          (typeof asset.size === "number" && asset.size > 0
+            ? asset.size
+            : null);
+
+        if (effectiveSize && effectiveSize > MAX_ATTACHMENT_BYTES) {
+          Alert.alert(
+            "File too large",
+            `"${displayName}" is ${formatBytes(
+              effectiveSize,
+            )}.\n\nMaximum allowed is ${formatBytes(
+              MAX_ATTACHMENT_BYTES,
+            )} per file.`,
+          );
+          rejected.push({
+            name: displayName,
+            reason: `too large (${formatBytes(effectiveSize)})`,
+          });
+          continue;
+        }
+
+        if (
+          effectiveSize &&
+          runningTotal + effectiveSize > MAX_TOTAL_ATTACHMENT_BYTES
+        ) {
+          Alert.alert(
+            "Total attachment size exceeded",
+            `Adding "${displayName}" would make the total ${formatBytes(
+              runningTotal + effectiveSize,
+            )}, above the ${formatBytes(MAX_TOTAL_ATTACHMENT_BYTES)} limit.`,
+          );
+          rejected.push({
+            name: displayName,
+            reason: "total size limit exceeded",
+          });
+          continue;
+        }
+
+        encoded.push({
+          uri: dataUri,
+          name: displayName,
+          mimeType,
+          ...(effectiveSize ? { size: effectiveSize } : {}),
+        } as CalendarAttachment);
+        runningTotal += effectiveSize ?? 0;
+      } catch (e: any) {
+        console.warn(`[CalendarScreen] read ${sourceLabel} failed:`, {
+          uri: asset.uri,
+          error: e?.message,
+        });
+        rejected.push({
+          name: displayName,
+          reason: e?.message || "read error",
+        });
+      }
+    }
+
+    setAttachments((cur) => [...cur, ...encoded]);
+
+    if (rejected.length > 0) {
+      Alert.alert(
+        "Some files were not attached",
+        rejected.map((r) => `• ${r.name} — ${r.reason}`).join("\n"),
+      );
+      setFormError(
+        `${rejected.length} file${
+          rejected.length === 1 ? "" : "s"
+        } couldn't be attached.`,
+      );
+    } else {
+      setFormError("");
+    }
+
+    setEncodingAttachment(false);
+  };
 
   const takeAttachmentPhoto = async () => {
     setShowPhotoOptions(false);
@@ -974,31 +1309,22 @@ function CalendarScreenImpl() {
         allowsEditing: false,
         quality: 0.85,
       });
-      if (!result.canceled && result.assets[0]) {
-        const asset = result.assets[0];
-        const mimeType = asset.mimeType || "image/jpeg";
-        setEncodingAttachment(true);
-        const ready = await waitForReadableFile(asset.uri);
-        if (!ready) {
-          setFormError("Could not read the captured photo. Please try again.");
-          return;
-        }
-        const dataUri = await assetToDataUri(asset.uri, mimeType);
-        setAttachments((cur) => [
-          ...cur,
+      if (result.canceled || !result.assets[0]) return;
+      const asset = result.assets[0];
+      await addPickedAssets(
+        [
           {
-            uri: dataUri,
+            uri: asset.uri,
             name: asset.fileName || "Photo",
-            mimeType,
+            mimeType: asset.mimeType || "image/jpeg",
+            size: (asset as any).fileSize ?? null,
           },
-        ]);
-        setFormError("");
-      }
+        ],
+        "photo",
+      );
     } catch (e: any) {
       console.warn("[CalendarScreen] takeAttachmentPhoto failed:", e);
       setFormError(e?.message || "Could not capture photo. Please try again.");
-    } finally {
-      setEncodingAttachment(false);
     }
   };
 
@@ -1016,44 +1342,20 @@ function CalendarScreenImpl() {
         allowsEditing: false,
         quality: 0.85,
         allowsMultipleSelection: true,
+        selectionLimit: MAX_ATTACHMENT_COUNT,
       });
-      if (!result.canceled && result.assets.length > 0) {
-        setEncodingAttachment(true);
-        const encoded: CalendarAttachment[] = [];
-        const failedNames: string[] = [];
+      if (result.canceled || result.assets.length === 0) return;
 
-        for (const asset of result.assets) {
-          const mimeType = asset.mimeType || "image/jpeg";
-          const displayName = asset.fileName || "Photo";
-
-          const ready = await waitForReadableFile(asset.uri);
-          if (!ready) {
-            failedNames.push(displayName);
-            continue;
-          }
-          try {
-            const dataUri = await assetToDataUri(asset.uri, mimeType);
-            encoded.push({ uri: dataUri, name: displayName, mimeType });
-          } catch (e) {
-            console.warn("[CalendarScreen] gallery asset read failed:", e);
-            failedNames.push(displayName);
-          }
-        }
-
-        setAttachments((cur) => [...cur, ...encoded]);
-        if (failedNames.length > 0) {
-          setFormError(
-            `Couldn't attach: ${failedNames.join(", ")}. Try picking again.`,
-          );
-        } else {
-          setFormError("");
-        }
-      }
+      const assets = result.assets.map((asset) => ({
+        uri: asset.uri,
+        name: asset.fileName || "Photo",
+        mimeType: asset.mimeType || "image/jpeg",
+        size: (asset as any).fileSize ?? null,
+      }));
+      await addPickedAssets(assets, "photo");
     } catch (e: any) {
       console.warn("[calendar] chooseAttachmentFromGallery failed:", e);
       setFormError(e?.message || "Could not pick photos. Please try again.");
-    } finally {
-      setEncodingAttachment(false);
     }
   };
 
@@ -1073,57 +1375,26 @@ function CalendarScreenImpl() {
           "text/csv",
         ],
         multiple: true,
-        copyToCacheDirectory: true,
+        copyToCacheDirectory: false,
       });
 
       if (result.canceled) return;
       if (!result.assets || result.assets.length === 0) return;
 
-      setEncodingAttachment(true);
-
-      const encoded: CalendarAttachment[] = [];
-      const failedNames: string[] = [];
-
-      for (const asset of result.assets) {
-        const displayName = asset.name || "Document";
-        const mimeType =
+      const assets = result.assets.map((asset) => ({
+        uri: asset.uri,
+        name: asset.name || "Document",
+        mimeType:
           asset.mimeType ||
           mimeFromExtension(extensionFromMime(asset.name || asset.uri || "")) ||
-          "application/octet-stream";
-
-        const ready = await waitForReadableFile(asset.uri);
-        if (!ready) {
-          console.warn(
-            "[CalendarScreen] DocumentPicker asset never became readable:",
-            asset.uri,
-          );
-          failedNames.push(displayName);
-          continue;
-        }
-
-        try {
-          const dataUri = await assetToDataUri(asset.uri, mimeType);
-          encoded.push({ uri: dataUri, name: displayName, mimeType });
-        } catch (e) {
-          console.warn("[CalendarScreen] document read failed:", e);
-          failedNames.push(displayName);
-        }
-      }
-
-      setAttachments((cur) => [...cur, ...encoded]);
-
-      if (failedNames.length > 0) {
-        setFormError(
-          `Couldn't attach: ${failedNames.join(", ")}. Try picking again.`,
-        );
-      } else {
-        setFormError("");
-      }
+          "application/octet-stream",
+        size: (asset as any).size ?? null,
+      }));
+      await addPickedAssets(assets, "file");
     } catch (e: any) {
       console.warn("[CalendarScreen] pickAttachmentDocument failed:", e);
+      Alert.alert("Could not pick document", e?.message || "Please try again.");
       setFormError(e?.message || "Could not pick document. Please try again.");
-    } finally {
-      setEncodingAttachment(false);
     }
   };
 
@@ -1144,7 +1415,6 @@ function CalendarScreenImpl() {
       try {
         await shareDataUri(uri, fileName, mime);
       } catch (e: any) {
-        console.warn("[CalendarScreen] shareDataUri failed:", e);
         Alert.alert(
           "Cannot open",
           e?.message || "Unable to open this attachment.",
@@ -1153,44 +1423,24 @@ function CalendarScreenImpl() {
       return;
     }
 
-    if (uri.startsWith("file://") || uri.startsWith("content://")) {
+    if (/^https?:\/\//i.test(uri)) {
       try {
-        const ready = await waitForReadableFile(uri, 3, 150);
-        if (!ready) {
-          Alert.alert(
-            "Cannot open",
-            "This attachment's local file is no longer available on this device. Please re-upload it.",
-          );
-          return;
-        }
-        const dataUri = await assetToDataUri(uri, mime);
-        await shareDataUri(dataUri, fileName, mime);
-        return;
-      } catch (e: any) {
-        console.warn("[CalendarScreen] legacy attachment share failed:", e);
-        Alert.alert(
-          "Cannot open",
-          "This attachment's local file is no longer available on this device. Please re-upload it.",
-        );
-        return;
+        await Linking.openURL(uri);
+      } catch {
+        Alert.alert("Cannot open", "Unable to open this link.");
       }
+      return;
     }
 
     try {
-      const supported = await Linking.canOpenURL(uri);
-      if (!supported) {
-        Alert.alert(
-          "Cannot open",
-          "This file type is not supported on your device.",
-        );
-        return;
-      }
-      await Linking.openURL(uri);
+      const { dataUri } = await readUriAsDataUri(uri, mime);
+      await shareDataUri(dataUri, fileName, mime);
     } catch (e: any) {
       console.warn("[CalendarScreen] openAttachment failed:", e);
       Alert.alert(
         "Cannot open",
-        e?.message || "Unable to open this attachment.",
+        e?.message ||
+          "This attachment's local file is no longer available on this device.",
       );
     }
   };
@@ -1213,6 +1463,10 @@ function CalendarScreenImpl() {
     }
     if (type === "notice" && !isAdminOrOwner) {
       setFormError("Only admins and owners can post notices");
+      return;
+    }
+    if (attachments.length > MAX_ATTACHMENT_COUNT) {
+      setFormError(`You can attach at most ${MAX_ATTACHMENT_COUNT} files.`);
       return;
     }
 
@@ -1536,6 +1790,12 @@ function CalendarScreenImpl() {
     const attachmentCount = Array.isArray(item.attachments)
       ? item.attachments.length
       : 0;
+    const totalAttachmentBytes = (item.attachments ?? []).reduce(
+      (sum, a) => sum + (attachmentSizeBytes(a) ?? 0),
+      0,
+    );
+    const totalAttachmentLabel =
+      totalAttachmentBytes > 0 ? formatBytes(totalAttachmentBytes) : "";
 
     return (
       <TouchableOpacity
@@ -1618,7 +1878,10 @@ function CalendarScreenImpl() {
           {attachmentCount > 0 && (
             <View style={styles.pill}>
               <Ionicons name="attach" size={10} color="#475569" />
-              <Text style={styles.pillText}>{attachmentCount}</Text>
+              <Text style={styles.pillText}>
+                {attachmentCount} {attachmentCount === 1 ? "file" : "files"}
+                {totalAttachmentLabel ? ` · ${totalAttachmentLabel}` : ""}
+              </Text>
             </View>
           )}
 
@@ -2045,7 +2308,6 @@ function CalendarScreenImpl() {
             </View>
 
             <View style={styles.selectedDateSection}>
-              {/* Title + All/Day chips */}
               <View style={styles.filterRowTop}>
                 <Text style={styles.selectedDateLabel}>
                   {dayFilter === "all"
@@ -2096,7 +2358,6 @@ function CalendarScreenImpl() {
                 </View>
               </View>
 
-              {/* Kind filter:  All / Notices / Events */}
               <View style={styles.kindTabs}>
                 <TouchableOpacity
                   style={[
@@ -2279,7 +2540,8 @@ function CalendarScreenImpl() {
       >
         <KeyboardAvoidingView
           style={styles.modalBackdrop}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          keyboardVerticalOffset={0}
         >
           <Pressable
             style={StyleSheet.absoluteFill}
@@ -2293,7 +2555,9 @@ function CalendarScreenImpl() {
             <View style={styles.modalHandle} />
             <ScrollView
               keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="none"
               showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.addModalScrollContent}
             >
               <Text style={styles.addModalTitle}>
                 {editingEvent
@@ -2401,7 +2665,6 @@ function CalendarScreenImpl() {
                 />
               </View>
 
-              {/* RSVP toggle: now visible for ALL (admin/owner AND members) */}
               <View style={styles.toggleRow}>
                 <View style={styles.toggleTexts}>
                   <Text style={styles.toggleTitle}>Enable Accept / Reject</Text>
@@ -2513,12 +2776,16 @@ function CalendarScreenImpl() {
                 editable={!submitting}
               />
 
-              <Text style={styles.fieldLabel}>Attachment (optional)</Text>
+              <Text style={styles.fieldLabel}>
+                Attachment (optional) — up to {MAX_ATTACHMENT_COUNT}
+              </Text>
 
               {attachments.length > 0 && (
                 <View style={styles.attachmentList}>
                   {attachments.map((att, index) => {
                     const isImg = isImageAttachment(att);
+                    const sizeBytes = attachmentSizeBytes(att);
+                    const sizeLabel = sizeBytes ? formatBytes(sizeBytes) : null;
                     return (
                       <View
                         key={`${att.uri.slice(0, 40)}-${index}`}
@@ -2550,6 +2817,7 @@ function CalendarScreenImpl() {
                           </Text>
                           <Text style={styles.attachmentSub}>
                             {isImg ? "Image" : fileKindLabel(att)}
+                            {sizeLabel ? ` · ${sizeLabel}` : ""}
                           </Text>
                         </View>
 
@@ -2571,33 +2839,76 @@ function CalendarScreenImpl() {
                 </View>
               )}
 
-              <TouchableOpacity
-                style={styles.attachButton}
-                onPress={() => setShowPhotoOptions(true)}
-                activeOpacity={0.8}
-                disabled={submitting || encodingAttachment}
-              >
-                <View style={styles.attachButtonIcon}>
-                  {encodingAttachment ? (
-                    <ActivityIndicator size="small" color="#1a73e8" />
-                  ) : (
-                    <Ionicons name="add" size={20} color="#1a73e8" />
-                  )}
-                </View>
-                <View style={styles.attachButtonTextContainer}>
-                  <Text style={styles.attachButtonTitle}>
-                    {encodingAttachment
-                      ? "Processing…"
-                      : attachments.length > 0
-                        ? "Add another attachment"
-                        : "Attach photo, PDF or document"}
-                  </Text>
-                  <Text style={styles.attachButtonSubtitle}>
-                    Camera, gallery, or files from device
-                  </Text>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color="#94a3b8" />
-              </TouchableOpacity>
+              {/* Attachment button is always visible; disabled when full */}
+              {(() => {
+                const limitReached = attachments.length >= MAX_ATTACHMENT_COUNT;
+                const buttonDisabled =
+                  submitting || encodingAttachment || limitReached;
+                return (
+                  <TouchableOpacity
+                    style={[
+                      styles.attachButton,
+                      buttonDisabled && styles.attachButtonDisabled,
+                    ]}
+                    onPress={() => {
+                      if (buttonDisabled) return;
+                      setShowPhotoOptions(true);
+                    }}
+                    activeOpacity={0.8}
+                    disabled={buttonDisabled}
+                  >
+                    <View
+                      style={[
+                        styles.attachButtonIcon,
+                        limitReached && styles.attachButtonIconDisabled,
+                      ]}
+                    >
+                      {encodingAttachment ? (
+                        <ActivityIndicator size="small" color="#1a73e8" />
+                      ) : (
+                        <Ionicons
+                          name={limitReached ? "lock-closed" : "add"}
+                          size={20}
+                          color={limitReached ? "#94a3b8" : "#1a73e8"}
+                        />
+                      )}
+                    </View>
+                    <View style={styles.attachButtonTextContainer}>
+                      <Text
+                        style={[
+                          styles.attachButtonTitle,
+                          limitReached && styles.attachButtonTitleDisabled,
+                        ]}
+                      >
+                        {encodingAttachment
+                          ? "Processing…"
+                          : limitReached
+                            ? `Attachment limit reached (${MAX_ATTACHMENT_COUNT} files max)`
+                            : attachments.length > 0
+                              ? "Add another attachment"
+                              : "Attach photo, PDF or document"}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.attachButtonSubtitle,
+                          limitReached && styles.attachButtonSubtitleDisabled,
+                        ]}
+                      >
+                        {limitReached
+                          ? "Remove one to add another"
+                          : "Camera, gallery, or files from device"}
+                      </Text>
+                    </View>
+                    {!limitReached && (
+                      <Ionicons
+                        name="chevron-forward"
+                        size={18}
+                        color="#94a3b8"
+                      />
+                    )}
+                  </TouchableOpacity>
+                );
+              })()}
 
               {formError ? (
                 <View style={styles.errorContainer}>
@@ -2620,7 +2931,12 @@ function CalendarScreenImpl() {
                 </View>
               )}
 
-              <View style={styles.addModalActions}>
+              <View
+                style={[
+                  styles.addModalActions,
+                  { paddingBottom: Math.max(insets.bottom, 12) },
+                ]}
+              >
                 <TouchableOpacity
                   style={[
                     styles.modalCancelButton,
@@ -2737,7 +3053,7 @@ function CalendarScreenImpl() {
             <View style={styles.modalHandle} />
             <Text style={styles.photoOptionsTitle}>Add Attachment</Text>
             <Text style={styles.photoOptionsSubtitle}>
-              Choose the type of file you want to attach
+              You can attach up to {MAX_ATTACHMENT_COUNT} files
             </Text>
 
             <TouchableOpacity
@@ -3384,7 +3700,7 @@ function CalendarScreenImpl() {
                                   },
                                 ]}
                               >
-                                “{r.reason || r.note}”
+                                "{r.reason || r.note}"
                               </Text>
                             </View>
                           ) : null}
@@ -3485,6 +3801,10 @@ function CalendarScreenImpl() {
                       <View style={styles.viewAttachmentList}>
                         {viewingAttachments.map((att, i) => {
                           const isImg = isImageAttachment(att);
+                          const sizeBytes = attachmentSizeBytes(att);
+                          const sizeLabel = sizeBytes
+                            ? formatBytes(sizeBytes)
+                            : null;
                           return (
                             <View
                               key={`${att.uri.slice(0, 40)}-${i}`}
@@ -3519,6 +3839,7 @@ function CalendarScreenImpl() {
                                 </Text>
                                 <Text style={styles.viewAttachmentSub}>
                                   {isImg ? "Image" : fileKindLabel(att)}
+                                  {sizeLabel ? ` · ${sizeLabel}` : ""}
                                 </Text>
                               </View>
 
@@ -3529,12 +3850,12 @@ function CalendarScreenImpl() {
                                 hitSlop={6}
                               >
                                 <Ionicons
-                                  name="download-outline"
+                                  name="share-outline"
                                   size={14}
                                   color="#fff"
                                 />
                                 <Text style={styles.downloadButtonText}>
-                                  Download
+                                  Open
                                 </Text>
                               </TouchableOpacity>
                             </View>
@@ -3856,7 +4177,7 @@ function CalendarScreenImpl() {
                               </Text>
                               {myResponse.reason || myResponse.note ? (
                                 <Text style={styles.myResponseNote}>
-                                  “{myResponse.reason || myResponse.note}”
+                                  "{myResponse.reason || myResponse.note}"
                                 </Text>
                               ) : null}
                             </View>
@@ -4119,7 +4440,6 @@ const styles = StyleSheet.create({
   },
   tabBadgeText: { color: "#fff", fontSize: 10, fontWeight: "700" },
 
-  /* Notice / Event kind tabs (now inside the list section) */
   kindTabs: {
     flexDirection: "row",
     backgroundColor: "#f1f5f9",
@@ -4634,11 +4954,18 @@ const styles = StyleSheet.create({
     backgroundColor: "#ffffff",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    padding: 20,
-    paddingBottom: 28,
-    maxHeight: SCREEN_WIDTH * 1.6,
+    paddingHorizontal: 20,
+    paddingTop: 20,
+    paddingBottom: 0,
+    maxHeight: SCREEN_HEIGHT * 0.9,
   },
   addModalTitle: { fontSize: 18, fontWeight: "800", color: "#0f172a" },
+
+  /* Reduced bottom padding for the ScrollView inside the add modal.
+     The actions row uses its own paddingBottom (see JSX). */
+  addModalScrollContent: {
+    paddingBottom: 8,
+  },
 
   dateInputField: {
     flexDirection: "row",
@@ -4746,7 +5073,12 @@ const styles = StyleSheet.create({
   },
   infoBoxText: { flex: 1, fontSize: 12, color: "#1a73e8", lineHeight: 16 },
 
-  addModalActions: { flexDirection: "row", gap: 10, marginTop: 18 },
+  addModalActions: {
+    flexDirection: "row",
+    gap: 10,
+    marginTop: 14,
+    marginBottom: 0,
+  },
   modalCancelButton: {
     flex: 1,
     paddingVertical: 13,
@@ -4827,6 +5159,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: "#f8fbff",
   },
+  attachButtonDisabled: {
+    borderColor: "#cbd5e1",
+    backgroundColor: "#f1f5f9",
+    opacity: 0.85,
+  },
   attachButtonIcon: {
     width: 38,
     height: 38,
@@ -4836,9 +5173,14 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginRight: 10,
   },
+  attachButtonIconDisabled: {
+    backgroundColor: "#e2e8f0",
+  },
   attachButtonTextContainer: { flex: 1 },
   attachButtonTitle: { fontSize: 13, fontWeight: "700", color: "#1a73e8" },
+  attachButtonTitleDisabled: { color: "#64748b" },
   attachButtonSubtitle: { fontSize: 10.5, color: "#64748b", marginTop: 3 },
+  attachButtonSubtitleDisabled: { color: "#94a3b8" },
 
   photoOptionsCard: {
     backgroundColor: "#ffffff",
@@ -5170,7 +5512,6 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
 
-  /* Posted-by card (blue) */
   postedByCard: {
     width: "100%",
     backgroundColor: "#f0f9ff",
@@ -5241,7 +5582,6 @@ const styles = StyleSheet.create({
     marginLeft: "auto",
   },
 
-  /* Approved-by card (green) */
   approvedCard: {
     width: "100%",
     backgroundColor: "#ecfdf5",

@@ -83,7 +83,8 @@
       "expo-image",
       "expo-web-browser",
       "expo-secure-store",
-      "@react-native-community/datetimepicker"
+      "@react-native-community/datetimepicker",
+      "react-native-blob-util"
     ],
     "experiments": {
       "typedRoutes": true,
