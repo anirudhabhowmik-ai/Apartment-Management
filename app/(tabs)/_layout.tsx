@@ -109,20 +109,28 @@ export default function TabsLayout() {
 
   const canSeeFinance = isAdmin || isMember;
   const canSeeCalendar = isAdmin || isMember;
+  // Staff can see the People tab too (they need a residents directory).
   const canSeeManagement = isAdmin || isMember || isStaff;
 
+  // Labels:
+  //   admin   → "Management"
+  //   member  → "Residents"
+  //   staff   → "Residents"
   const peopleTabTitle = isAdmin
     ? "Management"
-    : isMember
+    : isMember || isStaff
       ? "Residents"
-      : isStaff
-        ? "Directory"
-        : "Management";
+      : "Management";
 
+  // Icons:
+  //   admin   → briefcase
+  //   member  → business (building)
+  //   staff   → business (building) — same as member
   const peopleTabIcon = (focused: boolean): keyof typeof Ionicons.glyphMap => {
     if (isAdmin) return focused ? "briefcase" : "briefcase-outline";
-    if (isMember) return focused ? "business" : "business-outline";
-    if (isStaff) return focused ? "people" : "people-outline";
+    if (isMember || isStaff) {
+      return focused ? "business" : "business-outline";
+    }
     return focused ? "briefcase" : "briefcase-outline";
   };
 
@@ -154,7 +162,6 @@ export default function TabsLayout() {
     <>
       <Tabs
         screenOptions={{
-          // Header title is a lightweight TRIGGER, not the modal.
           headerTitle: () => (
             <View style={styles.accountSwitcherContainer}>
               <AccountSwitcherTrigger />
