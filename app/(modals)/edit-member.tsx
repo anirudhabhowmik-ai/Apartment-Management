@@ -6,6 +6,8 @@ import {
   ContactsSortOrder,
   requestPermissionsAsync,
 } from "expo-contacts";
+import * as DocumentPicker from "expo-document-picker";
+import * as FileSystemModern from "expo-file-system";
 import * as FileSystem from "expo-file-system/legacy";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
@@ -30,7 +32,7 @@ import {
   TextInput,
   TouchableOpacity,
   TouchableWithoutFeedback,
-  View,
+  View
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -64,6 +66,8 @@ const BORDER = "#E5E7EB";
 const BACKGROUND = "#F8FAFC";
 const RED = "#DC2626";
 const GREEN = "#16A34A";
+
+const MAX_BILL_ATTACHMENTS = 2;
 
 const FLAT_ROLES: RoleOption[] = [
   { role: "flat", label: "Flat Owner", icon: "business-outline" },
@@ -104,7 +108,6 @@ const INCOME_SOURCES: RoleOption[] = [
 
 // ---------------------------------------------------------------------------
 // Free-form role normalization. Mirrors the backend `normalizeRole()`.
-// Keeps create/edit/list round-trips stable.
 // ---------------------------------------------------------------------------
 function normalizeRoleInput(raw: string): string {
   return String(raw || "")
@@ -181,6 +184,36 @@ const pickMimeType = (mimeOrUri?: string | null): string => {
   }
 };
 
+// ---------------------------------------------------------------
+// PDF helpers (accept `mimeType?: string | null` because
+// BillAttachment allows null)
+// ---------------------------------------------------------------
+const isPdfAttachment = (att: {
+  uri?: string;
+  mimeType?: string | null;
+  name?: string;
+}): boolean => {
+  const mime = (att.mimeType ?? "").toLowerCase();
+  const name = (att.name ?? "").toLowerCase();
+  const uri = att.uri ?? "";
+  if (mime === "application/pdf" || mime.includes("pdf")) return true;
+  if (name.endsWith(".pdf")) return true;
+  if (uri.startsWith("data:application/pdf")) return true;
+  if (/\.pdf(\?|$)/i.test(uri)) return true;
+  return false;
+};
+
+const fileIconForBill = (att: {
+  uri?: string;
+  mimeType?: string | null;
+  name?: string;
+}): keyof typeof Ionicons.glyphMap => {
+  if (isPdfAttachment(att)) return "document-text";
+  if ((att.mimeType ?? "").startsWith("image/")) return "image";
+  if (att.name?.toLowerCase().endsWith(".pdf")) return "document-text";
+  return "document-attach";
+};
+
 async function saveBillWithFolderPicker(
   uri: string,
   suggestedName: string,
@@ -246,7 +279,9 @@ async function saveBillWithFolderPicker(
   }
 
   if (Platform.OS === "android") {
-    const SAF = (FileSystem as any).StorageAccessFramework;
+    const SAF: any =
+      (FileSystemModern as any)?.StorageAccessFramework ??
+      (FileSystem as any)?.StorageAccessFramework;
     if (SAF?.requestDirectoryPermissionsAsync) {
       const perm = await SAF.requestDirectoryPermissionsAsync();
       if (!perm.granted) return null;
@@ -945,9 +980,6 @@ export default function EditMemberScreen() {
     setPhone(memberPhoneValue);
     setPhotoUri(member.photoUri || null);
 
-    // Normalize the stored role before comparing to the standard options.
-    // This ensures a custom-typed "Accountant" on the Add screen (stored as
-    // "accountant") is correctly detected as the standard Accountant chip.
     const normalizedMemberRole = normalizeRoleInput(member.role ?? "");
 
     const isStandardRole = roleOptions.some(
@@ -1072,14 +1104,23 @@ export default function EditMemberScreen() {
       const asset = result.assets[0];
 
       if (isBillPhotoMode) {
-        setBillAttachments((cur) => [
-          ...cur,
-          {
-            uri: asset.uri,
-            name: asset.fileName || "Bill image",
-            mimeType: asset.mimeType,
-          },
-        ]);
+        setBillAttachments((cur) => {
+          if (cur.length >= MAX_BILL_ATTACHMENTS) {
+            Alert.alert(
+              "Attachment limit reached",
+              `You can attach at most ${MAX_BILL_ATTACHMENTS} files.`,
+            );
+            return cur;
+          }
+          return [
+            ...cur,
+            {
+              uri: asset.uri,
+              name: asset.fileName || "Bill image",
+              mimeType: asset.mimeType,
+            },
+          ];
+        });
       } else {
         setRawImage({
           uri: asset.uri,
@@ -1110,14 +1151,30 @@ export default function EditMemberScreen() {
       const assets = result.assets;
 
       if (isBillPhotoMode) {
-        setBillAttachments((cur) => [
-          ...cur,
-          ...assets.map((asset) => ({
+        setBillAttachments((cur) => {
+          const remaining = MAX_BILL_ATTACHMENTS - cur.length;
+          if (remaining <= 0) {
+            Alert.alert(
+              "Attachment limit reached",
+              `You can attach at most ${MAX_BILL_ATTACHMENTS} files.`,
+            );
+            return cur;
+          }
+          const next = assets.slice(0, remaining).map((asset) => ({
             uri: asset.uri,
             name: asset.fileName || "Bill image",
             mimeType: asset.mimeType,
-          })),
-        ]);
+          }));
+          if (assets.length > remaining) {
+            Alert.alert(
+              "Some files were skipped",
+              `Only ${remaining} slot${
+                remaining === 1 ? "" : "s"
+              } available. Attached ${next.length} of ${assets.length} files.`,
+            );
+          }
+          return [...cur, ...next];
+        });
       } else {
         const asset = assets[0];
         setRawImage({
@@ -1127,6 +1184,55 @@ export default function EditMemberScreen() {
         });
         setShowAdjustModal(true);
       }
+    }
+  };
+
+  const chooseBillPdf = async () => {
+    setShowPhotoOptions(false);
+    try {
+      const remaining = MAX_BILL_ATTACHMENTS - billAttachments.length;
+      if (remaining <= 0) {
+        Alert.alert(
+          "Attachment limit reached",
+          `You can attach at most ${MAX_BILL_ATTACHMENTS} files. Remove one to add more.`,
+        );
+        return;
+      }
+
+      const result = await DocumentPicker.getDocumentAsync({
+        type: ["application/pdf"],
+        multiple: true,
+        copyToCacheDirectory: true,
+      });
+
+      if (result.canceled) return;
+      if (!result.assets || result.assets.length === 0) return;
+
+      const picked: BillAttachment[] = [];
+      for (const asset of result.assets) {
+        if (picked.length >= remaining) break;
+        picked.push({
+          uri: asset.uri,
+          name: asset.name || "Bill.pdf",
+          mimeType: asset.mimeType || "application/pdf",
+        } as BillAttachment);
+      }
+
+      setBillAttachments((cur) => [...cur, ...picked]);
+
+      if (result.assets.length > remaining) {
+        Alert.alert(
+          "Some files were skipped",
+          `Only ${remaining} slot${
+            remaining === 1 ? "" : "s"
+          } available. Attached ${picked.length} of ${result.assets.length} files.`,
+        );
+      }
+
+      setError("");
+    } catch (e: any) {
+      console.warn("[edit-member] chooseBillPdf failed:", e);
+      setError(e?.message || "Could not pick PDF. Please try again.");
     }
   };
 
@@ -1291,6 +1397,9 @@ export default function EditMemberScreen() {
         errors.expenseAmount = "Amount must be a number";
       }
       if (!role) errors.role = "Please choose a category";
+      if (billAttachments.length > MAX_BILL_ATTACHMENTS) {
+        errors.billAttachments = `You can attach at most ${MAX_BILL_ATTACHMENTS} files.`;
+      }
     }
 
     if (Object.keys(errors).length > 0) {
@@ -1324,7 +1433,6 @@ export default function EditMemberScreen() {
     setFieldErrors({});
     setLoading(true);
 
-    // Free-form role: normalize before sending.
     const effectiveRole = isCustomRole ? normalizeRoleInput(customRole) : role;
 
     const updateData: any = {
@@ -2157,63 +2265,72 @@ export default function EditMemberScreen() {
 
             <Text style={styles.fieldLabel}>
               Bill Attachments
-              <Text style={styles.optionalText}> • Optional</Text>
+              <Text style={styles.optionalText}>
+                {" "}
+                • Optional • up to {MAX_BILL_ATTACHMENTS}
+              </Text>
             </Text>
 
             {billAttachments.length > 0 ? (
               <View style={styles.attachmentList}>
-                {billAttachments.map((attachment, index) => (
-                  <View
-                    key={`${attachment.uri}-${index}`}
-                    style={[
-                      styles.attachmentRow,
-                      index === billAttachments.length - 1 &&
-                        styles.attachmentRowLast,
-                    ]}
-                  >
-                    <View style={styles.attachmentIcon}>
-                      <Ionicons
-                        name="document-outline"
-                        size={19}
-                        color="#2563eb"
-                      />
-                    </View>
-                    <Text style={styles.attachmentName} numberOfLines={1}>
-                      {attachment.name}
-                    </Text>
-                    <TouchableOpacity
-                      style={styles.attachmentAction}
-                      onPress={() =>
-                        downloadBillAttachment(attachment.uri, attachment.name)
-                      }
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons
-                        name="download-outline"
-                        size={19}
-                        color="#2563eb"
-                      />
-                    </TouchableOpacity>
-                    <TouchableOpacity
+                {billAttachments.map((attachment, index) => {
+                  const isPdf = isPdfAttachment(attachment);
+                  return (
+                    <View
+                      key={`${attachment.uri}-${index}`}
                       style={[
-                        styles.attachmentAction,
-                        styles.attachmentDeleteAction,
+                        styles.attachmentRow,
+                        index === billAttachments.length - 1 &&
+                          styles.attachmentRowLast,
                       ]}
-                      onPress={() =>
-                        setBillAttachments((cur) =>
-                          cur.filter((_, i) => i !== index),
-                        )
-                      }
-                      activeOpacity={0.7}
                     >
-                      <Ionicons
-                        name="trash-outline"
-                        size={19}
-                        color="#dc2626"
-                      />
-                    </TouchableOpacity>
-                  </View>
-                ))}
+                      <View style={styles.attachmentIcon}>
+                        <Ionicons
+                          name={fileIconForBill(attachment)}
+                          size={19}
+                          color={isPdf ? "#DC2626" : "#2563eb"}
+                        />
+                      </View>
+                      <Text style={styles.attachmentName} numberOfLines={1}>
+                        {attachment.name}
+                      </Text>
+                      <TouchableOpacity
+                        style={styles.attachmentAction}
+                        onPress={() =>
+                          downloadBillAttachment(
+                            attachment.uri,
+                            attachment.name,
+                          )
+                        }
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons
+                          name="download-outline"
+                          size={19}
+                          color="#2563eb"
+                        />
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[
+                          styles.attachmentAction,
+                          styles.attachmentDeleteAction,
+                        ]}
+                        onPress={() =>
+                          setBillAttachments((cur) =>
+                            cur.filter((_, i) => i !== index),
+                          )
+                        }
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons
+                          name="trash-outline"
+                          size={19}
+                          color="#dc2626"
+                        />
+                      </TouchableOpacity>
+                    </View>
+                  );
+                })}
               </View>
             ) : (
               <View style={styles.emptyAttachment}>
@@ -2228,23 +2345,56 @@ export default function EditMemberScreen() {
                   No bill attached
                 </Text>
                 <Text style={styles.emptyAttachmentSubtitle}>
-                  Add an image of the bill for your records.
+                  Add an image or PDF of the bill for your records.
                 </Text>
               </View>
             )}
 
-            <TouchableOpacity
-              style={styles.attachButton}
-              onPress={() => showPhotoSelectionOptions(true)}
-              activeOpacity={0.75}
-            >
-              <Ionicons name="add" size={21} color="#2563eb" />
-              <Text style={styles.attachButtonText}>
-                {billAttachments.length
-                  ? "Add another bill"
-                  : "Add bill attachment"}
-              </Text>
-            </TouchableOpacity>
+            {(() => {
+              const limitReached =
+                billAttachments.length >= MAX_BILL_ATTACHMENTS;
+              return (
+                <TouchableOpacity
+                  style={[
+                    styles.attachButton,
+                    limitReached && styles.attachButtonDisabled,
+                  ]}
+                  onPress={() => {
+                    if (limitReached) {
+                      Alert.alert(
+                        "Attachment limit reached",
+                        `You can attach at most ${MAX_BILL_ATTACHMENTS} files. Remove one to add more.`,
+                      );
+                      return;
+                    }
+                    showPhotoSelectionOptions(true);
+                  }}
+                  activeOpacity={0.75}
+                >
+                  <Ionicons
+                    name={limitReached ? "lock-closed" : "attach"}
+                    size={21}
+                    color={limitReached ? "#94a3b8" : "#2563eb"}
+                  />
+                  <Text
+                    style={[
+                      styles.attachButtonText,
+                      limitReached && styles.attachButtonTextDisabled,
+                    ]}
+                  >
+                    {limitReached
+                      ? `Attachment limit reached (${MAX_BILL_ATTACHMENTS} files max)`
+                      : billAttachments.length
+                        ? "Add another bill"
+                        : "Attach bill or receipt"}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })()}
+
+            {fieldErrors.billAttachments ? (
+              <FieldError text={fieldErrors.billAttachments} />
+            ) : null}
 
             <Text style={styles.fieldLabel}>Note</Text>
             <View style={styles.noteContainer}>
@@ -2296,7 +2446,6 @@ export default function EditMemberScreen() {
           </Text>
         </TouchableOpacity>
 
-        {/* DELETE BUTTON — outlined danger card */}
         <TouchableOpacity
           style={[styles.deleteButton, loading && styles.buttonDisabled]}
           onPress={handleDelete}
@@ -2683,6 +2832,30 @@ export default function EditMemberScreen() {
               </View>
               <Ionicons name="chevron-forward" size={20} color="#ccc" />
             </TouchableOpacity>
+
+            {isBillPhotoMode && (
+              <TouchableOpacity
+                style={styles.photoOptionButton}
+                onPress={chooseBillPdf}
+                activeOpacity={0.7}
+              >
+                <View
+                  style={[
+                    styles.photoOptionIcon,
+                    { backgroundColor: "#FEF2F2" },
+                  ]}
+                >
+                  <Ionicons name="document-text" size={24} color="#DC2626" />
+                </View>
+                <View style={styles.photoOptionTextContainer}>
+                  <Text style={styles.photoOptionTitle}>Upload PDF</Text>
+                  <Text style={styles.photoOptionDescription}>
+                    Bills, invoices, receipts (PDF only)
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color="#ccc" />
+              </TouchableOpacity>
+            )}
 
             <TouchableOpacity
               style={styles.photoOptionsCancel}
@@ -3326,7 +3499,7 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   attachButton: {
-    height: 46,
+    minHeight: 50,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: "#bfdbfe",
@@ -3334,14 +3507,21 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    paddingHorizontal: 14,
+    gap: 8,
     marginBottom: 15,
+  },
+  attachButtonDisabled: {
+    borderColor: "#cbd5e1",
+    backgroundColor: "#f1f5f9",
+    opacity: 0.85,
   },
   attachButtonText: {
     fontSize: 13,
     color: "#2563eb",
     fontWeight: "800",
-    marginLeft: 6,
   },
+  attachButtonTextDisabled: { color: "#64748b" },
 
   noteContainer: {
     minHeight: 105,
