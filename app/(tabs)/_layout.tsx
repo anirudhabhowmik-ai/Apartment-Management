@@ -1,3 +1,4 @@
+// app/(tabs)/_layout.tsx
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs, useFocusEffect, useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
@@ -20,8 +21,6 @@ import {
   AccountSwitcherTrigger,
 } from "../../components/AccountSwitcher";
 import { useAccounts } from "../../hooks/useAccounts";
-import { useMaintenance } from "../../hooks/useMaintenance";
-import { usePayments } from "../../hooks/usePayments";
 import { useUserRole } from "../../hooks/useUserRole";
 import { useAccountStore } from "../../store/accountStore";
 import { useAuthStore } from "../../store/useAuthStore";
@@ -46,6 +45,13 @@ const COLORS = {
   successLight: "#F0FDF4",
 };
 
+type NotificationItem = {
+  id: string;
+  title: string;
+  body?: string | null;
+  createdAt: string;
+};
+
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -55,13 +61,13 @@ export default function TabsLayout() {
   const { selectedAccount, accounts, hasLoaded, isLoading, refresh } =
     useAccounts();
   const { isAdmin, isMember, isStaff } = useUserRole();
-  const { getPendingPayments } = usePayments(selectedAccount?.id);
-  const { tasks } = useMaintenance(selectedAccount?.id);
 
   const [showNotifications, setShowNotifications] = useState(false);
-  const [dismissedNotificationIds, setDismissedNotificationIds] = useState<
-    string[]
-  >([]);
+
+  // No real notification source yet — empty feed.
+  // Will be replaced by `useNotifications(selectedAccount?.id)` later.
+  const notifications: NotificationItem[] = [];
+  const notificationCount = notifications.length;
 
   const hasRedirectedRef = useRef<"add" | "select" | null>(null);
   const lastRefreshRef = useRef<number>(0);
@@ -189,28 +195,6 @@ export default function TabsLayout() {
     return focused ? "briefcase" : "briefcase-outline";
   };
 
-  const pendingPayments = canSeeFinance
-    ? (getPendingPayments?.() || []).filter(
-        (payment) =>
-          !dismissedNotificationIds.includes(`payment-${payment.id}`),
-      )
-    : [];
-
-  const pendingTasks = tasks.filter(
-    (task) =>
-      task.status === "pending" &&
-      !dismissedNotificationIds.includes(`task-${task.id}`),
-  );
-
-  const notificationCount = pendingPayments.length + pendingTasks.length;
-
-  const dismissNotification = (notificationId: string) => {
-    setDismissedNotificationIds((currentIds: string[]) => [
-      ...currentIds,
-      notificationId,
-    ]);
-  };
-
   const bottomInset = insets.bottom;
 
   return (
@@ -297,18 +281,17 @@ export default function TabsLayout() {
                       <View style={styles.emptyNotifications}>
                         <View style={styles.emptyNotificationIcon}>
                           <Ionicons
-                            name="checkmark-circle"
+                            name="notifications-off-outline"
                             size={30}
-                            color={COLORS.success}
+                            color={COLORS.secondary}
                           />
                         </View>
                         <Text style={styles.emptyNotificationsTitle}>
-                          You're all caught up
+                          No notifications yet
                         </Text>
                         <Text style={styles.emptyNotificationsText}>
-                          {canSeeFinance
-                            ? "There are no pending payments or maintenance tasks."
-                            : "There are no pending maintenance tasks."}
+                          You'll see updates here when payments, events,
+                          notices, or role changes happen in this account.
                         </Text>
                       </View>
                     ) : (
@@ -316,66 +299,8 @@ export default function TabsLayout() {
                         showsVerticalScrollIndicator={false}
                         contentContainerStyle={styles.notificationScrollContent}
                       >
-                        {pendingPayments.map((payment) => (
-                          <View
-                            key={`payment-${payment.id}`}
-                            style={styles.notificationItem}
-                          >
-                            <View
-                              style={[
-                                styles.notificationItemIcon,
-                                styles.paymentIcon,
-                              ]}
-                            >
-                              <Ionicons
-                                name="receipt-outline"
-                                size={18}
-                                color={COLORS.warning}
-                              />
-                            </View>
-                            <View style={styles.notificationContent}>
-                              <Text
-                                style={styles.notificationTitle}
-                                numberOfLines={1}
-                              >
-                                {payment.description ||
-                                  `${payment.category} payment`}
-                              </Text>
-                              <View style={styles.notificationMeta}>
-                                <Ionicons
-                                  name="calendar-outline"
-                                  size={12}
-                                  color={COLORS.secondary}
-                                />
-                                <Text style={styles.notificationDetail}>
-                                  Due{" "}
-                                  {new Date(
-                                    payment.dueDate,
-                                  ).toLocaleDateString()}
-                                </Text>
-                              </View>
-                            </View>
-                            <TouchableOpacity
-                              style={styles.dismissButton}
-                              onPress={() =>
-                                dismissNotification(`payment-${payment.id}`)
-                              }
-                              activeOpacity={0.7}
-                            >
-                              <Ionicons
-                                name="close"
-                                size={17}
-                                color={COLORS.secondary}
-                              />
-                            </TouchableOpacity>
-                          </View>
-                        ))}
-
-                        {pendingTasks.map((task) => (
-                          <View
-                            key={`task-${task.id}`}
-                            style={styles.notificationItem}
-                          >
+                        {notifications.map((n) => (
+                          <View key={n.id} style={styles.notificationItem}>
                             <View
                               style={[
                                 styles.notificationItemIcon,
@@ -383,7 +308,7 @@ export default function TabsLayout() {
                               ]}
                             >
                               <Ionicons
-                                name="construct-outline"
+                                name="notifications-outline"
                                 size={18}
                                 color={COLORS.primary}
                               />
@@ -393,33 +318,19 @@ export default function TabsLayout() {
                                 style={styles.notificationTitle}
                                 numberOfLines={1}
                               >
-                                {task.title}
+                                {n.title}
                               </Text>
                               <View style={styles.notificationMeta}>
                                 <Ionicons
-                                  name="calendar-outline"
+                                  name="time-outline"
                                   size={12}
                                   color={COLORS.secondary}
                                 />
                                 <Text style={styles.notificationDetail}>
-                                  Scheduled{" "}
-                                  {new Date(task.date).toLocaleDateString()}
+                                  {new Date(n.createdAt).toLocaleDateString()}
                                 </Text>
                               </View>
                             </View>
-                            <TouchableOpacity
-                              style={styles.dismissButton}
-                              onPress={() =>
-                                dismissNotification(`task-${task.id}`)
-                              }
-                              activeOpacity={0.7}
-                            >
-                              <Ionicons
-                                name="close"
-                                size={17}
-                                color={COLORS.secondary}
-                              />
-                            </TouchableOpacity>
                           </View>
                         ))}
                       </ScrollView>
@@ -686,7 +597,7 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: COLORS.successLight,
+    backgroundColor: COLORS.background,
     alignItems: "center",
     justifyContent: "center",
     marginBottom: 14,
