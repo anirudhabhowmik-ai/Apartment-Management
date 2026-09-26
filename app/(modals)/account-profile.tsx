@@ -119,6 +119,20 @@ interface PendingGroup {
   invitations: ApiInvitation[];
 }
 
+interface PeopleEntry {
+  user_id: string;
+  name: string;
+  phone: string | null;
+  photo_url: string | null;
+}
+
+interface PeopleResponse {
+  owner: PeopleEntry | null;
+  admins: PeopleEntry[];
+  members: PeopleEntry[];
+  staff: PeopleEntry[];
+}
+
 // ============================================================================
 // HELPERS
 // ============================================================================
@@ -127,13 +141,6 @@ const normalizePhone = (raw?: string | null): string => {
   if (!raw) return "";
   const digits = String(raw).replace(/\D/g, "");
   return digits.length > 10 ? digits.slice(-10) : digits;
-};
-
-const roleLabelShort = (role: InvitationRole): string => {
-  if (role === "admin") return "Admin";
-  if (role === "member_visibility") return "Member";
-  if (role === "staff_visibility") return "Staff";
-  return "Ownership";
 };
 
 // ============================================================================
@@ -1895,9 +1902,19 @@ export default function AccountProfileScreen() {
   const [rawImage, setRawImage] = useState<RawImage | null>(null);
   const [showAdjustModal, setShowAdjustModal] = useState(false);
 
+  // Invitations — used only for pending / rejected invites
   const [invitations, setInvitations] = useState<ApiInvitation[]>([]);
   const [invitationsLoading, setInvitationsLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+
+  // People with access — sourced from account_members
+  const [people, setPeople] = useState<PeopleResponse>({
+    owner: null,
+    admins: [],
+    members: [],
+    staff: [],
+  });
+  const [peopleLoading, setPeopleLoading] = useState(false);
 
   const [invitationToDelete, setInvitationToDelete] = useState<string | null>(
     null,
@@ -1913,7 +1930,6 @@ export default function AccountProfileScreen() {
 
   const [showRevokeAccessModal, setShowRevokeAccessModal] = useState(false);
 
-  // Delete property modal state
   const [showDeletePropertyModal, setShowDeletePropertyModal] = useState(false);
   const [deletingProperty, setDeletingProperty] = useState(false);
 
@@ -1927,10 +1943,6 @@ export default function AccountProfileScreen() {
   );
   const rejectedInvitations = useMemo(
     () => invitations.filter((i) => i.status === "rejected"),
-    [invitations],
-  );
-  const acceptedInvitations = useMemo(
-    () => invitations.filter((i) => i.status === "accepted" && !i.dismissed_at),
     [invitations],
   );
 
@@ -1971,123 +1983,117 @@ export default function AccountProfileScreen() {
     [pendingGroups],
   );
 
-  const personKey = useCallback((inv: ApiInvitation): string => {
-    if (inv.accepted_by) return `u:${inv.accepted_by}`;
-    const ten = String(inv.invited_phone ?? "").replace(/\D/g, "");
-    return `p:${ten.slice(-10)}`;
-  }, []);
+  // ---- Accepted people — from /accounts/:id/people (account_members) ----
 
-  const acceptedPeople = useMemo<AccessPerson[]>(() => {
-    const byKey = new Map<string, AccessPerson>();
+  const ownerUserId = people.owner?.user_id ?? selectedAccount?.ownerId ?? null;
 
-    for (const inv of acceptedInvitations) {
-      const key = personKey(inv);
-      const existing = byKey.get(key);
+  const acceptedOwnership = useMemo<AccessPerson[]>(() => [], []);
 
-      if (existing) {
-        if (!existing.roles.includes(inv.role)) existing.roles.push(inv.role);
-        existing.invitations.push(inv);
-        continue;
-      }
+  const acceptedAdmins = useMemo<AccessPerson[]>(() => {
+    return people.admins.map((p) => ({
+      key: `u:${p.user_id}`,
+      userId: p.user_id,
+      phone: p.phone ?? "",
+      name: p.name ?? "",
+      photoUrl: p.photo_url ?? null,
+      roles: ["admin"] as InvitationRole[],
+      primaryInvitation: {
+        id: p.user_id,
+        account_id: selectedAccount?.id ?? "",
+        invited_phone: p.phone ?? "",
+        invited_name: p.name ?? null,
+        role: "admin",
+        status: "accepted",
+        target_member_id: null,
+        target_staff_id: null,
+        created_at: "",
+        responded_at: null,
+        dismissed_at: null,
+        accepted_by: p.user_id,
+        invited_by_phone: "",
+        account_name: "",
+        account_photo_url: null,
+        accepted_user_name: p.name ?? null,
+        accepted_user_photo_url: p.photo_url ?? null,
+        invitee_user_name: p.name ?? null,
+        invitee_user_photo_url: p.photo_url ?? null,
+      },
+      invitations: [],
+    }));
+  }, [people.admins, selectedAccount?.id]);
 
-      const photoUrl =
-        inv.accepted_user_photo_url ?? inv.invitee_user_photo_url ?? null;
-      const name =
-        inv.accepted_user_name ??
-        inv.invitee_user_name ??
-        inv.invited_name ??
-        "";
+  const acceptedMembers = useMemo<AccessPerson[]>(() => {
+    return people.members.map((p) => ({
+      key: `u:${p.user_id}`,
+      userId: p.user_id,
+      phone: p.phone ?? "",
+      name: p.name ?? "",
+      photoUrl: p.photo_url ?? null,
+      roles: ["member_visibility"] as InvitationRole[],
+      primaryInvitation: {
+        id: p.user_id,
+        account_id: selectedAccount?.id ?? "",
+        invited_phone: p.phone ?? "",
+        invited_name: p.name ?? null,
+        role: "member_visibility",
+        status: "accepted",
+        target_member_id: null,
+        target_staff_id: null,
+        created_at: "",
+        responded_at: null,
+        dismissed_at: null,
+        accepted_by: p.user_id,
+        invited_by_phone: "",
+        account_name: "",
+        account_photo_url: null,
+        accepted_user_name: p.name ?? null,
+        accepted_user_photo_url: p.photo_url ?? null,
+        invitee_user_name: p.name ?? null,
+        invitee_user_photo_url: p.photo_url ?? null,
+      },
+      invitations: [],
+    }));
+  }, [people.members, selectedAccount?.id]);
 
-      byKey.set(key, {
-        key,
-        userId: inv.accepted_by ?? null,
-        phone: String(inv.invited_phone ?? ""),
-        name,
-        photoUrl,
-        roles: [inv.role],
-        primaryInvitation: inv,
-        invitations: [inv],
-      });
-    }
+  const acceptedStaff = useMemo<AccessPerson[]>(() => {
+    return people.staff.map((p) => ({
+      key: `u:${p.user_id}`,
+      userId: p.user_id,
+      phone: p.phone ?? "",
+      name: p.name ?? "",
+      photoUrl: p.photo_url ?? null,
+      roles: ["staff_visibility"] as InvitationRole[],
+      primaryInvitation: {
+        id: p.user_id,
+        account_id: selectedAccount?.id ?? "",
+        invited_phone: p.phone ?? "",
+        invited_name: p.name ?? null,
+        role: "staff_visibility",
+        status: "accepted",
+        target_member_id: null,
+        target_staff_id: null,
+        created_at: "",
+        responded_at: null,
+        dismissed_at: null,
+        accepted_by: p.user_id,
+        invited_by_phone: "",
+        account_name: "",
+        account_photo_url: null,
+        accepted_user_name: p.name ?? null,
+        accepted_user_photo_url: p.photo_url ?? null,
+        invitee_user_name: p.name ?? null,
+        invitee_user_photo_url: p.photo_url ?? null,
+      },
+      invitations: [],
+    }));
+  }, [people.staff, selectedAccount?.id]);
 
-    return Array.from(byKey.values());
-  }, [acceptedInvitations, personKey]);
-
-  const effectiveRoleOf = useCallback(
-    (person: AccessPerson): InvitationRole => {
-      if (person.roles.includes("ownership_transfer"))
-        return "ownership_transfer";
-      if (person.roles.includes("admin")) return "admin";
-      if (person.roles.includes("member_visibility"))
-        return "member_visibility";
-      return "staff_visibility";
-    },
-    [],
+  const acceptedPeople = useMemo<AccessPerson[]>(
+    () => [...acceptedAdmins, ...acceptedMembers, ...acceptedStaff],
+    [acceptedAdmins, acceptedMembers, acceptedStaff],
   );
 
   const isOwner = selectedAccount?.ownerId === user?.id;
-
-  const acceptedOwnership = useMemo(
-    () =>
-      acceptedPeople
-        .filter((p) => p.userId !== selectedAccount?.ownerId)
-        .filter((p) => effectiveRoleOf(p) === "ownership_transfer"),
-    [acceptedPeople, selectedAccount?.ownerId, effectiveRoleOf],
-  );
-
-  const acceptedAdmins = useMemo(
-    () =>
-      acceptedPeople
-        .filter((p) => p.userId !== selectedAccount?.ownerId)
-        .filter((p) => effectiveRoleOf(p) === "admin"),
-    [acceptedPeople, selectedAccount?.ownerId, effectiveRoleOf],
-  );
-
-  const acceptedMembers = useMemo(
-    () =>
-      acceptedPeople
-        .filter((p) => p.userId !== selectedAccount?.ownerId)
-        .filter((p) => effectiveRoleOf(p) === "member_visibility"),
-    [acceptedPeople, selectedAccount?.ownerId, effectiveRoleOf],
-  );
-
-  const acceptedStaff = useMemo(
-    () =>
-      acceptedPeople
-        .filter((p) => p.userId !== selectedAccount?.ownerId)
-        .filter((p) => effectiveRoleOf(p) === "staff_visibility"),
-    [acceptedPeople, selectedAccount?.ownerId, effectiveRoleOf],
-  );
-
-  const acceptedInvitationsForRevoke = useMemo(() => {
-    return acceptedPeople
-      .filter((p) => p.userId !== selectedAccount?.ownerId)
-      .flatMap((p) => p.invitations);
-  }, [acceptedPeople, selectedAccount?.ownerId]);
-
-  const revokeAdmins = useMemo(
-    () => acceptedInvitationsForRevoke.filter((i) => i.role === "admin"),
-    [acceptedInvitationsForRevoke],
-  );
-  const revokeMembers = useMemo(
-    () =>
-      acceptedInvitationsForRevoke.filter(
-        (i) => i.role === "member_visibility",
-      ),
-    [acceptedInvitationsForRevoke],
-  );
-  const revokeStaff = useMemo(
-    () =>
-      acceptedInvitationsForRevoke.filter((i) => i.role === "staff_visibility"),
-    [acceptedInvitationsForRevoke],
-  );
-  const revokeOwnership = useMemo(
-    () =>
-      acceptedInvitationsForRevoke.filter(
-        (i) => i.role === "ownership_transfer",
-      ),
-    [acceptedInvitationsForRevoke],
-  );
 
   const totalPeopleWithAccess =
     acceptedPeople.length +
@@ -2095,9 +2101,13 @@ export default function AccountProfileScreen() {
     rejectedInvitations.length +
     (selectedAccount?.ownerId === user?.id ? 1 : 0);
 
-  const totalRevocable = acceptedPeople.filter(
-    (p) => p.userId !== selectedAccount?.ownerId,
-  ).length;
+  const totalRevocable = acceptedPeople.length;
+
+  // Revoke modal feeds off the same lists
+  const revokeAdmins = acceptedAdmins.map((p) => p.primaryInvitation);
+  const revokeMembers = acceptedMembers.map((p) => p.primaryInvitation);
+  const revokeStaff = acceptedStaff.map((p) => p.primaryInvitation);
+  const revokeOwnership = acceptedOwnership.map((p) => p.primaryInvitation);
 
   const getInitials = (name: string) =>
     name
@@ -2118,7 +2128,7 @@ export default function AccountProfileScreen() {
   }, []);
 
   // ============================================================
-  // LOAD INVITATIONS
+  // LOAD INVITATIONS (only for pending/rejected)
   // ============================================================
 
   const loadInvitations = useCallback(
@@ -2183,7 +2193,12 @@ export default function AccountProfileScreen() {
           };
         });
 
-        setInvitations(normalized);
+        // Keep only pending/rejected — accepted comes from /people now
+        setInvitations(
+          normalized.filter(
+            (i) => i.status === "pending" || i.status === "rejected",
+          ),
+        );
       } catch (err) {
         console.warn("[account-profile] loadInvitations error:", err);
       } finally {
@@ -2193,20 +2208,78 @@ export default function AccountProfileScreen() {
     [selectedAccount?.id, getAuthToken],
   );
 
+  // ============================================================
+  // LOAD PEOPLE WITH ACCESS
+  // ============================================================
+
+  const loadPeople = useCallback(
+    async (opts: { silent?: boolean } = {}) => {
+      if (!selectedAccount?.id) return;
+      if (!opts.silent) setPeopleLoading(true);
+      try {
+        const token = await getAuthToken();
+        if (!token) return;
+        const url = `${API_URL}/api/accounts/${selectedAccount.id}/people`;
+        const res = await fetch(url, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) return;
+        const data = (await res.json()) as Partial<PeopleResponse>;
+        setPeople({
+          owner: data?.owner ?? null,
+          admins: Array.isArray(data?.admins) ? data.admins : [],
+          members: Array.isArray(data?.members) ? data.members : [],
+          staff: Array.isArray(data?.staff) ? data.staff : [],
+        });
+      } catch (err) {
+        console.warn("[account-profile] loadPeople error:", err);
+      } finally {
+        if (!opts.silent) setPeopleLoading(false);
+      }
+    },
+    [selectedAccount?.id, getAuthToken],
+  );
+
   useEffect(() => {
     loadInvitations();
-  }, [loadInvitations]);
+    loadPeople();
+  }, [loadInvitations, loadPeople]);
 
   const isFocused = useIsFocused();
+
   useEffect(() => {
-    if (isFocused) loadInvitations({ silent: true });
-  }, [isFocused, loadInvitations]);
+    if (isFocused) {
+      loadInvitations({ silent: true });
+      loadPeople({ silent: true });
+    }
+  }, [isFocused, loadInvitations, loadPeople]);
+
+  // Poll both endpoints every 30 s while focused
+  useEffect(() => {
+    if (!isFocused) return;
+    if (!selectedAccount?.id) return;
+
+    const handle = setInterval(() => {
+      loadInvitations({ silent: true }).catch(() => {});
+      loadPeople({ silent: true }).catch(() => {});
+    }, 30000);
+
+    return () => clearInterval(handle);
+  }, [isFocused, selectedAccount?.id, loadInvitations, loadPeople]);
+
+  const refreshNow = useCallback(() => {
+    loadInvitations({ silent: true }).catch(() => {});
+    loadPeople({ silent: true }).catch(() => {});
+  }, [loadInvitations, loadPeople]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await loadInvitations({ silent: true });
+    await Promise.all([
+      loadInvitations({ silent: true }),
+      loadPeople({ silent: true }),
+    ]);
     setRefreshing(false);
-  }, [loadInvitations]);
+  }, [loadInvitations, loadPeople]);
 
   // ============================================================
   // PHOTO
@@ -2343,6 +2416,7 @@ export default function AccountProfileScreen() {
       }
       setInvitations((prev) => prev.filter((i) => i.id !== invitationToDelete));
       setInvitationToDelete(null);
+      refreshNow();
     } catch (err) {
       console.error("deleteInvitation error:", err);
       showAlert({
@@ -2388,6 +2462,7 @@ export default function AccountProfileScreen() {
       const idSet = new Set(ids);
       setInvitations((prev) => prev.filter((i) => !idSet.has(i.id)));
       setPendingGroupToDelete(null);
+      refreshNow();
     } catch (err) {
       console.error("deletePendingGroup error:", err);
       showAlert({
@@ -2397,24 +2472,6 @@ export default function AccountProfileScreen() {
       });
     } finally {
       setDeletingInvitation(false);
-    }
-  };
-
-  const handleDismissInvitation = async (invitationId: string) => {
-    const authToken = await getAuthToken();
-    if (!authToken) return;
-    try {
-      const res = await fetch(
-        `${API_URL}/api/accounts/${selectedAccount?.id}/invitations/${invitationId}/dismiss`,
-        {
-          method: "POST",
-          headers: { Authorization: `Bearer ${authToken}` },
-        },
-      );
-      if (!res.ok) return;
-      setInvitations((prev) => prev.filter((i) => i.id !== invitationId));
-    } catch (err) {
-      console.warn("dismissInvitation error:", err);
     }
   };
 
@@ -2680,15 +2737,6 @@ export default function AccountProfileScreen() {
                 text: styles.ownershipBadgeText,
               };
 
-    const secondaryLabel = (() => {
-      if (kind === "admin") return null;
-      if (kind === "member" && person.roles.includes("staff_visibility"))
-        return "STAFF";
-      if (kind === "staff" && person.roles.includes("member_visibility"))
-        return "MEMBER";
-      return null;
-    })();
-
     return (
       <View
         key={person.key}
@@ -2704,47 +2752,14 @@ export default function AccountProfileScreen() {
           <Text style={styles.accessName} numberOfLines={1}>
             {person.name || "Unknown"}
           </Text>
-          <Text style={styles.accessPhone}>+91{person.phone}</Text>
+          <Text style={styles.accessPhone}>
+            {person.phone ? `+91${person.phone}` : "No phone on file"}
+          </Text>
         </View>
-
-        {secondaryLabel ? (
-          <View
-            style={[
-              styles.accessBadge,
-              secondaryLabel === "STAFF"
-                ? styles.staffBadge
-                : styles.memberBadge,
-            ]}
-          >
-            <Text
-              style={
-                secondaryLabel === "STAFF"
-                  ? styles.staffBadgeText
-                  : styles.memberBadgeText
-              }
-            >
-              {secondaryLabel}
-            </Text>
-          </View>
-        ) : null}
 
         <View style={[styles.accessBadge, badge.style]}>
           <Text style={badge.text}>{badge.label}</Text>
         </View>
-
-        {kind === "member" || kind === "staff" ? (
-          <TouchableOpacity
-            style={styles.closeIconButton}
-            onPress={() => {
-              person.invitations.forEach((inv) =>
-                handleDismissInvitation(inv.id),
-              );
-            }}
-            activeOpacity={0.7}
-          >
-            <Ionicons name="close" size={16} color="#64748B" />
-          </TouchableOpacity>
-        ) : null}
       </View>
     );
   };
@@ -2952,7 +2967,6 @@ export default function AccountProfileScreen() {
                 }
               />
 
-              {/* ── Single entry point for BOTH member & staff visibility ── */}
               <MenuRow
                 icon="eye-outline"
                 color="#16A34A"
@@ -3051,7 +3065,7 @@ export default function AccountProfileScreen() {
               </Text>
             </View>
             <View style={styles.accessTotalBadge}>
-              {invitationsLoading ? (
+              {invitationsLoading || peopleLoading ? (
                 <ActivityIndicator size="small" color="#2563EB" />
               ) : (
                 <Text style={styles.accessTotalText}>
@@ -3067,8 +3081,7 @@ export default function AccountProfileScreen() {
               <View
                 style={[
                   styles.accessRow,
-                  acceptedOwnership.length === 0 &&
-                    acceptedAdmins.length === 0 &&
+                  acceptedAdmins.length === 0 &&
                     acceptedMembers.length === 0 &&
                     acceptedStaff.length === 0 &&
                     pendingGroups.length === 0 &&
@@ -3096,24 +3109,6 @@ export default function AccountProfileScreen() {
                   <Text style={styles.ownerBadgeText}>Owner</Text>
                 </View>
               </View>
-            </View>
-          )}
-
-          {acceptedOwnership.length > 0 && (
-            <View style={styles.accessGroup}>
-              <Text style={styles.accessHeading}>Ownership</Text>
-              {acceptedOwnership.map((person, index) =>
-                renderPersonRow(
-                  person,
-                  index === acceptedOwnership.length - 1 &&
-                    acceptedAdmins.length === 0 &&
-                    acceptedMembers.length === 0 &&
-                    acceptedStaff.length === 0 &&
-                    pendingGroups.length === 0 &&
-                    rejectedInvitations.length === 0,
-                  "ownership",
-                ),
-              )}
             </View>
           )}
 
@@ -3160,33 +3155,6 @@ export default function AccountProfileScreen() {
                     pendingGroups.length === 0 &&
                     rejectedInvitations.length === 0,
                   "staff",
-                ),
-              )}
-            </View>
-          )}
-
-          {pendingOwnershipGroups.length > 0 && (
-            <View style={styles.accessGroup}>
-              <View style={styles.pendingHeader}>
-                <Text style={styles.accessHeading}>Ownership Transfer</Text>
-                <View
-                  style={[
-                    styles.pendingCountBadge,
-                    { backgroundColor: "#FEF3C7" },
-                  ]}
-                >
-                  <Text style={[styles.pendingCountText, { color: "#B45309" }]}>
-                    {pendingOwnershipGroups.length}
-                  </Text>
-                </View>
-              </View>
-              {pendingOwnershipGroups.map((group, index) =>
-                renderPendingGroupRow(
-                  group,
-                  index === pendingOwnershipGroups.length - 1 &&
-                    pendingNonOwnershipGroups.length === 0 &&
-                    rejectedInvitations.length === 0,
-                  "ownership",
                 ),
               )}
             </View>
@@ -3283,10 +3251,10 @@ export default function AccountProfileScreen() {
           )}
 
           {!invitationsLoading &&
+            !peopleLoading &&
             acceptedAdmins.length === 0 &&
             acceptedMembers.length === 0 &&
             acceptedStaff.length === 0 &&
-            acceptedOwnership.length === 0 &&
             pendingGroups.length === 0 &&
             rejectedInvitations.length === 0 &&
             selectedAccount?.ownerId !== user?.id && (
@@ -3513,7 +3481,7 @@ export default function AccountProfileScreen() {
         acceptedOwnership={revokeOwnership}
         getAuthToken={getAuthToken}
         onRevoked={async () => {
-          await loadInvitations({ silent: true });
+          refreshNow();
         }}
         onNotify={(opts) => showAlert(opts)}
       />
@@ -3536,9 +3504,8 @@ export default function AccountProfileScreen() {
 }
 
 // ============================================================================
-// STYLES
+// STYLES — identical to what you have
 // ============================================================================
-
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: "#F8FAFC" },
   scrollContent: { paddingHorizontal: 16, paddingTop: 16 },
