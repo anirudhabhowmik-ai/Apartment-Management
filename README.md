@@ -17,3 +17,6 @@ Test Key Secret: YRlPVQGTqZ9m3uVjVb23DsIq
 
 Check All Files Typescript Error
 npx tsc --noEmit
+
+Google Developer Verification
+https://play.google.com/console/u/0/signup

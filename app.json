@@ -93,6 +93,7 @@
     },
     "extra": {
       "router": {},
+      "playStoreBuild": true,
       "eas": {
         "projectId": "fcbcf0b3-e22c-4620-a25d-53e8fc0ec627"
       }

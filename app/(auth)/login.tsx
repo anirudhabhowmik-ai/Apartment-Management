@@ -146,6 +146,20 @@ export default function LoginScreen() {
   };
 
   // ==============================================================
+  // LEGAL LINKS
+  // ==============================================================
+
+  const openLegalPage = (type: "privacy" | "terms") => {
+    router.push({
+      pathname: "/(modals)/legal-page",
+      params:
+        type === "privacy"
+          ? { title: "Privacy Policy", type: "privacy" }
+          : { title: "Terms & Conditions", type: "terms" },
+    });
+  };
+
+  // ==============================================================
   // PICK CONTACT
   // ==============================================================
 
@@ -600,6 +614,32 @@ export default function LoginScreen() {
               />
             )}
           </Pressable>
+
+          {/* LEGAL CONSENT */}
+
+          <View style={styles.legalRow}>
+            <Text style={styles.legalText}>
+              By continuing, you agree to our{" "}
+            </Text>
+
+            <Pressable
+              onPress={() => openLegalPage("terms")}
+              hitSlop={6}
+              style={({ pressed }) => pressed && styles.pressed}
+            >
+              <Text style={styles.legalLink}>Terms of Service</Text>
+            </Pressable>
+
+            <Text style={styles.legalText}> and </Text>
+
+            <Pressable
+              onPress={() => openLegalPage("privacy")}
+              hitSlop={6}
+              style={({ pressed }) => pressed && styles.pressed}
+            >
+              <Text style={styles.legalLink}>Privacy Policy</Text>
+            </Pressable>
+          </View>
         </View>
 
         {/* ========================================================
@@ -870,6 +910,31 @@ const styles = StyleSheet.create({
 
   pressed: {
     opacity: 0.7,
+  },
+
+  // ==============================================================
+  // LEGAL LINKS
+  // ==============================================================
+
+  legalRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 18,
+  },
+
+  legalText: {
+    fontSize: 12,
+    color: "#8a8a8a",
+    lineHeight: 18,
+  },
+
+  legalLink: {
+    fontSize: 12,
+    color: "#1a73e8",
+    fontWeight: "600",
+    lineHeight: 18,
   },
 
   // ==============================================================
