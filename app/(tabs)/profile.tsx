@@ -273,6 +273,40 @@ const API_URL = (
   process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000"
 ).replace(/\/api\/?$/, "");
 
+// ============================================================================
+// PUSH PREFERENCE HELPERS
+// ============================================================================
+async function savePushPreference(
+  authToken: string,
+  enabled: boolean,
+): Promise<void> {
+  const res = await fetch(`${API_URL}/api/push/preferences`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${authToken}`,
+    },
+    body: JSON.stringify({ enabled }),
+  });
+  if (!res.ok) {
+    const text = await res.text().catch(() => "");
+    throw new Error(text || `Failed to save preference (${res.status})`);
+  }
+}
+
+async function loadPushPreference(authToken: string): Promise<boolean | null> {
+  try {
+    const res = await fetch(`${API_URL}/api/push/preferences`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return typeof data?.enabled === "boolean" ? data.enabled : null;
+  } catch {
+    return null;
+  }
+}
+
 interface AccountPerson {
   user_id: string;
   name: string;
@@ -508,7 +542,6 @@ function buildHistoryTitle(
   const k = `${row.entity_type}.${row.action}`;
 
   switch (k) {
-    // ── Account ────────────────────────────────────────────────────────
     case "account.create":
       return `${actor} created the account`;
     case "account.update":
@@ -522,7 +555,6 @@ function buildHistoryTitle(
         ? `${actor} transferred ownership to ${target}`
         : `${actor} transferred ownership`;
 
-    // ── Member (property) ──────────────────────────────────────────────
     case "member.create":
       if (targetIsSelf) return `${actor} added your property`;
       return target
@@ -539,7 +571,6 @@ function buildHistoryTitle(
         ? `${actor} removed property from ${target}`
         : `${actor} removed a property`;
 
-    // ── Staff (role) ───────────────────────────────────────────────────
     case "staff.create":
       if (targetIsSelf) return `${actor} added your staff role`;
       return target
@@ -556,7 +587,6 @@ function buildHistoryTitle(
         ? `${actor} removed staff role from ${target}`
         : `${actor} removed a staff role`;
 
-    // ── Payments ───────────────────────────────────────────────────────
     case "member.payment_paid":
       if (targetIsSelf) return `${actor} marked your maintenance PAID`;
       return target
@@ -578,7 +608,6 @@ function buildHistoryTitle(
         ? `${actor} marked salary DUE for ${target}`
         : `${actor} marked salary DUE`;
 
-    // ── Expenses ───────────────────────────────────────────────────────
     case "expense.create":
       return `${actor} added an expense`;
     case "expense.update":
@@ -586,7 +615,6 @@ function buildHistoryTitle(
     case "expense.delete":
       return `${actor} deleted an expense`;
 
-    // ── Account member role changes ────────────────────────────────────
     case "account_member.role_granted":
       if (actorIsSelf && targetIsSelf) return `You got ${role} access`;
       if (targetIsSelf) return `${actor} granted you ${role} access`;
@@ -604,7 +632,6 @@ function buildHistoryTitle(
         ? `${actor} removed ${role} access from ${target}`
         : `${actor} removed ${role} access`;
 
-    // ── Invitations ────────────────────────────────────────────────────
     case "invitation.create":
       if (actorIsSelf && targetIsSelf)
         return `You invited yourself for ${role} access`;
@@ -625,7 +652,6 @@ function buildHistoryTitle(
       if (actorIsSelf) return `You accepted invitation for ${role} access`;
       return `${actor} accepted invitation for ${role} access`;
 
-    // ── Calendar ───────────────────────────────────────────────────────
     case "calendar_event.create":
       return `${actor} posted ${kind}`;
     case "calendar_event.update":
@@ -637,13 +663,11 @@ function buildHistoryTitle(
     case "calendar_event.delete":
       return `${actor} deleted ${kind}`;
 
-    // ── Opening balance ────────────────────────────────────────────────
     case "opening_balance.create":
       return `${actor} added opening balance`;
     case "opening_balance.update":
       return `${actor} updated opening balance`;
 
-    // ── Users ──────────────────────────────────────────────────────────
     case "user.phone_changed":
       return actorIsSelf
         ? "You changed your phone number"
@@ -1620,6 +1644,10 @@ export default function ProfileTabScreen(): React.ReactElement {
     refreshProfile().catch(() => {});
   }, [refreshProfile]);
 
+  // ==========================================================================
+  // PUSH PREFERENCE — initial read from SecureStore, then reconciled with
+  // the backend so the toggle reflects the server's source of truth.
+  // ==========================================================================
   useEffect(() => {
     SecureStore.getItemAsync("notifications_enabled").then((v) => {
       if (v !== null) setNotifications(v === "true");
@@ -1646,6 +1674,28 @@ export default function ProfileTabScreen(): React.ReactElement {
       return null;
     }
   }, []);
+
+  // Reconcile with backend whenever the selected account changes.
+  useEffect(() => {
+    (async () => {
+      if (!selectedAccount?.id) return;
+      try {
+        const token = await getAuthToken();
+        if (!token) return;
+        const backendValue = await loadPushPreference(token);
+        if (backendValue !== null) {
+          setNotifications(backendValue);
+          await SecureStore.setItemAsync(
+            "notifications_enabled",
+            backendValue ? "true" : "false",
+          );
+        }
+      } catch {
+        // fall back to SecureStore value
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedAccount?.id]);
 
   const loadAccountPeople = useCallback(async () => {
     if (!selectedAccount?.id || isOwner) {
@@ -1803,12 +1853,38 @@ export default function ProfileTabScreen(): React.ReactElement {
     loadHistory(true);
   };
 
+  // ==========================================================================
+  // PUSH PREFERENCE — toggle handler syncs to backend.
+  // ==========================================================================
   const toggleNotifications = async (value: boolean) => {
+    // Optimistic UI: flip the switch immediately.
     setNotifications(value);
+
+    // Persist locally so the toggle reads correctly on next launch.
     await SecureStore.setItemAsync(
       "notifications_enabled",
       value ? "true" : "false",
     );
+
+    // Sync to backend so the push worker honors it.
+    try {
+      const token = await getAuthToken();
+      if (!token) return;
+      await savePushPreference(token, value);
+    } catch (err: any) {
+      console.warn("[profile] failed to save push preference:", err);
+      // Roll back the UI if the server rejected it.
+      setNotifications(!value);
+      await SecureStore.setItemAsync(
+        "notifications_enabled",
+        !value ? "true" : "false",
+      );
+      showAlert({
+        variant: "error",
+        title: "Couldn't update",
+        message: err?.message || "Please try again.",
+      });
+    }
   };
 
   const getPlanPrice = (plan: SubscriptionPlan, period: BillingPeriod) =>
@@ -1964,10 +2040,12 @@ export default function ProfileTabScreen(): React.ReactElement {
     },
     {
       id: "notifications",
-      title: "Notifications",
-      description: "Receive important account updates",
-      icon: "notifications-outline",
-      color: "#F59E0B",
+      title: "Push Notifications",
+      description: notifications
+        ? "You'll receive alerts on this device"
+        : "Push alerts are turned off",
+      icon: notifications ? "notifications" : "notifications-off-outline",
+      color: notifications ? "#F59E0B" : "#94A3B8",
       onPress: () => toggleNotifications(!notifications),
       showArrow: false,
     },
@@ -2344,7 +2422,7 @@ export default function ProfileTabScreen(): React.ReactElement {
   };
 
   // ==========================================================================
-  // Full-screen history modal — safe area applied directly via insets.
+  // Full-screen history modal
   // ==========================================================================
   const renderHistoryModal = () => (
     <Modal
