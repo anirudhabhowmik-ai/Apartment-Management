@@ -1131,8 +1131,6 @@ function PendingOwnershipOfferBanner({
   );
 }
 
-/* ------------------- VISIBILITY OFFER BANNER ------------------- */
-
 function PendingVisibilityOfferBanner({
   offer,
   busy,
@@ -1837,8 +1835,7 @@ export default function HomeScreen() {
     }
   }, [isFocused, loadPendingOffers]);
 
-  // ✅ NEW — Poll pending invitations every 30 s while the Home screen is
-  // focused, so new invites appear as a banner without the user reloading.
+  // Poll pending invitations every 30 s while Home is focused.
   useEffect(() => {
     if (!isFocused) return;
     if (!user?.phone) return;
@@ -1912,6 +1909,21 @@ export default function HomeScreen() {
       loadMyRoles();
     }
   }, [isFocused, loadMyRoles]);
+
+  // ✅ NEW — Poll my roles every 30 s while Home is focused.
+  // Keeps the "My Access" card in sync when a role is revoked on another
+  // device.
+  useEffect(() => {
+    if (!isFocused) return;
+    if (!selectedAccount?.id) return;
+    if (!user?.id) return;
+
+    const handle = setInterval(() => {
+      loadMyRoles().catch(() => {});
+    }, 30000);
+
+    return () => clearInterval(handle);
+  }, [isFocused, selectedAccount?.id, user?.id, loadMyRoles]);
 
   useFocusEffect(
     useCallback(() => {
@@ -3912,10 +3924,6 @@ export default function HomeScreen() {
     </View>
   );
 }
-
-/* ============================================================
-   STYLES
-   ============================================================ */
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#F8FAFC" },
