@@ -1,7 +1,7 @@
 // app/(tabs)/profile.tsx
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
-import { useFocusEffect, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 import React, {
   useCallback,
@@ -749,8 +749,6 @@ function mapAuditRowToHistoryEntry(
         ? row.actor_name
         : humanRole(row.actor_role) || "Unknown user";
 
-  // Fall back to the entity's own name when there is no target_user_id —
-  // e.g. expense reminders have no "target" person but do have a title.
   const targetName = targetIsSelf
     ? "You"
     : row.target_name && row.target_name.trim()
@@ -761,7 +759,6 @@ function mapAuditRowToHistoryEntry(
           ? String(meta.title)
           : null;
 
-  // Prefer the backend-stored summary if it's present and useful.
   const backendSummary =
     typeof row.summary === "string" && row.summary.trim().length > 0
       ? row.summary.trim()
@@ -1666,6 +1663,7 @@ function getHistoryIcon(type: HistoryEntry["type"]): {
 // ============================================================================
 export default function ProfileTabScreen(): React.ReactElement {
   const router = useRouter();
+  const params = useLocalSearchParams<{ openPlans?: string }>();
   const { user, logout, refreshProfile } = useAuthStore();
   const { selectedAccount } = useAccounts();
   const { isAdmin, isMember } = useUserRole();
@@ -1703,7 +1701,6 @@ export default function ProfileTabScreen(): React.ReactElement {
 
   const hasLoadedHistoryOnce = useRef(false);
 
-  // ── Subscription state (NEW) ──────────────────────────────────────────────
   const [showPlansModal, setShowPlansModal] = useState(false);
   const [activePlan, setActivePlan] = useState<string>("free");
   const [activePlanPeriod, setActivePlanPeriod] =
@@ -1725,9 +1722,6 @@ export default function ProfileTabScreen(): React.ReactElement {
     refreshProfile().catch(() => {});
   }, [refreshProfile]);
 
-  // ==========================================================================
-  // PUSH PREFERENCE
-  // ==========================================================================
   useEffect(() => {
     SecureStore.getItemAsync("notifications_enabled").then((v) => {
       if (v !== null) setNotifications(v === "true");
@@ -1799,6 +1793,20 @@ export default function ProfileTabScreen(): React.ReactElement {
   useEffect(() => {
     loadSubscription();
   }, [loadSubscription]);
+
+  // ── Open plans modal when navigated to with ?openPlans=1 ────────────────
+  useEffect(() => {
+    if (params.openPlans === "1") {
+      setShowPlansModal(true);
+      try {
+        router.setParams({ openPlans: undefined as any });
+      } catch {
+        // Some expo-router versions don't expose setParams on tabs.
+        // It's fine to skip — the check only fires once because the param
+        // will not survive a re-mount from another route.
+      }
+    }
+  }, [params.openPlans, router]);
 
   const loadAccountPeople = useCallback(async () => {
     if (!selectedAccount?.id || isOwner) {

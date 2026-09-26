@@ -2899,7 +2899,7 @@ export default function AddMemberScreen() {
               <Pressable
                 onPress={() => {
                   setUpgradePrompt(null);
-                  router.back();
+                  router.replace("/(tabs)/profile?openPlans=1");
                 }}
                 style={({ pressed }) => [
                   styles.upgradeButton,
