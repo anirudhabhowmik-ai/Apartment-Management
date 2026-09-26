@@ -32,7 +32,12 @@ export const DEFAULT_PLANS: SubscriptionPlan[] = [
     name: "Free",
     monthlyPrice: 0,
     yearlyPrice: 0,
-    features: ["Up to 10 members", "1 Admin", "1 Staff", "Basic support"],
+    features: [
+      "Up to 10 properties",
+      "1 Admin",
+      "1 Staff role",
+      "Basic support",
+    ],
     color: "#64748B",
     icon: "people-outline",
     yearlyDiscountPercent: 0,
@@ -43,9 +48,9 @@ export const DEFAULT_PLANS: SubscriptionPlan[] = [
     monthlyPrice: 199,
     yearlyPrice: 1990,
     features: [
-      "Up to 30 members",
+      "Up to 30 properties",
       "2 Admins",
-      "2 Staffs",
+      "2 Staff roles",
       "History access",
       "Priority support",
     ],
@@ -60,9 +65,9 @@ export const DEFAULT_PLANS: SubscriptionPlan[] = [
     monthlyPrice: 999,
     yearlyPrice: 8990,
     features: [
-      "Unlimited members",
+      "Unlimited properties",
       "Unlimited Admins",
-      "Unlimited Staffs",
+      "Unlimited Staff roles",
       "Full feature access",
       "Advanced bill generation",
       "History access",
@@ -88,6 +93,8 @@ interface SubscriptionPlanModalProps {
     isDowngrade: boolean;
     amount: number;
     paymentId?: string;
+    signature?: string;
+    orderId?: string;
   }) => void;
 
   onCancelSubscription?: () => void;
@@ -106,10 +113,14 @@ interface SubscriptionPlanModalProps {
       name?: string;
       phone?: string;
     },
+    planId?: string,
+    billingPeriod?: BillingPeriod,
   ) => Promise<{
     success: boolean;
     paymentId?: string;
     error?: string;
+    signature?: string;
+    orderId?: string;
   }>;
 }
 
@@ -126,9 +137,7 @@ export default function SubscriptionPlanModal({
   startPayment,
 }: SubscriptionPlanModalProps) {
   const [billingPeriod, setBillingPeriod] = useState<BillingPeriod>("monthly");
-
   const [isPaymentProcessing, setIsPaymentProcessing] = useState(false);
-
   const [showCancelConfirm, setShowCancelConfirm] = useState(false);
 
   useEffect(() => {
@@ -149,7 +158,6 @@ export default function SubscriptionPlanModal({
     if (plan.monthlyPrice === 0) {
       return "";
     }
-
     return period === "yearly" ? "/year" : "/month";
   };
 
@@ -164,8 +172,7 @@ export default function SubscriptionPlanModal({
       return;
     }
 
-    // Tapping the active plan card does nothing when period matches,
-    // but if the user has flipped the toggle, we should treat this as a period change.
+    // Tapping the active plan card with the same period does nothing.
     if (activePlanId === planId && activePlanPeriod === billingPeriod) {
       onClose();
       return;
@@ -173,11 +180,14 @@ export default function SubscriptionPlanModal({
 
     const price = getPlanPrice(selectedPlan, billingPeriod);
 
+    const samePlanDifferentPeriod =
+      activePlanId === planId && activePlanPeriod !== billingPeriod;
+
     const currentIndex = plans.findIndex((p) => p.id === activePlanId);
     const newIndex = plans.findIndex((p) => p.id === selectedPlan.id);
 
-    const isUpgrade = newIndex > currentIndex;
-    const isDowngrade = newIndex < currentIndex;
+    const isUpgrade = !samePlanDifferentPeriod && newIndex > currentIndex;
+    const isDowngrade = !samePlanDifferentPeriod && newIndex < currentIndex;
 
     if (price === 0) {
       onPlanChanged({
@@ -198,10 +208,16 @@ export default function SubscriptionPlanModal({
     try {
       const planLabel = `${selectedPlan.name} (${billingPeriod})`;
 
-      const result = await startPayment(price, planLabel, {
-        name: user?.name,
-        phone: user?.phone,
-      });
+      const result = await startPayment(
+        price,
+        planLabel,
+        {
+          name: user?.name,
+          phone: user?.phone,
+        },
+        selectedPlan.id,
+        billingPeriod,
+      );
 
       if (result.success) {
         onPlanChanged({
@@ -211,6 +227,8 @@ export default function SubscriptionPlanModal({
           isDowngrade,
           amount: price,
           paymentId: result.paymentId,
+          signature: result.signature,
+          orderId: result.orderId,
         });
       } else {
         Alert.alert(
@@ -240,7 +258,6 @@ export default function SubscriptionPlanModal({
   };
 
   const currentPlan = plans.find((p) => p.id === activePlanId);
-
   const currentPlanName = currentPlan?.name ?? "Free";
 
   return (
@@ -347,15 +364,17 @@ export default function SubscriptionPlanModal({
               keyboardShouldPersistTaps="handled"
             >
               {plans.map((plan) => {
-                const isActive = activePlanId === plan.id;
+                // ✅ FIX: compare BOTH plan id AND period
+                const isActive =
+                  plan.id === "free"
+                    ? activePlanId === "free"
+                    : activePlanId === plan.id &&
+                      activePlanPeriod === billingPeriod;
 
                 const isPopular = plan.popular;
 
-                // 🔑 KEY FIX: the ACTIVE plan always uses activePlanPeriod,
-                // every other plan uses the toggle (billingPeriod).
-                const displayPeriod: BillingPeriod = isActive
-                  ? activePlanPeriod
-                  : billingPeriod;
+                // ✅ FIX: displayPeriod is always the toggle
+                const displayPeriod: BillingPeriod = billingPeriod;
 
                 const price = getPlanPrice(plan, displayPeriod);
 
@@ -408,10 +427,9 @@ export default function SubscriptionPlanModal({
                               />
 
                               <Text style={styles.planCardActiveText}>
-                                ACTIVE ·{" "}
-                                {activePlanPeriod === "yearly"
-                                  ? "YEARLY"
-                                  : "MONTHLY"}
+                                {plan.id === "free"
+                                  ? "ACTIVE"
+                                  : `ACTIVE · ${billingPeriod === "yearly" ? "YEARLY" : "MONTHLY"}`}
                               </Text>
                             </View>
                           ) : null}

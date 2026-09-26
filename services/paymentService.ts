@@ -1,16 +1,11 @@
 // services/paymentService.ts
-//
-// IMPORTANT: We do NOT statically import `react-native-razorpay` at the top.
-// Doing so crashes the whole tab navigator at load time whenever:
-//   • the native module isn't linked (Expo Go / stale dev build)
-//   • the code runs on Web
-//
-// Instead we lazy-load the native module inside startRazorpayPayment, and
-// degrade gracefully if it isn't available.
+import * as SecureStore from "expo-secure-store";
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL;
-
+const API_URL = (
+  process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000"
+).replace(/\/api\/?$/, "");
 const RAZORPAY_KEY_ID = process.env.EXPO_PUBLIC_RAZORPAY_KEY_ID || "";
+const AUTH_TOKEN_KEY = "auth_token";
 
 export interface PaymentResponse {
   success: boolean;
@@ -27,12 +22,12 @@ interface CreateOrderResponse {
   currency: string;
 }
 
-interface VerifyPaymentResponse {
-  success: boolean;
-  message?: string;
-  paymentId?: string;
-  orderId?: string;
-  error?: string;
+async function getAuthToken(): Promise<string | null> {
+  try {
+    return await SecureStore.getItemAsync(AUTH_TOKEN_KEY);
+  } catch {
+    return null;
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -47,7 +42,6 @@ let cachedRazorpay: RazorpayCheckoutModule | null = null;
 
 function isWebPlatform(): boolean {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { Platform } = require("react-native");
     return Platform?.OS === "web";
   } catch {
@@ -65,7 +59,6 @@ function loadRazorpayNative(): RazorpayCheckoutModule {
   }
 
   try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
     const mod = require("react-native-razorpay");
     const resolved = mod?.default ?? mod;
 
@@ -102,22 +95,30 @@ const formatIndianPhoneNumber = (phone?: string): string => {
 };
 
 const createOrderOnBackend = async (
-  amount: number,
-  planName: string,
+  accountId: string,
+  planId: string,
+  billingPeriod: "monthly" | "yearly",
 ): Promise<CreateOrderResponse> => {
   if (!API_URL) {
     throw new Error("EXPO_PUBLIC_API_URL is not configured.");
   }
 
+  const token = await getAuthToken();
+  if (!token) {
+    throw new Error("You are not signed in. Please log in again.");
+  }
+
   try {
-    const response = await fetch(`${API_URL}/payment/create-order`, {
+    const response = await fetch(`${API_URL}/api/payment/create-order`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify({
-        amount,
-        planName,
+        accountId,
+        plan_id: planId,
+        billing_period: billingPeriod,
       }),
     });
 
@@ -147,54 +148,6 @@ const createOrderOnBackend = async (
   } catch (error: any) {
     console.error("Create Razorpay order error:", error);
     throw new Error(error?.message || "Unable to create payment order.");
-  }
-};
-
-const verifyPaymentOnBackend = async (
-  razorpayOrderId: string,
-  razorpayPaymentId: string,
-  razorpaySignature: string,
-): Promise<VerifyPaymentResponse> => {
-  if (!API_URL) {
-    throw new Error("EXPO_PUBLIC_API_URL is not configured.");
-  }
-
-  try {
-    const response = await fetch(`${API_URL}/payment/verify`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        razorpay_order_id: razorpayOrderId,
-        razorpay_payment_id: razorpayPaymentId,
-        razorpay_signature: razorpaySignature,
-      }),
-    });
-
-    const data = await response.json().catch(() => null);
-
-    if (!response.ok) {
-      throw new Error(
-        data?.error ||
-          data?.message ||
-          `Payment verification failed: ${response.status}`,
-      );
-    }
-
-    if (!data?.success) {
-      throw new Error(data?.error || "Payment verification failed.");
-    }
-
-    return {
-      success: true,
-      message: data.message || "Payment verified successfully.",
-      paymentId: data.paymentId || razorpayPaymentId,
-      orderId: data.orderId || razorpayOrderId,
-    };
-  } catch (error: any) {
-    console.error("Razorpay payment verification error:", error);
-    throw new Error(error?.message || "Unable to verify payment.");
   }
 };
 
@@ -229,8 +182,9 @@ const parseRazorpayError = (error: any) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export const startRazorpayPayment = async (
-  amount: number,
-  planName: string,
+  accountId: string,
+  planId: string,
+  billingPeriod: "monthly" | "yearly",
   user: {
     name?: string;
     email?: string;
@@ -245,18 +199,16 @@ export const startRazorpayPayment = async (
       };
     }
 
-    if (typeof amount !== "number" || !Number.isFinite(amount) || amount <= 0) {
-      return {
-        success: false,
-        error: "Invalid payment amount.",
-      };
+    if (!accountId) {
+      return { success: false, error: "Missing account ID." };
     }
 
-    if (!planName || typeof planName !== "string") {
-      return {
-        success: false,
-        error: "Plan name is required.",
-      };
+    if (!planId) {
+      return { success: false, error: "Missing plan ID." };
+    }
+
+    if (billingPeriod !== "monthly" && billingPeriod !== "yearly") {
+      return { success: false, error: "Invalid billing period." };
     }
 
     if (!RAZORPAY_KEY_ID) {
@@ -289,16 +241,20 @@ export const startRazorpayPayment = async (
       contact,
     });
 
-    console.log("Creating Razorpay order...");
+    console.log("Creating Razorpay order...", {
+      accountId,
+      planId,
+      billingPeriod,
+    });
 
-    const order = await createOrderOnBackend(amount, planName);
+    const order = await createOrderOnBackend(accountId, planId, billingPeriod);
 
     console.log("Razorpay order created:", order.orderId);
 
     const amountInPaise = Math.round(order.amount * 100);
 
     const options = {
-      description: `${planName} Plan Subscription`,
+      description: `${planId} (${billingPeriod}) subscription`,
       currency: order.currency || "INR",
       key: RAZORPAY_KEY_ID,
       amount: amountInPaise,
@@ -327,21 +283,6 @@ export const startRazorpayPayment = async (
       return {
         success: false,
         error: "Razorpay did not return complete payment verification details.",
-      };
-    }
-
-    console.log("Verifying Razorpay payment on backend...");
-
-    const verification = await verifyPaymentOnBackend(
-      orderId,
-      paymentId,
-      signature,
-    );
-
-    if (!verification.success) {
-      return {
-        success: false,
-        error: verification.error || "Payment verification failed.",
       };
     }
 

@@ -514,6 +514,10 @@ function classifyAuditRow(row: AuditRow): HistoryEntry["type"] {
       return "phone_changed";
     case "user.merge_users":
       return "merge_users";
+    case "subscription.plan_changed":
+      return "plan_upgraded";
+    case "subscription.cancelled":
+      return "subscription_cancelled";
     default:
       return "amount_changed";
   }
@@ -674,6 +678,15 @@ function buildHistoryTitle(
         : `${actor} changed their phone number`;
     case "user.merge_users":
       return actorIsSelf ? "You merged accounts" : `${actor} merged accounts`;
+
+    case "subscription.plan_changed":
+      return actorIsSelf
+        ? `You changed the subscription plan`
+        : `${actor} changed the subscription plan`;
+    case "subscription.cancelled":
+      return actorIsSelf
+        ? `You cancelled the subscription`
+        : `${actor} cancelled the subscription`;
 
     default:
       return `${actor} performed ${k}`;
@@ -1598,8 +1611,12 @@ export default function ProfileTabScreen(): React.ReactElement {
   const showAdminDirectory = !isOwner;
 
   const canManageBills = isOwner || isAdmin;
-  const canSeeSubscription = isAdmin || isMember;
-  const canManageSubscription = isAdmin;
+  // Staff must NOT see the subscription card. `isMember` here is assumed to
+  // cover member_visibility only. If your useUserRole() lumps staff into
+  // isMember, add a separate `isStaff` and change the line to:
+  //   const canSeeSubscription = isOwner || isAdmin || (isMember && !isStaff);
+  const canSeeSubscription = isOwner || isAdmin || isMember;
+  const canManageSubscription = isAdmin || isOwner;
 
   const historyScope: "full" | "self" | "none" =
     isOwner || isAdmin ? "full" : "self";
@@ -1627,10 +1644,15 @@ export default function ProfileTabScreen(): React.ReactElement {
 
   const hasLoadedHistoryOnce = useRef(false);
 
+  // ── Subscription state (NEW) ──────────────────────────────────────────────
   const [showPlansModal, setShowPlansModal] = useState(false);
-  const [activePlan, setActivePlan] = useState<string>("pro");
+  const [activePlan, setActivePlan] = useState<string>("free");
   const [activePlanPeriod, setActivePlanPeriod] =
     useState<BillingPeriod>("monthly");
+  const [subscriptionStatus, setSubscriptionStatus] = useState<
+    "trialing" | "active" | "expired" | "cancelled"
+  >("trialing");
+  const [trialEndsAt, setTrialEndsAt] = useState<string | null>(null);
   const plans = DEFAULT_PLANS;
 
   const [accountPeople, setAccountPeople] =
@@ -1696,6 +1718,31 @@ export default function ProfileTabScreen(): React.ReactElement {
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedAccount?.id]);
+
+  // ── SUBSCRIPTION: load from backend on mount / focus / account change ────
+  const loadSubscription = useCallback(async () => {
+    if (!selectedAccount?.id) return;
+    try {
+      const token = await getAuthToken();
+      if (!token) return;
+      const res = await fetch(
+        `${API_URL}/api/accounts/${selectedAccount.id}/subscription`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      if (!res.ok) return;
+      const data = await res.json();
+      setActivePlan(data.plan_id ?? "free");
+      setActivePlanPeriod((data.billing_period as BillingPeriod) ?? "monthly");
+      setSubscriptionStatus(data.status ?? "trialing");
+      setTrialEndsAt(data.trial_ends_at ?? null);
+    } catch (err) {
+      console.warn("[profile] loadSubscription failed:", err);
+    }
+  }, [selectedAccount?.id, getAuthToken]);
+
+  useEffect(() => {
+    loadSubscription();
+  }, [loadSubscription]);
 
   const loadAccountPeople = useCallback(async () => {
     if (!selectedAccount?.id || isOwner) {
@@ -1790,7 +1837,8 @@ export default function ProfileTabScreen(): React.ReactElement {
     useCallback(() => {
       loadHistory(true);
       loadAccountPeople();
-    }, [loadHistory, loadAccountPeople]),
+      loadSubscription();
+    }, [loadHistory, loadAccountPeople, loadSubscription]),
   );
 
   const adminDirectory = useMemo(() => {
@@ -1857,23 +1905,19 @@ export default function ProfileTabScreen(): React.ReactElement {
   // PUSH PREFERENCE — toggle handler syncs to backend.
   // ==========================================================================
   const toggleNotifications = async (value: boolean) => {
-    // Optimistic UI: flip the switch immediately.
     setNotifications(value);
 
-    // Persist locally so the toggle reads correctly on next launch.
     await SecureStore.setItemAsync(
       "notifications_enabled",
       value ? "true" : "false",
     );
 
-    // Sync to backend so the push worker honors it.
     try {
       const token = await getAuthToken();
       if (!token) return;
       await savePushPreference(token, value);
     } catch (err: any) {
       console.warn("[profile] failed to save push preference:", err);
-      // Roll back the UI if the server rejected it.
       setNotifications(!value);
       await SecureStore.setItemAsync(
         "notifications_enabled",
@@ -1898,59 +1942,159 @@ export default function ProfileTabScreen(): React.ReactElement {
     return period === "yearly" ? "/year" : "/month";
   };
 
-  const handlePlanChanged = (payload: {
+  // ── SUBSCRIPTION: payment handler — forwards planId + billingPeriod ──────
+  const handleStartPayment = async (
+    amount: number,
+    label: string,
+    userInfo?: { name?: string; phone?: string },
+    planId?: string,
+    billingPeriod: BillingPeriod = "monthly",
+  ): Promise<{
+    success: boolean;
+    paymentId?: string;
+    error?: string;
+    signature?: string;
+    orderId?: string;
+  }> => {
+    if (!selectedAccount?.id || !planId) {
+      return { success: false, error: "Missing account or plan" };
+    }
+    try {
+      const result = await startRazorpayPayment(
+        selectedAccount.id,
+        planId,
+        billingPeriod,
+        { name: userInfo?.name, phone: userInfo?.phone },
+      );
+      return {
+        success: Boolean(result?.success),
+        paymentId: result?.paymentId,
+        error: result?.error,
+        signature: result?.signature,
+        orderId: result?.orderId,
+      };
+    } catch (err: any) {
+      return { success: false, error: err?.message ?? "Payment failed" };
+    }
+  };
+
+  // ── SUBSCRIPTION: persist change to backend, then reload ────────────────
+  const handlePlanChanged = async (payload: {
     plan: SubscriptionPlan;
     period: BillingPeriod;
     isUpgrade: boolean;
     isDowngrade: boolean;
     amount: number;
     paymentId?: string;
+    signature?: string;
+    orderId?: string;
   }) => {
-    const { plan, period, isUpgrade, isDowngrade } = payload;
-    setActivePlan(plan.id);
-    setActivePlanPeriod(period);
-    showAlert({
-      variant: "success",
-      title: "Plan Updated",
-      message: `You have successfully ${
-        isUpgrade
-          ? "upgraded to"
-          : isDowngrade
-            ? "downgraded to"
-            : "switched to"
-      } ${plan.name} plan (${period}).`,
-    });
-  };
+    const {
+      plan,
+      period,
+      isUpgrade,
+      isDowngrade,
+      amount,
+      paymentId,
+      signature,
+      orderId,
+    } = payload;
 
-  const handleCancelSubscription = () => {
-    if (!canManageSubscription) return;
-    setActivePlan("free");
-    setActivePlanPeriod("monthly");
-    showAlert({
-      variant: "info",
-      title: "Subscription Cancelled",
-      message:
-        "Your subscription has been cancelled. You will be moved to the Free plan.",
-    });
-  };
+    if (!selectedAccount?.id) return;
 
-  const handleStartPayment = async (
-    amount: number,
-    label: string,
-    userInfo?: { name?: string; phone?: string },
-  ): Promise<{ success: boolean; paymentId?: string; error?: string }> => {
     try {
-      const result = await startRazorpayPayment(amount, label, {
-        name: userInfo?.name,
-        phone: userInfo?.phone,
+      const token = await getAuthToken();
+      if (!token) throw new Error("Not signed in");
+
+      const body: any = { plan_id: plan.id, billing_period: period };
+
+      if (plan.id !== "free" && amount > 0) {
+        if (!paymentId || !signature || !orderId) {
+          showAlert({
+            variant: "error",
+            title: "Payment not confirmed",
+            message: "We couldn't verify your payment. Please try again.",
+          });
+          return;
+        }
+        body.razorpay_order_id = orderId;
+        body.razorpay_payment_id = paymentId;
+        body.razorpay_signature = signature;
+      }
+
+      const res = await fetch(
+        `${API_URL}/api/accounts/${selectedAccount.id}/subscription`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(body),
+        },
+      );
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(data?.message || `HTTP ${res.status}`);
+
+      await loadSubscription();
+      loadHistory(true);
+
+      const samePlanDiffPeriod = !isUpgrade && !isDowngrade;
+      showAlert({
+        variant: "success",
+        title: "Plan Updated",
+        message: samePlanDiffPeriod
+          ? `You switched to ${
+              period === "yearly" ? "Yearly" : "Monthly"
+            } billing for the ${plan.name} plan.`
+          : `You successfully ${
+              isUpgrade
+                ? "upgraded to"
+                : isDowngrade
+                  ? "downgraded to"
+                  : "switched to"
+            } the ${plan.name} plan (${period}).`,
       });
-      return {
-        success: Boolean(result?.success),
-        paymentId: result?.paymentId,
-        error: result?.error,
-      };
     } catch (err: any) {
-      return { success: false, error: err?.message ?? "Payment failed" };
+      showAlert({
+        variant: "error",
+        title: "Couldn't update plan",
+        message: err?.message ?? "Please try again.",
+      });
+    }
+  };
+
+  // ── SUBSCRIPTION: cancel → Free ─────────────────────────────────────────
+  const handleCancelSubscription = async () => {
+    if (!canManageSubscription || !selectedAccount?.id) return;
+    try {
+      const token = await getAuthToken();
+      if (!token) return;
+      const res = await fetch(
+        `${API_URL}/api/accounts/${selectedAccount.id}/subscription`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ plan_id: "free", billing_period: "monthly" }),
+        },
+      );
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      await loadSubscription();
+      loadHistory(true);
+      showAlert({
+        variant: "info",
+        title: "Subscription Cancelled",
+        message: "You've been moved to the Free plan.",
+      });
+    } catch (err: any) {
+      showAlert({
+        variant: "error",
+        title: "Couldn't cancel",
+        message: err?.message,
+      });
     }
   };
 
@@ -2723,6 +2867,7 @@ export default function ProfileTabScreen(): React.ReactElement {
           (() => {
             const currentPlan = plans.find((p) => p.id === activePlan);
             const isFree = activePlan === "free";
+            const isTrial = subscriptionStatus === "trialing";
             const planName = currentPlan?.name ?? "Free";
             const planFeatures = currentPlan?.features ?? ["Basic features"];
             const price = currentPlan
@@ -2743,7 +2888,7 @@ export default function ProfileTabScreen(): React.ReactElement {
                       color="#FFD700"
                     />
                     <Text style={styles.subscriptionBadgeText}>
-                      {isFree ? "FREE" : "ACTIVE"}
+                      {isTrial ? "TRIAL" : isFree ? "FREE" : "ACTIVE"}
                     </Text>
                   </View>
                   {canManageSubscription && (
@@ -2760,15 +2905,27 @@ export default function ProfileTabScreen(): React.ReactElement {
                   )}
                 </View>
 
-                <Text style={styles.subscriptionPlanName}>{planName} Plan</Text>
-                <View style={styles.subscriptionPriceRow}>
-                  <Text style={styles.subscriptionPrice}>
-                    {price === 0 ? "Free" : `₹${price}`}
-                  </Text>
-                  {price > 0 && (
-                    <Text style={styles.subscriptionPeriod}>{periodLabel}</Text>
-                  )}
-                </View>
+                <Text style={styles.subscriptionPlanName}>
+                  {isTrial ? "Free Trial" : `${planName} Plan`}
+                </Text>
+
+                {isTrial ? (
+                  <View style={styles.subscriptionPriceRow}>
+                    <Text style={styles.subscriptionPrice}>Free</Text>
+                    <Text style={styles.subscriptionPeriod}>for 3 months</Text>
+                  </View>
+                ) : (
+                  <View style={styles.subscriptionPriceRow}>
+                    <Text style={styles.subscriptionPrice}>
+                      {price === 0 ? "Free" : `₹${price}`}
+                    </Text>
+                    {price > 0 && (
+                      <Text style={styles.subscriptionPeriod}>
+                        {periodLabel}
+                      </Text>
+                    )}
+                  </View>
+                )}
 
                 <View style={styles.subscriptionFeatures}>
                   {planFeatures.slice(0, 3).map((feature, index) => (
@@ -2784,6 +2941,19 @@ export default function ProfileTabScreen(): React.ReactElement {
                     </View>
                   ))}
                 </View>
+
+                {isTrial && trialEndsAt ? (
+                  <Text style={styles.subscriptionExpiry}>
+                    Trial ends:{" "}
+                    <Text style={styles.subscriptionExpiryStrong}>
+                      {new Date(trialEndsAt).toLocaleDateString("en-IN", {
+                        day: "2-digit",
+                        month: "short",
+                        year: "numeric",
+                      })}
+                    </Text>
+                  </Text>
+                ) : null}
 
                 {canManageSubscription ? (
                   <View style={styles.subscriptionAction}>
@@ -2803,14 +2973,6 @@ export default function ProfileTabScreen(): React.ReactElement {
                         {isFree ? "Upgrade Now" : "Manage Plan"}
                       </Text>
                     </TouchableOpacity>
-                    {!isFree && (
-                      <Text style={styles.subscriptionExpiry}>
-                        Next billing:{" "}
-                        <Text style={styles.subscriptionExpiryStrong}>
-                          Dec 15, 2024
-                        </Text>
-                      </Text>
-                    )}
                   </View>
                 ) : (
                   <View
