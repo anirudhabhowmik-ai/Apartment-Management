@@ -5,6 +5,7 @@ import * as SecureStore from "expo-secure-store";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   AppState,
   Easing,
@@ -234,6 +235,7 @@ export default function TabsLayout() {
   // ── Role sync ──────────────────────────────────────────────────────────────
   const hasRedirectedRef = useRef<"add" | "select" | null>(null);
   const lastRefreshRef = useRef<number>(0);
+  const accessLostRef = useRef<boolean>(false);
 
   const syncMyRole = useCallback(async () => {
     const store = useAccountStore.getState();
@@ -254,7 +256,23 @@ export default function TabsLayout() {
 
       const current = store.getSelectedAccount();
       if (!current) return;
-      if ((current as any).role === newRole) return;
+
+      const prevRole = (current as any).role ?? null;
+      if (prevRole === newRole) return;
+
+      // If the user just lost all access, tell them once.
+      const lostAccess = !!prevRole && !newRole;
+      if (lostAccess && !accessLostRef.current) {
+        accessLostRef.current = true;
+        Alert.alert(
+          "Access removed",
+          "Your access to this property has been removed.",
+          [{ text: "OK" }],
+        );
+      }
+
+      // If they regained access later, reset the flag.
+      if (newRole) accessLostRef.current = false;
 
       useAccountStore.getState().setAccountRole(accountId, newRole);
     } catch {
@@ -270,6 +288,20 @@ export default function TabsLayout() {
       useAccountStore.getState().setRequestRoleSync(null);
     };
   }, [syncMyRole]);
+
+  // ── Poll /my-role every 30 s while focused ─────────────────────────────────
+  // This is what makes role changes propagate across devices without the
+  // user doing anything.
+  useEffect(() => {
+    if (!tabsFocused) return;
+    if (!selectedAccount?.id) return;
+
+    const handle = setInterval(() => {
+      syncMyRole().catch(() => {});
+    }, 30000);
+
+    return () => clearInterval(handle);
+  }, [tabsFocused, selectedAccount?.id, syncMyRole]);
 
   // ── Sync on tab focus (throttled to 1.5 s) ─────────────────────────────────
   useFocusEffect(
@@ -343,7 +375,6 @@ export default function TabsLayout() {
   ]);
 
   const canSeeFinance = isAdmin || isMember;
-  // ✅ CHANGED — staff can now see the Calendar tab too
   const canSeeCalendar = isAdmin || isMember;
   const canSeeManagement = isAdmin || isMember || isStaff;
 

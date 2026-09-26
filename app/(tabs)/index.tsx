@@ -1131,7 +1131,7 @@ function PendingOwnershipOfferBanner({
   );
 }
 
-/* ------------------- NEW: VISIBILITY OFFER BANNER ------------------- */
+/* ------------------- VISIBILITY OFFER BANNER ------------------- */
 
 function PendingVisibilityOfferBanner({
   offer,
@@ -1836,6 +1836,19 @@ export default function HomeScreen() {
       loadPendingOffers();
     }
   }, [isFocused, loadPendingOffers]);
+
+  // ✅ NEW — Poll pending invitations every 30 s while the Home screen is
+  // focused, so new invites appear as a banner without the user reloading.
+  useEffect(() => {
+    if (!isFocused) return;
+    if (!user?.phone) return;
+
+    const handle = setInterval(() => {
+      loadPendingOffers().catch(() => {});
+    }, 30000);
+
+    return () => clearInterval(handle);
+  }, [isFocused, user?.phone, loadPendingOffers]);
 
   /* ── Load my grants ── */
   const loadMyRoles = useCallback(async () => {
