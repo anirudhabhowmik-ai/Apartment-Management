@@ -343,6 +343,7 @@ export default function TabsLayout() {
   ]);
 
   const canSeeFinance = isAdmin || isMember;
+  // ✅ CHANGED — staff can now see the Calendar tab too
   const canSeeCalendar = isAdmin || isMember;
   const canSeeManagement = isAdmin || isMember || isStaff;
 
