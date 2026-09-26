@@ -2286,7 +2286,7 @@ export default function HomeScreen() {
       for (const acct of accounts) {
         try {
           const staffRes = await fetch(
-            `${API_BASE_URL}/management/accounts/${acct.id}/staff`,
+            `${API_BASE_URL}/management/${acct.id}/staff`,
             { headers: { Authorization: `Bearer ${token}` } },
           );
 

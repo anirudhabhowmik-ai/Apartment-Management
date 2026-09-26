@@ -4,6 +4,7 @@ import { Tabs, useFocusEffect, useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  ActivityIndicator,
   AppState,
   Modal,
   Platform,
@@ -21,6 +22,10 @@ import {
   AccountSwitcherTrigger,
 } from "../../components/AccountSwitcher";
 import { useAccounts } from "../../hooks/useAccounts";
+import {
+  NotificationItem,
+  useNotifications,
+} from "../../hooks/useNotifications";
 import { useUserRole } from "../../hooks/useUserRole";
 import { useAccountStore } from "../../store/accountStore";
 import { useAuthStore } from "../../store/useAuthStore";
@@ -43,14 +48,114 @@ const COLORS = {
   warningLight: "#FFF7ED",
   success: "#16A34A",
   successLight: "#F0FDF4",
+  purple: "#7C3AED",
+  purpleLight: "#F5F3FF",
 };
 
-type NotificationItem = {
-  id: string;
-  title: string;
-  body?: string | null;
-  createdAt: string;
-};
+// ---------------------------------------------------------------------------
+// Presentation helpers
+// ---------------------------------------------------------------------------
+
+function timeAgo(iso: string): string {
+  try {
+    const then = new Date(iso).getTime();
+    const now = Date.now();
+    const diff = Math.max(0, now - then);
+    const sec = Math.floor(diff / 1000);
+    if (sec < 60) return "just now";
+    const min = Math.floor(sec / 60);
+    if (min < 60) return `${min}m ago`;
+    const hr = Math.floor(min / 60);
+    if (hr < 24) return `${hr}h ago`;
+    const day = Math.floor(hr / 24);
+    if (day < 7) return `${day}d ago`;
+    return new Date(iso).toLocaleDateString();
+  } catch {
+    return "";
+  }
+}
+
+function iconForNotification(n: NotificationItem): {
+  name: keyof typeof Ionicons.glyphMap;
+  color: string;
+  bg: string;
+} {
+  const key = `${n.entity_type}.${n.action}`;
+
+  if (key.startsWith("member.payment") || key.startsWith("staff.payment")) {
+    return {
+      name: "receipt-outline",
+      color: COLORS.warning,
+      bg: COLORS.warningLight,
+    };
+  }
+  if (key === "calendar_event.create") {
+    const isNotice = n.data?.metadata?.kind === "a notice";
+    return isNotice
+      ? {
+          name: "megaphone-outline",
+          color: COLORS.purple,
+          bg: COLORS.purpleLight,
+        }
+      : {
+          name: "calendar-outline",
+          color: COLORS.primary,
+          bg: COLORS.primaryLight,
+        };
+  }
+  if (key === "calendar_event.approve") {
+    return {
+      name: "checkmark-circle-outline",
+      color: COLORS.success,
+      bg: COLORS.successLight,
+    };
+  }
+  if (key === "calendar_event.reject") {
+    return {
+      name: "close-circle-outline",
+      color: COLORS.danger,
+      bg: "#FEF2F2",
+    };
+  }
+  if (key === "calendar_event.delete") {
+    return { name: "trash-outline", color: COLORS.danger, bg: "#FEF2F2" };
+  }
+  if (key.startsWith("invitation.")) {
+    return {
+      name: "mail-outline",
+      color: COLORS.primary,
+      bg: COLORS.primaryLight,
+    };
+  }
+  if (key.startsWith("account_member.")) {
+    return {
+      name: "shield-checkmark-outline",
+      color: COLORS.primary,
+      bg: COLORS.primaryLight,
+    };
+  }
+  if (key === "account.transfer_ownership") {
+    return {
+      name: "swap-horizontal-outline",
+      color: COLORS.warning,
+      bg: COLORS.warningLight,
+    };
+  }
+  if (key.startsWith("expense.")) {
+    return {
+      name: "cash-outline",
+      color: COLORS.success,
+      bg: COLORS.successLight,
+    };
+  }
+  return {
+    name: "notifications-outline",
+    color: COLORS.primary,
+    bg: COLORS.primaryLight,
+  };
+}
+
+// ---------------------------------------------------------------------------
 
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
@@ -63,18 +168,29 @@ export default function TabsLayout() {
   const { isAdmin, isMember, isStaff } = useUserRole();
 
   const [showNotifications, setShowNotifications] = useState(false);
+  const [tabsFocused, setTabsFocused] = useState(true);
 
-  // No real notification source yet — empty feed.
-  // Will be replaced by `useNotifications(selectedAccount?.id)` later.
-  const notifications: NotificationItem[] = [];
-  const notificationCount = notifications.length;
+  const {
+    notifications,
+    unreadCount,
+    isLoading: notificationsLoading,
+    refresh: refreshNotifications,
+    markRead,
+    markAllRead,
+    dismiss,
+  } = useNotifications({
+    accountId: selectedAccount?.id,
+    // Poll every 10 s while the app is focused so the badge updates by itself.
+    pollIntervalMs: tabsFocused ? 10000 : undefined,
+  });
+
+  const notificationCount = unreadCount;
 
   const hasRedirectedRef = useRef<"add" | "select" | null>(null);
   const lastRefreshRef = useRef<number>(0);
 
   // -------------------------------------------------------------------------
-  // Inline role-sync. Fetches the caller's role for the selected account
-  // and pushes it into the store if it changed. No polling.
+  // Inline role-sync.
   // -------------------------------------------------------------------------
   const syncMyRole = useCallback(async () => {
     const store = useAccountStore.getState();
@@ -104,8 +220,7 @@ export default function TabsLayout() {
   }, []);
 
   // -------------------------------------------------------------------------
-  // Register the sync function on the store so any other screen can trigger
-  // it after a role-changing action (accept invite, withdraw admin, etc.).
+  // Register the sync function on the store.
   // -------------------------------------------------------------------------
   useEffect(() => {
     useAccountStore.getState().setRequestRoleSync(() => {
@@ -121,13 +236,18 @@ export default function TabsLayout() {
   // -------------------------------------------------------------------------
   useFocusEffect(
     useCallback(() => {
+      setTabsFocused(true);
       const now = Date.now();
-      if (now - lastRefreshRef.current < 1500) return;
+      if (now - lastRefreshRef.current < 1500) {
+        return () => setTabsFocused(false);
+      }
       lastRefreshRef.current = now;
       refresh();
       refreshProfile?.().catch(() => {});
       syncMyRole();
-    }, [refresh, refreshProfile, syncMyRole]),
+      refreshNotifications().catch(() => {});
+      return () => setTabsFocused(false);
+    }, [refresh, refreshProfile, syncMyRole, refreshNotifications]),
   );
 
   // -------------------------------------------------------------------------
@@ -135,16 +255,29 @@ export default function TabsLayout() {
   // -------------------------------------------------------------------------
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
-      if (state !== "active") return;
+      if (state !== "active") {
+        setTabsFocused(false);
+        return;
+      }
+      setTabsFocused(true);
       const now = Date.now();
       if (now - lastRefreshRef.current < 1500) return;
       lastRefreshRef.current = now;
       refresh();
       refreshProfile?.().catch(() => {});
       syncMyRole();
+      refreshNotifications().catch(() => {});
     });
     return () => sub.remove();
-  }, [refresh, refreshProfile, syncMyRole]);
+  }, [refresh, refreshProfile, syncMyRole, refreshNotifications]);
+
+  // -------------------------------------------------------------------------
+  // Refresh notifications whenever the popover opens.
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    if (!showNotifications) return;
+    refreshNotifications().catch(() => {});
+  }, [showNotifications, refreshNotifications]);
 
   // -------------------------------------------------------------------------
   // Redirects to add/select-account modal.
@@ -259,11 +392,24 @@ export default function TabsLayout() {
                         <Text style={styles.notificationHeaderSubtitle}>
                           {notificationCount === 0
                             ? "Everything is up to date"
-                            : `${notificationCount} item${
-                                notificationCount === 1 ? "" : "s"
-                              } need your attention`}
+                            : `${notificationCount} unread`}
                         </Text>
                       </View>
+
+                      {notifications.length > 0 && unreadCount > 0 && (
+                        <TouchableOpacity
+                          onPress={() => {
+                            markAllRead().catch(() => {});
+                          }}
+                          activeOpacity={0.7}
+                          style={styles.markAllReadButton}
+                        >
+                          <Text style={styles.markAllReadText}>
+                            Mark all read
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+
                       <TouchableOpacity
                         style={styles.closeNotificationButton}
                         onPress={() => setShowNotifications(false)}
@@ -277,7 +423,11 @@ export default function TabsLayout() {
                       </TouchableOpacity>
                     </View>
 
-                    {notificationCount === 0 ? (
+                    {notificationsLoading && notifications.length === 0 ? (
+                      <View style={styles.loadingNotifications}>
+                        <ActivityIndicator color={COLORS.primary} />
+                      </View>
+                    ) : notifications.length === 0 ? (
                       <View style={styles.emptyNotifications}>
                         <View style={styles.emptyNotificationIcon}>
                           <Ionicons
@@ -299,40 +449,83 @@ export default function TabsLayout() {
                         showsVerticalScrollIndicator={false}
                         contentContainerStyle={styles.notificationScrollContent}
                       >
-                        {notifications.map((n) => (
-                          <View key={n.id} style={styles.notificationItem}>
-                            <View
-                              style={[
-                                styles.notificationItemIcon,
-                                styles.taskIcon,
+                        {notifications.map((n) => {
+                          const icon = iconForNotification(n);
+                          const isUnread = !n.read_at;
+                          return (
+                            <Pressable
+                              key={n.id}
+                              onPress={() => {
+                                if (isUnread) {
+                                  markRead(n.id).catch(() => {});
+                                }
+                              }}
+                              style={({ pressed }) => [
+                                styles.notificationItem,
+                                isUnread && styles.notificationItemUnread,
+                                pressed && styles.notificationItemPressed,
                               ]}
                             >
-                              <Ionicons
-                                name="notifications-outline"
-                                size={18}
-                                color={COLORS.primary}
-                              />
-                            </View>
-                            <View style={styles.notificationContent}>
-                              <Text
-                                style={styles.notificationTitle}
-                                numberOfLines={1}
+                              <View
+                                style={[
+                                  styles.notificationItemIcon,
+                                  { backgroundColor: icon.bg },
+                                ]}
                               >
-                                {n.title}
-                              </Text>
-                              <View style={styles.notificationMeta}>
                                 <Ionicons
-                                  name="time-outline"
-                                  size={12}
+                                  name={icon.name}
+                                  size={18}
+                                  color={icon.color}
+                                />
+                              </View>
+
+                              <View style={styles.notificationContent}>
+                                <Text
+                                  style={styles.notificationTitle}
+                                  numberOfLines={1}
+                                >
+                                  {n.title}
+                                </Text>
+                                {!!n.body && (
+                                  <Text
+                                    style={styles.notificationBody}
+                                    numberOfLines={2}
+                                  >
+                                    {n.body}
+                                  </Text>
+                                )}
+                                <View style={styles.notificationMeta}>
+                                  <Ionicons
+                                    name="time-outline"
+                                    size={11}
+                                    color={COLORS.secondary}
+                                  />
+                                  <Text style={styles.notificationDetail}>
+                                    {timeAgo(n.created_at)}
+                                  </Text>
+                                </View>
+                              </View>
+
+                              {isUnread && <View style={styles.unreadDot} />}
+
+                              <TouchableOpacity
+                                style={styles.dismissButton}
+                                onPress={(e) => {
+                                  e.stopPropagation?.();
+                                  dismiss(n.id).catch(() => {});
+                                }}
+                                activeOpacity={0.7}
+                                hitSlop={6}
+                              >
+                                <Ionicons
+                                  name="close"
+                                  size={16}
                                   color={COLORS.secondary}
                                 />
-                                <Text style={styles.notificationDetail}>
-                                  {new Date(n.createdAt).toLocaleDateString()}
-                                </Text>
-                              </View>
-                            </View>
-                          </View>
-                        ))}
+                              </TouchableOpacity>
+                            </Pressable>
+                          );
+                        })}
                       </ScrollView>
                     )}
                   </Pressable>
@@ -516,7 +709,7 @@ const styles = StyleSheet.create({
     right: 12,
     width: 350,
     maxWidth: "calc(100% - 24px)" as any,
-    maxHeight: 430,
+    maxHeight: 460,
     backgroundColor: COLORS.white,
     borderRadius: 20,
     borderWidth: 1,
@@ -544,6 +737,18 @@ const styles = StyleSheet.create({
     color: COLORS.secondary,
     marginTop: 3,
   },
+  markAllReadButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 10,
+    backgroundColor: COLORS.background,
+    marginRight: 6,
+  },
+  markAllReadText: {
+    fontSize: 11.5,
+    fontWeight: "600",
+    color: COLORS.primary,
+  },
   closeNotificationButton: {
     width: 34,
     height: 34,
@@ -551,16 +756,22 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.background,
     alignItems: "center",
     justifyContent: "center",
-    marginLeft: 10,
   },
   notificationScrollContent: { paddingBottom: 4 },
   notificationItem: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     paddingHorizontal: 16,
     paddingVertical: 14,
     borderBottomWidth: 1,
     borderBottomColor: "#F1F5F9",
+    backgroundColor: COLORS.white,
+  },
+  notificationItemUnread: {
+    backgroundColor: "#F8FAFC",
+  },
+  notificationItemPressed: {
+    backgroundColor: "#EFF6FF",
   },
   notificationItemIcon: {
     width: 40,
@@ -570,23 +781,45 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginRight: 12,
   },
-  paymentIcon: { backgroundColor: COLORS.warningLight },
-  taskIcon: { backgroundColor: COLORS.primaryLight },
   notificationContent: { flex: 1, minWidth: 0 },
-  notificationTitle: { color: COLORS.text, fontSize: 13, fontWeight: "600" },
+  notificationTitle: {
+    color: COLORS.text,
+    fontSize: 13.5,
+    fontWeight: "700",
+  },
+  notificationBody: {
+    color: COLORS.secondary,
+    fontSize: 12,
+    lineHeight: 17,
+    marginTop: 3,
+  },
   notificationMeta: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: 5,
+    marginTop: 6,
   },
   notificationDetail: { color: COLORS.secondary, fontSize: 11, marginLeft: 4 },
+  unreadDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: COLORS.primary,
+    marginTop: 6,
+    marginLeft: 6,
+  },
   dismissButton: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
+    width: 26,
+    height: 26,
+    borderRadius: 13,
     alignItems: "center",
     justifyContent: "center",
-    marginLeft: 6,
+    marginLeft: 4,
+    marginTop: 2,
+  },
+  loadingNotifications: {
+    paddingVertical: 40,
+    alignItems: "center",
+    justifyContent: "center",
   },
   emptyNotifications: {
     alignItems: "center",
