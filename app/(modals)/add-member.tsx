@@ -29,7 +29,7 @@ import {
   TextInput,
   TouchableOpacity,
   TouchableWithoutFeedback,
-  View
+  View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -2474,18 +2474,20 @@ export default function AddMemberScreen() {
                     Get notified about this due expense
                   </Text>
                 </View>
-                <Switch
-                  value={reminderEnabled}
-                  onValueChange={setReminderEnabled}
-                  trackColor={{ false: "#CBD5E1", true: "#FCD34D" }}
-                  thumbColor={
-                    Platform.OS === "android"
-                      ? reminderEnabled
-                        ? "#D97706"
-                        : "#F8FAFC"
-                      : undefined
-                  }
-                />
+                <View style={styles.reminderSwitchWrap}>
+                  <Switch
+                    value={reminderEnabled}
+                    onValueChange={setReminderEnabled}
+                    trackColor={{ false: "#CBD5E1", true: "#FCD34D" }}
+                    thumbColor={
+                      Platform.OS === "android"
+                        ? reminderEnabled
+                          ? "#D97706"
+                          : "#F8FAFC"
+                        : undefined
+                    }
+                  />
+                </View>
               </View>
             )}
 
@@ -3196,6 +3198,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
+  },
+  reminderSwitchWrap: {
+    height: 40,
+    justifyContent: "center",
+    alignItems: "center",
+    marginLeft: 8,
   },
   reminderIcon: {
     width: 38,

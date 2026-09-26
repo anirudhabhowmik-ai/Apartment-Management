@@ -8,7 +8,7 @@ import {
 } from "expo-contacts";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -32,6 +32,7 @@ import {
   setNameConflictBusy,
 } from "../../components/NameConflictAlert";
 import { useMembers, useStaff } from "../../hooks/useManagement";
+import { managementCache } from "../../lib/managementCache";
 import { useAccountStore } from "../../store/accountStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { ACCESS_ROLE_LABEL } from "../../types";
@@ -324,10 +325,6 @@ function groupStaffByPerson(rows: any[]): GroupedPerson[] {
   return grouped;
 }
 
-// ============================================================================
-// Toggle Switch
-// ============================================================================
-
 interface ToggleSwitchProps {
   value: boolean;
   onValueChange: (next: boolean) => void;
@@ -364,10 +361,6 @@ interface AdminRecord {
   photo_url: string | null;
 }
 
-// ============================================================================
-// Visibility tab key (only used when visibilityTabs=true)
-// ============================================================================
-
 type VisibilityTab = "member" | "staff";
 
 export default function GrantAccessScreen() {
@@ -388,15 +381,12 @@ export default function GrantAccessScreen() {
     visibilityTabs?: string;
   }>();
 
-  // When this is true, we render BOTH member & staff visibility in one
-  // screen behind a tab bar. Only set from the "Manage Visibility" entry.
   const showVisibilityTabs = visibilityTabsRaw === "true";
 
   const role: InvitationRole =
     (roleParamRaw as InvitationRole | undefined) ?? "member_visibility";
 
   const roleSafe: InvitationRole = role;
-
   const getRole = (): InvitationRole => roleSafe;
 
   const accessKey: AccessRoleKey =
@@ -421,7 +411,6 @@ export default function GrantAccessScreen() {
     isLoading: staffLoading,
   } = useStaff(accountId ?? null);
 
-  // Local tab state for the tabbed visibility mode
   const [visibilityTab, setVisibilityTab] = useState<VisibilityTab>("member");
 
   const [source, setSource] = useState<RecipientSource>("new");
@@ -498,20 +487,17 @@ export default function GrantAccessScreen() {
   const isOwnershipFlow =
     memberType === "ownership" || getRole() === "ownership_transfer";
 
-  // staff-only when the caller explicitly requested staff flow (and not tabs)
   const isStaffFlow =
     !showVisibilityTabs &&
     !isOwnershipFlow &&
     (memberType === "staff" || getRole() === "staff_visibility");
 
-  // member-visibility flow (either standalone or default)
   const isVisibilityFlow =
     !showVisibilityTabs &&
     !isOwnershipFlow &&
     !isStaffFlow &&
     (memberType === "owner" || getRole() === "member_visibility");
 
-  // When tabs are enabled, we treat the screen as "both" flows
   const isTabbedVisibility = showVisibilityTabs;
 
   const visibilityTitle = isStaffFlow
@@ -586,6 +572,84 @@ export default function GrantAccessScreen() {
     [staffRowsActive],
   );
 
+  // ─── Extract response handling so cache + network share it ───
+  const applyInvitationsData = useCallback((data: any) => {
+    const rows: ApiInvitation[] = data?.invitations ?? [];
+
+    const rawOwner: string[] = Array.isArray(data?.owner_phones)
+      ? data.owner_phones
+      : [];
+    const rawAdmin: string[] = Array.isArray(data?.admin_phones)
+      ? data.admin_phones
+      : Array.isArray(data?.excluded_phones)
+        ? data.excluded_phones
+        : [];
+
+    const ownerSet = new Set<string>();
+    for (const p of rawOwner) {
+      const ten = normalizePhone(p);
+      if (ten) ownerSet.add(ten);
+    }
+
+    const adminSet = new Set<string>();
+    for (const p of rawAdmin) {
+      const ten = normalizePhone(p);
+      if (ten) adminSet.add(ten);
+    }
+
+    const memberSet = new Set<string>();
+    const staffSet = new Set<string>();
+
+    const pendAdmin = new Set<string>();
+    const pendOwnership = new Set<string>();
+    const pendMember = new Set<string>();
+    const pendStaff = new Set<string>();
+
+    for (const inv of rows) {
+      const ten = normalizePhone(inv.invited_phone);
+      if (!ten) continue;
+
+      if (inv.status === "accepted") {
+        if (inv.role === "member_visibility") memberSet.add(ten);
+        else if (inv.role === "staff_visibility") staffSet.add(ten);
+        continue;
+      }
+
+      if (inv.status !== "pending") continue;
+
+      if (inv.role === "admin") pendAdmin.add(ten);
+      else if (inv.role === "ownership_transfer") pendOwnership.add(ten);
+      else if (inv.role === "member_visibility") pendMember.add(ten);
+      else if (inv.role === "staff_visibility") pendStaff.add(ten);
+    }
+
+    const rawAdminRecords: any[] = Array.isArray(data?.admins)
+      ? data.admins
+      : [];
+    const adminRecs: AdminRecord[] = rawAdminRecords
+      .map((r: any) => ({
+        user_id: String(r?.user_id ?? ""),
+        name: String(r?.name ?? ""),
+        phone: normalizePhone(r?.phone),
+        photo_url:
+          typeof r?.photo_url === "string" && r.photo_url.length > 0
+            ? r.photo_url
+            : null,
+      }))
+      .filter((r) => r.user_id && r.phone.length === 10);
+
+    setBlockedOwnerPhones(ownerSet);
+    setBlockedAdminPhones(adminSet);
+    setBlockedMemberPhones(memberSet);
+    setBlockedStaffPhones(staffSet);
+    setPendingAdminPhones(pendAdmin);
+    setPendingOwnershipPhones(pendOwnership);
+    setPendingMemberPhones(pendMember);
+    setPendingStaffPhones(pendStaff);
+    setAdminRecords(adminRecs);
+  }, []);
+
+  // ─── Cache-aware invitations fetch ───
   useEffect(() => {
     let cancelled = false;
 
@@ -594,6 +658,15 @@ export default function GrantAccessScreen() {
       return;
     }
 
+    // 1. Cache hit — instant
+    const cached = managementCache.getInvitations(accountId);
+    if (cached) {
+      applyInvitationsData(cached);
+      setInvitationsReady(true);
+      return;
+    }
+
+    // 2. Cache miss — fetch
     setInvitationsReady(false);
 
     (async () => {
@@ -612,81 +685,8 @@ export default function GrantAccessScreen() {
           return;
         }
         const data = await res.json();
-        const rows: ApiInvitation[] = data?.invitations ?? [];
-
-        const rawOwner: string[] = Array.isArray(data?.owner_phones)
-          ? data.owner_phones
-          : [];
-        const rawAdmin: string[] = Array.isArray(data?.admin_phones)
-          ? data.admin_phones
-          : Array.isArray(data?.excluded_phones)
-            ? data.excluded_phones
-            : [];
-
-        const ownerSet = new Set<string>();
-        for (const p of rawOwner) {
-          const ten = normalizePhone(p);
-          if (ten) ownerSet.add(ten);
-        }
-
-        const adminSet = new Set<string>();
-        for (const p of rawAdmin) {
-          const ten = normalizePhone(p);
-          if (ten) adminSet.add(ten);
-        }
-
-        const memberSet = new Set<string>();
-        const staffSet = new Set<string>();
-
-        const pendAdmin = new Set<string>();
-        const pendOwnership = new Set<string>();
-        const pendMember = new Set<string>();
-        const pendStaff = new Set<string>();
-
-        for (const inv of rows) {
-          const ten = normalizePhone(inv.invited_phone);
-          if (!ten) continue;
-
-          if (inv.status === "accepted") {
-            if (inv.role === "member_visibility") memberSet.add(ten);
-            else if (inv.role === "staff_visibility") staffSet.add(ten);
-            continue;
-          }
-
-          if (inv.status !== "pending") continue;
-
-          if (inv.role === "admin") pendAdmin.add(ten);
-          else if (inv.role === "ownership_transfer") pendOwnership.add(ten);
-          else if (inv.role === "member_visibility") pendMember.add(ten);
-          else if (inv.role === "staff_visibility") pendStaff.add(ten);
-        }
-
-        const rawAdminRecords: any[] = Array.isArray(data?.admins)
-          ? data.admins
-          : [];
-        const adminRecs: AdminRecord[] = rawAdminRecords
-          .map((r: any) => ({
-            user_id: String(r?.user_id ?? ""),
-            name: String(r?.name ?? ""),
-            phone: normalizePhone(r?.phone),
-            photo_url:
-              typeof r?.photo_url === "string" && r.photo_url.length > 0
-                ? r.photo_url
-                : null,
-          }))
-          .filter((r) => r.user_id && r.phone.length === 10);
-
-        if (!cancelled) {
-          setBlockedOwnerPhones(ownerSet);
-          setBlockedAdminPhones(adminSet);
-          setBlockedMemberPhones(memberSet);
-          setBlockedStaffPhones(staffSet);
-          setPendingAdminPhones(pendAdmin);
-          setPendingOwnershipPhones(pendOwnership);
-          setPendingMemberPhones(pendMember);
-          setPendingStaffPhones(pendStaff);
-          setAdminRecords(adminRecs);
-        }
+        managementCache.setInvitations(accountId, data);
+        if (!cancelled) applyInvitationsData(data);
       } catch (e) {
         console.warn("[grant-access] invitation load failed:", e);
       } finally {
@@ -697,7 +697,7 @@ export default function GrantAccessScreen() {
     return () => {
       cancelled = true;
     };
-  }, [accountId]);
+  }, [accountId, applyInvitationsData]);
 
   const visibilityCandidates = useMemo(() => {
     if (!invitationsReady) return [];
@@ -1070,7 +1070,6 @@ export default function GrantAccessScreen() {
     setError("");
   };
 
-  // Reset selections when switching tabs
   useEffect(() => {
     if (showVisibilityTabs) {
       setSearch("");
@@ -1171,6 +1170,10 @@ export default function GrantAccessScreen() {
           message: `Create failed · ${res.status} · ${backendMessage}`,
         };
       }
+
+      // ✅ Invalidate cache so next visit sees the new invitation
+      if (accountId) managementCache.invalidateInvitations(accountId);
+
       return { ok: true };
     } catch (err: any) {
       console.warn("[grant-access] create network error:", err);
@@ -3131,7 +3134,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
 
-  /* ── Visibility tab bar (only in tabbed mode) ── */
   visibilityTabs: {
     flexDirection: "row",
     gap: 8,

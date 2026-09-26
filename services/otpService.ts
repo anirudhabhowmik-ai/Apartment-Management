@@ -274,12 +274,6 @@ export async function verifyOtp(
       backendData = null;
     }
 
-    console.log(
-      "[otpService] Backend auth response:",
-      backendResponse.status,
-      backendData,
-    );
-
     if (!backendResponse.ok || !backendData?.success) {
       console.error(
         "[otpService] Backend auth failed:",

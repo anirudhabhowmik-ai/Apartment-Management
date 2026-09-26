@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "794569321207",
+    "project_id": "apartment-management-7efa4",
+    "storage_bucket": "apartment-management-7efa4.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:794569321207:android:b7be8f53f90219b28781f2",
+        "android_client_info": {
+          "package_name": "com.anonymous.aikhata"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCezLlP8BkfvgySaYCPcf5lxv6svdpg7LI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
