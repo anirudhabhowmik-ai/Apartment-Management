@@ -173,6 +173,11 @@ export default function TabsLayout() {
   const [showNotifications, setShowNotifications] = useState(false);
   const [tabsFocused, setTabsFocused] = useState(true);
 
+  // Measured position of the bell so the popover appears right below it in
+  // every environment (Expo Go, dev build, production APK).
+  const bellRef = useRef<View>(null);
+  const [bellBottomY, setBellBottomY] = useState<number | null>(null);
+
   const {
     notifications,
     unreadCount,
@@ -183,7 +188,6 @@ export default function TabsLayout() {
     dismiss,
   } = useNotifications({
     accountId: selectedAccount?.id,
-    // Poll every 10 s while the app is focused so the badge updates by itself.
     pollIntervalMs: tabsFocused ? 10000 : undefined,
   });
 
@@ -195,15 +199,12 @@ export default function TabsLayout() {
   const lastUnreadRef = useRef<number | null>(null);
 
   useEffect(() => {
-    // Skip the first reading so we don't animate on cold start.
     if (lastUnreadRef.current === null) {
       lastUnreadRef.current = unreadCount;
       return;
     }
 
-    // Only animate when the count grows.
     if (unreadCount > lastUnreadRef.current) {
-      // Bell rings
       bellRing.setValue(0);
       Animated.timing(bellRing, {
         toValue: 1,
@@ -212,7 +213,6 @@ export default function TabsLayout() {
         useNativeDriver: true,
       }).start();
 
-      // Badge pops
       badgePop.setValue(1);
       Animated.sequence([
         Animated.timing(badgePop, {
@@ -260,7 +260,6 @@ export default function TabsLayout() {
       const prevRole = (current as any).role ?? null;
       if (prevRole === newRole) return;
 
-      // If the user just lost all access, tell them once.
       const lostAccess = !!prevRole && !newRole;
       if (lostAccess && !accessLostRef.current) {
         accessLostRef.current = true;
@@ -271,7 +270,6 @@ export default function TabsLayout() {
         );
       }
 
-      // If they regained access later, reset the flag.
       if (newRole) accessLostRef.current = false;
 
       useAccountStore.getState().setAccountRole(accountId, newRole);
@@ -289,9 +287,6 @@ export default function TabsLayout() {
     };
   }, [syncMyRole]);
 
-  // ── Poll /my-role every 30 s while focused ─────────────────────────────────
-  // This is what makes role changes propagate across devices without the
-  // user doing anything.
   useEffect(() => {
     if (!tabsFocused) return;
     if (!selectedAccount?.id) return;
@@ -303,7 +298,6 @@ export default function TabsLayout() {
     return () => clearInterval(handle);
   }, [tabsFocused, selectedAccount?.id, syncMyRole]);
 
-  // ── Sync on tab focus (throttled to 1.5 s) ─────────────────────────────────
   useFocusEffect(
     useCallback(() => {
       setTabsFocused(true);
@@ -320,7 +314,6 @@ export default function TabsLayout() {
     }, [refresh, refreshProfile, syncMyRole, refreshNotifications]),
   );
 
-  // ── Sync on app foreground ─────────────────────────────────────────────────
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
       if (state !== "active") {
@@ -339,13 +332,11 @@ export default function TabsLayout() {
     return () => sub.remove();
   }, [refresh, refreshProfile, syncMyRole, refreshNotifications]);
 
-  // ── Refresh notifications when the popover opens ──────────────────────────
   useEffect(() => {
     if (!showNotifications) return;
     refreshNotifications().catch(() => {});
   }, [showNotifications, refreshNotifications]);
 
-  // ── Redirect to add/select account if needed ──────────────────────────────
   useEffect(() => {
     if (!authUser) return;
     if (!hasLoaded || isLoading) return;
@@ -394,7 +385,6 @@ export default function TabsLayout() {
 
   const bottomInset = insets.bottom;
 
-  // Bell rotation interpolation
   const bellRotate = bellRing.interpolate({
     inputRange: [0, 0.15, 0.3, 0.45, 0.6, 0.75, 1],
     outputRange: [
@@ -407,6 +397,11 @@ export default function TabsLayout() {
       "0deg",
     ],
   });
+
+  // The popover top offset.
+  //   • Preferred: the measured bottom of the bell (works in every build).
+  //   • Fallback: safe-area top + 56 (typical header height).
+  const popoverTop = bellBottomY ?? insets.top + 56;
 
   return (
     <>
@@ -426,9 +421,16 @@ export default function TabsLayout() {
           },
           headerShadowVisible: false,
           headerRight: () => (
-            <View style={styles.notificationMenu}>
+            <View style={styles.notificationMenu} ref={bellRef}>
               <TouchableOpacity
-                onPress={() => setShowNotifications((v) => !v)}
+                onPress={() => {
+                  // Measure the bell BEFORE opening the popover so we know
+                  // exactly where to place it.
+                  bellRef.current?.measureInWindow((_x, y, _width, height) => {
+                    setBellBottomY(y + height + 8);
+                  });
+                  setShowNotifications((v) => !v);
+                }}
                 style={styles.notificationButton}
                 activeOpacity={0.7}
               >
@@ -461,6 +463,7 @@ export default function TabsLayout() {
                 transparent
                 visible={showNotifications}
                 animationType="fade"
+                statusBarTranslucent
                 onRequestClose={() => setShowNotifications(false)}
               >
                 <Pressable
@@ -468,7 +471,7 @@ export default function TabsLayout() {
                   onPress={() => setShowNotifications(false)}
                 >
                   <Pressable
-                    style={styles.notificationPopover}
+                    style={[styles.notificationPopover, { top: popoverTop }]}
                     onPress={(event) => event.stopPropagation()}
                   >
                     <View style={styles.notificationHeader}>
@@ -792,7 +795,7 @@ const styles = StyleSheet.create({
   },
   notificationPopover: {
     position: "absolute",
-    top: Platform.OS === "ios" ? 94 : 60,
+    // `top` is supplied at runtime via the popover's computed offset.
     right: 12,
     width: 350,
     maxWidth: "calc(100% - 24px)" as any,
@@ -802,6 +805,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.border,
     overflow: "hidden",
+    // Subtle shadow so it reads as a floating panel above the screen.
+    ...(Platform.OS === "android" ? { elevation: 12 } : {}),
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
+    shadowRadius: 20,
   },
   notificationHeader: {
     flexDirection: "row",
