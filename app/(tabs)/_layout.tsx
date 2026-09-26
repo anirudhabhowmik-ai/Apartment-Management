@@ -5,7 +5,9 @@ import * as SecureStore from "expo-secure-store";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
   AppState,
+  Easing,
   Modal,
   Platform,
   Pressable,
@@ -186,12 +188,53 @@ export default function TabsLayout() {
 
   const notificationCount = unreadCount;
 
+  // ── Bell + badge animations ────────────────────────────────────────────────
+  const bellRing = useRef(new Animated.Value(0)).current;
+  const badgePop = useRef(new Animated.Value(1)).current;
+  const lastUnreadRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    // Skip the first reading so we don't animate on cold start.
+    if (lastUnreadRef.current === null) {
+      lastUnreadRef.current = unreadCount;
+      return;
+    }
+
+    // Only animate when the count grows.
+    if (unreadCount > lastUnreadRef.current) {
+      // Bell rings
+      bellRing.setValue(0);
+      Animated.timing(bellRing, {
+        toValue: 1,
+        duration: 800,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }).start();
+
+      // Badge pops
+      badgePop.setValue(1);
+      Animated.sequence([
+        Animated.timing(badgePop, {
+          toValue: 1.5,
+          duration: 150,
+          useNativeDriver: true,
+        }),
+        Animated.spring(badgePop, {
+          toValue: 1,
+          friction: 4,
+          tension: 120,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+
+    lastUnreadRef.current = unreadCount;
+  }, [unreadCount, bellRing, badgePop]);
+
+  // ── Role sync ──────────────────────────────────────────────────────────────
   const hasRedirectedRef = useRef<"add" | "select" | null>(null);
   const lastRefreshRef = useRef<number>(0);
 
-  // -------------------------------------------------------------------------
-  // Inline role-sync.
-  // -------------------------------------------------------------------------
   const syncMyRole = useCallback(async () => {
     const store = useAccountStore.getState();
     const accountId = store.selectedAccountId;
@@ -219,9 +262,6 @@ export default function TabsLayout() {
     }
   }, []);
 
-  // -------------------------------------------------------------------------
-  // Register the sync function on the store.
-  // -------------------------------------------------------------------------
   useEffect(() => {
     useAccountStore.getState().setRequestRoleSync(() => {
       syncMyRole().catch(() => {});
@@ -231,9 +271,7 @@ export default function TabsLayout() {
     };
   }, [syncMyRole]);
 
-  // -------------------------------------------------------------------------
-  // Sync on tab focus (throttled to 1.5 s).
-  // -------------------------------------------------------------------------
+  // ── Sync on tab focus (throttled to 1.5 s) ─────────────────────────────────
   useFocusEffect(
     useCallback(() => {
       setTabsFocused(true);
@@ -250,9 +288,7 @@ export default function TabsLayout() {
     }, [refresh, refreshProfile, syncMyRole, refreshNotifications]),
   );
 
-  // -------------------------------------------------------------------------
-  // Sync on app foreground.
-  // -------------------------------------------------------------------------
+  // ── Sync on app foreground ─────────────────────────────────────────────────
   useEffect(() => {
     const sub = AppState.addEventListener("change", (state) => {
       if (state !== "active") {
@@ -271,17 +307,13 @@ export default function TabsLayout() {
     return () => sub.remove();
   }, [refresh, refreshProfile, syncMyRole, refreshNotifications]);
 
-  // -------------------------------------------------------------------------
-  // Refresh notifications whenever the popover opens.
-  // -------------------------------------------------------------------------
+  // ── Refresh notifications when the popover opens ──────────────────────────
   useEffect(() => {
     if (!showNotifications) return;
     refreshNotifications().catch(() => {});
   }, [showNotifications, refreshNotifications]);
 
-  // -------------------------------------------------------------------------
-  // Redirects to add/select-account modal.
-  // -------------------------------------------------------------------------
+  // ── Redirect to add/select account if needed ──────────────────────────────
   useEffect(() => {
     if (!authUser) return;
     if (!hasLoaded || isLoading) return;
@@ -330,6 +362,20 @@ export default function TabsLayout() {
 
   const bottomInset = insets.bottom;
 
+  // Bell rotation interpolation
+  const bellRotate = bellRing.interpolate({
+    inputRange: [0, 0.15, 0.3, 0.45, 0.6, 0.75, 1],
+    outputRange: [
+      "0deg",
+      "-25deg",
+      "25deg",
+      "-25deg",
+      "25deg",
+      "-15deg",
+      "0deg",
+    ],
+  });
+
   return (
     <>
       <Tabs
@@ -355,17 +401,26 @@ export default function TabsLayout() {
                 activeOpacity={0.7}
               >
                 <View style={styles.notificationIconWrapper}>
-                  <Ionicons
-                    name="notifications-outline"
-                    size={23}
-                    color={COLORS.text}
-                  />
+                  <Animated.View
+                    style={{ transform: [{ rotate: bellRotate }] }}
+                  >
+                    <Ionicons
+                      name="notifications-outline"
+                      size={23}
+                      color={COLORS.text}
+                    />
+                  </Animated.View>
                   {notificationCount > 0 && (
-                    <View style={styles.notificationBadge}>
+                    <Animated.View
+                      style={[
+                        styles.notificationBadge,
+                        { transform: [{ scale: badgePop }] },
+                      ]}
+                    >
                       <Text style={styles.notificationCount}>
                         {notificationCount > 99 ? "99+" : notificationCount}
                       </Text>
-                    </View>
+                    </Animated.View>
                   )}
                 </View>
               </TouchableOpacity>
