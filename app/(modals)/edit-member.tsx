@@ -32,7 +32,7 @@ import {
   TextInput,
   TouchableOpacity,
   TouchableWithoutFeedback,
-  View
+  View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -57,6 +57,13 @@ interface ContactData {
     label?: string;
   }[];
 }
+
+type UpgradePrompt = {
+  reason: "plan_limit_reached" | "member_read_only" | "staff_read_only";
+  message: string;
+  limit?: number;
+  current?: number;
+} | null;
 
 const BLUE = "#2563EB";
 const BLUE_LIGHT = "#EFF6FF";
@@ -106,9 +113,6 @@ const INCOME_SOURCES: RoleOption[] = [
   },
 ];
 
-// ---------------------------------------------------------------------------
-// Free-form role normalization. Mirrors the backend `normalizeRole()`.
-// ---------------------------------------------------------------------------
 function normalizeRoleInput(raw: string): string {
   return String(raw || "")
     .trim()
@@ -184,10 +188,6 @@ const pickMimeType = (mimeOrUri?: string | null): string => {
   }
 };
 
-// ---------------------------------------------------------------
-// PDF helpers (accept `mimeType?: string | null` because
-// BillAttachment allows null)
-// ---------------------------------------------------------------
 const isPdfAttachment = (att: {
   uri?: string;
   mimeType?: string | null;
@@ -894,6 +894,9 @@ export default function EditMemberScreen() {
   const [contactSearch, setContactSearch] = useState("");
   const [loadingContacts, setLoadingContacts] = useState(false);
 
+  // ── Upgrade prompt ───────────────────────────────────────────────────────
+  const [upgradePrompt, setUpgradePrompt] = useState<UpgradePrompt>(null);
+
   const hasFieldErrors = Object.values(fieldErrors).some(Boolean);
 
   const originalRef = useRef<Record<string, any> | null>(null);
@@ -1028,8 +1031,6 @@ export default function EditMemberScreen() {
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [member, groupType]);
-
-  // ── IDENTITY EDITOR ─────────────────────────────────────────
 
   const openIdentityEditor = () => {
     if (groupType === "expense") return;
@@ -1486,16 +1487,35 @@ export default function EditMemberScreen() {
       router.back();
     } catch (e: any) {
       console.error("[edit-member] update failed:", e);
-      setError(
-        e?.message ||
-          `Failed to update ${
-            groupType === "staff"
-              ? "staff"
-              : groupType === "expense"
-                ? "expense"
-                : "member"
-          }`,
-      );
+
+      const code = e?.code;
+      const isPlanError =
+        code === "plan_limit_reached" ||
+        code === "member_read_only" ||
+        code === "staff_read_only";
+
+      if (isPlanError) {
+        setUpgradePrompt({
+          reason: code,
+          message:
+            e?.body?.message ||
+            e?.message ||
+            "This action requires a higher plan.",
+          limit: e?.body?.limit,
+          current: e?.body?.current,
+        });
+      } else {
+        setError(
+          e?.message ||
+            `Failed to update ${
+              groupType === "staff"
+                ? "staff"
+                : groupType === "expense"
+                  ? "expense"
+                  : "member"
+            }`,
+        );
+      }
     } finally {
       setLoading(false);
     }
@@ -1515,7 +1535,23 @@ export default function EditMemberScreen() {
       router.back();
     } catch (e: any) {
       console.error("Delete error:", e);
-      setError(e.message || `Failed to delete. Please try again.`);
+
+      const code = e?.code;
+      const isPlanError =
+        code === "member_read_only" || code === "staff_read_only";
+
+      if (isPlanError) {
+        setShowDeleteConfirmation(false);
+        setUpgradePrompt({
+          reason: code,
+          message:
+            e?.body?.message ||
+            e?.message ||
+            "This action requires a higher plan.",
+        });
+      } else {
+        setError(e.message || `Failed to delete. Please try again.`);
+      }
       setLoading(false);
     }
   };
@@ -2974,6 +3010,75 @@ export default function EditMemberScreen() {
         onCancel={handleAdjustCancel}
         onConfirm={handleAdjustConfirm}
       />
+
+      {/* ── Upgrade required modal ───────────────────────────── */}
+      <Modal
+        transparent
+        animationType="fade"
+        visible={!!upgradePrompt}
+        onRequestClose={() => setUpgradePrompt(null)}
+        statusBarTranslucent
+      >
+        <Pressable
+          style={styles.upgradeBackdrop}
+          onPress={() => setUpgradePrompt(null)}
+        >
+          <Pressable
+            style={styles.upgradeCard}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <View style={styles.upgradeIconCircle}>
+              <Ionicons
+                name={
+                  upgradePrompt?.reason === "plan_limit_reached"
+                    ? "trending-up"
+                    : "lock-closed"
+                }
+                size={28}
+                color="#7C3AED"
+              />
+            </View>
+
+            <Text style={styles.upgradeTitle}>
+              {upgradePrompt?.reason === "plan_limit_reached"
+                ? "Plan limit reached"
+                : groupType === "staff"
+                  ? "This staff role is read-only"
+                  : "This property is read-only"}
+            </Text>
+
+            <Text style={styles.upgradeMessage}>{upgradePrompt?.message}</Text>
+
+            <View style={styles.upgradeActions}>
+              <Pressable
+                onPress={() => setUpgradePrompt(null)}
+                style={({ pressed }) => [
+                  styles.upgradeButton,
+                  styles.upgradeButtonGhost,
+                  pressed && { opacity: 0.85 },
+                ]}
+              >
+                <Text style={styles.upgradeButtonGhostText}>Not now</Text>
+              </Pressable>
+
+              <Pressable
+                onPress={() => {
+                  setUpgradePrompt(null);
+                  router.back();
+                }}
+                style={({ pressed }) => [
+                  styles.upgradeButton,
+                  styles.upgradeButtonPrimary,
+                  pressed && { opacity: 0.9 },
+                ]}
+              >
+                <Ionicons name="arrow-up-circle" size={17} color="#FFFFFF" />
+                <Text style={styles.upgradeButtonPrimaryText}>See plans</Text>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -4074,4 +4179,95 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   tooltipActionText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
+
+  // ── Upgrade required modal ───────────────────────────────────────────────
+  upgradeBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 24,
+  },
+  upgradeCard: {
+    width: "100%",
+    maxWidth: 380,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    paddingHorizontal: 22,
+    paddingTop: 24,
+    paddingBottom: 18,
+    alignItems: "center",
+  },
+  upgradeIconCircle: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: "#F5F3FF",
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+  upgradeTitle: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: "#0F172A",
+    textAlign: "center",
+  },
+  upgradeMessage: {
+    fontSize: 13.5,
+    lineHeight: 20,
+    color: "#64748B",
+    textAlign: "center",
+    marginTop: 8,
+    maxWidth: 320,
+  },
+  upgradeUsagePill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: "#F1F5F9",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 20,
+    marginTop: 12,
+  },
+  upgradeUsageText: {
+    fontSize: 11.5,
+    fontWeight: "700",
+    color: "#475569",
+  },
+  upgradeActions: {
+    flexDirection: "row",
+    width: "100%",
+    marginTop: 20,
+    gap: 10,
+  },
+  upgradeButton: {
+    flex: 1,
+    minHeight: 48,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+    flexDirection: "row",
+    gap: 6,
+    paddingHorizontal: 16,
+  },
+  upgradeButtonGhost: {
+    backgroundColor: "#F1F5F9",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  upgradeButtonGhostText: {
+    color: "#475569",
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  upgradeButtonPrimary: {
+    backgroundColor: "#2563EB",
+  },
+  upgradeButtonPrimaryText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "800",
+  },
 });

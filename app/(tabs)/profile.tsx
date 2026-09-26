@@ -353,7 +353,8 @@ interface HistoryEntry {
     | "phone_changed"
     | "merge_users"
     | "opening_balance"
-    | "calendar_event";
+    | "calendar_event"
+    | "expense_reminder";
   title: string;
   description: string;
   amount?: number;
@@ -370,6 +371,7 @@ interface HistoryEntry {
   targetPhone?: string | null;
   actorIsSelf?: boolean;
   targetIsSelf?: boolean;
+  isSystemActor?: boolean;
   details?: Record<string, any>;
   oldValue?: string;
   newValue?: string;
@@ -414,6 +416,8 @@ function humanRole(role?: string | null): string {
       return "Staff";
     case "ownership_transfer":
       return "Ownership Transfer";
+    case "system":
+      return "System";
     default:
       return role;
   }
@@ -432,6 +436,8 @@ function shortRoleLabel(role?: string | null): string {
       return "Staff";
     case "ownership_transfer":
       return "Ownership Transfer";
+    case "system":
+      return "System";
     default:
       return role;
   }
@@ -501,6 +507,8 @@ function classifyAuditRow(row: AuditRow): HistoryEntry["type"] {
     case "expense.update":
     case "expense.delete":
       return "amount_changed";
+    case "expense.expense_reminder":
+      return "expense_reminder";
     case "calendar_event.create":
     case "calendar_event.update":
     case "calendar_event.approve":
@@ -618,6 +626,15 @@ function buildHistoryTitle(
       return `${actor} updated an expense`;
     case "expense.delete":
       return `${actor} deleted an expense`;
+    case "expense.expense_reminder": {
+      const title = meta.title ?? "Payment due reminder";
+      const amount = meta.amount;
+      const amountText =
+        typeof amount === "number" && amount > 0
+          ? ` (₹${amount.toLocaleString("en-IN")})`
+          : "";
+      return `${title}${amountText}`;
+    }
 
     case "account_member.role_granted":
       if (actorIsSelf && targetIsSelf) return `You got ${role} access`;
@@ -701,6 +718,8 @@ function mapAuditRowToHistoryEntry(
   const after = row.after ?? {};
   const meta = row.metadata ?? {};
 
+  const metaAmount = typeof meta.amount === "number" ? meta.amount : undefined;
+
   const amount =
     after.netAmount ??
     before.netAmount ??
@@ -708,6 +727,7 @@ function mapAuditRowToHistoryEntry(
     before.amount ??
     meta.netAmount ??
     meta.amount ??
+    metaAmount ??
     undefined;
 
   const statusRaw = after.status ?? before.status;
@@ -717,19 +737,38 @@ function mapAuditRowToHistoryEntry(
   const actorIsSelf = !!currentUserId && row.actor_user_id === currentUserId;
   const targetIsSelf = !!currentUserId && row.target_user_id === currentUserId;
 
+  const isSystemActor =
+    !actorIsSelf &&
+    (row.actor_role === "system" || (!row.actor_user_id && !row.actor_name));
+
   const actorName = actorIsSelf
     ? "You"
-    : row.actor_name && row.actor_name.trim()
-      ? row.actor_name
-      : humanRole(row.actor_role) || "Unknown user";
+    : isSystemActor
+      ? "System"
+      : row.actor_name && row.actor_name.trim()
+        ? row.actor_name
+        : humanRole(row.actor_role) || "Unknown user";
 
+  // Fall back to the entity's own name when there is no target_user_id —
+  // e.g. expense reminders have no "target" person but do have a title.
   const targetName = targetIsSelf
     ? "You"
     : row.target_name && row.target_name.trim()
       ? row.target_name
+      : row.entity_type === "expense" && meta.expenseTitle
+        ? String(meta.expenseTitle)
+        : row.entity_type === "expense" && meta.title
+          ? String(meta.title)
+          : null;
+
+  // Prefer the backend-stored summary if it's present and useful.
+  const backendSummary =
+    typeof row.summary === "string" && row.summary.trim().length > 0
+      ? row.summary.trim()
       : null;
 
-  const title = buildHistoryTitle(row, actorIsSelf, targetIsSelf);
+  const title =
+    backendSummary ?? buildHistoryTitle(row, actorIsSelf, targetIsSelf);
 
   return {
     id: String(row.id),
@@ -750,6 +789,7 @@ function mapAuditRowToHistoryEntry(
     targetPhone: row.target_phone ?? null,
     actorIsSelf,
     targetIsSelf,
+    isSystemActor,
     oldValue: Object.keys(before).length ? JSON.stringify(before) : undefined,
     newValue: Object.keys(after).length ? JSON.stringify(after) : undefined,
     details: meta,
@@ -1476,6 +1516,23 @@ const styles = StyleSheet.create({
     gap: 7,
   },
   withdrawConfirmText: { color: "#FFFFFF", fontSize: 13, fontWeight: "700" },
+
+  systemBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "#F1F5F9",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    alignSelf: "flex-start",
+  },
+  systemBadgeText: {
+    color: "#64748B",
+    fontSize: 9.5,
+    fontWeight: "800",
+    letterSpacing: 0.4,
+  },
 });
 
 // ============================================================================
@@ -1565,6 +1622,12 @@ function getHistoryIcon(type: HistoryEntry["type"]): {
       };
     case "bill_generated":
       return { icon: "receipt-outline", color: "#D97706", bg: "#FEF3C7" };
+    case "expense_reminder":
+      return {
+        icon: "notifications-outline",
+        color: "#7C3AED",
+        bg: "#F3E8FF",
+      };
     case "role_changed":
       return { icon: "shield-outline", color: "#7C3AED", bg: "#F3E8FF" };
     case "subscription_changed":
@@ -1611,10 +1674,6 @@ export default function ProfileTabScreen(): React.ReactElement {
   const showAdminDirectory = !isOwner;
 
   const canManageBills = isOwner || isAdmin;
-  // Staff must NOT see the subscription card. `isMember` here is assumed to
-  // cover member_visibility only. If your useUserRole() lumps staff into
-  // isMember, add a separate `isStaff` and change the line to:
-  //   const canSeeSubscription = isOwner || isAdmin || (isMember && !isStaff);
   const canSeeSubscription = isOwner || isAdmin || isMember;
   const canManageSubscription = isAdmin || isOwner;
 
@@ -1667,8 +1726,7 @@ export default function ProfileTabScreen(): React.ReactElement {
   }, [refreshProfile]);
 
   // ==========================================================================
-  // PUSH PREFERENCE — initial read from SecureStore, then reconciled with
-  // the backend so the toggle reflects the server's source of truth.
+  // PUSH PREFERENCE
   // ==========================================================================
   useEffect(() => {
     SecureStore.getItemAsync("notifications_enabled").then((v) => {
@@ -1697,7 +1755,6 @@ export default function ProfileTabScreen(): React.ReactElement {
     }
   }, []);
 
-  // Reconcile with backend whenever the selected account changes.
   useEffect(() => {
     (async () => {
       if (!selectedAccount?.id) return;
@@ -1719,7 +1776,6 @@ export default function ProfileTabScreen(): React.ReactElement {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedAccount?.id]);
 
-  // ── SUBSCRIPTION: load from backend on mount / focus / account change ────
   const loadSubscription = useCallback(async () => {
     if (!selectedAccount?.id) return;
     try {
@@ -1901,9 +1957,6 @@ export default function ProfileTabScreen(): React.ReactElement {
     loadHistory(true);
   };
 
-  // ==========================================================================
-  // PUSH PREFERENCE — toggle handler syncs to backend.
-  // ==========================================================================
   const toggleNotifications = async (value: boolean) => {
     setNotifications(value);
 
@@ -1942,7 +1995,6 @@ export default function ProfileTabScreen(): React.ReactElement {
     return period === "yearly" ? "/year" : "/month";
   };
 
-  // ── SUBSCRIPTION: payment handler — forwards planId + billingPeriod ──────
   const handleStartPayment = async (
     amount: number,
     label: string,
@@ -1978,7 +2030,6 @@ export default function ProfileTabScreen(): React.ReactElement {
     }
   };
 
-  // ── SUBSCRIPTION: persist change to backend, then reload ────────────────
   const handlePlanChanged = async (payload: {
     plan: SubscriptionPlan;
     period: BillingPeriod;
@@ -2064,7 +2115,6 @@ export default function ProfileTabScreen(): React.ReactElement {
     }
   };
 
-  // ── SUBSCRIPTION: cancel → Free ─────────────────────────────────────────
   const handleCancelSubscription = async () => {
     if (!canManageSubscription || !selectedAccount?.id) return;
     try {
@@ -2466,9 +2516,10 @@ export default function ProfileTabScreen(): React.ReactElement {
 
     const actorIsSelf = !!item.actorIsSelf;
     const targetIsSelf = !!item.targetIsSelf;
+    const isSystem = !!item.isSystemActor;
 
     const actor = {
-      name: actorIsSelf ? "You" : item.markedBy,
+      name: actorIsSelf ? "You" : isSystem ? "System" : item.markedBy,
       phone: item.actorPhone ?? null,
       photo: item.actorPhoto ?? null,
       role: item.actorRole ?? null,
@@ -2537,7 +2588,18 @@ export default function ProfileTabScreen(): React.ReactElement {
             { paddingLeft: compact ? 42 : 46, marginTop: compact ? 6 : 8 },
           ]}
         >
-          {renderPersonChip(actor, compact)}
+          {isSystem ? (
+            <View style={styles.systemBadge}>
+              <Ionicons
+                name="notifications-outline"
+                size={11}
+                color="#64748B"
+              />
+              <Text style={styles.systemBadgeText}>AUTO</Text>
+            </View>
+          ) : (
+            renderPersonChip(actor, compact)
+          )}
 
           {target ? (
             <View style={chipStyles.connectorWrap}>
@@ -2565,9 +2627,6 @@ export default function ProfileTabScreen(): React.ReactElement {
     );
   };
 
-  // ==========================================================================
-  // Full-screen history modal
-  // ==========================================================================
   const renderHistoryModal = () => (
     <Modal
       visible={showHistoryModal}
