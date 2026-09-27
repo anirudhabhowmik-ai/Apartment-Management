@@ -306,13 +306,39 @@ function getCurrentMonth() {
   });
 }
 
-function getMemberRoleLabel(role?: string) {
-  if (!role) return "Member";
-  const map: Record<string, string> = {
-    flat: "Flat Owner",
-    shop: "Shop Owner",
-    custom: "Custom",
-  };
+/**
+ * Human-readable label for a member's free-form `role` field.
+ *
+ * On an apartment account:
+ *   flat  → "Flat Owner"
+ *   shop  → "Shop Owner"
+ *   (missing role) → "Member"
+ *
+ * On a home (tenant) account:
+ *   flat  → "Room"
+ *   shop  → "Shop Owner"      ← shop stays the same everywhere
+ *   (missing role) → "Tenant"
+ *
+ * `tenant` always reads "Tenant" regardless of account type.
+ */
+function getMemberRoleLabel(role?: string, isTenantAccount: boolean = false) {
+  const fallback = isTenantAccount ? "Tenant" : "Member";
+  if (!role) return fallback;
+
+  const map: Record<string, string> = isTenantAccount
+    ? {
+        flat: "Room",
+        shop: "Shop Owner",
+        tenant: "Tenant",
+        custom: "Custom",
+      }
+    : {
+        flat: "Flat Owner",
+        shop: "Shop Owner",
+        tenant: "Tenant",
+        custom: "Custom",
+      };
+
   const key = String(role).toLowerCase();
   return (
     map[key] ?? key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
@@ -379,13 +405,17 @@ function getTransactionType(txn: any): TransactionType {
   return "expense";
 }
 
-function roleLabelFromId(role?: string | null): string {
-  if (!role) return "Member";
+function roleLabelFromId(
+  role?: string | null,
+  isTenantAccount: boolean = false,
+): string {
+  if (!role) return isTenantAccount ? "Tenant" : "Member";
   if (role === "admin") return "Admin";
-  if (role === "member_visibility") return "Member";
+  if (role === "member_visibility")
+    return isTenantAccount ? "Tenant" : "Member";
   if (role === "staff_visibility") return "Staff";
   if (role === "ownership_transfer") return "Owner";
-  return "Member";
+  return isTenantAccount ? "Tenant" : "Member";
 }
 
 function parseDateParts(raw: string): {
@@ -860,17 +890,21 @@ function MyRolesCard({
   onWithdraw,
   busy,
   loading,
+  isTenantAccount,
 }: {
   roles: MyRole[];
   onWithdraw: () => void;
   busy: boolean;
   loading: boolean;
+  isTenantAccount: boolean;
 }) {
   const roleMeta = (role: MyRole["role"]) => {
     if (role === "admin")
       return { label: "Admin", bg: "#EDE9FE", color: "#7C3AED" };
     if (role === "member_visibility")
-      return { label: "Member", bg: "#DCFCE7", color: "#16A34A" };
+      return isTenantAccount
+        ? { label: "Tenant", bg: "#FEF3C7", color: "#B45309" }
+        : { label: "Member", bg: "#DCFCE7", color: "#16A34A" };
     if (role === "staff_visibility")
       return { label: "Staff", bg: "#E0F2FE", color: "#0284C7" };
     return { label: "Owner", bg: "#FEF3C7", color: "#B45309" };
@@ -974,13 +1008,15 @@ function PendingAdminOfferBanner({
   busy,
   onAccept,
   onReject,
+  isTenantAccount,
 }: {
   offer: PendingAdminOffer;
   busy: boolean;
   onAccept: () => void;
   onReject: () => void;
+  isTenantAccount: boolean;
 }) {
-  const currentLabel = roleLabelFromId(offer.current_role);
+  const currentLabel = roleLabelFromId(offer.current_role, isTenantAccount);
   return (
     <View style={styles.offerBanner}>
       <View style={styles.offerBannerHeader}>
@@ -1054,13 +1090,15 @@ function PendingOwnershipOfferBanner({
   busy,
   onAccept,
   onReject,
+  isTenantAccount,
 }: {
   offer: PendingOwnershipOffer;
   busy: boolean;
   onAccept: () => void;
   onReject: () => void;
+  isTenantAccount: boolean;
 }) {
-  const currentLabel = roleLabelFromId(offer.current_role);
+  const currentLabel = roleLabelFromId(offer.current_role, isTenantAccount);
   return (
     <View style={styles.ownershipBanner}>
       <View style={styles.ownershipBannerHeader}>
@@ -1136,19 +1174,29 @@ function PendingVisibilityOfferBanner({
   busy,
   onAccept,
   onReject,
+  isTenantAccount,
 }: {
   offer: PendingVisibilityOffer;
   busy: boolean;
   onAccept: () => void;
   onReject: () => void;
+  isTenantAccount: boolean;
 }) {
   const isStaff = offer.role === "staff_visibility";
-  const title = isStaff ? "Staff access invite" : "Member access invite";
-  const roleTag = isStaff ? "STAFF" : "MEMBER";
+  const title = isStaff
+    ? "Staff access invite"
+    : isTenantAccount
+      ? "Tenant access invite"
+      : "Member access invite";
+  const roleTag = isStaff ? "STAFF" : isTenantAccount ? "TENANT" : "MEMBER";
   const icon: keyof typeof Ionicons.glyphMap = isStaff ? "briefcase" : "home";
-  const bg = isStaff ? "#F5F3FF" : "#EFF6FF";
-  const fg = isStaff ? "#6D28D9" : "#1D4ED8";
-  const acceptBg = isStaff ? "#7C3AED" : "#2563EB";
+  const bg = isStaff ? "#F5F3FF" : isTenantAccount ? "#FEF3C7" : "#EFF6FF";
+  const fg = isStaff ? "#6D28D9" : isTenantAccount ? "#B45309" : "#1D4ED8";
+  const acceptBg = isStaff
+    ? "#7C3AED"
+    : isTenantAccount
+      ? "#B45309"
+      : "#2563EB";
 
   return (
     <View style={styles.offerBanner}>
@@ -1169,7 +1217,12 @@ function PendingVisibilityOfferBanner({
           </View>
           <Text style={styles.offerBannerSubtitle} numberOfLines={2}>
             {offer.account_name || "This account"} invited you to view{" "}
-            {isStaff ? "staff details" : "member details"} on this property.
+            {isStaff
+              ? "staff details"
+              : isTenantAccount
+                ? "tenant details"
+                : "member details"}{" "}
+            on this property.
           </Text>
         </View>
       </View>
@@ -1565,6 +1618,17 @@ export default function HomeScreen() {
   } = useAccounts();
 
   const accountId = selectedAccount?.id ?? null;
+
+  // A "home" account is a personal home. Members on a home account are
+  // tenants (renters), not flat owners. Tenants must not see property
+  // finance — it's the owner's money, not theirs.
+  //
+  // This mirrors the exact signal people.tsx uses to render "Tenants"
+  // instead of "Members", so the label and the finance gate stay in sync.
+  const isTenantAccount = useMemo(() => {
+    if (!selectedAccount) return false;
+    return String((selectedAccount as any).type ?? "").toLowerCase() === "home";
+  }, [selectedAccount]);
 
   const membersHook = useMembers(accountId);
   const staffHook = useStaff(accountId);
@@ -2241,13 +2305,13 @@ export default function HomeScreen() {
 
       const kept: string[] = [];
       if (hasAdmin && withdrawPreview?.memberProfile && keepMemberVisibility) {
-        kept.push("Member");
+        kept.push(isTenantAccount ? "Tenant" : "Member");
       }
       if (hasAdmin && withdrawPreview?.staffProfile && keepStaffVisibility) {
         kept.push("Staff");
       }
       if (!hasAdmin && hasMember && keepMemberVisibility) {
-        kept.push("Member");
+        kept.push(isTenantAccount ? "Tenant" : "Member");
       }
       if (!hasAdmin && hasStaff && keepStaffVisibility) {
         kept.push("Staff");
@@ -2666,6 +2730,7 @@ export default function HomeScreen() {
             busy={withdrawingAccess}
             loading={myRolesLoading}
             onWithdraw={openWithdrawModal}
+            isTenantAccount={isTenantAccount}
           />
         ) : null}
 
@@ -2723,7 +2788,9 @@ export default function HomeScreen() {
                     >
                       <Ionicons name="home-outline" size={16} color="#2563EB" />
                     </View>
-                    <Text style={styles.groupCardHeaderTitle}>Member</Text>
+                    <Text style={styles.groupCardHeaderTitle}>
+                      {isTenantAccount ? "Tenant" : "Member"}
+                    </Text>
                   </View>
                   <View style={styles.groupCardHeaderRight}>
                     <View style={styles.groupCardHeaderBadge}>
@@ -2747,7 +2814,10 @@ export default function HomeScreen() {
                         .filter(Boolean)
                         .join(" · ") ||
                       "Account";
-                    const roleLabel = getMemberRoleLabel(member.role);
+                    const roleLabel = getMemberRoleLabel(
+                      member.role,
+                      isTenantAccount,
+                    );
 
                     const mp = member.monthlyPayments?.[selfMonthKey];
                     const isPaid = mp?.status === "paid";
@@ -3222,12 +3292,16 @@ export default function HomeScreen() {
     const showAnyToggle =
       !withdrawPreviewLoading && (showMemberToggle || showStaffToggle);
 
+    // Tenant-aware wording for the member toggle.
+    const memberRoleWord = isTenantAccount ? "Tenant" : "Member";
+    const memberRoleWordLower = memberRoleWord.toLowerCase();
+
     const headlineRole = hasAdmin
       ? "admin"
       : hasMember && hasStaff
-        ? "member and staff"
+        ? `${memberRoleWordLower} and staff`
         : hasMember
-          ? "member"
+          ? memberRoleWordLower
           : "staff";
 
     const titleText = hasAdmin
@@ -3243,7 +3317,7 @@ export default function HomeScreen() {
       : hasMember && hasStaff
         ? "Turn off the roles you no longer want. Roles you keep on will stay active."
         : hasMember
-          ? "Turn the toggle off to withdraw your member access."
+          ? `Turn the toggle off to withdraw your ${memberRoleWordLower} access.`
           : "Turn the toggle off to withdraw your staff access.";
 
     const nothingToWithdraw =
@@ -3277,14 +3351,22 @@ export default function HomeScreen() {
                 <View
                   style={[
                     styles.withdrawToggleIconWrap,
-                    { backgroundColor: "#DCFCE7" },
+                    {
+                      backgroundColor: isTenantAccount ? "#FEF3C7" : "#DCFCE7",
+                    },
                   ]}
                 >
-                  <Ionicons name="person" size={18} color="#16A34A" />
+                  <Ionicons
+                    name="person"
+                    size={18}
+                    color={isTenantAccount ? "#B45309" : "#16A34A"}
+                  />
                 </View>
                 <View style={styles.withdrawToggleContent}>
                   <Text style={styles.withdrawToggleTitle}>
-                    {hasAdmin ? "Keep Member visibility" : "Member access"}
+                    {hasAdmin
+                      ? `Keep ${memberRoleWord} visibility`
+                      : `${memberRoleWord} access`}
                   </Text>
                   <Text style={styles.withdrawToggleSubtitle} numberOfLines={1}>
                     {withdrawPreview?.memberProfile?.name ||
@@ -3302,7 +3384,7 @@ export default function HomeScreen() {
                 <ToggleSwitch
                   value={keepMemberVisibility}
                   onValueChange={setKeepMemberVisibility}
-                  trackColorOn="#16A34A"
+                  trackColorOn={isTenantAccount ? "#B45309" : "#16A34A"}
                 />
               </View>
             ) : null}
@@ -3479,6 +3561,7 @@ export default function HomeScreen() {
             busy={busyOfferId === offer.id}
             onAccept={() => handleAcceptOwnership(offer)}
             onReject={() => handleRejectOwnership(offer)}
+            isTenantAccount={isTenantAccount}
           />
         ))}
         {pendingAdminOffers.map((offer) => (
@@ -3488,6 +3571,7 @@ export default function HomeScreen() {
             busy={busyOfferId === offer.id}
             onAccept={() => handleAcceptOffer(offer)}
             onReject={() => handleRejectOffer(offer)}
+            isTenantAccount={isTenantAccount}
           />
         ))}
         {pendingVisibilityOffers.map((offer) => (
@@ -3497,6 +3581,7 @@ export default function HomeScreen() {
             busy={busyOfferId === offer.id}
             onAccept={() => handleAcceptVisibility(offer)}
             onReject={() => handleRejectVisibility(offer)}
+            isTenantAccount={isTenantAccount}
           />
         ))}
       </View>
@@ -3506,7 +3591,9 @@ export default function HomeScreen() {
   const portalLabel = isAdmin
     ? accountTypeLabel
     : isMember
-      ? "Resident Portal"
+      ? isTenantAccount
+        ? "Tenant Portal"
+        : "Resident Portal"
       : isStaff
         ? "Staff Portal"
         : "Portal";
@@ -3564,8 +3651,10 @@ export default function HomeScreen() {
                 </View>
                 <View style={styles.groupOverviewGrid}>
                   <GroupOverviewCard
-                    title="Members"
-                    subtitle="Owner accounts"
+                    title={isTenantAccount ? "Tenants" : "Members"}
+                    subtitle={
+                      isTenantAccount ? "Tenant accounts" : "Owner accounts"
+                    }
                     count={totalMemberRecords}
                     countLabel={
                       totalMemberRecords === 1 ? "account" : "accounts"
@@ -3586,57 +3675,59 @@ export default function HomeScreen() {
                 </View>
               </View>
 
-              <View style={styles.section}>
-                <View style={styles.sectionHeader}>
-                  <View>
-                    <Text style={styles.sectionTitle}>Society Finance</Text>
-                    <Text style={styles.sectionSubtitle}>
-                      Overall · all-time totals
-                    </Text>
+              {!isTenantAccount ? (
+                <View style={styles.section}>
+                  <View style={styles.sectionHeader}>
+                    <View>
+                      <Text style={styles.sectionTitle}>Society Finance</Text>
+                      <Text style={styles.sectionSubtitle}>
+                        Overall · all-time totals
+                      </Text>
+                    </View>
+                    <Pressable
+                      style={styles.seeAllButton}
+                      onPress={() => router.push("/(tabs)/finance")}
+                    >
+                      <Text style={styles.seeAllText}>View All</Text>
+                      <Ionicons
+                        name="chevron-forward"
+                        size={15}
+                        color="#2563EB"
+                      />
+                    </Pressable>
                   </View>
-                  <Pressable
-                    style={styles.seeAllButton}
-                    onPress={() => router.push("/(tabs)/finance")}
-                  >
-                    <Text style={styles.seeAllText}>View All</Text>
-                    <Ionicons
-                      name="chevron-forward"
-                      size={15}
-                      color="#2563EB"
+                  <View style={styles.financialGrid}>
+                    <FinancialCard
+                      title="Income"
+                      amount={overallIncome}
+                      icon="arrow-down-outline"
+                      color="#16A34A"
+                      background="#DCFCE7"
+                      period="Overall"
                     />
-                  </Pressable>
+                    <FinancialCard
+                      title="Expenses"
+                      amount={overallExpense}
+                      icon="arrow-up-outline"
+                      color="#EA580C"
+                      background="#FFEDD5"
+                      period="Overall"
+                    />
+                    <FinancialCard
+                      title="Net"
+                      amount={overallNet}
+                      icon={
+                        isOverallPositive
+                          ? "wallet-outline"
+                          : "alert-circle-outline"
+                      }
+                      color={isOverallPositive ? "#2563EB" : "#DC2626"}
+                      background={isOverallPositive ? "#DBEAFE" : "#FEE2E2"}
+                      period="Incl. opening"
+                    />
+                  </View>
                 </View>
-                <View style={styles.financialGrid}>
-                  <FinancialCard
-                    title="Income"
-                    amount={overallIncome}
-                    icon="arrow-down-outline"
-                    color="#16A34A"
-                    background="#DCFCE7"
-                    period="Overall"
-                  />
-                  <FinancialCard
-                    title="Expenses"
-                    amount={overallExpense}
-                    icon="arrow-up-outline"
-                    color="#EA580C"
-                    background="#FFEDD5"
-                    period="Overall"
-                  />
-                  <FinancialCard
-                    title="Net"
-                    amount={overallNet}
-                    icon={
-                      isOverallPositive
-                        ? "wallet-outline"
-                        : "alert-circle-outline"
-                    }
-                    color={isOverallPositive ? "#2563EB" : "#DC2626"}
-                    background={isOverallPositive ? "#DBEAFE" : "#FEE2E2"}
-                    period="Incl. opening"
-                  />
-                </View>
-              </View>
+              ) : null}
             </>
           ) : null}
 
@@ -3648,7 +3739,9 @@ export default function HomeScreen() {
             />
             <Text style={styles.footerMessageText}>
               {isMember
-                ? "View-only access · Contact admin for changes"
+                ? isTenantAccount
+                  ? "Tenant access · Property finance is visible to owners only"
+                  : "View-only access · Contact admin for changes"
                 : "You are viewing your personal staff dashboard"}
             </Text>
           </View>
@@ -3849,8 +3942,8 @@ export default function HomeScreen() {
           </View>
           <View style={styles.groupOverviewGrid}>
             <GroupOverviewCard
-              title="Members"
-              subtitle="Owner accounts"
+              title={isTenantAccount ? "Tenants" : "Members"}
+              subtitle={isTenantAccount ? "Tenant accounts" : "Owner accounts"}
               count={totalMemberRecords}
               countLabel={totalMemberRecords === 1 ? "account" : "accounts"}
               icon={
