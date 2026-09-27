@@ -1,6 +1,14 @@
 // app/(modals)/legal-page.tsx
+import { Ionicons } from "@expo/vector-icons";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import {
+  Linking,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
 // ---------------------------------------------------------------------------
@@ -11,6 +19,17 @@ const APP_NAME = "Apartment Management"; // 👈 replace once finalized
 const SUPPORT_EMAIL = "support@aikhata.com"; // 👈 replace when domain ready
 const SUPPORT_PHONE = "+91 98765 43210"; // 👈 replace with real number
 const SUPPORT_ADDRESS = "India"; // 👈 replace with registered city/state
+
+// ---------------------------------------------------------------------------
+// Public GitHub Pages URLs — opened in the system browser.
+// Replace YOUR-USERNAME with your GitHub handle.
+// ---------------------------------------------------------------------------
+const PUBLIC_URLS: Record<string, string> = {
+  privacy:
+    "https://YOUR-USERNAME.github.io/apartment-management-legal/privacy.html",
+  terms:
+    "https://YOUR-USERNAME.github.io/apartment-management-legal/terms.html",
+};
 
 export default function LegalPageScreen() {
   const router = useRouter();
@@ -381,6 +400,18 @@ export default function LegalPageScreen() {
     displayTitle = title || "Help & Support";
   }
 
+  const openOnWeb = async () => {
+    const url = PUBLIC_URLS[type] ?? PUBLIC_URLS.privacy;
+    try {
+      const supported = await Linking.canOpenURL(url);
+      if (supported) {
+        await Linking.openURL(url);
+      }
+    } catch (err) {
+      console.warn("[legal-page] Linking failed:", err);
+    }
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <Stack.Screen
@@ -397,6 +428,19 @@ export default function LegalPageScreen() {
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
+        {(type === "privacy" || type === "terms") && (
+          <Pressable
+            onPress={openOnWeb}
+            style={({ pressed }) => [
+              styles.webLink,
+              pressed && { opacity: 0.75 },
+            ]}
+          >
+            <Ionicons name="open-outline" size={16} color="#1a73e8" />
+            <Text style={styles.webLinkText}>Open official page on web</Text>
+          </Pressable>
+        )}
+
         <Text style={styles.lastUpdated}>
           Last updated:{" "}
           {new Date().toLocaleDateString("en-IN", {
@@ -437,6 +481,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 24,
     paddingBottom: 40,
+  },
+  webLink: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    alignSelf: "flex-start",
+    backgroundColor: "#e8f0fe",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    marginBottom: 16,
+  },
+  webLinkText: {
+    color: "#1a73e8",
+    fontSize: 13,
+    fontWeight: "600",
   },
   lastUpdated: {
     fontSize: 13,

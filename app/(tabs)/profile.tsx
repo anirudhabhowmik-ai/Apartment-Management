@@ -12,6 +12,8 @@ import React, {
 } from "react";
 import {
   ActivityIndicator,
+  Alert,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -272,6 +274,31 @@ const inlineAlertStyles = StyleSheet.create({
 const API_URL = (
   process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000"
 ).replace(/\/api\/?$/, "");
+
+// ============================================================================
+// PUBLIC LEGAL URLS (GitHub Pages)
+// Replace YOUR-USERNAME with your GitHub handle.
+// ============================================================================
+const LEGAL_URLS = {
+  privacy:
+    "https://anirudhabhowmik-ai.github.io/apartment-management-legal/privacy.html",
+  terms:
+    "https://anirudhabhowmik-ai.github.io/apartment-management-legal/terms.html",
+} as const;
+
+const openLegalUrl = async (type: "privacy" | "terms") => {
+  const url = LEGAL_URLS[type];
+  try {
+    const supported = await Linking.canOpenURL(url);
+    if (supported) {
+      await Linking.openURL(url);
+    } else {
+      Alert.alert("Unable to open link", url);
+    }
+  } catch {
+    Alert.alert("Unable to open link", url);
+  }
+};
 
 // ============================================================================
 // PUSH PREFERENCE HELPERS
@@ -1794,16 +1821,13 @@ export default function ProfileTabScreen(): React.ReactElement {
     loadSubscription();
   }, [loadSubscription]);
 
-  // ── Open plans modal when navigated to with ?openPlans=1 ────────────────
   useEffect(() => {
     if (params.openPlans === "1") {
       setShowPlansModal(true);
       try {
         router.setParams({ openPlans: undefined as any });
       } catch {
-        // Some expo-router versions don't expose setParams on tabs.
-        // It's fine to skip — the check only fires once because the param
-        // will not survive a re-mount from another route.
+        // no-op
       }
     }
   }, [params.openPlans, router]);
@@ -2047,6 +2071,7 @@ export default function ProfileTabScreen(): React.ReactElement {
     paymentId?: string;
     signature?: string;
     orderId?: string;
+    source?: "razorpay" | "revenuecat";
   }) => {
     const {
       plan,
@@ -2057,6 +2082,7 @@ export default function ProfileTabScreen(): React.ReactElement {
       paymentId,
       signature,
       orderId,
+      source,
     } = payload;
 
     if (!selectedAccount?.id) return;
@@ -2065,21 +2091,68 @@ export default function ProfileTabScreen(): React.ReactElement {
       const token = await getAuthToken();
       if (!token) throw new Error("Not signed in");
 
+      // ── Free plan downgrade: no payment, just persist ────────────────
+      if (plan.id === "free" || amount === 0) {
+        const body: any = { plan_id: plan.id, billing_period: period };
+
+        const res = await fetch(
+          `${API_URL}/api/accounts/${selectedAccount.id}/subscription`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify(body),
+          },
+        );
+        const data = await res.json().catch(() => null);
+        if (!res.ok) throw new Error(data?.message || `HTTP ${res.status}`);
+
+        await loadSubscription();
+        loadHistory(true);
+
+        showAlert({
+          variant: "info",
+          title: "Plan Updated",
+          message: `You switched to the ${plan.name} plan.`,
+        });
+        return;
+      }
+
+      // ── RevenueCat (Android / iOS) ───────────────────────────────────
+      if (source === "revenuecat") {
+        setActivePlan(plan.id);
+        setActivePlanPeriod(period);
+        setSubscriptionStatus("active");
+
+        showAlert({
+          variant: "success",
+          title: "Plan Activated",
+          message: `You're now on the ${plan.name} plan (${period}).`,
+        });
+
+        setTimeout(() => {
+          loadSubscription();
+          loadHistory(true);
+        }, 3000);
+        return;
+      }
+
+      // ── Razorpay (web) ───────────────────────────────────────────────
       const body: any = { plan_id: plan.id, billing_period: period };
 
-      if (plan.id !== "free" && amount > 0) {
-        if (!paymentId || !signature || !orderId) {
-          showAlert({
-            variant: "error",
-            title: "Payment not confirmed",
-            message: "We couldn't verify your payment. Please try again.",
-          });
-          return;
-        }
-        body.razorpay_order_id = orderId;
-        body.razorpay_payment_id = paymentId;
-        body.razorpay_signature = signature;
+      if (!paymentId || !signature || !orderId) {
+        showAlert({
+          variant: "error",
+          title: "Payment not confirmed",
+          message: "We couldn't verify your payment. Please try again.",
+        });
+        return;
       }
+      body.razorpay_order_id = orderId;
+      body.razorpay_payment_id = paymentId;
+      body.razorpay_signature = signature;
 
       const res = await fetch(
         `${API_URL}/api/accounts/${selectedAccount.id}/subscription`,
@@ -2265,22 +2338,14 @@ export default function ProfileTabScreen(): React.ReactElement {
       title: "Privacy Policy",
       icon: "shield-checkmark-outline",
       color: "#0891B2",
-      onPress: () =>
-        router.push({
-          pathname: "/(modals)/legal-page",
-          params: { title: "Privacy Policy", type: "privacy" },
-        }),
+      onPress: () => openLegalUrl("privacy"),
     },
     {
       id: "terms_conditions",
       title: "Terms & Conditions",
       icon: "document-text-outline",
       color: "#7C3AED",
-      onPress: () =>
-        router.push({
-          pathname: "/(modals)/legal-page",
-          params: { title: "Terms & Conditions", type: "terms" },
-        }),
+      onPress: () => openLegalUrl("terms"),
     },
     {
       id: "about_us",

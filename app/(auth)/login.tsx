@@ -10,6 +10,7 @@ import { useState } from "react";
 import {
   Alert,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -64,6 +65,32 @@ if (
     writable: false,
   });
 }
+
+// ================================================================
+// PUBLIC LEGAL URLS (GitHub Pages)
+// Replace YOUR-USERNAME with your GitHub handle.
+// ================================================================
+
+const LEGAL_URLS = {
+  privacy:
+    "https://anirudhabhowmik-ai.github.io/apartment-management-legal/privacy.html",
+  terms:
+    "https://anirudhabhowmik-ai.github.io/apartment-management-legal/terms.html",
+} as const;
+
+const openLegalUrl = async (type: "privacy" | "terms") => {
+  const url = LEGAL_URLS[type];
+  try {
+    const supported = await Linking.canOpenURL(url);
+    if (supported) {
+      await Linking.openURL(url);
+    } else {
+      Alert.alert("Unable to open link", url);
+    }
+  } catch {
+    Alert.alert("Unable to open link", url);
+  }
+};
 
 interface ContactData {
   id: string;
@@ -143,20 +170,6 @@ export default function LoginScreen() {
     } finally {
       setLoading(false);
     }
-  };
-
-  // ==============================================================
-  // LEGAL LINKS
-  // ==============================================================
-
-  const openLegalPage = (type: "privacy" | "terms") => {
-    router.push({
-      pathname: "/(modals)/legal-page",
-      params:
-        type === "privacy"
-          ? { title: "Privacy Policy", type: "privacy" }
-          : { title: "Terms & Conditions", type: "terms" },
-    });
   };
 
   // ==============================================================
@@ -623,7 +636,7 @@ export default function LoginScreen() {
             </Text>
 
             <Pressable
-              onPress={() => openLegalPage("terms")}
+              onPress={() => openLegalUrl("terms")}
               hitSlop={6}
               style={({ pressed }) => pressed && styles.pressed}
             >
@@ -633,7 +646,7 @@ export default function LoginScreen() {
             <Text style={styles.legalText}> and </Text>
 
             <Pressable
-              onPress={() => openLegalPage("privacy")}
+              onPress={() => openLegalUrl("privacy")}
               hitSlop={6}
               style={({ pressed }) => pressed && styles.pressed}
             >

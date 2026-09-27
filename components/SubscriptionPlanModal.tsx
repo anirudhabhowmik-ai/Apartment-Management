@@ -5,12 +5,18 @@ import {
   ActivityIndicator,
   Alert,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from "react-native";
+
+import {
+  getCurrentOffering,
+  purchasePackage,
+} from "../services/revenueCatService";
 
 export type BillingPeriod = "monthly" | "yearly";
 
@@ -25,6 +31,21 @@ export interface SubscriptionPlan {
   icon: keyof typeof Ionicons.glyphMap;
   yearlyDiscountPercent: number;
 }
+
+// ---------------------------------------------------------------------------
+// Product IDs used on Google Play / App Store.
+// These MUST match what you create in Play Console + RevenueCat.
+// ---------------------------------------------------------------------------
+const PRODUCT_IDS: Record<string, Record<BillingPeriod, string>> = {
+  pro: {
+    monthly: "pro_monthly",
+    yearly: "pro_yearly",
+  },
+  business: {
+    monthly: "business_monthly",
+    yearly: "business_yearly",
+  },
+};
 
 export const DEFAULT_PLANS: SubscriptionPlan[] = [
   {
@@ -45,8 +66,8 @@ export const DEFAULT_PLANS: SubscriptionPlan[] = [
   {
     id: "pro",
     name: "Pro",
-    monthlyPrice: 199,
-    yearlyPrice: 1990,
+    monthlyPrice: 249,
+    yearlyPrice: 2490,
     features: [
       "Up to 30 properties",
       "2 Admins",
@@ -62,8 +83,8 @@ export const DEFAULT_PLANS: SubscriptionPlan[] = [
   {
     id: "business",
     name: "Business",
-    monthlyPrice: 999,
-    yearlyPrice: 8990,
+    monthlyPrice: 1049,
+    yearlyPrice: 9490,
     features: [
       "Unlimited properties",
       "Unlimited Admins",
@@ -95,7 +116,8 @@ interface SubscriptionPlanModalProps {
     paymentId?: string;
     signature?: string;
     orderId?: string;
-  }) => void;
+    source?: "razorpay" | "revenuecat";
+  }) => void | Promise<void>;
 
   onCancelSubscription?: () => void;
   canManage?: boolean;
@@ -106,6 +128,7 @@ interface SubscriptionPlanModalProps {
     phone?: string;
   };
 
+  // Called only on web, to run the Razorpay flow.
   startPayment: (
     amount: number,
     label: string,
@@ -155,31 +178,41 @@ export default function SubscriptionPlanModal({
     plan: SubscriptionPlan,
     period: BillingPeriod,
   ) => {
-    if (plan.monthlyPrice === 0) {
-      return "";
-    }
+    if (plan.monthlyPrice === 0) return "";
     return period === "yearly" ? "/year" : "/month";
   };
 
+  // -------------------------------------------------------------------------
+  // Find the matching RevenueCat package for a given plan + period.
+  // Only used on Android / iOS.
+  // -------------------------------------------------------------------------
+  const findPackageForPlan = async (planId: string, period: BillingPeriod) => {
+    const offering = await getCurrentOffering();
+    if (!offering) return null;
+
+    const productId = PRODUCT_IDS[planId]?.[period];
+    if (!productId) return null;
+
+    return (
+      offering.availablePackages.find(
+        (p) => p.product.identifier === productId,
+      ) || null
+    );
+  };
+
   const handleSelectPlan = async (planId: string) => {
-    if (!canManage || isPaymentProcessing) {
-      return;
-    }
+    if (!canManage || isPaymentProcessing) return;
 
     const selectedPlan = plans.find((p) => p.id === planId);
+    if (!selectedPlan) return;
 
-    if (!selectedPlan) {
-      return;
-    }
-
-    // Tapping the active plan card with the same period does nothing.
+    // Tapping the active plan with the same period: no-op
     if (activePlanId === planId && activePlanPeriod === billingPeriod) {
       onClose();
       return;
     }
 
     const price = getPlanPrice(selectedPlan, billingPeriod);
-
     const samePlanDifferentPeriod =
       activePlanId === planId && activePlanPeriod !== billingPeriod;
 
@@ -189,15 +222,15 @@ export default function SubscriptionPlanModal({
     const isUpgrade = !samePlanDifferentPeriod && newIndex > currentIndex;
     const isDowngrade = !samePlanDifferentPeriod && newIndex < currentIndex;
 
+    // ── Free plan: no purchase ────────────────────────────────────────────
     if (price === 0) {
-      onPlanChanged({
+      await onPlanChanged({
         plan: selectedPlan,
         period: billingPeriod,
         isUpgrade,
         isDowngrade,
         amount: 0,
       });
-
       onClose();
       return;
     }
@@ -206,21 +239,30 @@ export default function SubscriptionPlanModal({
     setIsPaymentProcessing(true);
 
     try {
-      const planLabel = `${selectedPlan.name} (${billingPeriod})`;
+      // ═══════════════════════════════════════════════════════════════════
+      // WEB → Razorpay
+      // ═══════════════════════════════════════════════════════════════════
+      if (Platform.OS === "web") {
+        const planLabel = `${selectedPlan.name} (${billingPeriod})`;
+        const result = await startPayment(
+          price,
+          planLabel,
+          { name: user?.name, phone: user?.phone },
+          selectedPlan.id,
+          billingPeriod,
+        );
 
-      const result = await startPayment(
-        price,
-        planLabel,
-        {
-          name: user?.name,
-          phone: user?.phone,
-        },
-        selectedPlan.id,
-        billingPeriod,
-      );
+        if (!result.success) {
+          if (
+            result.error &&
+            !String(result.error).toLowerCase().includes("cancel")
+          ) {
+            Alert.alert("Payment Failed", result.error, [{ text: "OK" }]);
+          }
+          return;
+        }
 
-      if (result.success) {
-        onPlanChanged({
+        await onPlanChanged({
           plan: selectedPlan,
           period: billingPeriod,
           isUpgrade,
@@ -229,20 +271,50 @@ export default function SubscriptionPlanModal({
           paymentId: result.paymentId,
           signature: result.signature,
           orderId: result.orderId,
+          source: "razorpay",
         });
-      } else {
+        return;
+      }
+
+      // ═══════════════════════════════════════════════════════════════════
+      // ANDROID / iOS → RevenueCat (Google Play Billing / Apple IAP)
+      // ═══════════════════════════════════════════════════════════════════
+      const pkg = await findPackageForPlan(planId, billingPeriod);
+
+      if (!pkg) {
         Alert.alert(
-          "Payment Failed",
-          result.error || "Payment was not completed. Please try again.",
+          "Plan unavailable",
+          "This plan isn't available on your store right now. Please try again in a moment.",
           [{ text: "OK" }],
         );
+        return;
       }
-    } catch (error) {
-      console.error("Subscription payment error:", error);
 
+      const result = await purchasePackage(pkg as any);
+
+      if (!result.success) {
+        if (!result.cancelled) {
+          Alert.alert("Purchase Failed", result.error, [{ text: "OK" }]);
+        }
+        return;
+      }
+
+      // RevenueCat confirms the purchase.
+      // The webhook on our backend will also update the DB shortly,
+      // but we fire onPlanChanged here so the UI reflects it immediately.
+      await onPlanChanged({
+        plan: selectedPlan,
+        period: billingPeriod,
+        isUpgrade,
+        isDowngrade,
+        amount: price,
+        source: "revenuecat",
+      });
+    } catch (error: any) {
+      console.error("Subscription purchase error:", error);
       Alert.alert(
         "Payment Error",
-        "Something went wrong while processing the payment.",
+        error?.message || "Something went wrong while processing the payment.",
         [{ text: "OK" }],
       );
     } finally {
@@ -252,9 +324,7 @@ export default function SubscriptionPlanModal({
 
   const handleConfirmCancel = () => {
     setShowCancelConfirm(false);
-    if (onCancelSubscription) {
-      onCancelSubscription();
-    }
+    if (onCancelSubscription) onCancelSubscription();
   };
 
   const currentPlan = plans.find((p) => p.id === activePlanId);
@@ -275,7 +345,6 @@ export default function SubscriptionPlanModal({
             <View style={styles.plansModalHeader}>
               <View style={styles.headerTextContainer}>
                 <Text style={styles.plansModalTitle}>Choose Your Plan</Text>
-
                 <Text style={styles.modalSubtitle}>
                   {activePlanId !== "free"
                     ? `Current plan: ${currentPlanName} (${activePlanPeriod})`
@@ -309,7 +378,6 @@ export default function SubscriptionPlanModal({
                   size={15}
                   color={billingPeriod === "monthly" ? "#2563EB" : "#64748B"}
                 />
-
                 <Text
                   style={[
                     styles.billingToggleText,
@@ -337,7 +405,6 @@ export default function SubscriptionPlanModal({
                   size={15}
                   color={billingPeriod === "yearly" ? "#2563EB" : "#64748B"}
                 />
-
                 <Text
                   style={[
                     styles.billingToggleText,
@@ -348,7 +415,6 @@ export default function SubscriptionPlanModal({
                 >
                   Yearly
                 </Text>
-
                 <View style={styles.billingSavingsBadge}>
                   <Text style={styles.billingSavingsText}>SAVE UP TO 25%</Text>
                 </View>
@@ -364,7 +430,6 @@ export default function SubscriptionPlanModal({
               keyboardShouldPersistTaps="handled"
             >
               {plans.map((plan) => {
-                // ✅ FIX: compare BOTH plan id AND period
                 const isActive =
                   plan.id === "free"
                     ? activePlanId === "free"
@@ -372,14 +437,9 @@ export default function SubscriptionPlanModal({
                       activePlanPeriod === billingPeriod;
 
                 const isPopular = plan.popular;
-
-                // ✅ FIX: displayPeriod is always the toggle
                 const displayPeriod: BillingPeriod = billingPeriod;
-
                 const price = getPlanPrice(plan, displayPeriod);
-
                 const periodLabel = getPlanPeriodLabel(plan, displayPeriod);
-
                 const monthlyPrice = plan.monthlyPrice;
 
                 const yearlySavings =
@@ -405,14 +465,12 @@ export default function SubscriptionPlanModal({
                     {isPopular ? (
                       <View style={styles.popularTopLabel}>
                         <Ionicons name="star" size={11} color="#FFFFFF" />
-
                         <Text style={styles.popularTopLabelText}>
                           MOST POPULAR
                         </Text>
                       </View>
                     ) : null}
 
-                    {/* Plan header */}
                     <View style={styles.planCardHeader}>
                       <View style={styles.planCardLeft}>
                         <View style={styles.planNameRow}>
@@ -425,11 +483,14 @@ export default function SubscriptionPlanModal({
                                 size={10}
                                 color="#FFFFFF"
                               />
-
                               <Text style={styles.planCardActiveText}>
                                 {plan.id === "free"
                                   ? "ACTIVE"
-                                  : `ACTIVE · ${billingPeriod === "yearly" ? "YEARLY" : "MONTHLY"}`}
+                                  : `ACTIVE · ${
+                                      billingPeriod === "yearly"
+                                        ? "YEARLY"
+                                        : "MONTHLY"
+                                    }`}
                               </Text>
                             </View>
                           ) : null}
@@ -441,7 +502,6 @@ export default function SubscriptionPlanModal({
                               ? "Free"
                               : `₹${price.toLocaleString("en-IN")}`}
                           </Text>
-
                           {price > 0 ? (
                             <Text style={styles.planCardPeriod}>
                               {periodLabel}
@@ -454,7 +514,6 @@ export default function SubscriptionPlanModal({
                             <Text style={styles.planCardStrikethrough}>
                               ₹{(monthlyPrice * 12).toLocaleString("en-IN")}
                             </Text>
-
                             <Text style={styles.planCardBillingNote}>
                               billed annually
                             </Text>
@@ -468,7 +527,6 @@ export default function SubscriptionPlanModal({
                               size={13}
                               color="#15803D"
                             />
-
                             <Text style={styles.planCardYearlySavingsText}>
                               Save ₹{yearlySavings.toLocaleString("en-IN")} per
                               year
@@ -480,9 +538,7 @@ export default function SubscriptionPlanModal({
                       <View
                         style={[
                           styles.planCardIcon,
-                          {
-                            backgroundColor: plan.color + "15",
-                          },
+                          { backgroundColor: plan.color + "15" },
                         ]}
                       >
                         <Ionicons
@@ -495,7 +551,6 @@ export default function SubscriptionPlanModal({
 
                     <View style={styles.planDivider} />
 
-                    {/* Features */}
                     <View style={styles.planCardFeatures}>
                       <Text style={styles.includesText}>
                         {plan.id === "free"
@@ -510,9 +565,7 @@ export default function SubscriptionPlanModal({
                           <View
                             style={[
                               styles.featureIcon,
-                              {
-                                backgroundColor: plan.color + "12",
-                              },
+                              { backgroundColor: plan.color + "12" },
                             ]}
                           >
                             <Ionicons
@@ -521,7 +574,6 @@ export default function SubscriptionPlanModal({
                               color={plan.color}
                             />
                           </View>
-
                           <Text style={styles.planCardFeatureText}>
                             {feature}
                           </Text>
@@ -529,7 +581,6 @@ export default function SubscriptionPlanModal({
                       ))}
                     </View>
 
-                    {/* Action area — Choose OR Current + Cancel */}
                     <View style={styles.planActionArea}>
                       {canManage ? (
                         <>
@@ -540,7 +591,6 @@ export default function SubscriptionPlanModal({
                                 size={16}
                                 color="#16A34A"
                               />
-
                               <Text style={styles.currentPlanPillText}>
                                 Current Plan
                               </Text>
@@ -562,7 +612,6 @@ export default function SubscriptionPlanModal({
                                   ? `Switch to ${plan.name}`
                                   : `Choose ${plan.name}`}
                               </Text>
-
                               <Ionicons
                                 name="arrow-forward"
                                 size={16}
@@ -576,19 +625,13 @@ export default function SubscriptionPlanModal({
                               style={styles.cancelInlineButton}
                               onPress={() => setShowCancelConfirm(true)}
                               activeOpacity={0.75}
-                              hitSlop={{
-                                top: 8,
-                                bottom: 8,
-                                left: 8,
-                                right: 8,
-                              }}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                             >
                               <Ionicons
                                 name="close-circle-outline"
                                 size={15}
                                 color="#DC2626"
                               />
-
                               <Text style={styles.cancelInlineText}>
                                 Cancel Subscription
                               </Text>
@@ -602,7 +645,6 @@ export default function SubscriptionPlanModal({
                             size={16}
                             color="#16A34A"
                           />
-
                           <Text style={styles.currentPlanPillText}>
                             Current Plan
                           </Text>
@@ -658,7 +700,6 @@ export default function SubscriptionPlanModal({
                 activeOpacity={0.85}
               >
                 <Ionicons name="close-circle" size={16} color="#FFFFFF" />
-
                 <Text style={styles.confirmCancelText}>Yes, Cancel</Text>
               </TouchableOpacity>
             </View>
@@ -671,11 +712,11 @@ export default function SubscriptionPlanModal({
         <View style={styles.processingOverlay}>
           <View style={styles.processingCard}>
             <ActivityIndicator size="large" color="#2563EB" />
-
-            <Text style={styles.processingTitle}>Opening payment</Text>
-
+            <Text style={styles.processingTitle}>Processing</Text>
             <Text style={styles.processingText}>
-              Please complete the payment in the Razorpay checkout.
+              {Platform.OS === "web"
+                ? "Please complete the payment in the Razorpay checkout."
+                : "Please complete the purchase in the store checkout."}
             </Text>
           </View>
         </View>
@@ -692,7 +733,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 14,
   },
-
   plansModalContainer: {
     width: "100%",
     maxWidth: 430,
@@ -703,7 +743,6 @@ const styles = StyleSheet.create({
     padding: 18,
     flexDirection: "column",
   },
-
   plansModalHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -713,24 +752,9 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#F1F5F9",
   },
-
-  headerTextContainer: {
-    flex: 1,
-    paddingRight: 10,
-  },
-
-  plansModalTitle: {
-    fontSize: 21,
-    fontWeight: "800",
-    color: "#0F172A",
-  },
-
-  modalSubtitle: {
-    color: "#64748B",
-    fontSize: 11,
-    marginTop: 4,
-  },
-
+  headerTextContainer: { flex: 1, paddingRight: 10 },
+  plansModalTitle: { fontSize: 21, fontWeight: "800", color: "#0F172A" },
+  modalSubtitle: { color: "#64748B", fontSize: 11, marginTop: 4 },
   plansModalCloseButton: {
     width: 36,
     height: 36,
@@ -739,7 +763,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   billingToggleContainer: {
     flexDirection: "row",
     backgroundColor: "#F1F5F9",
@@ -747,7 +770,6 @@ const styles = StyleSheet.create({
     padding: 4,
     marginBottom: 14,
   },
-
   billingToggleButton: {
     flex: 1,
     flexDirection: "row",
@@ -757,30 +779,16 @@ const styles = StyleSheet.create({
     borderRadius: 11,
     gap: 5,
   },
-
   billingToggleButtonActive: {
     backgroundColor: "#FFFFFF",
     shadowColor: "#000",
-    shadowOffset: {
-      width: 0,
-      height: 1,
-    },
+    shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.08,
     shadowRadius: 3,
     elevation: 2,
   },
-
-  billingToggleText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#64748B",
-  },
-
-  billingToggleTextActive: {
-    color: "#2563EB",
-    fontWeight: "700",
-  },
-
+  billingToggleText: { fontSize: 13, fontWeight: "600", color: "#64748B" },
+  billingToggleTextActive: { color: "#2563EB", fontWeight: "700" },
   billingSavingsBadge: {
     backgroundColor: "#16A34A",
     borderRadius: 10,
@@ -788,22 +796,9 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     marginLeft: 3,
   },
-
-  billingSavingsText: {
-    color: "#FFFFFF",
-    fontSize: 8,
-    fontWeight: "800",
-  },
-
-  plansScroll: {
-    flex: 1,
-  },
-
-  plansList: {
-    paddingTop: 2,
-    paddingBottom: 18,
-  },
-
+  billingSavingsText: { color: "#FFFFFF", fontSize: 8, fontWeight: "800" },
+  plansScroll: { flex: 1 },
+  plansList: { paddingTop: 2, paddingBottom: 18 },
   planCard: {
     position: "relative",
     borderRadius: 17,
@@ -815,17 +810,8 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     overflow: "hidden",
   },
-
-  planCardPopular: {
-    borderColor: "#2563EB",
-    backgroundColor: "#F8FBFF",
-  },
-
-  planCardActive: {
-    borderColor: "#16A34A",
-    backgroundColor: "#F7FEF9",
-  },
-
+  planCardPopular: { borderColor: "#2563EB", backgroundColor: "#F8FBFF" },
+  planCardActive: { borderColor: "#16A34A", backgroundColor: "#F7FEF9" },
   popularTopLabel: {
     position: "absolute",
     top: 0,
@@ -838,37 +824,25 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 4,
   },
-
   popularTopLabelText: {
     color: "#FFFFFF",
     fontSize: 8,
     fontWeight: "800",
     letterSpacing: 0.3,
   },
-
   planCardHeader: {
     flexDirection: "row",
     alignItems: "flex-start",
     justifyContent: "space-between",
   },
-
-  planCardLeft: {
-    flex: 1,
-  },
-
+  planCardLeft: { flex: 1 },
   planNameRow: {
     flexDirection: "row",
     alignItems: "center",
     flexWrap: "wrap",
     paddingRight: 70,
   },
-
-  planCardName: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: "#0F172A",
-  },
-
+  planCardName: { fontSize: 18, fontWeight: "800", color: "#0F172A" },
   planCardActiveBadge: {
     backgroundColor: "#16A34A",
     borderRadius: 20,
@@ -879,51 +853,23 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 2,
   },
-
-  planCardActiveText: {
-    color: "#FFFFFF",
-    fontSize: 8,
-    fontWeight: "800",
-  },
-
-  priceRow: {
-    flexDirection: "row",
-    alignItems: "baseline",
-    marginTop: 4,
-  },
-
-  planCardPrice: {
-    fontSize: 27,
-    fontWeight: "800",
-    color: "#0F172A",
-  },
-
+  planCardActiveText: { color: "#FFFFFF", fontSize: 8, fontWeight: "800" },
+  priceRow: { flexDirection: "row", alignItems: "baseline", marginTop: 4 },
+  planCardPrice: { fontSize: 27, fontWeight: "800", color: "#0F172A" },
   planCardPeriod: {
     fontSize: 12,
     fontWeight: "600",
     color: "#64748B",
     marginLeft: 3,
   },
-
-  annualPriceRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 1,
-  },
-
+  annualPriceRow: { flexDirection: "row", alignItems: "center", marginTop: 1 },
   planCardStrikethrough: {
     fontSize: 12,
     fontWeight: "600",
     color: "#94A3B8",
     textDecorationLine: "line-through",
   },
-
-  planCardBillingNote: {
-    fontSize: 10,
-    color: "#64748B",
-    marginLeft: 5,
-  },
-
+  planCardBillingNote: { fontSize: 10, color: "#64748B", marginLeft: 5 },
   planCardYearlySavings: {
     flexDirection: "row",
     alignItems: "center",
@@ -935,13 +881,11 @@ const styles = StyleSheet.create({
     marginTop: 5,
     gap: 4,
   },
-
   planCardYearlySavingsText: {
     color: "#15803D",
     fontSize: 10,
     fontWeight: "700",
   },
-
   planCardIcon: {
     width: 43,
     height: 43,
@@ -950,31 +894,20 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginLeft: 8,
   },
-
   planDivider: {
     height: 1,
     backgroundColor: "#E2E8F0",
     marginTop: 13,
     marginBottom: 11,
   },
-
   includesText: {
     fontSize: 11,
     color: "#64748B",
     fontWeight: "600",
     marginBottom: 8,
   },
-
-  planCardFeatures: {
-    gap: 7,
-  },
-
-  planCardFeature: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-
+  planCardFeatures: { gap: 7 },
+  planCardFeature: { flexDirection: "row", alignItems: "center", gap: 8 },
   featureIcon: {
     width: 21,
     height: 21,
@@ -982,19 +915,13 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
   planCardFeatureText: {
     flex: 1,
     fontSize: 12,
     color: "#334155",
     fontWeight: "500",
   },
-
-  planActionArea: {
-    marginTop: 14,
-    gap: 8,
-  },
-
+  planActionArea: { marginTop: 14, gap: 8 },
   choosePlanButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -1005,17 +932,12 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: "#2563EB",
   },
-
-  choosePlanButtonBusiness: {
-    backgroundColor: "#7C3AED",
-  },
-
+  choosePlanButtonBusiness: { backgroundColor: "#7C3AED" },
   choosePlanButtonText: {
     fontSize: 13.5,
     fontWeight: "800",
     color: "#FFFFFF",
   },
-
   currentPlanPill: {
     flexDirection: "row",
     alignItems: "center",
@@ -1028,13 +950,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#BBF7D0",
   },
-
   currentPlanPillText: {
     fontSize: 13.5,
     fontWeight: "700",
     color: "#15803D",
   },
-
   cancelInlineButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -1047,20 +967,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#FECACA",
   },
-
-  cancelInlineText: {
-    fontSize: 12.5,
-    fontWeight: "700",
-    color: "#DC2626",
-  },
-
+  cancelInlineText: { fontSize: 12.5, fontWeight: "700", color: "#DC2626" },
   bottomNote: {
     textAlign: "center",
     color: "#94A3B8",
     fontSize: 10,
     marginTop: 6,
   },
-
   processingOverlay: {
     position: "absolute",
     top: 0,
@@ -1072,7 +985,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     zIndex: 999,
   },
-
   processingCard: {
     width: 270,
     backgroundColor: "#FFFFFF",
@@ -1080,14 +992,12 @@ const styles = StyleSheet.create({
     padding: 24,
     alignItems: "center",
   },
-
   processingTitle: {
     fontSize: 15,
     fontWeight: "800",
     color: "#0F172A",
     marginTop: 14,
   },
-
   processingText: {
     fontSize: 11,
     color: "#64748B",
@@ -1095,7 +1005,6 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     marginTop: 5,
   },
-
   confirmBackdrop: {
     flex: 1,
     backgroundColor: "rgba(15, 23, 42, 0.6)",
@@ -1103,7 +1012,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 24,
   },
-
   confirmCard: {
     width: "100%",
     maxWidth: 380,
@@ -1112,7 +1020,6 @@ const styles = StyleSheet.create({
     padding: 22,
     alignItems: "center",
   },
-
   confirmIconCircle: {
     width: 62,
     height: 62,
@@ -1122,7 +1029,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 12,
   },
-
   confirmTitle: {
     fontSize: 17,
     fontWeight: "800",
@@ -1130,7 +1036,6 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginBottom: 6,
   },
-
   confirmMessage: {
     fontSize: 13,
     color: "#64748B",
@@ -1138,18 +1043,8 @@ const styles = StyleSheet.create({
     lineHeight: 19,
     marginBottom: 20,
   },
-
-  confirmStrongText: {
-    fontWeight: "700",
-    color: "#0F172A",
-  },
-
-  confirmActions: {
-    flexDirection: "row",
-    gap: 10,
-    width: "100%",
-  },
-
+  confirmStrongText: { fontWeight: "700", color: "#0F172A" },
+  confirmActions: { flexDirection: "row", gap: 10, width: "100%" },
   confirmKeepButton: {
     flex: 1,
     paddingVertical: 12,
@@ -1160,13 +1055,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-
-  confirmKeepText: {
-    fontSize: 13,
-    fontWeight: "700",
-    color: "#475569",
-  },
-
+  confirmKeepText: { fontSize: 13, fontWeight: "700", color: "#475569" },
   confirmCancelButton: {
     flex: 1.2,
     flexDirection: "row",
@@ -1177,10 +1066,5 @@ const styles = StyleSheet.create({
     backgroundColor: "#DC2626",
     gap: 6,
   },
-
-  confirmCancelText: {
-    fontSize: 13,
-    fontWeight: "800",
-    color: "#FFFFFF",
-  },
+  confirmCancelText: { fontSize: 13, fontWeight: "800", color: "#FFFFFF" },
 });
