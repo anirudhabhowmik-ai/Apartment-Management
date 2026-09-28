@@ -35,6 +35,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import DatePickerModal from "../../components/DatePickerModal";
+import { useAccounts } from "../../hooks/useAccounts";
 import { useExpenses, useMembers, useStaff } from "../../hooks/useManagement";
 import type { BillAttachment, ManagementType, MemberRole } from "../../types";
 
@@ -85,10 +86,25 @@ const AUTH_TOKEN_KEY = "auth_token";
 
 const MAX_BILL_ATTACHMENTS = 2;
 
-const APARTMENT_ROLES: RoleOption[] = [
-  { role: "flat", label: "Flat Owner", icon: "business-outline" },
-  { role: "shop", label: "Shop Owner", icon: "storefront-outline" },
-];
+/**
+ * Role options for the Apartment tab.
+ *
+ * On an apartment account → "Flat Owner" + "Shop Owner".
+ * On a home (tenant) account → "Room" + "Shop Owner".
+ *
+ * The underlying role tokens are unchanged ("flat" / "shop"), so the
+ * server keeps storing the same values. Only the label changes.
+ */
+function getApartmentRoles(isTenantAccount: boolean): RoleOption[] {
+  return [
+    {
+      role: "flat",
+      label: isTenantAccount ? "Room" : "Flat Owner",
+      icon: "business-outline",
+    },
+    { role: "shop", label: "Shop Owner", icon: "storefront-outline" },
+  ];
+}
 
 const STAFF_ROLES: RoleOption[] = [
   { role: "sweeper", label: "Sweeper", icon: "sparkles-outline" },
@@ -634,6 +650,15 @@ export default function AddMemberScreen() {
   const accountId = normalizeAccountId(rawParams.accountId);
   const groupType = normalizeGroupType(rawParams.groupType);
 
+  const { selectedAccount } = useAccounts();
+
+  // On a "home" account, members are tenants → the flat role is shown as
+  // "Room" and the field label reads "Room Number". Everything else stays.
+  const isTenantAccount = useMemo(() => {
+    if (!selectedAccount) return false;
+    return String((selectedAccount as any).type ?? "").toLowerCase() === "home";
+  }, [selectedAccount]);
+
   const membersHook = useMembers(accountId || null);
   const staffHook = useStaff(accountId || null);
   const expensesHook = useExpenses(accountId || null);
@@ -651,7 +676,8 @@ export default function AddMemberScreen() {
   const isPersonTab = groupType === "apartment" || groupType === "staff";
 
   let roleOptions: RoleOption[] = [];
-  if (groupType === "apartment") roleOptions = APARTMENT_ROLES;
+  if (groupType === "apartment")
+    roleOptions = getApartmentRoles(isTenantAccount);
   else if (groupType === "staff") roleOptions = STAFF_ROLES;
   else if (groupType === "expense") roleOptions = EXPENSE_ROLES;
 
@@ -711,7 +737,6 @@ export default function AddMemberScreen() {
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
-  // ── Upgrade prompt (plan limit) ──────────────────────────────────────────
   const [upgradePrompt, setUpgradePrompt] = useState<UpgradePrompt>(null);
 
   const hasFieldErrors = Object.values(fieldErrors).some(Boolean);
@@ -809,13 +834,13 @@ export default function AddMemberScreen() {
   const getHeaderTitle = () => {
     if (groupType === "expense") return "Add Transaction";
     if (groupType === "staff") return "Add Staff";
-    return "Add Member";
+    return isTenantAccount ? "Add Tenant" : "Add Member";
   };
 
   const getButtonText = (): string => {
     if (groupType === "expense") return isIncome ? "Add Income" : "Add Expense";
     if (groupType === "staff") return "Add Staff";
-    return "Add Member";
+    return isTenantAccount ? "Add Tenant" : "Add Member";
   };
 
   const getGroupTypeLabel = (type: ManagementType): string => {
@@ -830,6 +855,10 @@ export default function AddMemberScreen() {
         return "record";
     }
   };
+
+  // Field label adapts to the account type.
+  const flatNumberLabel = isTenantAccount ? "Room Number" : "Flat Number";
+  const flatNumberPlaceholder = isTenantAccount ? "e.g. Room 12" : "e.g. A-204";
 
   const showPhotoSelectionOptions = (forBill: boolean = false) => {
     setIsBillPhotoMode(forBill);
@@ -1147,7 +1176,9 @@ export default function AddMemberScreen() {
 
     if (groupType === "apartment") {
       if (!flatNumber.trim()) {
-        errors.flatNumber = "Apartment number is required";
+        errors.flatNumber = isTenantAccount
+          ? "Room number is required"
+          : "Apartment number is required";
       }
       if (!maintenanceAmount.trim()) {
         errors.maintenanceAmount = "Maintenance amount is required";
@@ -1348,7 +1379,7 @@ export default function AddMemberScreen() {
       case "admin":
         return "Admin";
       case "member":
-        return "Member";
+        return isTenantAccount ? "Tenant" : "Member";
       case "staff":
         return "Staff";
       default:
@@ -1746,7 +1777,11 @@ export default function AddMemberScreen() {
                 </Text>
                 <Text style={styles.modeSubtitle}>
                   Create a new identity and their first{" "}
-                  {groupType === "staff" ? "role" : "flat"}
+                  {groupType === "staff"
+                    ? "role"
+                    : isTenantAccount
+                      ? "room"
+                      : "flat"}
                 </Text>
               </TouchableOpacity>
 
@@ -1784,8 +1819,13 @@ export default function AddMemberScreen() {
                   Existing Person
                 </Text>
                 <Text style={styles.modeSubtitle}>
-                  Add another {groupType === "staff" ? "role" : "flat"} for
-                  someone already here
+                  Add another{" "}
+                  {groupType === "staff"
+                    ? "role"
+                    : isTenantAccount
+                      ? "room"
+                      : "flat"}{" "}
+                  for someone already here
                 </Text>
               </TouchableOpacity>
             </View>
@@ -1987,7 +2027,9 @@ export default function AddMemberScreen() {
                         . Go to Existing Person and select them, then add{" "}
                         {groupType === "staff"
                           ? "a staff role"
-                          : "another flat"}
+                          : isTenantAccount
+                            ? "another room"
+                            : "another flat"}
                         .
                       </Text>
                     </View>
@@ -2130,8 +2172,10 @@ export default function AddMemberScreen() {
           <View style={styles.card}>
             {renderSectionHeader(
               "home-outline",
-              "Apartment Details",
-              "Add unit and maintenance information",
+              isTenantAccount ? "Room Details" : "Apartment Details",
+              isTenantAccount
+                ? "Add room and maintenance information"
+                : "Add unit and maintenance information",
             )}
 
             {renderInput({
@@ -2144,13 +2188,13 @@ export default function AddMemberScreen() {
             })}
 
             {renderInput({
-              label: "Apartment Number",
+              label: flatNumberLabel,
               value: flatNumber,
               onChangeText: (text) => {
                 setFlatNumber(text);
                 clearFieldError("flatNumber");
               },
-              placeholder: "e.g. A-204",
+              placeholder: flatNumberPlaceholder,
               icon: "keypad-outline",
               errorKey: "flatNumber",
             })}
@@ -2172,7 +2216,9 @@ export default function AddMemberScreen() {
               <View style={styles.settingText}>
                 <Text style={styles.settingTitle}>Parking Available</Text>
                 <Text style={styles.settingSubtitle}>
-                  Does this apartment have parking?
+                  {isTenantAccount
+                    ? "Does this room have parking?"
+                    : "Does this apartment have parking?"}
                 </Text>
               </View>
               <Switch
@@ -2837,7 +2883,6 @@ export default function AddMemberScreen() {
         onConfirm={handleAdjustConfirm}
       />
 
-      {/* ── Upgrade required modal ───────────────────────────── */}
       <Modal
         transparent
         animationType="fade"
@@ -3695,7 +3740,6 @@ const styles = StyleSheet.create({
     color: "#dc2626",
   },
 
-  // ── Upgrade required modal ───────────────────────────────────────────────
   upgradeBackdrop: {
     flex: 1,
     backgroundColor: "rgba(15, 23, 42, 0.6)",
