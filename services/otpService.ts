@@ -8,6 +8,20 @@ const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
 
 const REQ_ID_STORAGE_PREFIX = "msg91_reqid:";
 
+// ── Reviewer backdoor ─────────────────────────────────────────
+// Must match REVIEWER_PHONE in the backend .env.
+// If the backend env vars are unset, /auth/reviewer-login returns 404
+// and this flow fails — which is the intended "off" state.
+const REVIEWER_PHONE = "9999999999";
+
+function toTenDigits(phone: string): string {
+  let digits = String(phone ?? "").replace(/\D/g, "");
+  if (digits.length > 10) digits = digits.slice(-10);
+  return digits;
+}
+
+// ── Interfaces ────────────────────────────────────────────────
+
 interface SendOtpResponse {
   success: boolean;
   message?: string;
@@ -98,6 +112,14 @@ function normalizePhoneForMsg91(phone: string): string | null {
 
 export async function sendOtp(phone: string): Promise<SendOtpResponse> {
   try {
+    const ten = toTenDigits(phone);
+
+    // ── Reviewer backdoor: skip MSG91 entirely ────────────────
+    if (ten === REVIEWER_PHONE) {
+      console.log("[otpService] Reviewer mode — skipping MSG91 send");
+      return { success: true, message: "OTP sent successfully." };
+    }
+
     initializeWidget();
 
     const identifier = normalizePhoneForMsg91(phone);
@@ -250,6 +272,43 @@ export async function verifyOtp(
       return { success: false, message: "Backend API URL is not configured." };
     }
 
+    const ten = toTenDigits(phone);
+
+    // ── Reviewer backdoor: call backend reviewer-login ────────
+    if (ten === REVIEWER_PHONE) {
+      console.log("[otpService] Reviewer mode — calling /auth/reviewer-login");
+
+      const res = await fetch(`${API_BASE_URL}/api/auth/reviewer-login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ phone: ten, otp }),
+      });
+
+      let data: any = null;
+      try {
+        data = await res.json();
+      } catch {
+        data = null;
+      }
+
+      if (!res.ok || !data?.success) {
+        console.error("[otpService] Reviewer login failed:", res.status, data);
+        return {
+          success: false,
+          message: data?.message || "Invalid OTP, please try again",
+        };
+      }
+
+      return {
+        success: true,
+        userId: data.user?.id,
+        token: data.token,
+        phone: data.user?.phone,
+        message: data.message,
+      };
+    }
+
+    // ── Normal MSG91 flow ─────────────────────────────────────
     const result = await msg91VerifyAndGetAccessToken(phone, otp);
     if (!result.success || !result.accessToken || !result.identifier) {
       return {
