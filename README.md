@@ -11,10 +11,6 @@ Scan QR code
 ↓
 App opens 📱
 
-Razorpay test mode:
-Test API Key: rzp_test_TaQobfueyszOCM
-Test Key Secret: YRlPVQGTqZ9m3uVjVb23DsIq
-
 Check All Files Typescript Error
 npx tsc --noEmit
 
@@ -33,4 +29,8 @@ https://play.google.com/console/u/0/signup
 Video KYC
 https://connect.billdesk.com/videoKyc
 
+revenueCat Invitation Mail From Google Console
 revenuecat-service-account@elated-cathode-418009.iam.gserviceaccount.com
+
+Build Command
+eas build -p android --profile production

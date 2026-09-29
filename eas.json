@@ -1,6 +1,7 @@
 {
   "cli": {
-    "version": ">= 3.0.0"
+    "version": ">= 5.9.0",
+    "appVersionSource": "remote"
   },
   "build": {
     "development": {
@@ -19,6 +20,14 @@
     "production": {
       "android": {
         "buildType": "app-bundle"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_URL": "https://apartment-management-backend-production.up.railway.app/api",
+        "EXPO_PUBLIC_MSG91_WIDGET_ID": "366966727762363938373131",
+        "EXPO_PUBLIC_MSG91_WIDGET_TOKEN": "568397T7nV94F0eX6a9db9a8P1",
+        "EXPO_PUBLIC_RAZORPAY_KEY_ID": "rzp_test_TaQobfueyszOCM",
+        "EXPO_PUBLIC_REVENUECAT_ANDROID_KEY": "test_HQieXKHCjJdGbDTFTzohShAbQXZ",
+        "EXPO_PUBLIC_REVENUECAT_IOS_KEY": "appl_PLACEHOLDER"
       }
     }
   },
