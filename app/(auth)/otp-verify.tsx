@@ -5,16 +5,18 @@ import { useEffect, useRef, useState } from "react";
 import {
   Dimensions,
   KeyboardAvoidingView,
+  Modal,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  View,
+  View
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { sendOtp, verifyOtp } from "../../services/otpService";
+import { recoverAccount, sendOtp, verifyOtp } from "../../services/otpService";
 import { useAuthStore } from "../../store/useAuthStore";
 
 const { width: screenWidth } = Dimensions.get("window");
@@ -39,6 +41,251 @@ const getOtpBoxSize = () => {
   };
 };
 
+// ================================================================
+// Inline AppAlert
+// ================================================================
+
+type AlertVariant = "info" | "success" | "warning" | "error" | "question";
+
+interface AlertButton {
+  text: string;
+  onPress?: () => void;
+  style?: "default" | "cancel" | "destructive";
+}
+
+interface AlertState {
+  visible: boolean;
+  variant: AlertVariant;
+  title: string;
+  message?: string;
+  bullets?: { icon: "checkmark" | "close"; text: string }[];
+  buttons: AlertButton[];
+}
+
+const EMPTY_ALERT: AlertState = {
+  visible: false,
+  variant: "info",
+  title: "",
+  message: undefined,
+  bullets: undefined,
+  buttons: [],
+};
+
+function AppAlert({
+  state,
+  onDismiss,
+}: {
+  state: AlertState;
+  onDismiss: () => void;
+}) {
+  const { variant, title, message, bullets, buttons } = state;
+
+  const meta: Record<
+    AlertVariant,
+    { icon: keyof typeof Ionicons.glyphMap; color: string; bg: string }
+  > = {
+    info: { icon: "information-circle", color: "#2563EB", bg: "#EFF6FF" },
+    success: { icon: "checkmark-circle", color: "#16A34A", bg: "#F0FDF4" },
+    warning: { icon: "warning", color: "#D97706", bg: "#FEF3C7" },
+    error: { icon: "close-circle", color: "#DC2626", bg: "#FEF2F2" },
+    question: { icon: "help-circle", color: "#7C3AED", bg: "#F5F3FF" },
+  };
+
+  const m = meta[variant];
+
+  const handlePress = (btn: AlertButton) => {
+    onDismiss();
+    if (btn.onPress) setTimeout(btn.onPress, 0);
+  };
+
+  const hasTwo = buttons.length === 2;
+  const isStacked = buttons.length > 2;
+
+  return (
+    <Modal
+      transparent
+      visible={state.visible}
+      animationType="fade"
+      onRequestClose={onDismiss}
+      statusBarTranslucent
+    >
+      <Pressable style={alertStyles.backdrop} onPress={onDismiss}>
+        <Pressable
+          style={alertStyles.card}
+          onPress={(e) => e.stopPropagation()}
+        >
+          <View style={[alertStyles.iconCircle, { backgroundColor: m.bg }]}>
+            <Ionicons name={m.icon} size={30} color={m.color} />
+          </View>
+
+          <Text style={alertStyles.title}>{title}</Text>
+
+          {message ? <Text style={alertStyles.message}>{message}</Text> : null}
+
+          {bullets && bullets.length > 0 ? (
+            <View style={alertStyles.bulletsContainer}>
+              {bullets.map((b, idx) => (
+                <View key={idx} style={alertStyles.bulletRow}>
+                  <Ionicons
+                    name={
+                      b.icon === "checkmark"
+                        ? "checkmark-circle"
+                        : "close-circle"
+                    }
+                    size={16}
+                    color={b.icon === "checkmark" ? "#16A34A" : "#DC2626"}
+                  />
+                  <Text style={alertStyles.bulletText}>{b.text}</Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
+
+          <View
+            style={[
+              alertStyles.actions,
+              isStacked && alertStyles.actionsStacked,
+            ]}
+          >
+            {buttons.map((btn, idx) => {
+              const isDestructive = btn.style === "destructive";
+              const isCancel = btn.style === "cancel";
+              const isPrimary = !isDestructive && !isCancel;
+
+              return (
+                <Pressable
+                  key={`${btn.text}-${idx}`}
+                  onPress={() => handlePress(btn)}
+                  style={({ pressed }) => [
+                    alertStyles.button,
+                    hasTwo && alertStyles.buttonHalf,
+                    isStacked && alertStyles.buttonFull,
+                    isCancel && alertStyles.buttonCancel,
+                    isDestructive && alertStyles.buttonDestructive,
+                    isPrimary && alertStyles.buttonPrimary,
+                    pressed && { opacity: 0.85 },
+                  ]}
+                >
+                  <Text
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.85}
+                    style={[
+                      alertStyles.buttonText,
+                      isCancel && alertStyles.buttonTextCancel,
+                      isDestructive && alertStyles.buttonTextDestructive,
+                      isPrimary && alertStyles.buttonTextPrimary,
+                    ]}
+                  >
+                    {btn.text}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+const alertStyles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 24,
+  },
+  card: {
+    width: "100%",
+    maxWidth: 400,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    paddingHorizontal: 22,
+    paddingTop: 24,
+    paddingBottom: 18,
+    alignItems: "center",
+  },
+  iconCircle: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+  title: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: "#0F172A",
+    textAlign: "center",
+  },
+  message: {
+    fontSize: 13.5,
+    lineHeight: 20,
+    color: "#64748B",
+    textAlign: "center",
+    marginTop: 8,
+    maxWidth: 340,
+  },
+  bulletsContainer: {
+    width: "100%",
+    marginTop: 14,
+    marginBottom: 2,
+    gap: 8,
+  },
+  bulletRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  bulletText: {
+    flex: 1,
+    fontSize: 13,
+    color: "#334155",
+  },
+  actions: {
+    flexDirection: "row",
+    width: "100%",
+    marginTop: 20,
+    justifyContent: "center",
+    gap: 10,
+  },
+  actionsStacked: { flexDirection: "column", gap: 8 },
+  button: {
+    minHeight: 48,
+    minWidth: 110,
+    paddingHorizontal: 16,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  buttonHalf: { flex: 1, minWidth: 0, flexShrink: 1 },
+  buttonFull: { width: "100%" },
+  buttonCancel: {
+    backgroundColor: "#F1F5F9",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  buttonDestructive: { backgroundColor: "#DC2626" },
+  buttonPrimary: { backgroundColor: "#2563EB" },
+  buttonText: {
+    fontSize: 13.5,
+    fontWeight: "800",
+    textAlign: "center",
+    flexShrink: 1,
+  },
+  buttonTextCancel: { color: "#475569" },
+  buttonTextDestructive: { color: "#FFFFFF" },
+  buttonTextPrimary: { color: "#FFFFFF" },
+});
+
+// ================================================================
+// SCREEN
+// ================================================================
+
 export default function OtpVerifyScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -56,6 +303,22 @@ export default function OtpVerifyScreen() {
 
   const inputRefs = useRef<Array<TextInput | null>>([]);
   const otpRef = useRef<string[]>(Array(OTP_LENGTH).fill(""));
+
+  // Last 6-digit code entered — used for account recovery
+  const lastCodeRef = useRef<string>("");
+
+  // Recovery token issued by the backend when it detects a deleted account
+  const lastRecoveryTokenRef = useRef<string | null>(null);
+
+  // Alert state
+  const [alertState, setAlertState] = useState<AlertState>(EMPTY_ALERT);
+
+  const showAlert = (
+    opts: Omit<AlertState, "visible"> & { visible?: boolean },
+  ) => {
+    setAlertState({ ...opts, visible: true });
+  };
+  const dismissAlert = () => setAlertState(EMPTY_ALERT);
 
   const otpBoxSize = getOtpBoxSize();
 
@@ -88,15 +351,6 @@ export default function OtpVerifyScreen() {
     inputRefs.current[0]?.focus();
   };
 
-  /**
-   * Save authenticated user and JWT, then hand control to the root
-   * index route. The root route is where the "do we have accounts?"
-   * decision is made — after `useAccounts` has actually fetched them.
-   *
-   * Previously this function read `accounts.length` from a hook whose
-   * fetch had not yet run for the new session, so it always saw `[]`
-   * and wrongly routed every user to add-account.
-   */
   const completeLogin = async (
     userId: string,
     token: string,
@@ -107,12 +361,6 @@ export default function OtpVerifyScreen() {
       return;
     }
 
-    /*
-     * Store the application JWT securely.
-     *
-     * Do NOT store this JWT in PostgreSQL.
-     * Do NOT store it in AsyncStorage.
-     */
     await SecureStore.setItemAsync("auth_token", token);
 
     const phone = returnedPhone || `+91${pendingPhone}`;
@@ -124,10 +372,6 @@ export default function OtpVerifyScreen() {
 
     setPendingPhone(null);
 
-    // Hand off to the root index route. That route waits for
-    // useAccounts().hasLoaded before deciding where to send the user,
-    // so the decision is made against the real account list rather
-    // than a stale, pre-fetch empty array.
     router.replace("/");
   };
 
@@ -142,6 +386,7 @@ export default function OtpVerifyScreen() {
     }
 
     const code = otpArray.join("");
+    lastCodeRef.current = code;
 
     if (code.length !== OTP_LENGTH) {
       setError("Please enter the complete OTP");
@@ -154,21 +399,144 @@ export default function OtpVerifyScreen() {
     try {
       const result = await verifyOtp(`+91${pendingPhone}`, code);
 
+      // ── Special case: account was deleted → offer recovery ──
+      if (!result.success && result.code === "account_deleted") {
+        // Save the recovery token so handleRecover can use it
+        lastRecoveryTokenRef.current = result.recoveryToken ?? null;
+
+        setLoading(false);
+        showAlert({
+          variant: "warning",
+          title: "Account Found — Deleted",
+          message:
+            `The number +91 ${pendingPhone} was used for an account ` +
+            `that has been deleted.\n\nDo you want to recover it?`,
+          bullets: [
+            { icon: "checkmark", text: "Your login with this number" },
+            { icon: "close", text: "Your old properties and data" },
+            { icon: "close", text: "Your memberships and records" },
+          ],
+          buttons: [
+            {
+              text: "Cancel",
+              style: "cancel",
+              onPress: () => {
+                lastRecoveryTokenRef.current = null;
+                clearOtp();
+              },
+            },
+            {
+              text: "Recover",
+              onPress: () => {
+                handleRecover();
+              },
+            },
+          ],
+        });
+        return;
+      }
+
       if (result.success && result.userId && result.token) {
         await completeLogin(result.userId, result.token, result.phone);
-
         return;
       }
 
       setError(result.message || "Invalid OTP, please try again");
-
       clearOtp();
     } catch (error) {
       console.error("OTP verification error:", error);
-
       setError("Unable to verify OTP. Please try again.");
-
       clearOtp();
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleRecover = async () => {
+    const recoveryToken = lastRecoveryTokenRef.current;
+
+    if (!recoveryToken) {
+      setError("Recovery session expired. Please start again.");
+      return;
+    }
+
+    setLoading(true);
+    setError("");
+
+    try {
+      const result = await recoverAccount(recoveryToken);
+
+      if (result.success && result.userId && result.token) {
+        lastRecoveryTokenRef.current = null;
+        showAlert({
+          variant: "success",
+          title: "Welcome Back",
+          message:
+            "Your account has been recovered. You're starting with a " +
+            "fresh account — no old properties or data.",
+          buttons: [
+            {
+              text: "Let's Go",
+              onPress: async () => {
+                await completeLogin(
+                  result.userId!,
+                  result.token!,
+                  result.phone,
+                );
+              },
+            },
+          ],
+        });
+        return;
+      }
+
+      showAlert({
+        variant: "error",
+        title: "Couldn't Recover",
+        message:
+          result.message ||
+          "Something went wrong while trying to recover your account. " +
+            "Please try again in a moment.",
+        buttons: [
+          {
+            text: "Cancel",
+            style: "cancel",
+            onPress: () => {
+              lastRecoveryTokenRef.current = null;
+              clearOtp();
+            },
+          },
+          {
+            text: "Try Again",
+            onPress: () => {
+              handleRecover();
+            },
+          },
+        ],
+      });
+    } catch (error) {
+      console.error("recoverAccount error:", error);
+      showAlert({
+        variant: "error",
+        title: "Couldn't Recover",
+        message: "Network error. Please try again.",
+        buttons: [
+          {
+            text: "Cancel",
+            style: "cancel",
+            onPress: () => {
+              lastRecoveryTokenRef.current = null;
+              clearOtp();
+            },
+          },
+          {
+            text: "Try Again",
+            onPress: () => {
+              handleRecover();
+            },
+          },
+        ],
+      });
     } finally {
       setLoading(false);
     }
@@ -228,7 +596,6 @@ export default function OtpVerifyScreen() {
 
       if (!result.success) {
         setError(result.message || "Unable to resend OTP.");
-
         return;
       }
 
@@ -236,7 +603,6 @@ export default function OtpVerifyScreen() {
       clearOtp();
     } catch (error) {
       console.error("Resend OTP error:", error);
-
       setError("Unable to resend OTP. Please try again.");
     } finally {
       setLoading(false);
@@ -409,6 +775,8 @@ export default function OtpVerifyScreen() {
           </View>
         </View>
       </ScrollView>
+
+      <AppAlert state={alertState} onDismiss={dismissAlert} />
     </KeyboardAvoidingView>
   );
 }

@@ -58,6 +58,10 @@ interface AlertState {
   title: string;
   message?: string;
   buttons: AlertButton[];
+  /** When set, renders a checkbox. Destructive buttons stay disabled until checked. */
+  checkboxLabel?: string;
+  checkboxChecked?: boolean;
+  onCheckboxChange?: (checked: boolean) => void;
 }
 
 const EMPTY_ALERT: AlertState = {
@@ -75,7 +79,7 @@ function AppAlert({
   state: AlertState;
   onDismiss: () => void;
 }) {
-  const { variant, title, message, buttons } = state;
+  const { variant, title, message, buttons, checkboxLabel } = state;
 
   const meta: Record<
     AlertVariant,
@@ -91,6 +95,13 @@ function AppAlert({
   const m = meta[variant];
 
   const handlePress = (btn: AlertButton) => {
+    if (
+      btn.style === "destructive" &&
+      checkboxLabel &&
+      !state.checkboxChecked
+    ) {
+      return;
+    }
     onDismiss();
     if (btn.onPress) setTimeout(btn.onPress, 0);
   };
@@ -123,6 +134,27 @@ function AppAlert({
             <Text style={inlineAlertStyles.message}>{message}</Text>
           ) : null}
 
+          {checkboxLabel ? (
+            <Pressable
+              style={inlineAlertStyles.checkboxRow}
+              onPress={() => state.onCheckboxChange?.(!state.checkboxChecked)}
+            >
+              <View
+                style={[
+                  inlineAlertStyles.checkbox,
+                  state.checkboxChecked && inlineAlertStyles.checkboxChecked,
+                ]}
+              >
+                {state.checkboxChecked ? (
+                  <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+                ) : null}
+              </View>
+              <Text style={inlineAlertStyles.checkboxLabel}>
+                {checkboxLabel}
+              </Text>
+            </Pressable>
+          ) : null}
+
           <View
             style={[
               inlineAlertStyles.actions,
@@ -133,11 +165,14 @@ function AppAlert({
               const isDestructive = btn.style === "destructive";
               const isCancel = btn.style === "cancel";
               const isPrimary = !isDestructive && !isCancel;
+              const isDisabled =
+                isDestructive && !!checkboxLabel && !state.checkboxChecked;
 
               return (
                 <Pressable
                   key={`${btn.text}-${idx}`}
                   onPress={() => handlePress(btn)}
+                  disabled={isDisabled}
                   style={({ pressed }) => [
                     inlineAlertStyles.button,
                     hasTwo && inlineAlertStyles.buttonHalf,
@@ -145,7 +180,8 @@ function AppAlert({
                     isCancel && inlineAlertStyles.buttonCancel,
                     isDestructive && inlineAlertStyles.buttonDestructive,
                     isPrimary && inlineAlertStyles.buttonPrimary,
-                    pressed && { opacity: 0.85 },
+                    isDisabled && { opacity: 0.4 },
+                    pressed && !isDisabled && { opacity: 0.85 },
                   ]}
                 >
                   <Text
@@ -177,6 +213,9 @@ function useAppAlert() {
       title: string;
       message?: string;
       buttons?: AlertButton[];
+      checkboxLabel?: string;
+      checkboxChecked?: boolean;
+      onCheckboxChange?: (checked: boolean) => void;
     }) => {
       setState({
         visible: true,
@@ -187,14 +226,21 @@ function useAppAlert() {
           opts.buttons && opts.buttons.length > 0
             ? opts.buttons
             : [{ text: "OK", style: "default" }],
+        checkboxLabel: opts.checkboxLabel,
+        checkboxChecked: opts.checkboxChecked ?? false,
+        onCheckboxChange: opts.onCheckboxChange,
       });
     },
     [],
   );
 
+  const setCheckbox = useCallback((checked: boolean) => {
+    setState((prev) => ({ ...prev, checkboxChecked: checked }));
+  }, []);
+
   const dismiss = useCallback(() => setState(EMPTY_ALERT), []);
 
-  return { state, show, dismiss };
+  return { state, show, dismiss, setCheckbox };
 }
 
 const inlineAlertStyles = StyleSheet.create({
@@ -237,6 +283,40 @@ const inlineAlertStyles = StyleSheet.create({
     marginTop: 8,
     maxWidth: 320,
   },
+  checkboxRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    width: "100%",
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 16,
+    gap: 10,
+  },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: "#CBD5E1",
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  checkboxChecked: {
+    backgroundColor: "#DC2626",
+    borderColor: "#DC2626",
+  },
+  checkboxLabel: {
+    flex: 1,
+    fontSize: 12.5,
+    color: "#334155",
+    lineHeight: 17,
+    fontWeight: "600",
+  },
   actions: {
     flexDirection: "row",
     width: "100%",
@@ -247,13 +327,14 @@ const inlineAlertStyles = StyleSheet.create({
   actionsStacked: { flexDirection: "column", gap: 8 },
   button: {
     minHeight: 48,
-    minWidth: 120,
-    paddingHorizontal: 20,
+    minWidth: 110,
+    paddingHorizontal: 12,
     borderRadius: 13,
     alignItems: "center",
     justifyContent: "center",
+    flexShrink: 0,
   },
-  buttonHalf: { flex: 1, minWidth: 0 },
+  buttonHalf: { flex: 1, minWidth: 0, flexShrink: 1 },
   buttonFull: { width: "100%" },
   buttonCancel: {
     backgroundColor: "#F1F5F9",
@@ -262,7 +343,12 @@ const inlineAlertStyles = StyleSheet.create({
   },
   buttonDestructive: { backgroundColor: "#DC2626" },
   buttonPrimary: { backgroundColor: "#2563EB" },
-  buttonText: { fontSize: 14.5, fontWeight: "800" },
+  buttonText: {
+    fontSize: 13.5,
+    fontWeight: "800",
+    textAlign: "center",
+    flexShrink: 1,
+  },
   buttonTextCancel: { color: "#475569" },
   buttonTextDestructive: { color: "#FFFFFF" },
   buttonTextPrimary: { color: "#FFFFFF" },
@@ -277,7 +363,6 @@ const API_URL = (
 
 // ============================================================================
 // PUBLIC LEGAL URLS (GitHub Pages)
-// Replace YOUR-USERNAME with your GitHub handle.
 // ============================================================================
 const LEGAL_URLS = {
   privacy:
@@ -1127,6 +1212,28 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
 
+  // ── DELETE ACCOUNT BUTTON (new) ─────────────────────────────
+  deleteAccountButton: {
+    marginTop: 10,
+    marginBottom: 6,
+    minHeight: 54,
+    borderRadius: 16,
+    backgroundColor: "#FEF2F2",
+    borderWidth: 1.5,
+    borderColor: "#FECACA",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+    paddingHorizontal: 18,
+  },
+  deleteAccountButtonText: {
+    color: "#DC2626",
+    fontSize: 15,
+    fontWeight: "800",
+    letterSpacing: 0.2,
+  },
+
   subscriptionCard: {
     backgroundColor: "#0F1E33",
     borderRadius: 20,
@@ -1745,6 +1852,9 @@ export default function ProfileTabScreen(): React.ReactElement {
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
   const [withdrawSubmitting, setWithdrawSubmitting] = useState(false);
 
+  // ── Delete Account state ──────────────────────────────────────────
+  const [deletingAccount, setDeletingAccount] = useState(false);
+
   useEffect(() => {
     refreshProfile().catch(() => {});
   }, [refreshProfile]);
@@ -1977,6 +2087,96 @@ export default function ProfileTabScreen(): React.ReactElement {
     }
   };
 
+  // ── Delete Account handler (new) ──────────────────────────────────
+  const handleDeleteAccount = () => {
+    showAlert({
+      variant: "error",
+      title: "Delete Account?",
+      message:
+        "This will permanently delete your account. Any properties " +
+        "you own will also be deleted along with all their members, " +
+        "staff, bills, and expenses.\n\n" +
+        "You will be logged out. You can recover your account later " +
+        "by logging in again with the same number — but your old data " +
+        "will not come back.",
+      checkboxLabel: "I understand this cannot be undone",
+      checkboxChecked: false,
+      onCheckboxChange: (checked) => alert.setCheckbox(checked),
+      buttons: [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete Account",
+          style: "destructive",
+          onPress: performDeleteAccount,
+        },
+      ],
+    });
+  };
+
+  const performDeleteAccount = async () => {
+    setDeletingAccount(true);
+
+    try {
+      const token = await getAuthToken();
+      if (!token) {
+        showAlert({
+          variant: "error",
+          title: "Not signed in",
+          message: "Please log in again.",
+        });
+        setDeletingAccount(false);
+        return;
+      }
+
+      const res = await fetch(`${API_URL}/api/auth/me`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        showAlert({
+          variant: "error",
+          title: "Couldn't Delete Account",
+          message:
+            data?.message ||
+            "Something went wrong. Please try again in a moment.",
+        });
+        setDeletingAccount(false);
+        return;
+      }
+
+      showAlert({
+        variant: "success",
+        title: "Account Deleted",
+        message:
+          "Your account has been deleted. If you change your mind, " +
+          "you can recover it by logging in again with the same " +
+          "number.\n\n" +
+          "Your properties, members, and bills are gone forever.",
+        buttons: [
+          {
+            text: "OK",
+            onPress: async () => {
+              await SecureStore.deleteItemAsync("auth_token").catch(() => {});
+              await logout().catch(() => {});
+              router.replace("/(auth)/login");
+            },
+          },
+        ],
+      });
+    } catch (err) {
+      console.error("deleteAccount error:", err);
+      showAlert({
+        variant: "error",
+        title: "Network Error",
+        message: "Please check your connection and try again.",
+      });
+      setDeletingAccount(false);
+    }
+  };
+
   const handlePhoneRowPress = () => {
     if (isOwner) {
       router.push("/(modals)/account-profile");
@@ -2091,7 +2291,6 @@ export default function ProfileTabScreen(): React.ReactElement {
       const token = await getAuthToken();
       if (!token) throw new Error("Not signed in");
 
-      // ── Free plan downgrade: no payment, just persist ────────────────
       if (plan.id === "free" || amount === 0) {
         const body: any = { plan_id: plan.id, billing_period: period };
 
@@ -2120,7 +2319,6 @@ export default function ProfileTabScreen(): React.ReactElement {
         return;
       }
 
-      // ── RevenueCat (Android / iOS) ───────────────────────────────────
       if (source === "revenuecat") {
         setActivePlan(plan.id);
         setActivePlanPeriod(period);
@@ -2139,7 +2337,6 @@ export default function ProfileTabScreen(): React.ReactElement {
         return;
       }
 
-      // ── Razorpay (web) ───────────────────────────────────────────────
       const body: any = { plan_id: plan.id, billing_period: period };
 
       if (!paymentId || !signature || !orderId) {
@@ -3197,6 +3394,25 @@ export default function ProfileTabScreen(): React.ReactElement {
         >
           <Ionicons name="log-out-outline" size={20} color="#FFFFFF" />
           <Text style={styles.logoutButtonText}>Log Out</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.deleteAccountButton,
+            deletingAccount && { opacity: 0.5 },
+          ]}
+          onPress={handleDeleteAccount}
+          disabled={deletingAccount}
+          activeOpacity={0.85}
+        >
+          {deletingAccount ? (
+            <ActivityIndicator size="small" color="#DC2626" />
+          ) : (
+            <Ionicons name="trash-outline" size={20} color="#DC2626" />
+          )}
+          <Text style={styles.deleteAccountButtonText}>
+            {deletingAccount ? "Deleting…" : "Delete Account"}
+          </Text>
         </TouchableOpacity>
 
         <View style={styles.footer}>

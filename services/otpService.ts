@@ -8,10 +8,7 @@ const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
 
 const REQ_ID_STORAGE_PREFIX = "msg91_reqid:";
 
-// ── Reviewer backdoor ─────────────────────────────────────────
-// Must match REVIEWER_PHONE in the backend .env.
-// If the backend env vars are unset, /auth/reviewer-login returns 404
-// and this flow fails — which is the intended "off" state.
+// Must match backend REVIEWER_PHONE.
 const REVIEWER_PHONE = "9999999999";
 
 function toTenDigits(phone: string): string {
@@ -19,8 +16,6 @@ function toTenDigits(phone: string): string {
   if (digits.length > 10) digits = digits.slice(-10);
   return digits;
 }
-
-// ── Interfaces ────────────────────────────────────────────────
 
 interface SendOtpResponse {
   success: boolean;
@@ -33,6 +28,8 @@ interface VerifyOtpResponse {
   token?: string;
   phone?: string;
   message?: string;
+  code?: "account_deleted" | string;
+  recoveryToken?: string;
 }
 
 export interface VerifyOtpOnlyResponse {
@@ -44,7 +41,6 @@ export interface VerifyOtpOnlyResponse {
 
 let widgetInitialized = false;
 
-// ── Per-phone reqId cache ─────────────────────────────────────
 const reqIdByPhone: Record<string, string> = {};
 
 function storageKey(identifier: string) {
@@ -83,8 +79,6 @@ async function clearReqId(identifier: string) {
   }
 }
 
-// ── Helpers ───────────────────────────────────────────────────
-
 function getMsg91ErrorMessage(message?: unknown): string {
   if (typeof message === "string" && message.trim()) return message;
   return "Unable to process OTP. Please try again.";
@@ -108,13 +102,10 @@ function normalizePhoneForMsg91(phone: string): string | null {
   return digits;
 }
 
-// ── Send OTP ──────────────────────────────────────────────────
-
 export async function sendOtp(phone: string): Promise<SendOtpResponse> {
   try {
     const ten = toTenDigits(phone);
 
-    // ── Reviewer backdoor: skip MSG91 entirely ────────────────
     if (ten === REVIEWER_PHONE) {
       console.log("[otpService] Reviewer mode — skipping MSG91 send");
       return { success: true, message: "OTP sent successfully." };
@@ -155,8 +146,6 @@ export async function sendOtp(phone: string): Promise<SendOtpResponse> {
     return { success: false, message: "Unable to send OTP. Please try again." };
   }
 }
-
-// ── Internal MSG91 verify ─────────────────────────────────────
 
 async function msg91VerifyAndGetAccessToken(
   phone: string,
@@ -230,8 +219,6 @@ async function msg91VerifyAndGetAccessToken(
   };
 }
 
-// ── verifyOtpOnly (phone change / ownership transfer) ────────
-
 export async function verifyOtpOnly(
   phone: string,
   otp: string,
@@ -260,8 +247,6 @@ export async function verifyOtpOnly(
   }
 }
 
-// ── verifyOtp (login) ────────────────────────────────────────
-
 export async function verifyOtp(
   phone: string,
   otp: string,
@@ -274,11 +259,10 @@ export async function verifyOtp(
 
     const ten = toTenDigits(phone);
 
-    // ── Reviewer backdoor: call backend reviewer-login ────────
     if (ten === REVIEWER_PHONE) {
       console.log("[otpService] Reviewer mode — calling /auth/reviewer-login");
 
-      const res = await fetch(`${API_BASE_URL}/api/auth/reviewer-login`, {
+      const res = await fetch(`${API_BASE_URL}/auth/reviewer-login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ phone: ten, otp }),
@@ -308,7 +292,6 @@ export async function verifyOtp(
       };
     }
 
-    // ── Normal MSG91 flow ─────────────────────────────────────
     const result = await msg91VerifyAndGetAccessToken(phone, otp);
     if (!result.success || !result.accessToken || !result.identifier) {
       return {
@@ -331,6 +314,19 @@ export async function verifyOtp(
       backendData = await backendResponse.json();
     } catch {
       backendData = null;
+    }
+
+    if (backendData?.code === "account_deleted") {
+      await clearReqId(result.identifier);
+      return {
+        success: false,
+        code: "account_deleted",
+        phone: backendData.phone ?? ten,
+        recoveryToken: backendData.recoveryToken,
+        message:
+          backendData.message ||
+          "This account was deleted. You can recover it.",
+      };
     }
 
     if (!backendResponse.ok || !backendData?.success) {
@@ -360,6 +356,63 @@ export async function verifyOtp(
     return {
       success: false,
       message: "Unable to verify OTP. Please try again.",
+    };
+  }
+}
+
+/**
+ * Recover a previously deleted account.
+ *
+ * The backend already verified the OTP in the previous `verifyOtp`
+ * call and returned a short-lived `recoveryToken`. We simply POST
+ * that token to /auth/recover — no MSG91 re-verification needed.
+ */
+export async function recoverAccount(
+  recoveryToken: string,
+): Promise<VerifyOtpResponse> {
+  try {
+    if (!API_BASE_URL) {
+      console.error("[otpService] EXPO_PUBLIC_API_URL missing.");
+      return { success: false, message: "Backend API URL is not configured." };
+    }
+    if (!recoveryToken) {
+      return { success: false, message: "Recovery session expired." };
+    }
+
+    const res = await fetch(`${API_BASE_URL}/auth/recover`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ recoveryToken }),
+    });
+
+    let data: any = null;
+    try {
+      data = await res.json();
+    } catch {
+      data = null;
+    }
+
+    if (!res.ok || !data?.success) {
+      console.error("[otpService] recoverAccount failed:", res.status, data);
+      return {
+        success: false,
+        message:
+          data?.message || "Could not recover account. Please try again.",
+      };
+    }
+
+    return {
+      success: true,
+      userId: data.user?.id,
+      token: data.token,
+      phone: data.user?.phone,
+      message: data.message,
+    };
+  } catch (error) {
+    console.error("[otpService] recoverAccount error:", error);
+    return {
+      success: false,
+      message: "Unable to recover account. Please try again.",
     };
   }
 }

@@ -87,9 +87,8 @@ interface ApiMyInvitation {
   current_role?: string | null;
 }
 
-// A merged invite — one person, one apartment, one or more roles.
 interface GroupedInvitation {
-  key: string; // `${account_id}:${phone}`
+  key: string;
   account_id: string;
   account_name: string;
   account_photo_url: string | null;
@@ -234,6 +233,276 @@ const ACCESS_LEVEL_INFO = {
     ],
   },
 };
+
+// ================================================================
+// INLINE CUSTOM ALERT
+// ================================================================
+
+type AlertVariant = "info" | "success" | "warning" | "error" | "question";
+
+interface AlertButton {
+  text: string;
+  onPress?: () => void;
+  style?: "default" | "cancel" | "destructive";
+}
+
+interface AlertState {
+  visible: boolean;
+  variant: AlertVariant;
+  title: string;
+  message?: string;
+  buttons: AlertButton[];
+  /** When set, renders a checkbox. Delete button disabled until checked. */
+  checkboxLabel?: string;
+  checkboxChecked?: boolean;
+  onCheckboxChange?: (checked: boolean) => void;
+}
+
+const EMPTY_ALERT: AlertState = {
+  visible: false,
+  variant: "info",
+  title: "",
+  message: undefined,
+  buttons: [],
+};
+
+function AppAlert({
+  state,
+  onDismiss,
+}: {
+  state: AlertState;
+  onDismiss: () => void;
+}) {
+  const { variant, title, message, buttons, checkboxLabel } = state;
+
+  const meta: Record<
+    AlertVariant,
+    { icon: keyof typeof Ionicons.glyphMap; color: string; bg: string }
+  > = {
+    info: { icon: "information-circle", color: "#2563EB", bg: "#EFF6FF" },
+    success: { icon: "checkmark-circle", color: "#16A34A", bg: "#F0FDF4" },
+    warning: { icon: "warning", color: "#D97706", bg: "#FEF3C7" },
+    error: { icon: "close-circle", color: "#DC2626", bg: "#FEF2F2" },
+    question: { icon: "help-circle", color: "#7C3AED", bg: "#F5F3FF" },
+  };
+
+  const m = meta[variant];
+
+  const handlePress = (btn: AlertButton) => {
+    // Block destructive button when checkbox isn't checked
+    if (
+      btn.style === "destructive" &&
+      checkboxLabel &&
+      !state.checkboxChecked
+    ) {
+      return;
+    }
+    onDismiss();
+    if (btn.onPress) setTimeout(btn.onPress, 0);
+  };
+
+  const hasTwo = buttons.length === 2;
+  const isStacked = buttons.length > 2;
+
+  return (
+    <Modal
+      transparent
+      visible={state.visible}
+      animationType="fade"
+      onRequestClose={onDismiss}
+      statusBarTranslucent
+    >
+      <Pressable style={alertStyles.backdrop} onPress={onDismiss}>
+        <Pressable
+          style={alertStyles.card}
+          onPress={(e) => e.stopPropagation()}
+        >
+          <View style={[alertStyles.iconCircle, { backgroundColor: m.bg }]}>
+            <Ionicons name={m.icon} size={30} color={m.color} />
+          </View>
+
+          <Text style={alertStyles.title}>{title}</Text>
+
+          {message ? <Text style={alertStyles.message}>{message}</Text> : null}
+
+          {checkboxLabel ? (
+            <Pressable
+              style={alertStyles.checkboxRow}
+              onPress={() => state.onCheckboxChange?.(!state.checkboxChecked)}
+            >
+              <View
+                style={[
+                  alertStyles.checkbox,
+                  state.checkboxChecked && alertStyles.checkboxChecked,
+                ]}
+              >
+                {state.checkboxChecked ? (
+                  <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+                ) : null}
+              </View>
+              <Text style={alertStyles.checkboxLabel}>{checkboxLabel}</Text>
+            </Pressable>
+          ) : null}
+
+          <View
+            style={[
+              alertStyles.actions,
+              isStacked && alertStyles.actionsStacked,
+            ]}
+          >
+            {buttons.map((btn, idx) => {
+              const isDestructive = btn.style === "destructive";
+              const isCancel = btn.style === "cancel";
+              const isPrimary = !isDestructive && !isCancel;
+              const isDisabled =
+                isDestructive && !!checkboxLabel && !state.checkboxChecked;
+
+              return (
+                <Pressable
+                  key={`${btn.text}-${idx}`}
+                  onPress={() => handlePress(btn)}
+                  disabled={isDisabled}
+                  style={({ pressed }) => [
+                    alertStyles.button,
+                    hasTwo && alertStyles.buttonHalf,
+                    isStacked && alertStyles.buttonFull,
+                    isCancel && alertStyles.buttonCancel,
+                    isDestructive && alertStyles.buttonDestructive,
+                    isPrimary && alertStyles.buttonPrimary,
+                    isDisabled && { opacity: 0.4 },
+                    pressed && !isDisabled && { opacity: 0.85 },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      alertStyles.buttonText,
+                      isCancel && alertStyles.buttonTextCancel,
+                      isDestructive && alertStyles.buttonTextDestructive,
+                      isPrimary && alertStyles.buttonTextPrimary,
+                    ]}
+                  >
+                    {btn.text}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+const alertStyles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: "rgba(15, 23, 42, 0.6)",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 24,
+  },
+  card: {
+    width: "100%",
+    maxWidth: 400,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    paddingHorizontal: 22,
+    paddingTop: 24,
+    paddingBottom: 18,
+    alignItems: "center",
+  },
+  iconCircle: {
+    width: 62,
+    height: 62,
+    borderRadius: 31,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: 14,
+  },
+  title: {
+    fontSize: 17,
+    fontWeight: "800",
+    color: "#0F172A",
+    textAlign: "center",
+  },
+  message: {
+    fontSize: 13.5,
+    lineHeight: 20,
+    color: "#64748B",
+    textAlign: "center",
+    marginTop: 8,
+    maxWidth: 340,
+  },
+  checkboxRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    width: "100%",
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+    borderRadius: 12,
+    padding: 12,
+    marginTop: 16,
+    gap: 10,
+  },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: "#CBD5E1",
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  checkboxChecked: {
+    backgroundColor: "#DC2626",
+    borderColor: "#DC2626",
+  },
+  checkboxLabel: {
+    flex: 1,
+    fontSize: 12.5,
+    color: "#334155",
+    lineHeight: 17,
+    fontWeight: "600",
+  },
+  actions: {
+    flexDirection: "row",
+    width: "100%",
+    marginTop: 20,
+    justifyContent: "center",
+    gap: 10,
+  },
+  actionsStacked: { flexDirection: "column", gap: 8 },
+  button: {
+    minHeight: 48,
+    minWidth: 110,
+    paddingHorizontal: 12,
+    borderRadius: 13,
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 0,
+  },
+  buttonHalf: { flex: 1, minWidth: 0, flexShrink: 1 },
+  buttonFull: { width: "100%" },
+  buttonCancel: {
+    backgroundColor: "#F1F5F9",
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  buttonDestructive: { backgroundColor: "#DC2626" },
+  buttonPrimary: { backgroundColor: "#2563EB" },
+  buttonText: {
+    fontSize: 13.5,
+    fontWeight: "800",
+    textAlign: "center",
+    flexShrink: 1,
+  },
+  buttonTextCancel: { color: "#475569" },
+  buttonTextDestructive: { color: "#FFFFFF" },
+  buttonTextPrimary: { color: "#FFFFFF" },
+});
 
 // ---------------------------------------------------------------------------
 // Photo Adjust Modal
@@ -795,6 +1064,17 @@ export default function AddAccountScreen() {
   );
   const [showAccessInfo, setShowAccessInfo] = useState(false);
 
+  // ── Delete Account state ────────────────────────────────────────────
+  const [deletingAccount, setDeletingAccount] = useState(false);
+  const [deleteAcknowledged, setDeleteAcknowledged] = useState(false);
+
+  // ── Custom alert state ──────────────────────────────────────────────
+  const [alertState, setAlertState] = useState<AlertState>(EMPTY_ALERT);
+  const showAlert = (opts: Omit<AlertState, "visible">) => {
+    setAlertState({ ...opts, visible: true });
+  };
+  const dismissAlert = () => setAlertState(EMPTY_ALERT);
+
   // ── Server-side invitations ──────────────────────────────────────────
   const [invitations, setInvitations] = useState<ApiMyInvitation[]>([]);
   const [invitationsLoading, setInvitationsLoading] = useState(false);
@@ -819,8 +1099,6 @@ export default function AddAccountScreen() {
         ? data.invitations
         : [];
 
-      // Hide invites for accounts where the user already has an active role.
-      // Those are surfaced as banners on the home page instead.
       const visible = raw.filter((r) => !r.current_role);
       setInvitations(visible);
     } catch (e) {
@@ -837,7 +1115,6 @@ export default function AddAccountScreen() {
 
   const pendingInvitations = invitations;
 
-  // ── Group by (account_id + invited_phone) — this is what fixes the bug ──
   const groupedInvitations: GroupedInvitation[] = useMemo(() => {
     const byKey = new Map<string, GroupedInvitation>();
 
@@ -872,8 +1149,6 @@ export default function AddAccountScreen() {
   const getInvitationApartmentName = (inv: ApiMyInvitation) =>
     inv.account_name || "Apartment Society";
 
-  // Choose the "primary" role for a grouped invite — priority ownership >
-  // admin > member > staff. This determines the icon/color of the card.
   const getPrimaryRole = (roles: ApiInvitationRole[]): ApiInvitationRole => {
     if (roles.includes("ownership_transfer")) return "ownership_transfer";
     if (roles.includes("admin")) return "admin";
@@ -1030,7 +1305,7 @@ export default function AddAccountScreen() {
   };
 
   const handleLogout = async () => {
-    if (loading) return;
+    if (loading || deletingAccount) return;
 
     try {
       setError("");
@@ -1039,6 +1314,104 @@ export default function AddAccountScreen() {
     } catch (err) {
       console.error("Logout error:", err);
       setError("Unable to log out. Please try again.");
+    }
+  };
+
+  // ── Delete Account handler ──────────────────────────────────────────
+  const handleDeleteAccount = () => {
+    setDeleteAcknowledged(false);
+    showAlert({
+      variant: "error",
+      title: "Delete Account?",
+      message:
+        "This will permanently delete your account. Any properties " +
+        "you own will also be deleted along with all their members, " +
+        "staff, bills, and expenses.\n\n" +
+        "You will be logged out. You can recover your account later " +
+        "by logging in again with the same number — but your old data " +
+        "will not come back.",
+      checkboxLabel: "I understand this cannot be undone",
+      checkboxChecked: false,
+      onCheckboxChange: (checked) => {
+        setDeleteAcknowledged(checked);
+        setAlertState((prev) => ({ ...prev, checkboxChecked: checked }));
+      },
+      buttons: [
+        {
+          text: "Cancel",
+          style: "cancel",
+          onPress: () => setDeleteAcknowledged(false),
+        },
+        {
+          text: "Delete Account",
+          style: "destructive",
+          onPress: performDeleteAccount,
+        },
+      ],
+    });
+  };
+
+  const performDeleteAccount = async () => {
+    setDeletingAccount(true);
+    setError("");
+
+    try {
+      const token = await getToken();
+      if (!token) {
+        setError("Session expired. Please log in again.");
+        setDeletingAccount(false);
+        return;
+      }
+
+      const res = await fetch(`${API_URL}/api/auth/me`, {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        showAlert({
+          variant: "error",
+          title: "Couldn't Delete Account",
+          message:
+            data?.message ||
+            "Something went wrong. Please try again in a moment.",
+          buttons: [{ text: "OK" }],
+        });
+        setDeletingAccount(false);
+        return;
+      }
+
+      // Success — show success alert, then log out
+      showAlert({
+        variant: "success",
+        title: "Account Deleted",
+        message:
+          "Your account has been deleted. If you change your mind, " +
+          "you can recover it by logging in again with the same " +
+          "number.\n\n" +
+          "Your properties, members, and bills are gone forever.",
+        buttons: [
+          {
+            text: "OK",
+            onPress: async () => {
+              await SecureStore.deleteItemAsync("auth_token").catch(() => {});
+              await logout().catch(() => {});
+              router.replace("/(auth)/login");
+            },
+          },
+        ],
+      });
+    } catch (err) {
+      console.error("deleteAccount error:", err);
+      showAlert({
+        variant: "error",
+        title: "Network Error",
+        message: "Please check your connection and try again.",
+        buttons: [{ text: "OK" }],
+      });
+      setDeletingAccount(false);
     }
   };
 
@@ -1052,7 +1425,6 @@ export default function AddAccountScreen() {
     }
   };
 
-  // ── Accept a grouped invitation: accept every underlying invite ──
   const handleAcceptGroup = async (group: GroupedInvitation) => {
     const token = await getToken();
     if (!token) {
@@ -1062,8 +1434,6 @@ export default function AddAccountScreen() {
 
     setLoading(true);
     try {
-      // Accept each underlying invitation (member + staff etc.).
-      // We do them sequentially to keep error handling simple.
       for (const inv of group.invitations) {
         const res = await fetch(`${API_URL}/api/invitations/${inv.id}/accept`, {
           method: "POST",
@@ -1077,7 +1447,6 @@ export default function AddAccountScreen() {
           } catch {
             data = null;
           }
-          // 409 = already accepted (idempotent). Ignore and continue.
           if (res.status !== 409) {
             setError(
               data?.code ?? `Failed to accept invitation (${res.status})`,
@@ -1087,15 +1456,9 @@ export default function AddAccountScreen() {
         }
       }
 
-      // Refresh accounts list so the newly joined account appears.
       await refreshAccounts();
-
-      // Select the newly joined account.
       selectAccount(group.account_id);
-
-      // Reload invites fresh.
       await loadInvitations();
-
       goToTabsOrBack();
     } catch (e: any) {
       console.error("Accept invite error:", e);
@@ -1105,7 +1468,6 @@ export default function AddAccountScreen() {
     }
   };
 
-  // ── Reject a grouped invitation: reject every underlying invite ──
   const handleRejectGroup = async (group: GroupedInvitation) => {
     const token = await getToken();
     if (!token) {
@@ -1127,7 +1489,6 @@ export default function AddAccountScreen() {
         }),
       );
 
-      // Optimistically remove every invite in this group from the list.
       const ids = new Set(group.invitations.map((i) => i.id));
       setInvitations((prev) => prev.filter((i) => !ids.has(i.id)));
     } finally {
@@ -1140,7 +1501,6 @@ export default function AddAccountScreen() {
     setShowAccessInfo(true);
   };
 
-  // ── Group by apartment (for the header cards) ──
   const getUniqueApartments = () => {
     const map = new Map<
       string,
@@ -1471,7 +1831,6 @@ export default function AddAccountScreen() {
                           const inviterPhone =
                             group.invited_by_phone || "Secretary";
 
-                          // Build the card visuals.
                           let optionCard: SetupOption = {
                             id: "join_owner",
                             title: "Join as Apartment Owner",
@@ -1534,9 +1893,6 @@ export default function AddAccountScreen() {
                             };
                           }
 
-                          // If the group has multiple roles, override the
-                          // title and description so it reflects the fact
-                          // that BOTH roles will be granted at once.
                           const isMultiRole = group.roles.length > 1;
                           const displayTitle = isMultiRole
                             ? `Join as ${group.roles.map(roleLabel).join(" + ")}`
@@ -1841,17 +2197,46 @@ export default function AddAccountScreen() {
           </View>
         )}
 
+        {/* Error when not on step 2 */}
+        {error && step !== 2 ? (
+          <View style={styles.errorContainer}>
+            <Ionicons name="alert-circle" size={16} color="#e53935" />
+            <Text style={styles.error}>{error}</Text>
+          </View>
+        ) : null}
+
         <View style={styles.logoutSection}>
           <View style={styles.logoutDivider} />
 
+          {/* LOGOUT — first */}
           <TouchableOpacity
             style={styles.logoutButton}
             onPress={handleLogout}
-            disabled={loading}
+            disabled={loading || deletingAccount}
             activeOpacity={0.8}
           >
             <Ionicons name="log-out-outline" size={18} color="#dc2626" />
             <Text style={styles.logoutButtonText}>Log out</Text>
+          </TouchableOpacity>
+
+          {/* DELETE ACCOUNT — second, deliberate */}
+          <TouchableOpacity
+            style={[
+              styles.deleteAccountButton,
+              (deletingAccount || loading) && { opacity: 0.5 },
+            ]}
+            onPress={handleDeleteAccount}
+            disabled={deletingAccount || loading}
+            activeOpacity={0.8}
+          >
+            {deletingAccount ? (
+              <ActivityIndicator size="small" color="#dc2626" />
+            ) : (
+              <Ionicons name="trash-outline" size={18} color="#dc2626" />
+            )}
+            <Text style={styles.deleteAccountButtonText}>
+              {deletingAccount ? "Deleting…" : "Delete Account"}
+            </Text>
           </TouchableOpacity>
 
           <Text style={styles.logoutHint}>
@@ -1991,6 +2376,9 @@ export default function AddAccountScreen() {
           </Pressable>
         </Pressable>
       </Modal>
+
+      {/* Custom Alert — renders delete confirmation, success, errors */}
+      <AppAlert state={alertState} onDismiss={dismissAlert} />
     </KeyboardAvoidingView>
   );
 }
@@ -2000,20 +2388,9 @@ export default function AddAccountScreen() {
 // ================================================================
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#f8fafc",
-  },
-
-  screenScroll: {
-    flex: 1,
-  },
-
-  screenContent: {
-    flexGrow: 1,
-    paddingHorizontal: 16,
-    paddingTop: 8,
-  },
+  container: { flex: 1, backgroundColor: "#f8fafc" },
+  screenScroll: { flex: 1 },
+  screenContent: { flexGrow: 1, paddingHorizontal: 16, paddingTop: 8 },
 
   loadingOverlay: {
     ...StyleSheet.absoluteFill,
@@ -2022,7 +2399,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-
   loadingCard: {
     backgroundColor: "#ffffff",
     borderRadius: 16,
@@ -2031,12 +2407,7 @@ const styles = StyleSheet.create({
     boxShadow: "0px 4px 12px rgba(0, 0, 0, 0.1)",
     gap: 12,
   },
-
-  loadingText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#334155",
-  },
+  loadingText: { fontSize: 14, fontWeight: "600", color: "#334155" },
 
   progressTrack: {
     height: 4,
@@ -2046,18 +2417,8 @@ const styles = StyleSheet.create({
     marginTop: 2,
     overflow: "hidden",
   },
-
-  progressFill: {
-    height: "100%",
-    backgroundColor: "#1a73e8",
-    borderRadius: 2,
-  },
-
-  header: {
-    marginBottom: 16,
-    marginTop: 4,
-  },
-
+  progressFill: { height: "100%", backgroundColor: "#1a73e8", borderRadius: 2 },
+  header: { marginBottom: 16, marginTop: 4 },
   stepBadge: {
     fontSize: 11,
     fontWeight: "800",
@@ -2065,19 +2426,13 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     marginBottom: 4,
   },
-
   title: {
     fontSize: 22,
     fontWeight: "800",
     color: "#0f172a",
     marginBottom: 4,
   },
-
-  subtitle: {
-    fontSize: 13.5,
-    color: "#64748b",
-    lineHeight: 19,
-  },
+  subtitle: { fontSize: 13.5, color: "#64748b", lineHeight: 19 },
 
   backButton: {
     flexDirection: "row",
@@ -2090,12 +2445,7 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     gap: 6,
   },
-
-  backButtonText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#1a73e8",
-  },
+  backButtonText: { fontSize: 13, fontWeight: "600", color: "#1a73e8" },
 
   tabSwitcher: {
     flexDirection: "row",
@@ -2105,7 +2455,6 @@ const styles = StyleSheet.create({
     marginBottom: 18,
     gap: 4,
   },
-
   tabButton: {
     flex: 1,
     flexDirection: "row",
@@ -2115,30 +2464,17 @@ const styles = StyleSheet.create({
     borderRadius: 9,
     gap: 6,
   },
-
   tabButtonActiveBlue: {
     backgroundColor: "#ffffff",
     boxShadow: "0px 1px 3px rgba(0, 0, 0, 0.06)",
   },
-
   tabButtonActivePurple: {
     backgroundColor: "#ffffff",
     boxShadow: "0px 1px 3px rgba(0, 0, 0, 0.06)",
   },
-
-  tabButtonText: {
-    fontSize: 13.5,
-    fontWeight: "700",
-    color: "#94a3b8",
-  },
-
-  tabButtonTextActiveBlue: {
-    color: "#1a73e8",
-  },
-
-  tabButtonTextActivePurple: {
-    color: "#7c3aed",
-  },
+  tabButtonText: { fontSize: 13.5, fontWeight: "700", color: "#94a3b8" },
+  tabButtonTextActiveBlue: { color: "#1a73e8" },
+  tabButtonTextActivePurple: { color: "#7c3aed" },
 
   invitationBadge: {
     backgroundColor: "#ef4444",
@@ -2147,20 +2483,10 @@ const styles = StyleSheet.create({
     paddingVertical: 1,
     marginLeft: 4,
   },
+  invitationBadgeText: { color: "#ffffff", fontSize: 10, fontWeight: "700" },
 
-  invitationBadgeText: {
-    color: "#ffffff",
-    fontSize: 10,
-    fontWeight: "700",
-  },
-
-  section: {
-    marginBottom: 20,
-  },
-
-  optionsList: {
-    gap: 10,
-  },
+  section: { marginBottom: 20 },
+  optionsList: { gap: 10 },
 
   card: {
     backgroundColor: "#ffffff",
@@ -2170,14 +2496,12 @@ const styles = StyleSheet.create({
     borderColor: "#e2e8f0",
     boxShadow: "0px 1px 4px rgba(0, 0, 0, 0.04)",
   },
-
   cardHeader: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
     marginBottom: 6,
   },
-
   cardIconContainer: {
     width: 44,
     height: 44,
@@ -2185,20 +2509,17 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-
   cardHeaderInfo: {
     flex: 1,
     flexDirection: "column",
     justifyContent: "center",
   },
-
   cardTitle: {
     fontSize: 15.5,
     fontWeight: "700",
     color: "#0f172a",
     lineHeight: 20,
   },
-
   cardBadgeRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -2206,19 +2527,13 @@ const styles = StyleSheet.create({
     gap: 6,
     marginTop: 3,
   },
-
   cardBadge: {
     alignSelf: "flex-start",
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 5,
   },
-
-  cardBadgeText: {
-    fontSize: 10.5,
-    fontWeight: "700",
-  },
-
+  cardBadgeText: { fontSize: 10.5, fontWeight: "700" },
   accessBadge: {
     backgroundColor: "#dbeafe",
     paddingHorizontal: 6,
@@ -2226,20 +2541,13 @@ const styles = StyleSheet.create({
     borderRadius: 4,
     marginLeft: 4,
   },
-
-  accessBadgeText: {
-    fontSize: 9,
-    fontWeight: "700",
-    color: "#1a73e8",
-  },
-
+  accessBadgeText: { fontSize: 9, fontWeight: "700", color: "#1a73e8" },
   cardDescription: {
     fontSize: 12.5,
     color: "#64748b",
     lineHeight: 17,
     marginTop: 4,
   },
-
   arrowCircle: {
     width: 28,
     height: 28,
@@ -2249,10 +2557,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
 
-  invitationsContainer: {
-    gap: 16,
-  },
-
+  invitationsContainer: { gap: 16 },
   apartmentGroup: {
     backgroundColor: "#ffffff",
     borderRadius: 16,
@@ -2261,7 +2566,6 @@ const styles = StyleSheet.create({
     borderColor: "#e2e8f0",
     boxShadow: "0px 2px 8px rgba(0, 0, 0, 0.04)",
   },
-
   apartmentHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -2271,7 +2575,6 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#f1f5f9",
   },
-
   apartmentIconContainer: {
     width: 36,
     height: 36,
@@ -2280,21 +2583,18 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-
   apartmentName: {
     fontSize: 16,
     fontWeight: "700",
     color: "#0f172a",
     flex: 1,
   },
-
   invitationCountBadge: {
     backgroundColor: "#e2e8f0",
     borderRadius: 12,
     paddingHorizontal: 8,
     paddingVertical: 2,
   },
-
   invitationCountText: {
     fontSize: 11,
     fontWeight: "600",
@@ -2309,19 +2609,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e2e8f0",
   },
-
   invitationCardOwnership: {
     backgroundColor: "#fffbeb",
     borderColor: "#fde68a",
   },
-
   invitationCardHeader: {
     flexDirection: "row",
     alignItems: "center",
     gap: 12,
     marginBottom: 8,
   },
-
   invitationCardIcon: {
     width: 44,
     height: 44,
@@ -2329,17 +2626,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-
-  invitationCardInfo: {
-    flex: 1,
-  },
-
+  invitationCardInfo: { flex: 1 },
   invitationCardTitle: {
     fontSize: 14,
     fontWeight: "600",
     color: "#0f172a",
   },
-
   invitationBadgeRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -2347,18 +2639,12 @@ const styles = StyleSheet.create({
     gap: 6,
     marginTop: 2,
   },
-
   invitationRoleBadge: {
     paddingHorizontal: 8,
     paddingVertical: 2,
     borderRadius: 6,
   },
-
-  invitationRoleBadgeText: {
-    fontSize: 10,
-    fontWeight: "600",
-  },
-
+  invitationRoleBadgeText: { fontSize: 10, fontWeight: "600" },
   inviterPillSmall: {
     flexDirection: "row",
     alignItems: "center",
@@ -2370,27 +2656,23 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e2e8f0",
   },
-
   inviterPillTextSmall: {
     fontSize: 9,
     color: "#475569",
     fontWeight: "500",
   },
-
   invitationCardDescription: {
     fontSize: 12.5,
     color: "#64748b",
     lineHeight: 17,
     marginBottom: 12,
   },
-
   invitationActions: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     gap: 8,
   },
-
   invitationRejectButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -2402,13 +2684,7 @@ const styles = StyleSheet.create({
     borderColor: "#fecaca",
     backgroundColor: "#fff5f5",
   },
-
-  invitationRejectText: {
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#dc2626",
-  },
-
+  invitationRejectText: { fontSize: 12, fontWeight: "600", color: "#dc2626" },
   invitationAcceptButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -2417,12 +2693,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 8,
   },
-
-  invitationAcceptText: {
-    fontSize: 12,
-    fontWeight: "700",
-    color: "#ffffff",
-  },
+  invitationAcceptText: { fontSize: 12, fontWeight: "700", color: "#ffffff" },
 
   emptyStateContainer: {
     alignItems: "center",
@@ -2434,7 +2705,6 @@ const styles = StyleSheet.create({
     borderColor: "#e2e8f0",
     borderStyle: "dashed",
   },
-
   emptyStateIcon: {
     width: 80,
     height: 80,
@@ -2444,14 +2714,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 16,
   },
-
   emptyStateTitle: {
     fontSize: 18,
     fontWeight: "700",
     color: "#0f172a",
     marginBottom: 4,
   },
-
   emptyStateSubtitle: {
     fontSize: 13,
     color: "#64748b",
@@ -2468,12 +2736,7 @@ const styles = StyleSheet.create({
     boxShadow: "0px 2px 8px rgba(0, 0, 0, 0.04)",
     marginBottom: 20,
   },
-
-  photoSection: {
-    alignItems: "center",
-    marginVertical: 14,
-  },
-
+  photoSection: { alignItems: "center", marginVertical: 14 },
   photoCircle: {
     width: 90,
     height: 90,
@@ -2486,13 +2749,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     position: "relative",
   },
-
   photoPlaceholder: {
     justifyContent: "center",
     alignItems: "center",
     position: "relative",
   },
-
   cameraIconBadge: {
     position: "absolute",
     bottom: -4,
@@ -2503,54 +2764,25 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: "#fff",
   },
-
-  photoImage: {
-    width: 90,
-    height: 90,
-    borderRadius: 45,
-  },
-
+  photoImage: { width: 90, height: 90, borderRadius: 45 },
   photoActionButtons: {
     flexDirection: "row",
     alignItems: "center",
     marginTop: 8,
     gap: 12,
   },
+  photoButton: { paddingVertical: 4, paddingHorizontal: 8 },
+  photoButtonText: { fontSize: 13, fontWeight: "600", color: "#1a73e8" },
+  removePhotoButton: { paddingVertical: 4, paddingHorizontal: 8 },
+  removePhotoText: { fontSize: 13, fontWeight: "600", color: "#ef4444" },
 
-  photoButton: {
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-  },
-
-  photoButtonText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#1a73e8",
-  },
-
-  removePhotoButton: {
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-  },
-
-  removePhotoText: {
-    fontSize: 13,
-    fontWeight: "600",
-    color: "#ef4444",
-  },
-
-  inputGroup: {
-    marginBottom: 18,
-    marginTop: 6,
-  },
-
+  inputGroup: { marginBottom: 18, marginTop: 6 },
   inputLabel: {
     fontSize: 13,
     fontWeight: "700",
     color: "#334155",
     marginBottom: 7,
   },
-
   inputWrapper: {
     flexDirection: "row",
     alignItems: "center",
@@ -2562,11 +2794,7 @@ const styles = StyleSheet.create({
     height: 48,
     boxShadow: "0px 1px 3px rgba(0, 0, 0, 0.03)",
   },
-
-  inputIcon: {
-    marginRight: 8,
-  },
-
+  inputIcon: { marginRight: 8 },
   input: {
     flex: 1,
     fontSize: 15,
@@ -2574,10 +2802,7 @@ const styles = StyleSheet.create({
     height: "100%",
     ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as any) : {}),
   },
-
-  clearInput: {
-    padding: 4,
-  },
+  clearInput: { padding: 4 },
 
   errorContainer: {
     flexDirection: "row",
@@ -2588,11 +2813,11 @@ const styles = StyleSheet.create({
     marginBottom: 14,
     gap: 6,
   },
-
   error: {
     color: "#dc2626",
     fontSize: 13,
     fontWeight: "500",
+    flex: 1,
   },
 
   submitButton: {
@@ -2606,17 +2831,11 @@ const styles = StyleSheet.create({
     gap: 8,
     boxShadow: "0px 4px 6px rgba(26, 115, 232, 0.25)",
   },
-
   submitButtonDisabled: {
     backgroundColor: "#93c5fd",
     boxShadow: "none",
   },
-
-  submitButtonText: {
-    color: "#ffffff",
-    fontSize: 15.5,
-    fontWeight: "700",
-  },
+  submitButtonText: { color: "#ffffff", fontSize: 15.5, fontWeight: "700" },
 
   modalBackdrop: {
     flex: 1,
@@ -2624,7 +2843,6 @@ const styles = StyleSheet.create({
     justifyContent: "flex-end",
     alignItems: "center",
   },
-
   modalHandle: {
     width: 40,
     height: 4,
@@ -2633,7 +2851,6 @@ const styles = StyleSheet.create({
     alignSelf: "center",
     marginBottom: 16,
   },
-
   photoOptionsModal: {
     backgroundColor: "#ffffff",
     borderTopLeftRadius: 24,
@@ -2643,7 +2860,6 @@ const styles = StyleSheet.create({
     width: "100%",
     maxWidth: 480,
   },
-
   photoOptionsTitle: {
     fontSize: 20,
     fontWeight: "700",
@@ -2651,14 +2867,12 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     textAlign: "center",
   },
-
   photoOptionsSubtitle: {
     fontSize: 13,
     color: "#64748b",
     textAlign: "center",
     marginBottom: 20,
   },
-
   photoOptionButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -2670,7 +2884,6 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#e2e8f0",
   },
-
   photoOptionIcon: {
     width: 44,
     height: 44,
@@ -2680,23 +2893,9 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginRight: 14,
   },
-
-  photoOptionTextContainer: {
-    flex: 1,
-  },
-
-  photoOptionTitle: {
-    fontSize: 15,
-    fontWeight: "600",
-    color: "#0f172a",
-  },
-
-  photoOptionDescription: {
-    fontSize: 12,
-    color: "#64748b",
-    marginTop: 1,
-  },
-
+  photoOptionTextContainer: { flex: 1 },
+  photoOptionTitle: { fontSize: 15, fontWeight: "600", color: "#0f172a" },
+  photoOptionDescription: { fontSize: 12, color: "#64748b", marginTop: 1 },
   photoOptionsCancel: {
     paddingVertical: 14,
     alignItems: "center",
@@ -2704,7 +2903,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#f8fafc",
     borderRadius: 12,
   },
-
   photoOptionsCancelText: {
     fontSize: 15,
     fontWeight: "700",
@@ -2718,7 +2916,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 24,
   },
-
   modalCardCenter: {
     backgroundColor: "#ffffff",
     borderRadius: 22,
@@ -2728,7 +2925,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     boxShadow: "0px 6px 16px rgba(0, 0, 0, 0.15)",
   },
-
   modalIconCircle: {
     width: 56,
     height: 56,
@@ -2738,7 +2934,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 8,
   },
-
   modalTitle: {
     fontSize: 18,
     fontWeight: "800",
@@ -2746,7 +2941,6 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     textAlign: "center",
   },
-
   modalMessage: {
     fontSize: 13,
     color: "#64748b",
@@ -2754,13 +2948,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginBottom: 16,
   },
-
-  modalButtonRow: {
-    flexDirection: "row",
-    gap: 10,
-    width: "100%",
-  },
-
+  modalButtonRow: { flexDirection: "row", gap: 10, width: "100%" },
   modalCancelButton: {
     flex: 1,
     paddingVertical: 12,
@@ -2770,13 +2958,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#f8fafc",
     alignItems: "center",
   },
-
-  modalCancelText: {
-    fontSize: 14,
-    fontWeight: "600",
-    color: "#475569",
-  },
-
+  modalCancelText: { fontSize: 14, fontWeight: "600", color: "#475569" },
   modalConfirmButton: {
     flex: 1,
     flexDirection: "row",
@@ -2787,12 +2969,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#dc2626",
     gap: 6,
   },
-
-  modalConfirmText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#ffffff",
-  },
+  modalConfirmText: { fontSize: 14, fontWeight: "700", color: "#ffffff" },
 
   accessInfoIcon: {
     width: 72,
@@ -2802,39 +2979,30 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 12,
   },
-
   permissionsContainer: {
     width: "100%",
     marginTop: 8,
     marginBottom: 16,
   },
-
   permissionsTitle: {
     fontSize: 13,
     fontWeight: "600",
     color: "#334155",
     marginBottom: 8,
   },
-
   permissionItem: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
     paddingVertical: 4,
   },
-
-  permissionText: {
-    fontSize: 13,
-    color: "#475569",
-  },
-
+  permissionText: { fontSize: 13, color: "#475569" },
   accessInfoActions: {
     flexDirection: "row",
     gap: 10,
     width: "100%",
     marginTop: 4,
   },
-
   accessInfoCancelButton: {
     flex: 1,
     paddingVertical: 12,
@@ -2843,13 +3011,11 @@ const styles = StyleSheet.create({
     borderColor: "#e2e8f0",
     alignItems: "center",
   },
-
   accessInfoCancelText: {
     fontSize: 14,
     fontWeight: "600",
     color: "#475569",
   },
-
   accessInfoAcceptButton: {
     flex: 1.5,
     flexDirection: "row",
@@ -2859,7 +3025,6 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 12,
   },
-
   accessInfoAcceptText: {
     fontSize: 14,
     fontWeight: "700",
@@ -2871,7 +3036,6 @@ const styles = StyleSheet.create({
     marginTop: 8,
     marginBottom: 12,
   },
-
   logoutDivider: {
     width: "100%",
     height: 1,
@@ -2879,6 +3043,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
 
+  // ── Logout button — now first ────────────────────────────────────
   logoutButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -2890,9 +3055,30 @@ const styles = StyleSheet.create({
     backgroundColor: "#fff5f5",
     borderWidth: 1,
     borderColor: "#fecaca",
+    marginBottom: 10,
+    minWidth: 200,
+  },
+  logoutButtonText: {
+    fontSize: 13.5,
+    fontWeight: "700",
+    color: "#dc2626",
   },
 
-  logoutButtonText: {
+  // ── Delete Account button — now second ────────────────────────────
+  deleteAccountButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 10,
+    backgroundColor: "#fef2f2",
+    borderWidth: 1,
+    borderColor: "#fecaca",
+    minWidth: 200,
+  },
+  deleteAccountButtonText: {
     fontSize: 13.5,
     fontWeight: "700",
     color: "#dc2626",
