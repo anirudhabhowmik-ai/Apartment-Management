@@ -7,6 +7,25 @@
   "client": [
     {
       "client_info": {
+        "mobilesdk_app_id": "1:794569321207:android:e39a44d34676f2f68781f2",
+        "android_client_info": {
+          "package_name": "com.anirudhabhowmik.apartmentmanagement"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCezLlP8BkfvgySaYCPcf5lxv6svdpg7LI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
         "mobilesdk_app_id": "1:794569321207:android:b7be8f53f90219b28781f2",
         "android_client_info": {
           "package_name": "com.anonymous.aikhata"
