@@ -29,3 +29,8 @@ RevenueCat For PlayStore And IOS And Razorpay For Web
 
 Google Developer Verification To Deploy APP In PlaySore
 https://play.google.com/console/u/0/signup
+
+Video KYC
+https://connect.billdesk.com/videoKyc
+
+revenuecat-service-account@elated-cathode-418009.iam.gserviceaccount.com
