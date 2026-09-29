@@ -18,7 +18,7 @@ interface FinanceReportPdfInput {
 export interface FinanceReportPdfResult {
   /** true = file was saved, false = user cancelled the folder picker */
   saved: boolean;
-  /** File name shown to the user, e.g. "ai-khata-finance-2024-12.pdf" */
+  /** File name shown to the user, e.g. "apartment-management-finance-2024-12.pdf" */
   fileName: string;
   /** Full URI where the file was written (cache + SAF destination). */
   fileUri: string;
@@ -387,7 +387,7 @@ export const downloadFinanceReportPdf = async ({
   }
 
   const safeMonth = month.replace(/[^\w-]+/g, "_");
-  const fileName = `ai-khata-finance-${safeMonth}.pdf`;
+  const fileName = `apartment-management-finance-${safeMonth}.pdf`;
   const fileUri = `${cacheDir}${fileName}`;
 
   await FileSystem.writeAsStringAsync(fileUri, base64, {

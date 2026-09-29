@@ -2080,7 +2080,7 @@ export default function FinanceScreen() {
     try {
       await saveFileWithFolderPicker(
         dataUri,
-        `ai-khata-finance-${monthKey}`,
+        `apartment-management-finance-${monthKey}`,
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
       );
       showAlert({
