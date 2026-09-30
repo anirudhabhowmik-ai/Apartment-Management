@@ -2,7 +2,7 @@
   "expo": {
     "name": "Apartment Management",
     "slug": "anirudhabhowmik",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "apartmentmanagement",
@@ -25,7 +25,7 @@
       "softwareKeyboardLayoutMode": "resize",
       "predictiveBackGestureEnabled": false,
       "package": "com.anirudhabhowmik.apartmentmanagement",
-      "versionCode": 2,
+      "versionCode": 3,
       "googleServicesFile": "./google-services.json",
       "permissions": [
         "android.permission.READ_EXTERNAL_STORAGE",
@@ -95,7 +95,7 @@
     "extra": {
       "router": {},
       "playStoreBuild": true,
-      "revenuecatGoogleApiKey": "test_HQieXKHCjJdGbDTFTzohShAbQXZ",
+      "revenuecatGoogleApiKey": "goog_lbEQMPIHcXXLJOsvKpXEWanyrla",
       "revenuecatAppleApiKey": "appl_PLACEHOLDER",
       "eas": {
         "projectId": "fcbcf0b3-e22c-4620-a25d-53e8fc0ec627"
