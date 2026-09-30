@@ -90,7 +90,7 @@ const MAX_BILL_ATTACHMENTS = 2;
  * Role options for the Apartment tab.
  *
  * On an apartment account → "Flat Owner" + "Shop Owner".
- * On a home (tenant) account → "Room" + "Shop Owner".
+ * On a home (tenant) account → "Room Rent" + "Shop Rent".
  *
  * The underlying role tokens are unchanged ("flat" / "shop"), so the
  * server keeps storing the same values. Only the label changes.
@@ -99,10 +99,14 @@ function getApartmentRoles(isTenantAccount: boolean): RoleOption[] {
   return [
     {
       role: "flat",
-      label: isTenantAccount ? "Room" : "Flat Owner",
+      label: isTenantAccount ? "Room Rent" : "Flat Owner",
       icon: "business-outline",
     },
-    { role: "shop", label: "Shop Owner", icon: "storefront-outline" },
+    {
+      role: "shop",
+      label: isTenantAccount ? "Shop Rent" : "Shop Owner",
+      icon: "storefront-outline",
+    },
   ];
 }
 
@@ -653,7 +657,8 @@ export default function AddMemberScreen() {
   const { selectedAccount } = useAccounts();
 
   // On a "home" account, members are tenants → the flat role is shown as
-  // "Room" and the field label reads "Room Number". Everything else stays.
+  // "Room Rent", the shop role as "Shop Rent", the maintenance field as
+  // "Monthly Rent", and the flat number field becomes optional.
   const isTenantAccount = useMemo(() => {
     if (!selectedAccount) return false;
     return String((selectedAccount as any).type ?? "").toLowerCase() === "home";
@@ -856,9 +861,15 @@ export default function AddMemberScreen() {
     }
   };
 
-  // Field label adapts to the account type.
+  // Field labels adapt to the account type.
   const flatNumberLabel = isTenantAccount ? "Room Number" : "Flat Number";
   const flatNumberPlaceholder = isTenantAccount ? "e.g. Room 12" : "e.g. A-204";
+  const maintenanceLabel = isTenantAccount
+    ? "Monthly Rent"
+    : "Monthly Maintenance";
+  const maintenancePlaceholder = isTenantAccount ? "e.g. 8000" : "e.g. 2500";
+  // Unit noun used in "New Person" / "Existing Person" tile descriptions.
+  const unitNoun = isTenantAccount ? "room rent" : "flat";
 
   const showPhotoSelectionOptions = (forBill: boolean = false) => {
     setIsBillPhotoMode(forBill);
@@ -1175,13 +1186,21 @@ export default function AddMemberScreen() {
     }
 
     if (groupType === "apartment") {
-      if (!flatNumber.trim()) {
-        errors.flatNumber = isTenantAccount
-          ? "Room number is required"
-          : "Apartment number is required";
+      // Room number is optional on home (tenant) accounts.
+      // Flat number is required on apartment accounts.
+      if (!isTenantAccount && !flatNumber.trim()) {
+        errors.flatNumber = "Apartment number is required";
+      }
+      // Area is now required on both apartment and home accounts.
+      if (!areaSqft.trim()) {
+        errors.areaSqft = "Area is required";
+      } else if (isNaN(Number(areaSqft))) {
+        errors.areaSqft = "Enter a valid area";
       }
       if (!maintenanceAmount.trim()) {
-        errors.maintenanceAmount = "Maintenance amount is required";
+        errors.maintenanceAmount = isTenantAccount
+          ? "Monthly rent is required"
+          : "Maintenance amount is required";
       } else if (isNaN(Number(maintenanceAmount))) {
         errors.maintenanceAmount = "Enter a valid amount";
       }
@@ -1242,7 +1261,7 @@ export default function AddMemberScreen() {
 
       if (groupType === "apartment") {
         payload.wing = wing.trim() || undefined;
-        payload.flatNumber = flatNumber.trim();
+        payload.flatNumber = flatNumber.trim() || undefined;
         payload.areaSqft = areaSqft ? Number(areaSqft) : undefined;
         payload.parkingAvailable = parkingAvailable;
         payload.maintenanceAmount = Number(maintenanceAmount);
@@ -1777,11 +1796,7 @@ export default function AddMemberScreen() {
                 </Text>
                 <Text style={styles.modeSubtitle}>
                   Create a new identity and their first{" "}
-                  {groupType === "staff"
-                    ? "role"
-                    : isTenantAccount
-                      ? "room"
-                      : "flat"}
+                  {groupType === "staff" ? "role" : unitNoun}
                 </Text>
               </TouchableOpacity>
 
@@ -1819,13 +1834,8 @@ export default function AddMemberScreen() {
                   Existing Person
                 </Text>
                 <Text style={styles.modeSubtitle}>
-                  Add another{" "}
-                  {groupType === "staff"
-                    ? "role"
-                    : isTenantAccount
-                      ? "room"
-                      : "flat"}{" "}
-                  for someone already here
+                  Add another {groupType === "staff" ? "role" : unitNoun} for
+                  someone already here
                 </Text>
               </TouchableOpacity>
             </View>
@@ -2027,9 +2037,7 @@ export default function AddMemberScreen() {
                         . Go to Existing Person and select them, then add{" "}
                         {groupType === "staff"
                           ? "a staff role"
-                          : isTenantAccount
-                            ? "another room"
-                            : "another flat"}
+                          : `another ${unitNoun}`}
                         .
                       </Text>
                     </View>
@@ -2174,7 +2182,7 @@ export default function AddMemberScreen() {
               "home-outline",
               isTenantAccount ? "Room Details" : "Apartment Details",
               isTenantAccount
-                ? "Add room and maintenance information"
+                ? "Add room and rent information"
                 : "Add unit and maintenance information",
             )}
 
@@ -2197,16 +2205,23 @@ export default function AddMemberScreen() {
               placeholder: flatNumberPlaceholder,
               icon: "keypad-outline",
               errorKey: "flatNumber",
+              // Room number is optional on home (tenant) accounts.
+              optional: isTenantAccount,
             })}
 
             {renderInput({
               label: "Area",
               value: areaSqft,
-              onChangeText: (text) => setAreaSqft(text.replace(/[^0-9]/g, "")),
+              onChangeText: (text) => {
+                setAreaSqft(text.replace(/[^0-9]/g, ""));
+                clearFieldError("areaSqft");
+              },
               placeholder: "e.g. 1200",
               icon: "resize-outline",
               keyboardType: "numeric",
-              optional: true,
+              errorKey: "areaSqft",
+              // Area is required on both apartment and home accounts.
+              optional: false,
             })}
 
             <View style={styles.settingRow}>
@@ -2236,13 +2251,13 @@ export default function AddMemberScreen() {
             </View>
 
             {renderInput({
-              label: "Monthly Maintenance",
+              label: maintenanceLabel,
               value: maintenanceAmount,
               onChangeText: (text) => {
                 setMaintenanceAmount(text.replace(/[^0-9]/g, ""));
                 clearFieldError("maintenanceAmount");
               },
-              placeholder: "e.g. 2500",
+              placeholder: maintenancePlaceholder,
               icon: "cash-outline",
               keyboardType: "numeric",
               errorKey: "maintenanceAmount",
