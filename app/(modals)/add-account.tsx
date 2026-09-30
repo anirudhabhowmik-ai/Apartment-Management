@@ -103,49 +103,6 @@ interface GroupedInvitation {
   primaryInvitation: ApiMyInvitation;
 }
 
-const STAFF_ROLES: StaffRole[] = [
-  {
-    id: "security",
-    label: "Security Guard",
-    description: "Manage gate entry, visitor logs, and security patrols",
-    icon: "shield-checkmark",
-    accessLevel: "limited",
-    permissions: ["gate_entry", "visitor_management", "patrol_logs"],
-  },
-  {
-    id: "sweeper",
-    label: "Sweeper / Cleaner",
-    description: "Track cleaning tasks, attendance, and salary",
-    icon: "brush",
-    accessLevel: "limited",
-    permissions: ["cleaning_tasks", "attendance", "salary_view"],
-  },
-  {
-    id: "maintenance",
-    label: "Maintenance Staff",
-    description: "Handle repairs, maintenance requests, and inventory",
-    icon: "construct",
-    accessLevel: "limited",
-    permissions: ["repairs", "maintenance_requests", "inventory"],
-  },
-  {
-    id: "gardener",
-    label: "Gardener",
-    description: "Manage garden maintenance, landscaping, and watering",
-    icon: "leaf",
-    accessLevel: "limited",
-    permissions: ["gardening", "landscaping", "watering_schedule"],
-  },
-  {
-    id: "driver",
-    label: "Driver",
-    description: "Manage vehicle schedules, trips, and maintenance",
-    icon: "car",
-    accessLevel: "limited",
-    permissions: ["vehicle_schedule", "trip_logs", "vehicle_maintenance"],
-  },
-];
-
 const SETUP_OPTIONS: SetupOption[] = [
   {
     id: "apartment",

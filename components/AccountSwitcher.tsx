@@ -46,6 +46,27 @@ const COLORS = {
 };
 
 // ---------------------------------------------------------------------------
+// Tenant-aware role label for the account switcher row.
+//
+//   • On a "home" account: member_visibility → "Tenant"
+//   • On any other account: member_visibility → "Member"
+//   • Other roles: unchanged
+// ---------------------------------------------------------------------------
+function roleLabelForAccount(
+  role: string | null | undefined,
+  isHome: boolean,
+): string {
+  const r = String(role ?? "").toLowerCase();
+  if (!r) return "";
+  if (r === "owner") return "Owner";
+  if (r === "admin") return "Admin";
+  if (r === "staff_visibility" || r === "staff") return "Staff";
+  if (r === "member_visibility") return isHome ? "Tenant" : "Member";
+  // Fallback for anything unknown
+  return r.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// ---------------------------------------------------------------------------
 // Photo Adjust Modal
 // ---------------------------------------------------------------------------
 
@@ -484,14 +505,14 @@ export function AccountSwitcherTrigger() {
   );
 
   const selectedName = selectedAccount?.name ?? "No Account";
-  const selectedType =
-    selectedAccount?.type === "apartment"
-      ? "Apartment"
-      : selectedAccount
-        ? "Home"
-        : "No Account";
-  const selectedIcon =
-    selectedAccount?.type === "apartment" ? "business-outline" : "home-outline";
+  const isHome = selectedAccount?.type === "home";
+
+  const selectedType = selectedAccount
+    ? isHome
+      ? "Home"
+      : "Apartment"
+    : "No Account";
+  const selectedIcon = isHome ? "home-outline" : "business-outline";
 
   return (
     <Pressable
@@ -511,7 +532,7 @@ export function AccountSwitcherTrigger() {
       ) : (
         <View style={styles.triggerAvatarPlaceholder}>
           <Ionicons
-            name={selectedAccount?.type === "apartment" ? "business" : "home"}
+            name={isHome ? "home" : "business"}
             size={17}
             color={COLORS.primary}
           />
@@ -545,8 +566,6 @@ export function AccountSwitcherHost() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
-  // Current user — needed to determine whether each account row is owned
-  // by the caller (only the owner can edit name/photo).
   const currentUserId = useAuthStore((s) => s.user?.id ?? null);
 
   const { accounts, selectedAccount, selectAccount, editAccount } =
@@ -842,6 +861,11 @@ export function AccountSwitcherHost() {
                 const isEditingName = editingNameId === item.id;
                 const isOwnerOfThisAccount =
                   !!currentUserId && item.ownerId === currentUserId;
+                const isHome = item.type === "home";
+                const roleText = roleLabelForAccount(
+                  (item as any).role,
+                  isHome,
+                );
 
                 return (
                   <Pressable
@@ -987,6 +1011,13 @@ export function AccountSwitcherHost() {
                             <Text style={styles.itemType}>
                               {item.type === "apartment" ? "Apartment" : "Home"}
                             </Text>
+                            {roleText ? (
+                              <View style={styles.roleChip}>
+                                <Text style={styles.roleChipText}>
+                                  {roleText}
+                                </Text>
+                              </View>
+                            ) : null}
                             {isSelected && (
                               <View style={styles.currentBadge}>
                                 <Text style={styles.currentBadgeText}>
@@ -1328,8 +1359,28 @@ const styles = StyleSheet.create({
   },
   editButtonPressed: { opacity: 0.6 },
 
-  typeRow: { flexDirection: "row", alignItems: "center", marginTop: 5 },
+  typeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 5,
+    flexWrap: "wrap",
+    gap: 6,
+  },
   itemType: { fontSize: 12, color: COLORS.secondary, marginLeft: 5 },
+  roleChip: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    backgroundColor: "#EFF6FF",
+    borderWidth: 1,
+    borderColor: "#DBEAFE",
+  },
+  roleChipText: {
+    fontSize: 9.5,
+    fontWeight: "800",
+    color: "#1D4ED8",
+    letterSpacing: 0.3,
+  },
   currentBadge: {
     paddingHorizontal: 7,
     paddingVertical: 3,

@@ -1,3 +1,4 @@
+// app/(tabs)/calendar.tsx
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker, {
   type DateTimePickerChangeEvent,
@@ -31,6 +32,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { useAccounts } from "../../hooks/useAccounts";
 import { useUserRole } from "../../hooks/useUserRole";
 import { useAccountStore } from "../../store/accountStore";
 import {
@@ -85,7 +87,7 @@ function useAuthUser(): any | null {
 /* TYPES                                                                      */
 /* ========================================================================== */
 
-type Role = "admin" | "owner" | "member";
+type Role = "admin" | "owner" | "member" | "tenant" | "staff";
 type ActiveView = "calendar" | "approvals" | "myRequests";
 type CardContext = "day" | "approvals" | "myRequests";
 type RsvpMode = "accept" | "reject" | null;
@@ -100,7 +102,7 @@ type StatusMeta = {
 };
 
 /* ========================================================================== */
-/* ATTACHMENT LIMITS — 2 max, matching server                                */
+/* ATTACHMENT LIMITS                                                          */
 /* ========================================================================== */
 
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
@@ -195,7 +197,30 @@ const ROLE_META: Record<Role, { label: string; color: string; bg: string }> = {
   admin: { label: "Admin", color: "#1a73e8", bg: "#eff6ff" },
   owner: { label: "Owner", color: "#7c3aed", bg: "#f3e8ff" },
   member: { label: "Member", color: "#0891b2", bg: "#ecfeff" },
+  tenant: { label: "Tenant", color: "#b45309", bg: "#fef3c7" },
+  staff: { label: "Staff", color: "#0284c7", bg: "#e0f2fe" },
 };
+
+/**
+ * Tenant-aware role display.
+ *
+ * On a personal "home" account, `member_visibility` and `member` both
+ * resolve to "tenant" (amber). Everywhere else they stay "member".
+ */
+function resolveDisplayRole(
+  role: string | null | undefined,
+  isHomeAccount: boolean,
+): Role {
+  const r = String(role ?? "").toLowerCase();
+  if (r === "admin") return "admin";
+  if (r === "owner") return "owner";
+  if (r === "staff" || r === "staff_visibility") return "staff";
+  if (r === "tenant") return "tenant";
+  if (r === "member_visibility" || r === "member") {
+    return isHomeAccount ? "tenant" : "member";
+  }
+  return isHomeAccount ? "tenant" : "member";
+}
 
 const TYPE_META: Record<
   CalendarEventType,
@@ -268,7 +293,7 @@ function UserAvatar({
 }
 
 /* ========================================================================== */
-/* HELPERS                                                                    */
+/* DATE / TIME HELPERS                                                        */
 /* ========================================================================== */
 
 function pad(n: number): string {
@@ -345,8 +370,6 @@ function formatPhoneForDisplay(raw?: string | null): string {
   if (ten.length !== 10) return String(raw);
   return `+91 ${ten.slice(0, 5)} ${ten.slice(5)}`;
 }
-
-/* ------------------------ TIME HELPERS ------------------------------------ */
 
 function parseTimeToDate(timeStr?: string | null): Date {
   const base = new Date();
@@ -522,7 +545,7 @@ function mimeFromExtension(ext: string): string {
 }
 
 /* ========================================================================== */
-/* FILE ACCESS — expo-file-system / fetch based (no native module needed)     */
+/* FILE ACCESS                                                                */
 /* ========================================================================== */
 
 function blobToBase64(blob: Blob): Promise<string> {
@@ -680,20 +703,8 @@ async function readUriAsDataUri(
 }
 
 /* ========================================================================== */
-/* SAVE FILE — native ACTION_CREATE_DOCUMENT → SAF → Sharing                  */
+/* SAVE FILE                                                                  */
 /* ========================================================================== */
-//
-// Priority order:
-//   1. Android: native IntentModule.createDocument()  → true "Save to
-//      Downloads / Documents / SD card" picker.
-//   2. Android: StorageAccessFramework.requestDirectoryPermissionsAsync()
-//      via the NON-LEGACY expo-file-system import → folder picker.
-//   3. iOS / Web / fallback: Sharing.shareAsync() → share sheet (iOS has
-//      "Save to Files").
-//
-// The legacy `expo-file-system/legacy` module does NOT export
-// StorageAccessFramework, which is why the folder picker never opened.
-// We now also import `expo-file-system` (modern) to reach it.
 
 const saveFileWithFolderPicker = async (
   base64OrLocalUri: string,
@@ -705,9 +716,6 @@ const saveFileWithFolderPicker = async (
   const mimeType = mimeFromExtension(ext);
   const fileName = `${safeBase}.${ext}`;
 
-  // ----------------------------------------------------------------------
-  // WEB
-  // ----------------------------------------------------------------------
   if (Platform.OS === "web") {
     try {
       let href = base64OrLocalUri;
@@ -739,9 +747,6 @@ const saveFileWithFolderPicker = async (
     }
   }
 
-  // ----------------------------------------------------------------------
-  // ANDROID — path 1: native IntentModule (ACTION_CREATE_DOCUMENT)
-  // ----------------------------------------------------------------------
   if (Platform.OS === "android") {
     const IntentModule: any = (NativeModules as any).IntentModule;
 
@@ -776,7 +781,6 @@ const saveFileWithFolderPicker = async (
         if (created) {
           return { savedUri: fileName };
         }
-        // User dismissed the native picker.
         return null;
       } catch (e: any) {
         console.warn(
@@ -787,9 +791,6 @@ const saveFileWithFolderPicker = async (
     }
   }
 
-  // ----------------------------------------------------------------------
-  // Prepare cache file for remaining fallbacks
-  // ----------------------------------------------------------------------
   const cacheDir = FileSystem.cacheDirectory;
   if (!cacheDir) throw new Error("Cache directory not available.");
   const tempUri = `${cacheDir}${fileName}`;
@@ -811,9 +812,6 @@ const saveFileWithFolderPicker = async (
     throw new Error(e?.message || "Failed to prepare file for saving.");
   }
 
-  // ----------------------------------------------------------------------
-  // ANDROID — path 2: SAF folder picker via the MODERN expo-file-system
-  // ----------------------------------------------------------------------
   if (Platform.OS === "android") {
     const SAF: any =
       (FileSystemModern as any)?.StorageAccessFramework ??
@@ -823,7 +821,6 @@ const saveFileWithFolderPicker = async (
       try {
         const perm = await SAF.requestDirectoryPermissionsAsync();
         if (!perm?.granted || !perm.directoryUri) {
-          // User cancelled folder picker.
           return null;
         }
 
@@ -847,7 +844,6 @@ const saveFileWithFolderPicker = async (
           "[saveFile] SAF requestDirectoryPermissionsAsync failed:",
           e?.message || e,
         );
-        // fall through to Sharing
       }
     } else {
       console.warn(
@@ -856,9 +852,6 @@ const saveFileWithFolderPicker = async (
     }
   }
 
-  // ----------------------------------------------------------------------
-  // FINAL FALLBACK — Sharing.shareAsync (share sheet)
-  // ----------------------------------------------------------------------
   if (await Sharing.isAvailableAsync()) {
     await Sharing.shareAsync(tempUri, {
       mimeType,
@@ -941,6 +934,16 @@ function CalendarScreenImpl() {
   const isOwner = (userMemberProfile as any)?.role === "owner";
   const isAdminOrOwner = isAdmin || isOwner;
   const isMemberOnly = !isAdminOrOwner && isMember;
+
+  // ── Tenant detection ────────────────────────────────────────────────
+  // Uses useAccounts() (which exposes selectedAccount). The account store
+  // only holds selectedAccountId, so reading `s.selectedAccount` from it
+  // returned undefined and every role badge fell back to "Member".
+  const { selectedAccount } = useAccounts();
+  const isTenantAccount = useMemo(() => {
+    if (!selectedAccount) return false;
+    return String((selectedAccount as any).type ?? "").toLowerCase() === "home";
+  }, [selectedAccount]);
 
   const canApprove = isAdminOrOwner;
   const canOpenAddModal = isAdmin || isMember;
@@ -1498,11 +1501,10 @@ function CalendarScreenImpl() {
     const fileName = /\.\w+$/.test(rawName) ? rawName : `${rawName}.${ext}`;
     const baseName = fileName.replace(/\.[^.]+$/, "");
 
-    // 1) base64 data URI -> save via folder picker
     if (uri.startsWith("data:")) {
       try {
         const result = await saveFileWithFolderPicker(uri, baseName, mime);
-        if (!result) return; // user cancelled
+        if (!result) return;
         Alert.alert("Downloaded", "Attachment saved successfully.");
       } catch (e: any) {
         Alert.alert(
@@ -1513,7 +1515,6 @@ function CalendarScreenImpl() {
       return;
     }
 
-    // 2) remote URL -> open in browser
     if (/^https?:\/\//i.test(uri)) {
       try {
         await Linking.openURL(uri);
@@ -1523,11 +1524,10 @@ function CalendarScreenImpl() {
       return;
     }
 
-    // 3) local file -> read to data URI, then save via folder picker
     try {
       const { dataUri } = await readUriAsDataUri(uri, mime);
       const result = await saveFileWithFolderPicker(dataUri, baseName, mime);
-      if (!result) return; // user cancelled
+      if (!result) return;
       Alert.alert("Downloaded", "Attachment saved successfully.");
     } catch (e: any) {
       console.warn("[CalendarScreen] openAttachment failed:", e);
@@ -1802,7 +1802,10 @@ function CalendarScreenImpl() {
       phoneIsLink = false,
     } = opts;
 
-    const roleMeta = role ? ROLE_META[role] : null;
+    const displayRole: Role | null = role
+      ? resolveDisplayRole(role, isTenantAccount)
+      : null;
+    const roleMeta = displayRole ? ROLE_META[displayRole] : null;
     const phoneText = phone ? formatPhoneForDisplay(phone) : null;
 
     return (
@@ -2145,8 +2148,9 @@ function CalendarScreenImpl() {
     : [];
 
   const viewingRoleMeta = viewingEvent
-    ? (ROLE_META[(viewingEvent.createdByRole as Role) ?? "member"] ??
-      ROLE_META.member)
+    ? (ROLE_META[
+        resolveDisplayRole(viewingEvent.createdByRole, isTenantAccount)
+      ] ?? ROLE_META.member)
     : ROLE_META.member;
 
   const viewingIsOwnPost = viewingEvent ? isOwnPost(viewingEvent) : false;
@@ -2933,7 +2937,6 @@ function CalendarScreenImpl() {
                 </View>
               )}
 
-              {/* Attachment button is always visible; disabled when full */}
               {(() => {
                 const limitReached = attachments.length >= MAX_ATTACHMENT_COUNT;
                 const buttonDisabled =
@@ -3700,7 +3703,10 @@ function CalendarScreenImpl() {
                         : r.response === "reject",
                     )
                     .map((r) => {
-                      const rr = r.role ? ROLE_META[r.role as Role] : null;
+                      const displayRole = r.role
+                        ? resolveDisplayRole(r.role, isTenantAccount)
+                        : null;
+                      const rr = displayRole ? ROLE_META[displayRole] : null;
                       const isSelf = r.userId === currentUserId;
                       return (
                         <View
@@ -3982,8 +3988,12 @@ function CalendarScreenImpl() {
                             styles.postedByRoleBadge,
                             {
                               backgroundColor:
-                                ROLE_META[viewingEvent.createdByRole as Role]
-                                  ?.bg ?? "#f1f5f9",
+                                ROLE_META[
+                                  resolveDisplayRole(
+                                    viewingEvent.createdByRole,
+                                    isTenantAccount,
+                                  )
+                                ]?.bg ?? "#f1f5f9",
                             },
                           ]}
                         >
@@ -3992,14 +4002,22 @@ function CalendarScreenImpl() {
                               styles.postedByRoleBadgeText,
                               {
                                 color:
-                                  ROLE_META[viewingEvent.createdByRole as Role]
-                                    ?.color ?? "#475569",
+                                  ROLE_META[
+                                    resolveDisplayRole(
+                                      viewingEvent.createdByRole,
+                                      isTenantAccount,
+                                    )
+                                  ]?.color ?? "#475569",
                               },
                             ]}
                           >
                             {
-                              ROLE_META[viewingEvent.createdByRole as Role]
-                                ?.label
+                              ROLE_META[
+                                resolveDisplayRole(
+                                  viewingEvent.createdByRole,
+                                  isTenantAccount,
+                                )
+                              ]?.label
                             }
                           </Text>
                         </View>
@@ -4089,7 +4107,10 @@ function CalendarScreenImpl() {
                                 {
                                   backgroundColor:
                                     ROLE_META[
-                                      viewingEvent.approvedByRole as Role
+                                      resolveDisplayRole(
+                                        viewingEvent.approvedByRole,
+                                        isTenantAccount,
+                                      )
                                     ]?.bg ?? "#f1f5f9",
                                 },
                               ]}
@@ -4100,14 +4121,21 @@ function CalendarScreenImpl() {
                                   {
                                     color:
                                       ROLE_META[
-                                        viewingEvent.approvedByRole as Role
+                                        resolveDisplayRole(
+                                          viewingEvent.approvedByRole,
+                                          isTenantAccount,
+                                        )
                                       ]?.color ?? "#475569",
                                   },
                                 ]}
                               >
                                 {
-                                  ROLE_META[viewingEvent.approvedByRole as Role]
-                                    ?.label
+                                  ROLE_META[
+                                    resolveDisplayRole(
+                                      viewingEvent.approvedByRole,
+                                      isTenantAccount,
+                                    )
+                                  ]?.label
                                 }
                               </Text>
                             </View>

@@ -58,7 +58,6 @@ interface AlertState {
   title: string;
   message?: string;
   buttons: AlertButton[];
-  /** When set, renders a checkbox. Destructive buttons stay disabled until checked. */
   checkboxLabel?: string;
   checkboxChecked?: boolean;
   onCheckboxChange?: (checked: boolean) => void;
@@ -362,7 +361,7 @@ const API_URL = (
 ).replace(/\/api\/?$/, "");
 
 // ============================================================================
-// PUBLIC LEGAL URLS (GitHub Pages)
+// PUBLIC LEGAL URLS
 // ============================================================================
 const LEGAL_URLS = {
   privacy:
@@ -513,9 +512,13 @@ interface AuditRow {
 }
 
 // ============================================================================
-// HELPERS
+// HELPERS — tenant-aware role labels
 // ============================================================================
-function humanRole(role?: string | null): string {
+
+function humanRole(
+  role?: string | null,
+  isHomeAccount: boolean = false,
+): string {
   if (!role) return "";
   switch (role) {
     case "owner":
@@ -523,7 +526,7 @@ function humanRole(role?: string | null): string {
     case "admin":
       return "Admin";
     case "member_visibility":
-      return "Member";
+      return isHomeAccount ? "Tenant" : "Member";
     case "staff_visibility":
       return "Staff";
     case "ownership_transfer":
@@ -535,7 +538,10 @@ function humanRole(role?: string | null): string {
   }
 }
 
-function shortRoleLabel(role?: string | null): string {
+function shortRoleLabel(
+  role?: string | null,
+  isHomeAccount: boolean = false,
+): string {
   if (!role) return "";
   switch (role) {
     case "owner":
@@ -543,7 +549,7 @@ function shortRoleLabel(role?: string | null): string {
     case "admin":
       return "Admin";
     case "member_visibility":
-      return "Member";
+      return isHomeAccount ? "Tenant" : "Member";
     case "staff_visibility":
       return "Staff";
     case "ownership_transfer":
@@ -647,12 +653,13 @@ function buildHistoryTitle(
   row: AuditRow,
   actorIsSelf: boolean,
   targetIsSelf: boolean,
+  isHomeAccount: boolean = false,
 ): string {
   const actor = actorIsSelf
     ? "You"
     : row.actor_name && row.actor_name.trim()
       ? row.actor_name
-      : humanRole(row.actor_role) || "Someone";
+      : humanRole(row.actor_role, isHomeAccount) || "Someone";
 
   const target = targetIsSelf
     ? "you"
@@ -661,9 +668,11 @@ function buildHistoryTitle(
       : null;
 
   const meta = row.metadata ?? {};
-  const role = meta.role ? humanRole(meta.role) : "a role";
+  const role = meta.role ? humanRole(meta.role, isHomeAccount) : "a role";
   const kind = meta.kind ?? "an event";
   const k = `${row.entity_type}.${row.action}`;
+
+  const memberNoun = isHomeAccount ? "room" : "property";
 
   switch (k) {
     case "account.create":
@@ -680,20 +689,20 @@ function buildHistoryTitle(
         : `${actor} transferred ownership`;
 
     case "member.create":
-      if (targetIsSelf) return `${actor} added your property`;
+      if (targetIsSelf) return `${actor} added your ${memberNoun}`;
       return target
-        ? `${actor} added property for ${target}`
-        : `${actor} added a property`;
+        ? `${actor} added ${memberNoun} for ${target}`
+        : `${actor} added a ${memberNoun}`;
     case "member.update":
-      if (targetIsSelf) return `${actor} updated your property details`;
+      if (targetIsSelf) return `${actor} updated your ${memberNoun} details`;
       return target
-        ? `${actor} updated ${target}'s property details`
-        : `${actor} updated a property`;
+        ? `${actor} updated ${target}'s ${memberNoun} details`
+        : `${actor} updated a ${memberNoun}`;
     case "member.delete":
-      if (targetIsSelf) return `${actor} removed your property`;
+      if (targetIsSelf) return `${actor} removed your ${memberNoun}`;
       return target
-        ? `${actor} removed property from ${target}`
-        : `${actor} removed a property`;
+        ? `${actor} removed ${memberNoun} from ${target}`
+        : `${actor} removed a ${memberNoun}`;
 
     case "staff.create":
       if (targetIsSelf) return `${actor} added your staff role`;
@@ -822,9 +831,58 @@ function buildHistoryTitle(
   }
 }
 
+// Role words that, if present in a backend-stored summary, we would
+// want to rewrite on the client with tenant-aware wording.
+const ROLE_WORDS_IN_SUMMARY = [
+  " member access",
+  " a member",
+  " staff access",
+  " a staff member",
+  " admin access",
+  " an admin",
+  " ownership",
+];
+
+// "property" wording that, on a home account, must be rebuilt as "room".
+const PROPERTY_WORDS_IN_SUMMARY = [
+  "property for",
+  "a property",
+  "your property",
+  "'s property",
+  "the property",
+];
+
+function summaryNeedsRebuild(
+  summary: string | null,
+  isHomeAccount: boolean,
+  actorIsSelf: boolean,
+): boolean {
+  if (!summary) return false;
+
+  // When the viewer is the actor, the backend summary carries their real
+  // name. Rebuild on the client so it reads "You ...".
+  if (actorIsSelf) return true;
+
+  const s = summary.toLowerCase();
+
+  if (ROLE_WORDS_IN_SUMMARY.some((w) => s.includes(w.toLowerCase()))) {
+    return true;
+  }
+
+  if (
+    isHomeAccount &&
+    PROPERTY_WORDS_IN_SUMMARY.some((w) => s.includes(w.toLowerCase()))
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
 function mapAuditRowToHistoryEntry(
   row: AuditRow,
   currentUserId?: string | null,
+  isHomeAccount: boolean = false,
 ): HistoryEntry {
   const before = row.before ?? {};
   const after = row.after ?? {};
@@ -859,7 +917,7 @@ function mapAuditRowToHistoryEntry(
       ? "System"
       : row.actor_name && row.actor_name.trim()
         ? row.actor_name
-        : humanRole(row.actor_role) || "Unknown user";
+        : humanRole(row.actor_role, isHomeAccount) || "Unknown user";
 
   const targetName = targetIsSelf
     ? "You"
@@ -876,8 +934,15 @@ function mapAuditRowToHistoryEntry(
       ? row.summary.trim()
       : null;
 
+  // Prefer the frontend's buildHistoryTitle() whenever the backend's
+  // stored summary would render the actor's name instead of "You",
+  // mentions a role word, or (on home accounts) says "property" instead
+  // of "room".
   const title =
-    backendSummary ?? buildHistoryTitle(row, actorIsSelf, targetIsSelf);
+    backendSummary &&
+    !summaryNeedsRebuild(backendSummary, isHomeAccount, actorIsSelf)
+      ? backendSummary
+      : buildHistoryTitle(row, actorIsSelf, targetIsSelf, isHomeAccount);
 
   return {
     id: String(row.id),
@@ -1212,7 +1277,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.2,
   },
 
-  // ── DELETE ACCOUNT BUTTON (new) ─────────────────────────────
   deleteAccountButton: {
     marginTop: 10,
     marginBottom: 6,
@@ -1805,6 +1869,11 @@ export default function ProfileTabScreen(): React.ReactElement {
   const isOwner = selectedAccount?.ownerId === user?.id;
   const showAdminDirectory = !isOwner;
 
+  const isTenantAccount = useMemo(() => {
+    if (!selectedAccount) return false;
+    return String((selectedAccount as any).type ?? "").toLowerCase() === "home";
+  }, [selectedAccount]);
+
   const canManageBills = isOwner || isAdmin;
   const canSeeSubscription = isOwner || isAdmin || isMember;
   const canManageSubscription = isAdmin || isOwner;
@@ -1852,7 +1921,6 @@ export default function ProfileTabScreen(): React.ReactElement {
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
   const [withdrawSubmitting, setWithdrawSubmitting] = useState(false);
 
-  // ── Delete Account state ──────────────────────────────────────────
   const [deletingAccount, setDeletingAccount] = useState(false);
 
   useEffect(() => {
@@ -2014,7 +2082,9 @@ export default function ProfileTabScreen(): React.ReactElement {
         const visibleRows = rows.filter((r) => !isHiddenAuditRow(r));
 
         setHistory(
-          visibleRows.map((r) => mapAuditRowToHistoryEntry(r, user?.id)),
+          visibleRows.map((r) =>
+            mapAuditRowToHistoryEntry(r, user?.id, isTenantAccount),
+          ),
         );
         hasLoadedHistoryOnce.current = true;
       } catch (err) {
@@ -2024,7 +2094,13 @@ export default function ProfileTabScreen(): React.ReactElement {
         if (!silent) setHistoryLoading(false);
       }
     },
-    [selectedAccount?.id, historyScope, getAuthToken, user?.id],
+    [
+      selectedAccount?.id,
+      historyScope,
+      getAuthToken,
+      user?.id,
+      isTenantAccount,
+    ],
   );
 
   useEffect(() => {
@@ -2087,7 +2163,6 @@ export default function ProfileTabScreen(): React.ReactElement {
     }
   };
 
-  // ── Delete Account handler (new) ──────────────────────────────────
   const handleDeleteAccount = () => {
     showAlert({
       variant: "error",
@@ -2709,7 +2784,7 @@ export default function ProfileTabScreen(): React.ReactElement {
         ? prettyPhone(person.phone)
         : null;
 
-    const roleText = shortRoleLabel(person.role);
+    const roleText = shortRoleLabel(person.role, isTenantAccount);
 
     return (
       <View style={chipStyles.row}>
@@ -3025,7 +3100,9 @@ export default function ProfileTabScreen(): React.ReactElement {
               <View style={styles.pillRow}>
                 <View style={styles.societyPill}>
                   <View style={styles.societyPillDot} />
-                  <Text style={styles.societyPillText}>SOCIETY</Text>
+                  <Text style={styles.societyPillText}>
+                    {isTenantAccount ? "HOME" : "SOCIETY"}
+                  </Text>
                 </View>
               </View>
             </View>
@@ -3098,7 +3175,8 @@ export default function ProfileTabScreen(): React.ReactElement {
               <View style={styles.adminHeaderContent}>
                 <Text style={styles.adminHeaderTitle}>Admin</Text>
                 <Text style={styles.adminHeaderSubtitle}>
-                  Contact the society admin for any help
+                  Contact the {isTenantAccount ? "home owner" : "society admin"}{" "}
+                  for any help
                 </Text>
               </View>
             </View>
@@ -3311,7 +3389,8 @@ export default function ProfileTabScreen(): React.ReactElement {
                     ]}
                   >
                     <Text style={styles.subscriptionExpiry}>
-                      Managed by the society admin
+                      Managed by the{" "}
+                      {isTenantAccount ? "home owner" : "society admin"}
                     </Text>
                   </View>
                 )}
@@ -3342,7 +3421,7 @@ export default function ProfileTabScreen(): React.ReactElement {
               </Text>
               <Text style={styles.historySubtitle}>
                 {historyScope === "full"
-                  ? "Track all activities in your society"
+                  ? "Track all activities in your property"
                   : "Your activity on this account"}
               </Text>
             </View>
