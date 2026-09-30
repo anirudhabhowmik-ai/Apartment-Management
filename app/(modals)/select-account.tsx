@@ -16,6 +16,36 @@ import { useAccounts } from "../../hooks/useAccounts";
 import { useAccountStore } from "../../store/accountStore";
 import { useAuthStore } from "../../store/useAuthStore";
 
+// ---------------------------------------------------------------------------
+// Role badge meta — tenant-aware on home accounts
+// ---------------------------------------------------------------------------
+type RoleBadgeMeta = {
+  label: string;
+  color: string;
+  icon: keyof typeof Ionicons.glyphMap;
+};
+
+function roleBadgeMeta(
+  role: string | null | undefined,
+  isHome: boolean,
+): RoleBadgeMeta {
+  const r = String(role ?? "").toLowerCase();
+
+  if (r === "admin") {
+    return { label: "Admin", color: "#7c3aed", icon: "shield-checkmark" };
+  }
+  if (r === "member_visibility") {
+    return isHome
+      ? { label: "Tenant", color: "#b45309", icon: "person" }
+      : { label: "Member", color: "#7c3aed", icon: "person" };
+  }
+  if (r === "staff_visibility") {
+    return { label: "Staff", color: "#0284c7", icon: "briefcase" };
+  }
+  // Default / owner
+  return { label: "Owner", color: "#16a34a", icon: "shield-checkmark" };
+}
+
 export default function SelectAccountScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -107,6 +137,8 @@ export default function SelectAccountScreen() {
 
           {accounts.map((account) => {
             const isSelected = account.id === selectedAccountId;
+            const isHome = account.type === "home";
+            const roleMeta = roleBadgeMeta((account as any).role, isHome);
 
             return (
               <TouchableOpacity
@@ -146,11 +178,13 @@ export default function SelectAccountScreen() {
 
                   <View style={styles.ownerRow}>
                     <Ionicons
-                      name="shield-checkmark"
+                      name={roleMeta.icon}
                       size={14}
-                      color="#16a34a"
+                      color={roleMeta.color}
                     />
-                    <Text style={styles.ownerText}>Owner</Text>
+                    <Text style={[styles.ownerText, { color: roleMeta.color }]}>
+                      {roleMeta.label}
+                    </Text>
                   </View>
                 </View>
 

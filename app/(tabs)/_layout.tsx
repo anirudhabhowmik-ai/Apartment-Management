@@ -2,7 +2,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs, useFocusEffect, useRouter } from "expo-router";
 import * as SecureStore from "expo-secure-store";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -193,6 +193,18 @@ export default function TabsLayout() {
 
   const notificationCount = unreadCount;
 
+  // ── Tenant-account detection ──────────────────────────────────────────────
+  // A "home" account is a personal home. Members on a home account are
+  // tenants (renters), not flat owners. Tenants must NOT see property
+  // finance — it's the owner's money, not theirs.
+  //
+  // This mirrors the exact signal `app/(tabs)/index.tsx` uses so the label,
+  // the tab bar, and the finance gate stay in sync.
+  const isTenantAccount = useMemo(() => {
+    if (!selectedAccount) return false;
+    return String((selectedAccount as any).type ?? "").toLowerCase() === "home";
+  }, [selectedAccount]);
+
   // ── Bell + badge animations ────────────────────────────────────────────────
   const bellRing = useRef(new Animated.Value(0)).current;
   const badgePop = useRef(new Animated.Value(1)).current;
@@ -365,7 +377,16 @@ export default function TabsLayout() {
     router,
   ]);
 
-  const canSeeFinance = isAdmin || isMember;
+  // ── Tab visibility rules ──────────────────────────────────────────────────
+  //
+  // Finance:
+  //   • Admin  → visible on every account.
+  //   • Member → visible only on apartment accounts.
+  //   • Tenant (member on a home account) → hidden.
+  //   • Staff  → hidden.
+  //
+  // Calendar / Management are unchanged.
+  const canSeeFinance = isAdmin || (isMember && !isTenantAccount);
   const canSeeCalendar = isAdmin || isMember;
   const canSeeManagement = isAdmin || isMember || isStaff;
 
@@ -694,6 +715,7 @@ export default function TabsLayout() {
           name="finance"
           options={{
             title: "Finance",
+            // Hidden for tenants (member on a "home" account) and for staff.
             href: canSeeFinance ? undefined : null,
             tabBarIcon: ({ color, focused }) => (
               <View

@@ -83,6 +83,8 @@ interface ApiMyInvitation {
   created_at: string;
   account_name: string;
   account_photo_url: string | null;
+  /** "apartment" | "home" — populated by /api/me/invitations */
+  account_type?: string | null;
   invited_by_phone: string;
   current_role?: string | null;
 }
@@ -91,6 +93,7 @@ interface GroupedInvitation {
   key: string;
   account_id: string;
   account_name: string;
+  account_type: string | null;
   account_photo_url: string | null;
   invited_by_phone: string;
   invited_name: string | null;
@@ -204,6 +207,22 @@ const ACCESS_LEVEL_INFO = {
       "Update Profile",
     ],
   },
+  // Tenant access for members on a personal "home" account.
+  // Tenants must NOT see property finance (owner's money).
+  tenant: {
+    title: "Tenant Access",
+    icon: "home-outline",
+    color: "#b45309",
+    bg: "#fef3c7",
+    description:
+      "View-only access to your tenancy details and payment history on this home",
+    permissions: [
+      "View Your Rent & Dues",
+      "View Payment Receipts",
+      "View Notices",
+      "Update Profile",
+    ],
+  },
   staff: {
     title: "Staff Access",
     icon: "briefcase-outline",
@@ -289,7 +308,6 @@ function AppAlert({
   const m = meta[variant];
 
   const handlePress = (btn: AlertButton) => {
-    // Block destructive button when checkbox isn't checked
     if (
       btn.style === "destructive" &&
       checkboxLabel &&
@@ -1011,19 +1029,35 @@ function normalizePhone(raw?: string | null): string {
   return digits.length > 10 ? digits.slice(-10) : digits;
 }
 
+/**
+ * Returns the access level bucket for the invitation. A member on a "home"
+ * account is a TENANT, not a member — so we surface a distinct bucket.
+ */
 function roleToAccessLevel(
   role: ApiMyInvitation["role"],
-): "admin" | "member" | "staff" {
+  isHomeAccount: boolean = false,
+): "admin" | "member" | "tenant" | "staff" {
   if (role === "admin" || role === "ownership_transfer") return "admin";
   if (role === "staff_visibility") return "staff";
+  if (role === "member_visibility") {
+    return isHomeAccount ? "tenant" : "member";
+  }
   return "member";
 }
 
-function roleLabel(role: ApiInvitationRole): string {
+/**
+ * Human-readable role label for a single invitation role.
+ * `isHomeAccount` promotes "Member" → "Tenant" on personal-home accounts.
+ */
+function roleLabel(
+  role: ApiInvitationRole,
+  isHomeAccount: boolean = false,
+): string {
   if (role === "admin") return "Admin";
-  if (role === "member_visibility") return "Member";
   if (role === "staff_visibility") return "Staff";
-  return "Ownership";
+  if (role === "ownership_transfer") return "Ownership";
+  // member_visibility
+  return isHomeAccount ? "Tenant" : "Member";
 }
 
 // ---------------------------------------------------------------------------
@@ -1133,6 +1167,7 @@ export default function AddAccountScreen() {
         key,
         account_id: inv.account_id,
         account_name: inv.account_name,
+        account_type: inv.account_type ?? null,
         account_photo_url: inv.account_photo_url,
         invited_by_phone: inv.invited_by_phone,
         invited_name: inv.invited_name,
@@ -1146,8 +1181,15 @@ export default function AddAccountScreen() {
     return Array.from(byKey.values());
   }, [pendingInvitations]);
 
-  const getInvitationApartmentName = (inv: ApiMyInvitation) =>
-    inv.account_name || "Apartment Society";
+  /**
+   * True if the inviting account is a personal "home" account.
+   * Populated on each invitation row by /api/me/invitations as
+   * `account_type` ("apartment" | "home").
+   */
+  const isGroupHomeAccount = (group: GroupedInvitation): boolean =>
+    String(group.account_type ?? "")
+      .toLowerCase()
+      .trim() === "home";
 
   const getPrimaryRole = (roles: ApiInvitationRole[]): ApiInvitationRole => {
     if (roles.includes("ownership_transfer")) return "ownership_transfer";
@@ -1159,7 +1201,7 @@ export default function AddAccountScreen() {
   const getAccessLevelInfoForGroup = (group: GroupedInvitation) => {
     const primary = getPrimaryRole(group.roles);
     if (primary === "ownership_transfer") return ACCESS_LEVEL_INFO.ownership;
-    const accessLevel = roleToAccessLevel(primary);
+    const accessLevel = roleToAccessLevel(primary, isGroupHomeAccount(group));
     return (
       ACCESS_LEVEL_INFO[accessLevel as keyof typeof ACCESS_LEVEL_INFO] ||
       ACCESS_LEVEL_INFO.member
@@ -1383,7 +1425,6 @@ export default function AddAccountScreen() {
         return;
       }
 
-      // Success — show success alert, then log out
       showAlert({
         variant: "success",
         title: "Account Deleted",
@@ -1507,11 +1548,15 @@ export default function AddAccountScreen() {
       { name: string; groups: GroupedInvitation[] }
     >();
     groupedInvitations.forEach((g) => {
-      const aptName = g.account_name || "Apartment Society";
-      if (!map.has(aptName)) {
-        map.set(aptName, { name: aptName, groups: [] });
+      // Key by account_id so different homes/apartments with the same
+      // display name don't collide, and so we don't fall back to the
+      // generic "Apartment Society" label for home accounts.
+      const key = g.account_id;
+      const displayName = g.account_name || "Property";
+      if (!map.has(key)) {
+        map.set(key, { name: displayName, groups: [] });
       }
-      map.get(aptName)!.groups.push(g);
+      map.get(key)!.groups.push(g);
     });
     return Array.from(map.values());
   };
@@ -1522,8 +1567,11 @@ export default function AddAccountScreen() {
     if (!selectedGroup) return null;
     const accessInfo = getAccessLevelInfoForGroup(selectedGroup);
     const hasOwnership = selectedGroup.roles.includes("ownership_transfer");
+    const isHome = isGroupHomeAccount(selectedGroup);
 
-    const rolesSummary = selectedGroup.roles.map(roleLabel).join(" + ");
+    const rolesSummary = selectedGroup.roles
+      .map((r) => roleLabel(r, isHome))
+      .join(" + ");
 
     return (
       <Modal
@@ -1823,6 +1871,7 @@ export default function AddAccountScreen() {
                         </View>
 
                         {apartment.groups.map((group) => {
+                          const isHome = isGroupHomeAccount(group);
                           const primary = getPrimaryRole(group.roles);
                           const isOwnership = primary === "ownership_transfer";
                           const isAdmin = primary === "admin";
@@ -1831,17 +1880,21 @@ export default function AddAccountScreen() {
                           const inviterPhone =
                             group.invited_by_phone || "Secretary";
 
+                          // Default card = MEMBER (apartment) or TENANT (home).
+                          // Only used when the primary role is member_visibility;
+                          // the branches below override it for admin / ownership / staff.
                           let optionCard: SetupOption = {
                             id: "join_owner",
-                            title: "Join as Apartment Owner",
-                            badge: "Member Access",
-                            badgeColor: "#7c3aed",
-                            badgeBg: "#f3e8ff",
-                            description:
-                              "Connect with this society to view monthly maintenance dues, payment receipts & society notices.",
+                            title: isHome ? "Join as Tenant" : "Join as Member",
+                            badge: isHome ? "Tenant Access" : "Member Access",
+                            badgeColor: isHome ? "#b45309" : "#7c3aed",
+                            badgeBg: isHome ? "#fef3c7" : "#f3e8ff",
+                            description: isHome
+                              ? "Connect with this home to view your rent, payment history and notices. Tenant access does not include property finance."
+                              : "Connect with this society to view monthly maintenance dues, payment receipts & society notices.",
                             icon: "key",
-                            iconColor: "#7c3aed",
-                            iconBg: "#f3e8ff",
+                            iconColor: isHome ? "#b45309" : "#7c3aed",
+                            iconBg: isHome ? "#fef3c7" : "#f3e8ff",
                             category: "join",
                             accessLevel: "member",
                           };
@@ -1854,7 +1907,7 @@ export default function AddAccountScreen() {
                               badgeColor: "#b45309",
                               badgeBg: "#fef3c7",
                               description:
-                                "You've been invited to become the new owner of this account. Accepting will transfer full ownership to you.",
+                                "You've been invited to become the new owner of this account. Accepting will transfer full ownership to you — including property finance and settings.",
                               icon: "swap-horizontal-outline",
                               iconColor: "#b45309",
                               iconBg: "#fef3c7",
@@ -1895,11 +1948,13 @@ export default function AddAccountScreen() {
 
                           const isMultiRole = group.roles.length > 1;
                           const displayTitle = isMultiRole
-                            ? `Join as ${group.roles.map(roleLabel).join(" + ")}`
+                            ? `Join as ${group.roles
+                                .map((r) => roleLabel(r, isHome))
+                                .join(" + ")}`
                             : optionCard.title;
                           const displayDescription = isMultiRole
                             ? `You'll be granted ${group.roles
-                                .map(roleLabel)
+                                .map((r) => roleLabel(r, isHome))
                                 .join(
                                   " and ",
                                 )} access on this property at the same time.`
@@ -1940,11 +1995,17 @@ export default function AddAccountScreen() {
                                               color: "#1a73e8",
                                             }
                                           : r === "member_visibility"
-                                            ? {
-                                                label: "Member",
-                                                bg: "#f3e8ff",
-                                                color: "#7c3aed",
-                                              }
+                                            ? isHome
+                                              ? {
+                                                  label: "Tenant",
+                                                  bg: "#fef3c7",
+                                                  color: "#b45309",
+                                                }
+                                              : {
+                                                  label: "Member",
+                                                  bg: "#f3e8ff",
+                                                  color: "#7c3aed",
+                                                }
                                             : r === "staff_visibility"
                                               ? {
                                                   label: "Staff",
@@ -2197,7 +2258,6 @@ export default function AddAccountScreen() {
           </View>
         )}
 
-        {/* Error when not on step 2 */}
         {error && step !== 2 ? (
           <View style={styles.errorContainer}>
             <Ionicons name="alert-circle" size={16} color="#e53935" />
@@ -2208,7 +2268,6 @@ export default function AddAccountScreen() {
         <View style={styles.logoutSection}>
           <View style={styles.logoutDivider} />
 
-          {/* LOGOUT — first */}
           <TouchableOpacity
             style={styles.logoutButton}
             onPress={handleLogout}
@@ -2219,7 +2278,6 @@ export default function AddAccountScreen() {
             <Text style={styles.logoutButtonText}>Log out</Text>
           </TouchableOpacity>
 
-          {/* DELETE ACCOUNT — second, deliberate */}
           <TouchableOpacity
             style={[
               styles.deleteAccountButton,
@@ -2245,7 +2303,6 @@ export default function AddAccountScreen() {
         </View>
       </ScrollView>
 
-      {/* Photo Options Modal */}
       <Modal
         visible={showPhotoOptions}
         transparent
@@ -2319,7 +2376,6 @@ export default function AddAccountScreen() {
 
       {renderAccessInfoModal()}
 
-      {/* Reject Modal */}
       <Modal
         visible={rejectingGrantKey !== null}
         transparent
@@ -2342,8 +2398,9 @@ export default function AddAccountScreen() {
                   (x) => x.key === rejectingGrantKey,
                 );
                 if (g && g.roles.length > 1) {
+                  const isHome = isGroupHomeAccount(g);
                   return `Are you sure you want to reject this invitation? You'll lose the ${g.roles
-                    .map(roleLabel)
+                    .map((r) => roleLabel(r, isHome))
                     .join(" and ")} access for this property.`;
                 }
                 return "Are you sure you want to reject this invitation? You will no longer be able to join this property using this invite.";
@@ -2377,7 +2434,6 @@ export default function AddAccountScreen() {
         </Pressable>
       </Modal>
 
-      {/* Custom Alert — renders delete confirmation, success, errors */}
       <AppAlert state={alertState} onDismiss={dismissAlert} />
     </KeyboardAvoidingView>
   );
@@ -3043,7 +3099,6 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
 
-  // ── Logout button — now first ────────────────────────────────────
   logoutButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -3064,7 +3119,6 @@ const styles = StyleSheet.create({
     color: "#dc2626",
   },
 
-  // ── Delete Account button — now second ────────────────────────────
   deleteAccountButton: {
     flexDirection: "row",
     alignItems: "center",
