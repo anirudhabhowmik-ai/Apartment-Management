@@ -17,20 +17,5 @@ npx tsc --noEmit
 Push Notification
 Used Google Firebase
 
-Need to Change Package Name Once Google PlayStore Account Is Created And Accepted The Package Name And Then Need To Chnage App.Json File Package Name
-Privacy and Terms Page Added In Github Which Need To Change With Real Data
-
-Payment Gateway
-RevenueCat For PlayStore And IOS And Razorpay For Web
-
-Google Developer Verification To Deploy APP In PlaySore
-https://play.google.com/console/u/0/signup
-
-Video KYC
-https://connect.billdesk.com/videoKyc
-
-revenueCat Invitation Mail From Google Console
-revenuecat-service-account@elated-cathode-418009.iam.gserviceaccount.com
-
-Build Command
-eas build -p android --profile production
+Google Console Deployment
+https://play.google.com/console/u/0/developers/5444417485597620200/app-list
