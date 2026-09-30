@@ -41,7 +41,7 @@ const AUTH_TOKEN_KEY = "auth_token";
 const MANAGEMENT_PREFIX = "/management";
 
 // ============================================================================
-// Inline custom alert — self-contained, no external imports
+// Inline custom alert
 // ============================================================================
 
 type AlertVariant = "info" | "success" | "warning" | "error" | "question";
@@ -670,23 +670,72 @@ const getPaymentForMonth = (member: any, month: string | null) => {
   return { status: "due" as const, netAmount: null };
 };
 
-const formatMonth = (month: string) =>
-  new Date(`${month}-01T00:00:00`).toLocaleString("default", {
-    month: "short",
-    year: "numeric",
-  });
+// ═══════════════════════════════════════════════════════════════════════════
+// FIX: local-time month helpers (toISOString returns UTC → shows Sept in Oct)
+// ═══════════════════════════════════════════════════════════════════════════
 
-const formatMonthLong = (month: string) =>
-  new Date(`${month}-01T00:00:00`).toLocaleString("default", {
-    month: "long",
-    year: "numeric",
-  });
+const MONTH_SHORT = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+];
+
+const MONTH_LONG = [
+  "January",
+  "February",
+  "March",
+  "April",
+  "May",
+  "June",
+  "July",
+  "August",
+  "September",
+  "October",
+  "November",
+  "December",
+];
+
+/** Local-time YYYY-MM key. Never uses toISOString(). */
+const getCurrentMonth = (): string => {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  return `${y}-${m}`;
+};
+
+const formatMonth = (month: string): string => {
+  if (!month || month.length < 7) return month;
+  const [y, m] = month.split("-");
+  const idx = Number(m) - 1;
+  if (idx < 0 || idx > 11) return month;
+  return `${MONTH_SHORT[idx]} ${y}`;
+};
+
+const formatMonthLong = (month: string): string => {
+  if (!month || month.length < 7) return month;
+  const [y, m] = month.split("-");
+  const idx = Number(m) - 1;
+  if (idx < 0 || idx > 11) return month;
+  return `${MONTH_LONG[idx]} ${y}`;
+};
+
+const isCurrentMonth = (month: string | null): boolean =>
+  month === getCurrentMonth();
 
 const navigateMonth = (
   currentMonth: string | null,
   direction: "prev" | "next",
 ): string => {
-  if (!currentMonth) return new Date().toISOString().slice(0, 7);
+  if (!currentMonth) return getCurrentMonth();
   const [year, month] = currentMonth.split("-").map(Number);
   let newMonth = month + (direction === "next" ? 1 : -1);
   let newYear = year;
@@ -907,10 +956,6 @@ const EMPTY_TEMPLATE_MISSING: TemplateMissingState = {
   isApartment: true,
 };
 
-/**
- * The labelled chips to show for a member record — Wing, Room/Flat, Area.
- * Returns an empty array when the record has none of them.
- */
 interface RecordChip {
   key: "wing" | "flat" | "area";
   icon: keyof typeof Ionicons.glyphMap;
@@ -956,7 +1001,7 @@ function buildMemberRecordChips(
       key: "area",
       icon: "resize-outline",
       label: "Area",
-      value: `${Number(area)} sqft`,
+      value: `${Number(area)}`,
     });
   }
 
@@ -1010,10 +1055,11 @@ export default function PeopleScreen() {
     return String((selectedAccount as any).type ?? "").toLowerCase() === "home";
   }, [selectedAccount]);
 
+  // ── FIX: local-time month key ─────────────────────────────────────────
   const [selectedMonth, setSelectedMonth] = useState<string | null>(
-    new Date().toISOString().slice(0, 7),
+    getCurrentMonth(),
   );
-  const month = selectedMonth || new Date().toISOString().slice(0, 7);
+  const month = selectedMonth || getCurrentMonth();
 
   const membersHook = useMembers(selectedAccountId ?? null, selectedMonth);
   const staffHook = useStaff(selectedAccountId ?? null, selectedMonth);
@@ -1434,7 +1480,7 @@ export default function PeopleScreen() {
 
   const openPaymentModal = (member: any) => {
     if (!canEdit) return;
-    const m = selectedMonth || new Date().toISOString().slice(0, 7);
+    const m = selectedMonth || getCurrentMonth();
     const monthlyPayment = getPaymentForMonth(member, m);
     setModalAttendance(null);
     setPaymentMember(member);
@@ -1578,6 +1624,10 @@ export default function PeopleScreen() {
     setSelectedMonth(navigateMonth(selectedMonth, "next"));
   };
 
+  const handleTodayMonth = () => {
+    setSelectedMonth(getCurrentMonth());
+  };
+
   if (!selectedAccountId) {
     return (
       <View style={styles.container}>
@@ -1711,8 +1761,11 @@ export default function PeopleScreen() {
       ? Math.round((summary.paidCount / summaryTotal) * 100)
       : 0;
 
+  const showingCurrentMonth = isCurrentMonth(selectedMonth);
+
   return (
     <View style={styles.container}>
+      {/* ── HEADER: title + subtitle + month pill (NO new card) ─────── */}
       <View style={styles.header}>
         <View style={styles.headerTop}>
           <View style={styles.headerTitleArea}>
@@ -1746,6 +1799,9 @@ export default function PeopleScreen() {
               <Text style={styles.monthText}>
                 {selectedMonth ? formatMonth(selectedMonth) : "All months"}
               </Text>
+              {showingCurrentMonth ? (
+                <View style={styles.monthCurrentDot} />
+              ) : null}
             </Pressable>
 
             <Pressable
@@ -1764,6 +1820,22 @@ export default function PeopleScreen() {
             </Pressable>
           </View>
         </View>
+
+        {!showingCurrentMonth ? (
+          <Pressable
+            style={({ pressed }) => [
+              styles.todayRow,
+              pressed && styles.pressedButton,
+            ]}
+            onPress={handleTodayMonth}
+          >
+            <Ionicons name="today-outline" size={13} color={COLORS.primary} />
+            <Text style={styles.todayRowText}>
+              Not on current month · Tap to go to{" "}
+              {formatMonthLong(getCurrentMonth())}
+            </Text>
+          </Pressable>
+        ) : null}
 
         <View style={styles.tabsContainer}>
           {tabTypes
@@ -2282,9 +2354,9 @@ export default function PeopleScreen() {
                       ? buildMemberRecordChips(record, isTenantAccount)
                       : [];
 
-                    const baseLabel = isApartmentTab
-                      ? `${formatINR(Number(record.maintenanceAmount) || 0)} / month`
-                      : `${formatINR(Number(record.monthlySalary) || 0)} / month`;
+                    const monthlyAmount = isApartmentTab
+                      ? Number(record.maintenanceAmount) || 0
+                      : Number(record.monthlySalary) || 0;
 
                     const att = isStaffTab
                       ? getAttendanceRecord(record.id, month)
@@ -2323,55 +2395,29 @@ export default function PeopleScreen() {
                             }
                           }}
                         >
+                          {/* ── LEFT: everything inline on ONE row ─────── */}
                           <View style={styles.recordInfo}>
-                            {/* ── chips row ─────────────────────────── */}
-                            {isApartmentTab ? (
-                              <View style={styles.recordChipsRow}>
-                                {recordChips.length > 0 ? (
-                                  recordChips.map((chip) => (
+                            <View style={styles.recordInlineRow}>
+                              {/* Area / Wing / Flat chips */}
+                              {isApartmentTab && recordChips.length > 0
+                                ? recordChips.map((chip) => (
                                     <View
                                       key={chip.key}
                                       style={styles.recordChip}
                                     >
                                       <Ionicons
                                         name={chip.icon}
-                                        size={12}
+                                        size={11}
                                         color={COLORS.primaryDark}
                                       />
-                                      <Text style={styles.recordChipLabel}>
-                                        {chip.label}
-                                      </Text>
                                       <Text style={styles.recordChipValue}>
                                         {chip.value}
                                       </Text>
                                     </View>
                                   ))
-                                ) : (
-                                  <View style={styles.recordChip}>
-                                    <Ionicons
-                                      name="home-outline"
-                                      size={12}
-                                      color={COLORS.primaryDark}
-                                    />
-                                    <Text style={styles.recordChipLabel}>
-                                      {isTenantAccount ? "Room" : "Apartment"}
-                                    </Text>
-                                    <Text style={styles.recordChipValue}>
-                                      —
-                                    </Text>
-                                  </View>
-                                )}
-                              </View>
-                            ) : (
-                              <Text
-                                style={styles.recordTitle}
-                                numberOfLines={1}
-                              >
-                                {roleStyle.label}
-                              </Text>
-                            )}
+                                : null}
 
-                            <View style={styles.recordMetaRow}>
+                              {/* Role badge: Room Rent / Shop Rent … */}
                               <View
                                 style={[
                                   styles.roleBadge,
@@ -2391,22 +2437,25 @@ export default function PeopleScreen() {
                                   {roleStyle.label}
                                 </Text>
                               </View>
+
+                              {/* Monthly amount inline: ₹5,000/mo */}
                               <Text
-                                style={styles.recordSubtitle}
+                                style={styles.recordInlineAmount}
                                 numberOfLines={1}
                               >
-                                {baseLabel}
+                                {formatINR(monthlyAmount)}/mo
                               </Text>
 
+                              {/* Paid days chip */}
                               {showPaidDaysChip ? (
                                 <View style={styles.paidDaysChip}>
                                   <Ionicons
                                     name="checkmark-circle"
-                                    size={11}
+                                    size={10}
                                     color="#15803D"
                                   />
                                   <Text style={styles.paidDaysChipText}>
-                                    Paid days: {paidDays}
+                                    {paidDays}
                                     {totalDays ? `/${totalDays}` : ""}
                                   </Text>
                                 </View>
@@ -2414,6 +2463,7 @@ export default function PeopleScreen() {
                             </View>
                           </View>
 
+                          {/* ── RIGHT: paid amount + paid date only ───── */}
                           {showFinancialInfo ? (
                             <View style={styles.recordRight}>
                               <Text
@@ -2429,35 +2479,23 @@ export default function PeopleScreen() {
                               >
                                 {formatINR(statusPaymentAmount)}
                               </Text>
-                              <View style={styles.statusInline}>
-                                <View
-                                  style={[
-                                    styles.statusDot,
-                                    {
-                                      backgroundColor: isPaidThisMonth
-                                        ? COLORS.success
-                                        : COLORS.danger,
-                                    },
-                                  ]}
-                                />
-                                <Text
-                                  style={[
-                                    styles.statusInlineText,
-                                    {
-                                      color: isPaidThisMonth
-                                        ? COLORS.successDark
-                                        : COLORS.danger,
-                                    },
-                                  ]}
-                                  numberOfLines={1}
-                                >
-                                  {isPaidThisMonth
-                                    ? paidDateForMonth
-                                      ? `Paid ${formatBadgeDate(paidDateForMonth)}`
-                                      : "Paid"
-                                    : "Due"}
-                                </Text>
-                              </View>
+                              <Text
+                                style={[
+                                  styles.statusInlineText,
+                                  {
+                                    color: isPaidThisMonth
+                                      ? COLORS.successDark
+                                      : COLORS.danger,
+                                  },
+                                ]}
+                                numberOfLines={1}
+                              >
+                                {isPaidThisMonth
+                                  ? paidDateForMonth
+                                    ? `Paid ${formatBadgeDate(paidDateForMonth)}`
+                                    : "Paid"
+                                  : "Due"}
+                              </Text>
                             </View>
                           ) : null}
                         </Pressable>
@@ -3105,16 +3143,43 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   monthCenter: {
-    minWidth: 76,
+    minWidth: 86,
     height: 38,
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: 4,
+    gap: 6,
+    paddingHorizontal: 6,
   },
   monthText: {
     fontSize: 14,
     fontWeight: "700",
     color: COLORS.primaryDark,
+  },
+  monthCurrentDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: COLORS.success,
+  },
+
+  todayRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    marginTop: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: COLORS.primaryLight,
+    borderWidth: 1,
+    borderColor: COLORS.primarySoft,
+  },
+  todayRowText: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: COLORS.primary,
   },
 
   tabsContainer: {
@@ -3430,100 +3495,100 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: COLORS.borderLight,
   },
+
+  // Single row: left = inline info, right = amount + paid date
   recordRow: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
   },
   recordRowPressed: { opacity: 0.75 },
-  recordInfo: { flex: 1, minWidth: 0, marginRight: 10 },
-  recordTitle: {
-    fontSize: 15,
-    lineHeight: 20,
-    fontWeight: "700",
-    color: COLORS.text,
+
+  recordInfo: {
+    flex: 1,
+    minWidth: 0,
   },
 
-  /* ── New chips row ──────────────────────────────────────────── */
-  recordChipsRow: {
+  // One flowing row: chips → role → amount → paid days
+  recordInlineRow: {
     flexDirection: "row",
+    alignItems: "center",
     flexWrap: "wrap",
-    gap: 6,
-    marginBottom: 8,
+    gap: 5,
   },
+
   recordChip: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 9,
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 7,
     backgroundColor: COLORS.primaryLight,
     borderWidth: 1,
     borderColor: COLORS.primarySoft,
   },
-  recordChipLabel: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: COLORS.primaryDark,
-    letterSpacing: 0.2,
-  },
   recordChipValue: {
-    fontSize: 11.5,
+    fontSize: 11,
     fontWeight: "800",
-    color: COLORS.text,
-    marginLeft: 2,
+    color: COLORS.primaryDark,
   },
 
-  recordMetaRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    flexWrap: "wrap",
-    gap: 8,
-    marginTop: 2,
-  },
   roleBadge: {
-    paddingHorizontal: 9,
-    paddingVertical: 3,
-    borderRadius: 8,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 7,
     borderWidth: 1,
   },
   roleBadgeText: {
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  recordSubtitle: { fontSize: 13, color: COLORS.secondary },
-  recordRight: { alignItems: "flex-end", maxWidth: "48%" },
-  recordAmount: {
-    fontSize: 17,
-    lineHeight: 22,
+    fontSize: 11,
     fontWeight: "800",
-    letterSpacing: -0.2,
   },
-  statusInline: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    marginTop: 3,
+
+  recordInlineAmount: {
+    fontSize: 12,
+    fontWeight: "800",
+    color: COLORS.text,
+    flexShrink: 1,
   },
-  statusInlineText: { fontSize: 12, fontWeight: "700" },
-  statusDot: { width: 7, height: 7, borderRadius: 4 },
 
   paidDaysChip: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 7,
     backgroundColor: COLORS.successLight,
     borderWidth: 1,
     borderColor: COLORS.successBorder,
   },
   paidDaysChipText: {
-    fontSize: 11,
+    fontSize: 10.5,
     fontWeight: "800",
     color: COLORS.successDark,
   },
+
+  // Right column — paid amount + paid date
+  recordRight: {
+    alignItems: "flex-end",
+    maxWidth: "40%",
+    flexShrink: 0,
+    marginLeft: 6,
+  },
+  recordAmount: {
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: "800",
+    letterSpacing: -0.2,
+  },
+  statusInlineText: {
+    fontSize: 11,
+    fontWeight: "700",
+    marginTop: 1,
+  },
+  statusDot: { width: 7, height: 7, borderRadius: 4 },
 
   recordActionsRow: {
     flexDirection: "row",
