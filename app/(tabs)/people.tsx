@@ -15,7 +15,7 @@ import {
   StyleSheet,
   Text,
   TextInput,
-  View
+  View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -3120,7 +3120,8 @@ const styles = StyleSheet.create({
   chipRow: {
     flexDirection: "row",
     gap: 8,
-    marginTop: 12,
+    marginTop: 8,
+    marginBottom: 8,
   },
   chip: {
     height: 38,

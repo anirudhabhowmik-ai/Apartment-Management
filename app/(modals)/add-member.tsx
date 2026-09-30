@@ -2180,7 +2180,7 @@ export default function AddMemberScreen() {
           <View style={styles.card}>
             {renderSectionHeader(
               "home-outline",
-              isTenantAccount ? "Room Details" : "Apartment Details",
+              isTenantAccount ? "Rental Details" : "Apartment Details",
               isTenantAccount
                 ? "Add room and rent information"
                 : "Add unit and maintenance information",

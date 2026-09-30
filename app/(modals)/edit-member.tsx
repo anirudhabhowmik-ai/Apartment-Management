@@ -37,6 +37,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import DatePickerModal from "../../components/DatePickerModal";
+import { useAccounts } from "../../hooks/useAccounts";
 import { useExpenses, useMembers, useStaff } from "../../hooks/useManagement";
 import { useAuthStore } from "../../store/useAuthStore";
 import type { BillAttachment, ManagementType, MemberRole } from "../../types";
@@ -76,10 +77,20 @@ const GREEN = "#16A34A";
 
 const MAX_BILL_ATTACHMENTS = 2;
 
-const FLAT_ROLES: RoleOption[] = [
-  { role: "flat", label: "Flat Owner", icon: "business-outline" },
-  { role: "shop", label: "Shop Owner", icon: "storefront-outline" },
-];
+function getApartmentRoles(isTenantAccount: boolean): RoleOption[] {
+  return [
+    {
+      role: "flat",
+      label: isTenantAccount ? "Room Rent" : "Flat Owner",
+      icon: "business-outline",
+    },
+    {
+      role: "shop",
+      label: isTenantAccount ? "Shop Rent" : "Shop Owner",
+      icon: "storefront-outline",
+    },
+  ];
+}
 
 const SERVANT_ROLES: RoleOption[] = [
   { role: "sweeper", label: "Sweeper", icon: "sparkles-outline" },
@@ -813,6 +824,13 @@ export default function EditMemberScreen() {
         ? "expense"
         : "apartment";
 
+  const { selectedAccount } = useAccounts();
+
+  const isTenantAccount = useMemo(() => {
+    if (!selectedAccount) return false;
+    return String((selectedAccount as any).type ?? "").toLowerCase() === "home";
+  }, [selectedAccount]);
+
   const membersHook = useMembers(accountId || null);
   const staffHook = useStaff(accountId || null);
   const expensesHook = useExpenses(accountId || null);
@@ -835,7 +853,8 @@ export default function EditMemberScreen() {
   const identityLocked = !isSelf && !!(member as any)?.hasAccess;
 
   let roleOptions: RoleOption[] = [];
-  if (groupType === "apartment") roleOptions = FLAT_ROLES;
+  if (groupType === "apartment")
+    roleOptions = getApartmentRoles(isTenantAccount);
   else if (groupType === "staff") roleOptions = SERVANT_ROLES;
   else if (groupType === "expense") roleOptions = EXPENSE_ROLES;
 
@@ -894,40 +913,55 @@ export default function EditMemberScreen() {
   const [contactSearch, setContactSearch] = useState("");
   const [loadingContacts, setLoadingContacts] = useState(false);
 
-  // ── Upgrade prompt ───────────────────────────────────────────────────────
   const [upgradePrompt, setUpgradePrompt] = useState<UpgradePrompt>(null);
 
   const hasFieldErrors = Object.values(fieldErrors).some(Boolean);
 
   const originalRef = useRef<Record<string, any> | null>(null);
 
+  const flatNumberLabel = isTenantAccount ? "Room Number" : "Flat Number";
+  const flatNumberPlaceholder = isTenantAccount ? "e.g. Room 12" : "e.g. A-204";
+  const maintenanceLabel = isTenantAccount
+    ? "Monthly Rent"
+    : "Monthly Maintenance";
+  const maintenancePlaceholder = isTenantAccount ? "e.g. 8000" : "e.g. 2500";
+  const memberTypeLabel = isTenantAccount ? "Tenant" : "Member";
+
   const deleteButtonLabel =
     groupType === "expense"
       ? "Delete Expense"
       : groupType === "staff"
-        ? "Delete Staff Role"
-        : "Delete Member Property";
+        ? "Delete Staff Role Details"
+        : `Delete ${memberTypeLabel === "Member" ? "Apartment Details" : "Rental Details"}`;
 
   const deleteTitle =
     groupType === "expense"
       ? "Delete Expense?"
       : groupType === "staff"
-        ? "Delete Staff Role?"
-        : "Delete Member Property?";
+        ? "Delete Staff Role Details?"
+        : `Delete ${memberTypeLabel === "Member" ? "Apartment Details" : "Rental Details"}?`;
 
   const deleteConfirmText =
     groupType === "expense"
       ? "Delete"
       : groupType === "staff"
-        ? "Delete Staff Role"
-        : "Delete Member Property";
+        ? "Delete Staff Role Details"
+        : `Delete ${memberTypeLabel === "Member" ? "Apartment Details" : "Rental Details"}`;
+
+  const deleteHint =
+    groupType === "expense"
+      ? "Permanently remove this transaction"
+      : groupType === "staff"
+        ? "Remove these staff role details"
+        : isTenantAccount
+          ? "Remove these rental details"
+          : "Remove these apartment details";
 
   const getHeaderTitle = () => {
     if (groupType === "expense")
       return isIncome ? "Edit Income" : "Edit Expense";
     if (groupType === "staff") return "Edit Staff";
-    if (groupType === "apartment") return "Edit Member";
-    return "Edit Member";
+    return `Edit ${memberTypeLabel}`;
   };
 
   const filteredContacts = useMemo(() => {
@@ -1375,11 +1409,20 @@ export default function EditMemberScreen() {
     }
 
     if (groupType === "apartment") {
-      if (!flatNumber.trim()) errors.flatNumber = "Flat number is required";
+      if (!isTenantAccount && !flatNumber.trim()) {
+        errors.flatNumber = "Flat number is required";
+      }
+      if (!areaSqft.trim()) {
+        errors.areaSqft = "Area is required";
+      } else if (isNaN(Number(areaSqft))) {
+        errors.areaSqft = "Enter a valid area";
+      }
       if (!maintenanceAmount.trim()) {
-        errors.maintenanceAmount = "Maintenance amount is required";
+        errors.maintenanceAmount = isTenantAccount
+          ? "Monthly rent is required"
+          : "Maintenance amount is required";
       } else if (isNaN(Number(maintenanceAmount))) {
-        errors.maintenanceAmount = "Maintenance amount must be a number";
+        errors.maintenanceAmount = "Enter a valid amount";
       }
     }
 
@@ -1512,7 +1555,7 @@ export default function EditMemberScreen() {
                 ? "staff"
                 : groupType === "expense"
                   ? "expense"
-                  : "member"
+                  : memberTypeLabel.toLowerCase()
             }`,
         );
       }
@@ -1569,7 +1612,7 @@ export default function EditMemberScreen() {
               ? "Staff"
               : groupType === "expense"
                 ? "Expense"
-                : "Member"}{" "}
+                : memberTypeLabel}{" "}
             not found
           </Text>
           <Text style={styles.notFoundSubtitle}>
@@ -1630,7 +1673,7 @@ export default function EditMemberScreen() {
 
             <View style={styles.identityInfo}>
               <Text style={styles.identityName} numberOfLines={1}>
-                {name || (groupType === "staff" ? "Staff" : "Member")}
+                {name || (groupType === "staff" ? "Staff" : memberTypeLabel)}
               </Text>
               <View style={styles.identityPhoneRow}>
                 <Ionicons name="call-outline" size={13} color="#64748B" />
@@ -1642,7 +1685,7 @@ export default function EditMemberScreen() {
                 <View style={styles.lockedRow}>
                   <Ionicons name="lock-closed" size={12} color="#64748B" />
                   <Text style={styles.lockedRowText}>
-                    Managed by the {groupType === "staff" ? "staff" : "member"}
+                    Managed by the {memberTypeLabel.toLowerCase()}
                   </Text>
                 </View>
               ) : null}
@@ -1660,15 +1703,19 @@ export default function EditMemberScreen() {
           <View style={styles.card}>
             <SectionHeader
               icon="home-outline"
-              title="Flat Details"
-              subtitle="Apartment and maintenance information"
+              title={isTenantAccount ? "Rental Details" : "Apartment Details"}
+              subtitle={
+                isTenantAccount
+                  ? "Add room and rent information"
+                  : "Add unit and maintenance information"
+              }
             />
 
             <FieldLabel label="Wing / Section" optional />
             <InputContainer icon="business-outline">
               <TextInput
                 style={styles.input}
-                placeholder="A Wing, B Wing, Tower 1"
+                placeholder="e.g. A Wing or Tower 1"
                 placeholderTextColor="#9ca3af"
                 value={wing}
                 onChangeText={setWing}
@@ -1676,8 +1723,8 @@ export default function EditMemberScreen() {
             </InputContainer>
 
             <FieldLabel
-              label="Flat Number"
-              required
+              label={flatNumberLabel}
+              optional={isTenantAccount}
               error={fieldErrors.flatNumber}
             />
             <InputContainer
@@ -1686,7 +1733,7 @@ export default function EditMemberScreen() {
             >
               <TextInput
                 style={styles.input}
-                placeholder="A-204"
+                placeholder={flatNumberPlaceholder}
                 placeholderTextColor="#9ca3af"
                 value={flatNumber}
                 onChangeText={(text) => {
@@ -1701,19 +1748,29 @@ export default function EditMemberScreen() {
               <FieldError text={fieldErrors.flatNumber} />
             ) : null}
 
-            <FieldLabel label="Area" optional />
-            <InputContainer icon="resize-outline" suffix="sq. ft.">
+            <FieldLabel label="Area" error={fieldErrors.areaSqft} />
+            <InputContainer
+              icon="resize-outline"
+              suffix="sq. ft."
+              error={!!fieldErrors.areaSqft}
+            >
               <TextInput
                 style={styles.input}
-                placeholder="1200"
+                placeholder="e.g. 1200"
                 placeholderTextColor="#9ca3af"
                 keyboardType="numeric"
                 value={areaSqft}
-                onChangeText={(text) =>
-                  setAreaSqft(text.replace(/[^0-9]/g, ""))
-                }
+                onChangeText={(text) => {
+                  setAreaSqft(text.replace(/[^0-9]/g, ""));
+                  if (fieldErrors.areaSqft) {
+                    setFieldErrors({ ...fieldErrors, areaSqft: "" });
+                  }
+                }}
               />
             </InputContainer>
+            {fieldErrors.areaSqft ? (
+              <FieldError text={fieldErrors.areaSqft} />
+            ) : null}
 
             <View style={styles.settingRow}>
               <View style={styles.settingIcon}>
@@ -1722,7 +1779,9 @@ export default function EditMemberScreen() {
               <View style={styles.settingTextContainer}>
                 <Text style={styles.settingTitle}>Parking Available</Text>
                 <Text style={styles.settingSubtitle}>
-                  Does this flat have parking?
+                  {isTenantAccount
+                    ? "Does this room have parking?"
+                    : "Does this apartment have parking?"}
                 </Text>
               </View>
               <Switch
@@ -1734,8 +1793,7 @@ export default function EditMemberScreen() {
             </View>
 
             <FieldLabel
-              label="Monthly Maintenance"
-              required
+              label={maintenanceLabel}
               error={fieldErrors.maintenanceAmount}
             />
             <InputContainer
@@ -1745,7 +1803,7 @@ export default function EditMemberScreen() {
             >
               <TextInput
                 style={styles.input}
-                placeholder="2500"
+                placeholder={maintenancePlaceholder}
                 placeholderTextColor="#9ca3af"
                 keyboardType="numeric"
                 value={maintenanceAmount}
@@ -1761,7 +1819,7 @@ export default function EditMemberScreen() {
               <FieldError text={fieldErrors.maintenanceAmount} />
             ) : null}
 
-            <FieldLabel label="Role" required error={fieldErrors.role} />
+            <FieldLabel label="Role" error={fieldErrors.role} />
             <View style={styles.roleGrid}>
               {roleOptions.map((option) => {
                 const normalizedOptionRole = normalizeRoleInput(
@@ -1873,13 +1931,12 @@ export default function EditMemberScreen() {
           <View style={styles.card}>
             <SectionHeader
               icon="briefcase-outline"
-              title="Employment Details"
-              subtitle="Salary and employment information"
+              title="Staff Details"
+              subtitle="Set the monthly salary"
             />
 
             <FieldLabel
               label="Monthly Salary"
-              required
               error={fieldErrors.monthlySalary}
             />
             <InputContainer
@@ -1889,7 +1946,7 @@ export default function EditMemberScreen() {
             >
               <TextInput
                 style={styles.input}
-                placeholder="5000"
+                placeholder="e.g. 5000"
                 placeholderTextColor="#9ca3af"
                 keyboardType="numeric"
                 value={monthlySalary}
@@ -1905,7 +1962,7 @@ export default function EditMemberScreen() {
               <FieldError text={fieldErrors.monthlySalary} />
             ) : null}
 
-            <FieldLabel label="Role" required error={fieldErrors.role} />
+            <FieldLabel label="Role" error={fieldErrors.role} />
             <View style={styles.roleGrid}>
               {roleOptions.map((option) => {
                 const normalizedOptionRole = normalizeRoleInput(
@@ -2020,8 +2077,8 @@ export default function EditMemberScreen() {
               title={isIncome ? "Income Details" : "Expense Details"}
               subtitle={
                 isIncome
-                  ? "Update income information"
-                  : "Update expense and payment information"
+                  ? "Record money received"
+                  : "Record the expense and payment information"
               }
             />
 
@@ -2120,7 +2177,6 @@ export default function EditMemberScreen() {
 
             <FieldLabel
               label={isIncome ? "Income Name" : "Expense Name"}
-              required
               error={fieldErrors.name}
             />
             <InputContainer
@@ -2132,7 +2188,7 @@ export default function EditMemberScreen() {
                 placeholder={
                   isIncome
                     ? "e.g. Hall booking - Sharma wedding"
-                    : "Water bill, Lift repair"
+                    : "e.g. Water bill, Lift repair"
                 }
                 placeholderTextColor="#9ca3af"
                 value={name}
@@ -2148,7 +2204,6 @@ export default function EditMemberScreen() {
 
             <FieldLabel
               label={isIncome ? "Income Amount" : "Amount"}
-              required
               error={fieldErrors.expenseAmount}
             />
             <InputContainer
@@ -2158,7 +2213,7 @@ export default function EditMemberScreen() {
             >
               <TextInput
                 style={styles.input}
-                placeholder="4200"
+                placeholder="e.g. 4200"
                 placeholderTextColor="#9ca3af"
                 keyboardType="numeric"
                 value={expenseAmount}
@@ -2209,7 +2264,7 @@ export default function EditMemberScreen() {
                     {isIncome ? "Received" : "Paid"}
                   </Text>
                   <Text style={styles.paymentSubtitle}>
-                    {isIncome ? "Payment collected" : "Payment completed"}
+                    {isIncome ? "Payment collected" : "Already paid"}
                   </Text>
                 </View>
                 {expenseStatus === "paid" ? (
@@ -2494,11 +2549,7 @@ export default function EditMemberScreen() {
           <View style={styles.deleteButtonTextWrap}>
             <Text style={styles.deleteButtonLabel}>{deleteButtonLabel}</Text>
             <Text style={styles.deleteButtonHint} numberOfLines={1}>
-              {groupType === "expense"
-                ? "Permanently remove this transaction"
-                : groupType === "staff"
-                  ? "Remove this staff role from the property"
-                  : "Remove this member from the property"}
+              {deleteHint}
             </Text>
           </View>
           <Ionicons name="chevron-forward" size={18} color={RED} />
@@ -2507,7 +2558,6 @@ export default function EditMemberScreen() {
         <View style={{ height: Math.max(40, insets.bottom + 20) }} />
       </ScrollView>
 
-      {/* ── IDENTITY EDITOR MODAL ─────────────────────────────── */}
       <Modal
         visible={showIdentityModal}
         transparent
@@ -2534,7 +2584,7 @@ export default function EditMemberScreen() {
                     </View>
                     <View style={styles.modalTitleContent}>
                       <Text style={styles.editModalTitle}>
-                        Edit {groupType === "staff" ? "Staff" : "Member"}
+                        Edit {groupType === "staff" ? "Staff" : memberTypeLabel}
                       </Text>
                       <Text style={styles.modalSubtitle}>
                         Update name, photo and phone number
@@ -2685,7 +2735,6 @@ export default function EditMemberScreen() {
         </TouchableWithoutFeedback>
       </Modal>
 
-      {/* ── LOCKED INFO MODAL ─────────────────────────────────── */}
       {showLockedInfo && (
         <Modal
           transparent
@@ -2703,7 +2752,7 @@ export default function EditMemberScreen() {
                     <Ionicons name="lock-closed" size={26} color="#2563EB" />
                   </View>
                   <Text style={styles.tooltipTitle}>
-                    Managed by the {groupType === "staff" ? "staff" : "member"}
+                    Managed by the {memberTypeLabel.toLowerCase()}
                   </Text>
                   <Text style={styles.tooltipSubtitle}>
                     This person has joined the app. Their name, phone number and
@@ -2730,7 +2779,6 @@ export default function EditMemberScreen() {
         onSelect={(next: unknown) => setDueDate(toDateInput(next))}
       />
 
-      {/* ── DELETE CONFIRMATION ───────────────────────────────── */}
       <Modal
         transparent
         animationType="fade"
@@ -2762,6 +2810,17 @@ export default function EditMemberScreen() {
                   property. Their profile stays, but their staff role (salary,
                   attendance and payment history) will no longer be part of this
                   society. This action cannot be undone.
+                </>
+              ) : isTenantAccount ? (
+                <>
+                  This will remove{" "}
+                  <Text style={styles.confirmationName}>
+                    {name || "this tenant"}
+                  </Text>
+                  {phone ? ` (+91 ${phone})` : ""} from this home. Their profile
+                  stays, but this room's record (room number, rent and payment
+                  history) will no longer be part of this property. This action
+                  cannot be undone.
                 </>
               ) : (
                 <>
@@ -2796,8 +2855,16 @@ export default function EditMemberScreen() {
                   <ActivityIndicator color="#fff" size="small" />
                 ) : (
                   <>
-                    <Ionicons name="trash-outline" size={17} color="#fff" />
-                    <Text style={styles.confirmDeleteButtonText}>
+                    <Ionicons
+                      name="trash-outline"
+                      size={17}
+                      color="#fff"
+                      style={styles.confirmDeleteIcon}
+                    />
+                    <Text
+                      style={styles.confirmDeleteButtonText}
+                      numberOfLines={2}
+                    >
                       {deleteConfirmText}
                     </Text>
                   </>
@@ -3011,7 +3078,6 @@ export default function EditMemberScreen() {
         onConfirm={handleAdjustConfirm}
       />
 
-      {/* ── Upgrade required modal ───────────────────────────── */}
       <Modal
         transparent
         animationType="fade"
@@ -3107,7 +3173,6 @@ function SectionHeader({
 
 function FieldLabel({
   label,
-  required,
   optional,
   error,
 }: {
@@ -3118,11 +3183,17 @@ function FieldLabel({
 }) {
   return (
     <View style={styles.fieldLabelRow}>
-      <Text style={[styles.fieldLabel, error && styles.fieldLabelError]}>
-        {label}
-        {required ? <Text style={styles.requiredMark}> *</Text> : null}
-        {optional ? <Text style={styles.optionalText}> • Optional</Text> : null}
-      </Text>
+      <View style={styles.fieldLabelLeft}>
+        <Text
+          style={[
+            styles.fieldLabel,
+            error ? styles.fieldLabelError : undefined,
+          ]}
+        >
+          {label}
+        </Text>
+        {optional ? <Text style={styles.optionalText}>Optional</Text> : null}
+      </View>
     </View>
   );
 }
@@ -3293,10 +3364,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   fieldLabelRow: { marginTop: 2, marginBottom: 8 },
+  fieldLabelLeft: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    flex: 1,
+  },
   fieldLabel: { fontSize: 13, fontWeight: "700", color: "#374151" },
   fieldLabelError: { color: "#dc2626" },
-  requiredMark: { color: "#dc2626" },
-  optionalText: { color: "#9ca3af", fontWeight: "500" },
+  optionalText: {
+    fontSize: 11,
+    color: "#94A3B8",
+    fontWeight: "500",
+  },
 
   typeBadge: {
     marginTop: 8,
@@ -3789,19 +3869,26 @@ const styles = StyleSheet.create({
   cancelButtonText: { color: "#374151", fontSize: 13, fontWeight: "700" },
   confirmDeleteButton: {
     flex: 1.4,
-    height: 46,
+    minHeight: 46,
     flexDirection: "row",
-    justifyContent: "center",
     alignItems: "center",
+    justifyContent: "center", // centers the icon + text group
     backgroundColor: "#dc2626",
     borderRadius: 11,
     gap: 6,
-    paddingHorizontal: 8,
+    paddingHorizontal: 10,
   },
+
+  confirmDeleteIcon: {
+    flexShrink: 0, // icon never shrinks
+  },
+
   confirmDeleteButtonText: {
     color: "#fff",
     fontSize: 13,
     fontWeight: "800",
+    textAlign: "center", // centers each wrapped line within the text box
+    flexShrink: 1, // text shrinks only when it must
   },
 
   modalBackdrop: {
@@ -4180,7 +4267,6 @@ const styles = StyleSheet.create({
   },
   tooltipActionText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
 
-  // ── Upgrade required modal ───────────────────────────────────────────────
   upgradeBackdrop: {
     flex: 1,
     backgroundColor: "rgba(15, 23, 42, 0.6)",
