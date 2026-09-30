@@ -299,11 +299,15 @@ function getGreeting() {
   return "Good Evening";
 }
 
-function getCurrentMonth() {
-  return new Date().toLocaleDateString("en-IN", {
-    month: "long",
-    year: "numeric",
-  });
+/* ── LOCAL-TIME month helpers ── */
+function getCurrentMonthKey(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+function getCurrentMonthLabel(): string {
+  const d = new Date();
+  return `${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
 }
 
 /**
@@ -312,14 +316,10 @@ function getCurrentMonth() {
  * On an apartment account:
  *   flat  → "Flat Owner"
  *   shop  → "Shop Owner"
- *   (missing role) → "Member"
  *
  * On a home (tenant) account:
- *   flat  → "Room"
- *   shop  → "Shop Owner"      ← shop stays the same everywhere
- *   (missing role) → "Tenant"
- *
- * `tenant` always reads "Tenant" regardless of account type.
+ *   flat  → "Room Rent"
+ *   shop  → "Shop Rent"
  */
 function getMemberRoleLabel(role?: string, isTenantAccount: boolean = false) {
   const fallback = isTenantAccount ? "Tenant" : "Member";
@@ -327,16 +327,20 @@ function getMemberRoleLabel(role?: string, isTenantAccount: boolean = false) {
 
   const map: Record<string, string> = isTenantAccount
     ? {
-        flat: "Room",
-        shop: "Shop Owner",
+        flat: "Room Rent",
+        shop: "Shop Rent",
         tenant: "Tenant",
         custom: "Custom",
+        flat_owner: "Room Rent",
+        shop_owner: "Shop Rent",
       }
     : {
         flat: "Flat Owner",
         shop: "Shop Owner",
         tenant: "Tenant",
         custom: "Custom",
+        flat_owner: "Flat Owner",
+        shop_owner: "Shop Owner",
       };
 
   const key = String(role).toLowerCase();
@@ -464,6 +468,30 @@ function getCalculatedStaffSalary(
   return Math.round((salary / daysInMonth) * paidDays);
 }
 
+function getPaidDaysCount(
+  monthKey: string,
+  statuses: Record<string, any> | undefined,
+): number | null {
+  if (!monthKey) return null;
+  const daysInMonth = new Date(
+    Number(monthKey.slice(0, 4)),
+    Number(monthKey.slice(5, 7)),
+    0,
+  ).getDate();
+  if (!daysInMonth || daysInMonth < 1) return null;
+  const map = statuses ?? {};
+  let paid = 0;
+  for (let d = 1; d <= daysInMonth; d++) {
+    const date = `${monthKey}-${String(d).padStart(2, "0")}`;
+    const explicit = map[date];
+    const defaultStatus: AttendanceStatus =
+      new Date(`${date}T00:00:00`).getDay() % 6 === 0 ? "weekend" : "present";
+    const status = explicit ?? defaultStatus;
+    if (status !== "absent") paid += 1;
+  }
+  return paid;
+}
+
 function normalizeAttendanceStatus(raw: any): AttendanceStatusUI | "none" {
   if (!raw) return "none";
   const v = String(raw).trim().toLowerCase();
@@ -474,6 +502,59 @@ function normalizeAttendanceStatus(raw: any): AttendanceStatusUI | "none" {
     return "half_day";
   if (v === "weekend") return "weekend";
   return "none";
+}
+
+/* ── Record chips builder (Wing / Flat-Room / Area) ── */
+interface HomeRecordChip {
+  key: "wing" | "flat" | "area";
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value: string;
+}
+
+function buildHomeRecordChips(
+  record: any,
+  isTenantAccount: boolean,
+): HomeRecordChip[] {
+  const chips: HomeRecordChip[] = [];
+
+  const wing = String(record?.wing ?? "").trim();
+  if (wing) {
+    chips.push({
+      key: "wing",
+      icon: "git-branch-outline",
+      label: "Wing",
+      value: wing,
+    });
+  }
+
+  const flat = String(record?.flatNumber ?? "").trim();
+  if (flat) {
+    chips.push({
+      key: "flat",
+      icon: isTenantAccount ? "key-outline" : "home-outline",
+      label: isTenantAccount ? "Room" : "Flat",
+      value: flat,
+    });
+  }
+
+  const area = record?.areaSqft;
+  if (
+    area !== undefined &&
+    area !== null &&
+    String(area).trim() !== "" &&
+    Number.isFinite(Number(area)) &&
+    Number(area) > 0
+  ) {
+    chips.push({
+      key: "area",
+      icon: "resize-outline",
+      label: "Area",
+      value: `${Number(area)}`,
+    });
+  }
+
+  return chips;
 }
 
 /* ============================================================
@@ -1619,12 +1700,6 @@ export default function HomeScreen() {
 
   const accountId = selectedAccount?.id ?? null;
 
-  // A "home" account is a personal home. Members on a home account are
-  // tenants (renters), not flat owners. Tenants must not see property
-  // finance — it's the owner's money, not theirs.
-  //
-  // This mirrors the exact signal people.tsx uses to render "Tenants"
-  // instead of "Members", so the label and the finance gate stay in sync.
   const isTenantAccount = useMemo(() => {
     if (!selectedAccount) return false;
     return String((selectedAccount as any).type ?? "").toLowerCase() === "home";
@@ -1662,6 +1737,11 @@ export default function HomeScreen() {
     () => `${selfYear}-${String(selfMonth + 1).padStart(2, "0")}`,
     [selfYear, selfMonth],
   );
+
+  const isSelfCurrentMonth = useMemo(() => {
+    const d = new Date();
+    return d.getFullYear() === selfYear && d.getMonth() === selfMonth;
+  }, [selfYear, selfMonth]);
 
   const [downloadingBillKey, setDownloadingBillKey] = useState<string | null>(
     null,
@@ -1773,6 +1853,12 @@ export default function HomeScreen() {
     } else {
       setSelfMonth((m) => m + 1);
     }
+  };
+
+  const handleSelfToday = () => {
+    const d = new Date();
+    setSelfYear(d.getFullYear());
+    setSelfMonth(d.getMonth());
   };
 
   const handleOpenMembersGroup = useCallback(() => {
@@ -1899,7 +1985,6 @@ export default function HomeScreen() {
     }
   }, [isFocused, loadPendingOffers]);
 
-  // Poll pending invitations every 30 s while Home is focused.
   useEffect(() => {
     if (!isFocused) return;
     if (!user?.phone) return;
@@ -1974,9 +2059,6 @@ export default function HomeScreen() {
     }
   }, [isFocused, loadMyRoles]);
 
-  // ✅ NEW — Poll my roles every 30 s while Home is focused.
-  // Keeps the "My Access" card in sync when a role is revoked on another
-  // device.
   useEffect(() => {
     if (!isFocused) return;
     if (!selectedAccount?.id) return;
@@ -2451,14 +2533,12 @@ export default function HomeScreen() {
     if (!showFinance || !selectedAccount) return emptyData;
 
     try {
-      const currentMonth = `${new Date().getFullYear()}-${String(
-        new Date().getMonth() + 1,
-      ).padStart(2, "0")}`;
+      const currentMonthKey = getCurrentMonthKey();
 
       const monthly = computeMonthlyFinance(
         allMembers,
         expenses ?? [],
-        currentMonth,
+        currentMonthKey,
       );
       const allTime = computeAllTimeFinance(allMembers, expenses ?? []);
 
@@ -2758,6 +2838,9 @@ export default function HomeScreen() {
                 <Text style={styles.roleMonthText}>
                   {MONTHS[selfMonth]} {selfYear}
                 </Text>
+                {isSelfCurrentMonth ? (
+                  <View style={styles.roleMonthCurrentDot} />
+                ) : null}
                 <Ionicons name="chevron-down" size={14} color="#64748B" />
               </TouchableOpacity>
 
@@ -2770,6 +2853,20 @@ export default function HomeScreen() {
               </TouchableOpacity>
             </View>
 
+            {!isSelfCurrentMonth ? (
+              <TouchableOpacity
+                style={styles.roleMonthTodayRow}
+                onPress={handleSelfToday}
+                activeOpacity={0.75}
+              >
+                <Ionicons name="today-outline" size={13} color="#2563EB" />
+                <Text style={styles.roleMonthTodayText}>
+                  Not on current month · Tap to go to {getCurrentMonthLabel()}
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+
+            {/* ── MEMBER ROWS ─────────────────────────────────── */}
             {hasMembers ? (
               <View style={styles.groupCard}>
                 <Pressable
@@ -2808,14 +2905,13 @@ export default function HomeScreen() {
 
                 <View style={styles.groupCardBody}>
                   {matchedMemberProfiles.map((member: any, index: number) => {
-                    const unit =
-                      member.unit ||
-                      [member.wing, member.flatNumber]
-                        .filter(Boolean)
-                        .join(" · ") ||
-                      "Account";
                     const roleLabel = getMemberRoleLabel(
                       member.role,
+                      isTenantAccount,
+                    );
+
+                    const recordChips = buildHomeRecordChips(
+                      member,
                       isTenantAccount,
                     );
 
@@ -2823,13 +2919,13 @@ export default function HomeScreen() {
                     const isPaid = mp?.status === "paid";
                     const paidDate = mp?.paidDate ?? null;
 
-                    const baseAmount = Number(member.maintenanceAmount) || 0;
+                    const monthlyAmount = Number(member.maintenanceAmount) || 0;
                     const add = Number(mp?.additionalAmount) || 0;
                     const ded = Number(mp?.deductionAmount) || 0;
                     const payableAmount =
                       mp?.netAmount != null
                         ? Number(mp.netAmount)
-                        : Math.max(0, baseAmount + add - ded);
+                        : Math.max(0, monthlyAmount + add - ded);
 
                     const downloadKey = `owner:${selectedAccount?.id}:${member.id}:${selfMonthKey}`;
                     const isDownloading = downloadingBillKey === downloadKey;
@@ -2843,18 +2939,80 @@ export default function HomeScreen() {
                             styles.roleRowWrapLast,
                         ]}
                       >
-                        <View style={styles.roleRowTop}>
-                          <View style={styles.groupRowInfo}>
-                            <Text
-                              style={styles.groupRowTitle}
-                              numberOfLines={1}
-                            >
-                              {unit}
-                            </Text>
-                            <View style={styles.roleRowMetaRow}>
+                        <Pressable
+                          style={({ pressed }) => [
+                            styles.roleRowSingle,
+                            pressed && styles.pressed,
+                          ]}
+                          onPress={handleOpenMembersGroup}
+                        >
+                          {/* LEFT: Wing / Flat / Area / Role / Amount inline */}
+                          <View style={styles.roleRowLeft}>
+                            <View style={styles.roleRowInline}>
+                              {/* Wing chip */}
+                              {recordChips.find((c) => c.key === "wing") ? (
+                                <View style={styles.unitChip}>
+                                  <Ionicons
+                                    name={
+                                      recordChips.find((c) => c.key === "wing")!
+                                        .icon
+                                    }
+                                    size={11}
+                                    color="#1D4ED8"
+                                  />
+                                  <Text style={styles.unitChipText}>
+                                    {
+                                      recordChips.find((c) => c.key === "wing")!
+                                        .value
+                                    }
+                                  </Text>
+                                </View>
+                              ) : null}
+
+                              {/* Flat / Room chip (with icon) */}
+                              {recordChips.find((c) => c.key === "flat") ? (
+                                <View style={styles.unitChip}>
+                                  <Ionicons
+                                    name={
+                                      recordChips.find((c) => c.key === "flat")!
+                                        .icon
+                                    }
+                                    size={11}
+                                    color="#1D4ED8"
+                                  />
+                                  <Text style={styles.unitChipText}>
+                                    {
+                                      recordChips.find((c) => c.key === "flat")!
+                                        .value
+                                    }
+                                  </Text>
+                                </View>
+                              ) : null}
+
+                              {/* Area chip (with icon) */}
+                              {recordChips.find((c) => c.key === "area") ? (
+                                <View style={styles.unitChip}>
+                                  <Ionicons
+                                    name={
+                                      recordChips.find((c) => c.key === "area")!
+                                        .icon
+                                    }
+                                    size={11}
+                                    color="#1D4ED8"
+                                  />
+                                  <Text style={styles.unitChipText}>
+                                    {
+                                      recordChips.find((c) => c.key === "area")!
+                                        .value
+                                    }
+                                  </Text>
+                                </View>
+                              ) : null}
+
+                              {/* Role chip */}
                               <View
                                 style={[
-                                  styles.roleChip,
+                                  styles.roleInlineChip,
                                   {
                                     backgroundColor: "#EFF6FF",
                                     borderColor: "#BFDBFE",
@@ -2863,7 +3021,7 @@ export default function HomeScreen() {
                               >
                                 <Text
                                   style={[
-                                    styles.roleChipText,
+                                    styles.roleInlineChipText,
                                     { color: "#1D4ED8" },
                                   ]}
                                   numberOfLines={1}
@@ -2871,55 +3029,47 @@ export default function HomeScreen() {
                                   {roleLabel}
                                 </Text>
                               </View>
+
+                              {/* Monthly amount */}
                               <Text
-                                style={styles.roleRowAmount}
+                                style={styles.roleInlineAmount}
                                 numberOfLines={1}
                               >
-                                {formatCurrency(payableAmount)}
+                                {formatCurrency(monthlyAmount)}/mo
                               </Text>
                             </View>
                           </View>
 
-                          <View style={styles.roleRowStatusWrap}>
-                            <View
+                          {/* RIGHT: paid amount + paid date only */}
+                          <View style={styles.roleRowRight}>
+                            <Text
                               style={[
-                                styles.statusPill,
-                                isPaid
-                                  ? styles.statusPillPaid
-                                  : styles.statusPillDue,
+                                styles.roleRowAmountValue,
+                                {
+                                  color: isPaid ? "#15803D" : "#DC2626",
+                                },
                               ]}
+                              numberOfLines={1}
                             >
-                              <View
-                                style={[
-                                  styles.selfStatusDot,
-                                  {
-                                    backgroundColor: isPaid
-                                      ? "#16A34A"
-                                      : "#DC2626",
-                                  },
-                                ]}
-                              />
-                              <Text
-                                style={[
-                                  styles.statusPillText,
-                                  {
-                                    color: isPaid ? "#15803D" : "#DC2626",
-                                  },
-                                ]}
-                              >
-                                {isPaid ? "Paid" : "Due"}
-                              </Text>
-                            </View>
-                            {isPaid && paidDate ? (
-                              <Text
-                                style={styles.roleRowPaidDate}
-                                numberOfLines={1}
-                              >
-                                {formatFullDate(paidDate)}
-                              </Text>
-                            ) : null}
+                              {formatCurrency(payableAmount)}
+                            </Text>
+                            <Text
+                              style={[
+                                styles.roleRowPaidDate,
+                                {
+                                  color: isPaid ? "#15803D" : "#DC2626",
+                                },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {isPaid
+                                ? paidDate
+                                  ? `Paid ${formatFullDate(paidDate)}`
+                                  : "Paid"
+                                : "Due"}
+                            </Text>
                           </View>
-                        </View>
+                        </Pressable>
 
                         {isPaid ? (
                           <View style={styles.roleRowActions}>
@@ -2967,6 +3117,7 @@ export default function HomeScreen() {
               </View>
             ) : null}
 
+            {/* ── STAFF ROWS ──────────────────────────────────── */}
             {hasStaff ? (
               <View style={styles.groupCard}>
                 <Pressable
@@ -3016,26 +3167,19 @@ export default function HomeScreen() {
 
                     const att = getAttendanceRecord(staff.id, selfMonthKey);
                     const baseSalary = Number(staff.monthlySalary) || 0;
-                    let adjustedBase = baseSalary;
-                    if (att?.calculatedSalary != null) {
-                      adjustedBase = att.calculatedSalary;
-                    } else if (
-                      att?.statuses &&
-                      Object.keys(att.statuses).length > 0
-                    ) {
-                      adjustedBase = getCalculatedStaffSalary(
-                        baseSalary,
-                        selfMonthKey,
-                        att.statuses as any,
-                      );
-                    }
 
                     const add = Number(mp?.additionalAmount) || 0;
                     const ded = Number(mp?.deductionAmount) || 0;
                     const payableAmount =
                       mp?.netAmount != null
                         ? Number(mp.netAmount)
-                        : Math.max(0, adjustedBase + add - ded);
+                        : Math.max(0, baseSalary + add - ded);
+
+                    const totalDays = getDaysInMonth(selfYear, selfMonth);
+                    const paidDays = getPaidDaysCount(
+                      selfMonthKey,
+                      att?.statuses as any,
+                    );
 
                     const downloadKey = `staff:${selectedAccount?.id}:${staff.id}:${selfMonthKey}`;
                     const isDownloading = downloadingBillKey === downloadKey;
@@ -3049,18 +3193,20 @@ export default function HomeScreen() {
                             styles.roleRowWrapLast,
                         ]}
                       >
-                        <View style={styles.roleRowTop}>
-                          <View style={styles.groupRowInfo}>
-                            <Text
-                              style={styles.groupRowTitle}
-                              numberOfLines={1}
-                            >
-                              {staff.name || "Staff"}
-                            </Text>
-                            <View style={styles.roleRowMetaRow}>
+                        <Pressable
+                          style={({ pressed }) => [
+                            styles.roleRowSingle,
+                            pressed && styles.pressed,
+                          ]}
+                          onPress={handleOpenStaffGroup}
+                        >
+                          {/* LEFT: Role / Amount / Paid days inline */}
+                          <View style={styles.roleRowLeft}>
+                            <View style={styles.roleRowInline}>
+                              {/* Role chip */}
                               <View
                                 style={[
-                                  styles.roleChip,
+                                  styles.roleInlineChip,
                                   {
                                     backgroundColor: "#F5F3FF",
                                     borderColor: "#DDD6FE",
@@ -3069,7 +3215,7 @@ export default function HomeScreen() {
                               >
                                 <Text
                                   style={[
-                                    styles.roleChipText,
+                                    styles.roleInlineChipText,
                                     { color: "#6D28D9" },
                                   ]}
                                   numberOfLines={1}
@@ -3077,55 +3223,62 @@ export default function HomeScreen() {
                                   {roleLabel}
                                 </Text>
                               </View>
+
+                              {/* Monthly amount */}
                               <Text
-                                style={styles.roleRowAmount}
+                                style={styles.roleInlineAmount}
                                 numberOfLines={1}
                               >
-                                {formatCurrency(payableAmount)}
+                                {formatCurrency(baseSalary)}/mo
                               </Text>
+
+                              {/* Paid days chip (non-admin view) */}
+                              {!isAdmin && paidDays != null ? (
+                                <View style={styles.roleInlinePaidDays}>
+                                  <Ionicons
+                                    name="checkmark-circle"
+                                    size={10}
+                                    color="#15803D"
+                                  />
+                                  <Text style={styles.roleInlinePaidDaysText}>
+                                    {paidDays}
+                                    {totalDays ? `/${totalDays}` : ""}
+                                  </Text>
+                                </View>
+                              ) : null}
                             </View>
                           </View>
 
-                          <View style={styles.roleRowStatusWrap}>
-                            <View
+                          {/* RIGHT: paid amount + paid date only */}
+                          <View style={styles.roleRowRight}>
+                            <Text
                               style={[
-                                styles.statusPill,
-                                isPaid
-                                  ? styles.statusPillPaid
-                                  : styles.statusPillDue,
+                                styles.roleRowAmountValue,
+                                {
+                                  color: isPaid ? "#15803D" : "#DC2626",
+                                },
                               ]}
+                              numberOfLines={1}
                             >
-                              <View
-                                style={[
-                                  styles.selfStatusDot,
-                                  {
-                                    backgroundColor: isPaid
-                                      ? "#16A34A"
-                                      : "#DC2626",
-                                  },
-                                ]}
-                              />
-                              <Text
-                                style={[
-                                  styles.statusPillText,
-                                  {
-                                    color: isPaid ? "#15803D" : "#DC2626",
-                                  },
-                                ]}
-                              >
-                                {isPaid ? "Paid" : "Due"}
-                              </Text>
-                            </View>
-                            {isPaid && paidDate ? (
-                              <Text
-                                style={styles.roleRowPaidDate}
-                                numberOfLines={1}
-                              >
-                                {formatFullDate(paidDate)}
-                              </Text>
-                            ) : null}
+                              {formatCurrency(payableAmount)}
+                            </Text>
+                            <Text
+                              style={[
+                                styles.roleRowPaidDate,
+                                {
+                                  color: isPaid ? "#15803D" : "#DC2626",
+                                },
+                              ]}
+                              numberOfLines={1}
+                            >
+                              {isPaid
+                                ? paidDate
+                                  ? `Paid ${formatFullDate(paidDate)}`
+                                  : "Paid"
+                                : "Due"}
+                            </Text>
                           </View>
-                        </View>
+                        </Pressable>
 
                         <View style={styles.roleRowActions}>
                           <TouchableOpacity
@@ -3292,7 +3445,6 @@ export default function HomeScreen() {
     const showAnyToggle =
       !withdrawPreviewLoading && (showMemberToggle || showStaffToggle);
 
-    // Tenant-aware wording for the member toggle.
     const memberRoleWord = isTenantAccount ? "Tenant" : "Member";
     const memberRoleWordLower = memberRoleWord.toLowerCase();
 
@@ -3630,7 +3782,7 @@ export default function HomeScreen() {
                   <View style={styles.accountStatusDot} />
                   <Text style={styles.accountTypeText}>{portalLabel}</Text>
                   <View style={styles.dotSeparator} />
-                  <Text style={styles.monthText}>{getCurrentMonth()}</Text>
+                  <Text style={styles.monthText}>{getCurrentMonthLabel()}</Text>
                 </View>
               </View>
             </View>
@@ -3808,7 +3960,7 @@ export default function HomeScreen() {
                 <View style={styles.accountStatusDot} />
                 <Text style={styles.accountTypeText}>{accountTypeLabel}</Text>
                 <View style={styles.dotSeparator} />
-                <Text style={styles.monthText}>{getCurrentMonth()}</Text>
+                <Text style={styles.monthText}>{getCurrentMonthLabel()}</Text>
               </View>
             </View>
           </View>
@@ -4504,7 +4656,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 12,
+    marginBottom: 10,
     backgroundColor: "#FFFFFF",
     borderRadius: 14,
     borderWidth: 1,
@@ -4531,6 +4683,31 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "800",
     color: "#0F172A",
+  },
+  roleMonthCurrentDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#16A34A",
+    marginLeft: 4,
+  },
+  roleMonthTodayRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    marginBottom: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: "#EFF6FF",
+    borderWidth: 1,
+    borderColor: "#DBEAFE",
+  },
+  roleMonthTodayText: {
+    fontSize: 11.5,
+    fontWeight: "700",
+    color: "#2563EB",
   },
 
   groupCard: {
@@ -4595,59 +4772,97 @@ const styles = StyleSheet.create({
     borderBottomColor: "#F1F5F9",
   },
   roleRowWrapLast: { borderBottomWidth: 0 },
-  roleRowTop: {
+
+  // One-row layout: left = inline info, right = amount + date
+  roleRowSingle: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    gap: 10,
+    gap: 8,
   },
-  groupRowInfo: { flex: 1, minWidth: 0 },
-  groupRowTitle: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#0F172A",
+  roleRowLeft: {
+    flex: 1,
+    minWidth: 0,
   },
-  roleRowMetaRow: {
+  roleRowInline: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    marginTop: 5,
     flexWrap: "wrap",
+    gap: 6,
   },
-  roleChip: {
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 6,
+
+  // Small icon + value chip (used for Wing / Flat / Area)
+  unitChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 8,
+    backgroundColor: "#EFF6FF",
+    borderWidth: 1,
+    borderColor: "#DBEAFE",
+  },
+  unitChipText: {
+    fontSize: 11,
+    fontWeight: "800",
+    color: "#1D4ED8",
+  },
+
+  // Role chip (Room Rent / Flat Owner / Security …)
+  roleInlineChip: {
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 8,
     borderWidth: 1,
   },
-  roleChipText: {
-    fontSize: 10,
+  roleInlineChipText: {
+    fontSize: 11,
     fontWeight: "800",
-    letterSpacing: 0.2,
   },
-  roleRowAmount: {
+
+  // Monthly amount inline
+  roleInlineAmount: {
     fontSize: 12.5,
-    fontWeight: "700",
-    color: "#334155",
+    fontWeight: "800",
+    color: "#0F172A",
+    flexShrink: 1,
   },
-  roleRowStatusWrap: { alignItems: "flex-end" },
-  statusPill: {
+
+  roleInlinePaidDays: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 5,
-    paddingHorizontal: 8,
+    gap: 3,
+    paddingHorizontal: 6,
     paddingVertical: 3,
-    borderRadius: 9,
+    borderRadius: 8,
+    backgroundColor: "#F0FDF4",
+    borderWidth: 1,
+    borderColor: "#BBF7D0",
   },
-  statusPillPaid: { backgroundColor: "#F0FDF4" },
-  statusPillDue: { backgroundColor: "#FEF2F2" },
-  statusPillText: { fontSize: 11.5, fontWeight: "800" },
-  selfStatusDot: { width: 6, height: 6, borderRadius: 3 },
-  roleRowPaidDate: {
+  roleInlinePaidDaysText: {
     fontSize: 10.5,
-    color: "#94A3B8",
-    marginTop: 3,
+    fontWeight: "800",
+    color: "#15803D",
   },
+
+  roleRowRight: {
+    alignItems: "flex-end",
+    flexShrink: 0,
+    maxWidth: "42%",
+  },
+  roleRowAmountValue: {
+    fontSize: 15,
+    lineHeight: 19,
+    fontWeight: "800",
+    letterSpacing: -0.2,
+  },
+  roleRowPaidDate: {
+    fontSize: 11,
+    fontWeight: "700",
+    marginTop: 2,
+  },
+
   roleRowActions: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -4691,6 +4906,12 @@ const styles = StyleSheet.create({
     borderBottomColor: "#F1F5F9",
   },
   groupRowLast: { borderBottomWidth: 0 },
+  groupRowInfo: { flex: 1, minWidth: 0 },
+  groupRowTitle: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#0F172A",
+  },
   groupRowSubtitle: {
     fontSize: 11.5,
     color: "#64748B",
