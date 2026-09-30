@@ -409,6 +409,33 @@ const MEMBER_ROLE_STYLES: Record<string, RoleStyle> = {
   },
 };
 
+const TENANT_MEMBER_ROLE_STYLES: Record<string, RoleStyle> = {
+  flat: {
+    label: "Room Rent",
+    bg: "#EFF6FF",
+    text: "#1D4ED8",
+    border: "#BFDBFE",
+  },
+  shop: {
+    label: "Shop Rent",
+    bg: "#F5F3FF",
+    text: "#6D28D9",
+    border: "#DDD6FE",
+  },
+  flat_owner: {
+    label: "Room Rent",
+    bg: "#EFF6FF",
+    text: "#1D4ED8",
+    border: "#BFDBFE",
+  },
+  shop_owner: {
+    label: "Shop Rent",
+    bg: "#F5F3FF",
+    text: "#6D28D9",
+    border: "#DDD6FE",
+  },
+};
+
 const STAFF_ROLE_STYLES: Record<string, RoleStyle> = {
   accountant: {
     label: "Accountant",
@@ -465,9 +492,16 @@ function titleCaseRole(raw: string): string {
   return raw.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
-function getMemberRoleStyle(role?: string | null): RoleStyle {
+function getMemberRoleStyle(
+  role?: string | null,
+  isTenantAccount: boolean = false,
+): RoleStyle {
   if (!role) return { ...DEFAULT_ROLE_STYLE, label: "Member" };
   const key = String(role).toLowerCase().trim();
+
+  if (isTenantAccount && TENANT_MEMBER_ROLE_STYLES[key]) {
+    return TENANT_MEMBER_ROLE_STYLES[key];
+  }
   if (MEMBER_ROLE_STYLES[key]) return MEMBER_ROLE_STYLES[key];
   return { ...DEFAULT_ROLE_STYLE, label: titleCaseRole(key) };
 }
@@ -714,15 +748,6 @@ const getCalculatedStaffSalary = (
   return Math.round((salary / daysInMonth) * paidDays);
 };
 
-/* ------------------------------------------------------------
-   Paid days helpers (for staff attendance visibility)
-   ------------------------------------------------------------ */
-
-/**
- * Count paid days for a staff member in a given month using the
- * statuses we already have cached/fetched. Weekends with no explicit
- * entry count as paid; anything marked `absent` does not.
- */
 const getPaidDaysCount = (
   month: string | null,
   statuses: Record<string, AttendanceStatus> | undefined,
@@ -882,6 +907,62 @@ const EMPTY_TEMPLATE_MISSING: TemplateMissingState = {
   isApartment: true,
 };
 
+/**
+ * The labelled chips to show for a member record — Wing, Room/Flat, Area.
+ * Returns an empty array when the record has none of them.
+ */
+interface RecordChip {
+  key: "wing" | "flat" | "area";
+  icon: keyof typeof Ionicons.glyphMap;
+  label: string;
+  value: string;
+}
+
+function buildMemberRecordChips(
+  record: any,
+  isTenantAccount: boolean,
+): RecordChip[] {
+  const chips: RecordChip[] = [];
+
+  const wing = String(record?.wing ?? "").trim();
+  if (wing) {
+    chips.push({
+      key: "wing",
+      icon: "git-branch-outline",
+      label: "Wing",
+      value: wing,
+    });
+  }
+
+  const flat = String(record?.flatNumber ?? "").trim();
+  if (flat) {
+    chips.push({
+      key: "flat",
+      icon: isTenantAccount ? "key-outline" : "home-outline",
+      label: isTenantAccount ? "Room" : "Flat",
+      value: flat,
+    });
+  }
+
+  const area = record?.areaSqft;
+  if (
+    area !== undefined &&
+    area !== null &&
+    String(area).trim() !== "" &&
+    Number.isFinite(Number(area)) &&
+    Number(area) > 0
+  ) {
+    chips.push({
+      key: "area",
+      icon: "resize-outline",
+      label: "Area",
+      value: `${Number(area)} sqft`,
+    });
+  }
+
+  return chips;
+}
+
 function SummaryStat({
   label,
   value,
@@ -924,6 +1005,11 @@ export default function PeopleScreen() {
   const { user } = useAuthStore();
   const myUserId = user?.id ?? null;
 
+  const isTenantAccount = useMemo(() => {
+    if (!selectedAccount) return false;
+    return String((selectedAccount as any).type ?? "").toLowerCase() === "home";
+  }, [selectedAccount]);
+
   const [selectedMonth, setSelectedMonth] = useState<string | null>(
     new Date().toISOString().slice(0, 7),
   );
@@ -955,8 +1041,6 @@ export default function PeopleScreen() {
   const canSeeMemberTab = true;
   const canSeeStaffTab = true;
 
-  // Paid days visibility — only members (flat owners) see it.
-  // Admins already manage attendance, staff shouldn't see their own.
   const canSeePaidDays = isMember && !isAdmin;
 
   const visibleTabTypes: ManagementType[] = [];
@@ -2191,22 +2275,17 @@ export default function PeopleScreen() {
                         : null;
 
                     const roleStyle = isApartmentTab
-                      ? getMemberRoleStyle(record.role)
+                      ? getMemberRoleStyle(record.role, isTenantAccount)
                       : getStaffRoleStyle(record.role);
 
-                    const recordTitle = isApartmentTab
-                      ? `${record.wing ? `${record.wing} · ` : ""}${
-                          record.flatNumber
-                            ? `Flat ${record.flatNumber}`
-                            : "Apartment"
-                        }`
-                      : roleStyle.label;
+                    const recordChips = isApartmentTab
+                      ? buildMemberRecordChips(record, isTenantAccount)
+                      : [];
 
                     const baseLabel = isApartmentTab
                       ? `${formatINR(Number(record.maintenanceAmount) || 0)} / month`
                       : `${formatINR(Number(record.monthlySalary) || 0)} / month`;
 
-                    // ---- Paid days chip (staff only, visible to members) ----
                     const att = isStaffTab
                       ? getAttendanceRecord(record.id, month)
                       : undefined;
@@ -2245,31 +2324,73 @@ export default function PeopleScreen() {
                           }}
                         >
                           <View style={styles.recordInfo}>
-                            <Text style={styles.recordTitle} numberOfLines={1}>
-                              {recordTitle}
-                            </Text>
+                            {/* ── chips row ─────────────────────────── */}
+                            {isApartmentTab ? (
+                              <View style={styles.recordChipsRow}>
+                                {recordChips.length > 0 ? (
+                                  recordChips.map((chip) => (
+                                    <View
+                                      key={chip.key}
+                                      style={styles.recordChip}
+                                    >
+                                      <Ionicons
+                                        name={chip.icon}
+                                        size={12}
+                                        color={COLORS.primaryDark}
+                                      />
+                                      <Text style={styles.recordChipLabel}>
+                                        {chip.label}
+                                      </Text>
+                                      <Text style={styles.recordChipValue}>
+                                        {chip.value}
+                                      </Text>
+                                    </View>
+                                  ))
+                                ) : (
+                                  <View style={styles.recordChip}>
+                                    <Ionicons
+                                      name="home-outline"
+                                      size={12}
+                                      color={COLORS.primaryDark}
+                                    />
+                                    <Text style={styles.recordChipLabel}>
+                                      {isTenantAccount ? "Room" : "Apartment"}
+                                    </Text>
+                                    <Text style={styles.recordChipValue}>
+                                      —
+                                    </Text>
+                                  </View>
+                                )}
+                              </View>
+                            ) : (
+                              <Text
+                                style={styles.recordTitle}
+                                numberOfLines={1}
+                              >
+                                {roleStyle.label}
+                              </Text>
+                            )}
+
                             <View style={styles.recordMetaRow}>
-                              {isApartmentTab ? (
-                                <View
+                              <View
+                                style={[
+                                  styles.roleBadge,
+                                  {
+                                    backgroundColor: roleStyle.bg,
+                                    borderColor: roleStyle.border,
+                                  },
+                                ]}
+                              >
+                                <Text
                                   style={[
-                                    styles.roleBadge,
-                                    {
-                                      backgroundColor: roleStyle.bg,
-                                      borderColor: roleStyle.border,
-                                    },
+                                    styles.roleBadgeText,
+                                    { color: roleStyle.text },
                                   ]}
+                                  numberOfLines={1}
                                 >
-                                  <Text
-                                    style={[
-                                      styles.roleBadgeText,
-                                      { color: roleStyle.text },
-                                    ]}
-                                    numberOfLines={1}
-                                  >
-                                    {roleStyle.label}
-                                  </Text>
-                                </View>
-                              ) : null}
+                                  {roleStyle.label}
+                                </Text>
+                              </View>
                               <Text
                                 style={styles.recordSubtitle}
                                 numberOfLines={1}
@@ -3311,7 +3432,7 @@ const styles = StyleSheet.create({
   },
   recordRow: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
   },
   recordRowPressed: { opacity: 0.75 },
   recordInfo: { flex: 1, minWidth: 0, marginRight: 10 },
@@ -3321,12 +3442,44 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: COLORS.text,
   },
+
+  /* ── New chips row ──────────────────────────────────────────── */
+  recordChipsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginBottom: 8,
+  },
+  recordChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 9,
+    backgroundColor: COLORS.primaryLight,
+    borderWidth: 1,
+    borderColor: COLORS.primarySoft,
+  },
+  recordChipLabel: {
+    fontSize: 11,
+    fontWeight: "700",
+    color: COLORS.primaryDark,
+    letterSpacing: 0.2,
+  },
+  recordChipValue: {
+    fontSize: 11.5,
+    fontWeight: "800",
+    color: COLORS.text,
+    marginLeft: 2,
+  },
+
   recordMetaRow: {
     flexDirection: "row",
     alignItems: "center",
     flexWrap: "wrap",
     gap: 8,
-    marginTop: 6,
+    marginTop: 2,
   },
   roleBadge: {
     paddingHorizontal: 9,
@@ -3355,7 +3508,6 @@ const styles = StyleSheet.create({
   statusInlineText: { fontSize: 12, fontWeight: "700" },
   statusDot: { width: 7, height: 7, borderRadius: 4 },
 
-  /* Paid days chip — visible only to member (flat owner) */
   paidDaysChip: {
     flexDirection: "row",
     alignItems: "center",
