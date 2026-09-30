@@ -585,6 +585,35 @@ function isHiddenAuditRow(row: AuditRow): boolean {
   return HIDDEN_ACTIONS.has(`${row.entity_type}.${row.action}`);
 }
 
+// ---------------------------------------------------------------------------
+// Suppress self-service role grants that duplicate an "invitation.accept" row.
+//
+// When someone accepts an invitation, the backend writes BOTH:
+//   1. invitation.accept           → "X accepted invitation for tenant access"
+//   2. account_member.role_granted → "X granted themselves tenant access"
+//
+// These describe the same event. We keep only the invitation.accept row.
+//
+// Rule: hide account_member.role_granted when the actor IS the target
+// (self-grant) — because that's always the invite-acceptance path.
+// Admin-grants to a different user are preserved.
+// ---------------------------------------------------------------------------
+function isSelfServiceRoleGrant(row: AuditRow): boolean {
+  return (
+    row.entity_type === "account_member" &&
+    row.action === "role_granted" &&
+    !!row.actor_user_id &&
+    !!row.target_user_id &&
+    String(row.actor_user_id) === String(row.target_user_id)
+  );
+}
+
+function shouldHideAuditRow(row: AuditRow): boolean {
+  if (isHiddenAuditRow(row)) return true;
+  if (isSelfServiceRoleGrant(row)) return true;
+  return false;
+}
+
 function classifyAuditRow(row: AuditRow): HistoryEntry["type"] {
   const k = `${row.entity_type}.${row.action}`;
   switch (k) {
@@ -674,6 +703,14 @@ function buildHistoryTitle(
 
   const memberNoun = isHomeAccount ? "room" : "property";
 
+  // -------------------------------------------------------------------------
+  // Tenant-aware payment nouns:
+  //   • member payments on a home account → "rent" (tenant pays rent)
+  //   • member payments on other accounts → "maintenance"
+  //   • staff payments are always "salary"
+  // -------------------------------------------------------------------------
+  const paymentNoun = isHomeAccount ? "rent" : "maintenance";
+
   switch (k) {
     case "account.create":
       return `${actor} created the account`;
@@ -721,15 +758,15 @@ function buildHistoryTitle(
         : `${actor} removed a staff role`;
 
     case "member.payment_paid":
-      if (targetIsSelf) return `${actor} marked your maintenance PAID`;
+      if (targetIsSelf) return `${actor} marked your ${paymentNoun} PAID`;
       return target
-        ? `${actor} marked maintenance PAID for ${target}`
-        : `${actor} marked maintenance PAID`;
+        ? `${actor} marked ${paymentNoun} PAID for ${target}`
+        : `${actor} marked ${paymentNoun} PAID`;
     case "member.payment_due":
-      if (targetIsSelf) return `${actor} marked your maintenance DUE`;
+      if (targetIsSelf) return `${actor} marked your ${paymentNoun} DUE`;
       return target
-        ? `${actor} marked maintenance DUE for ${target}`
-        : `${actor} marked maintenance DUE`;
+        ? `${actor} marked ${paymentNoun} DUE for ${target}`
+        : `${actor} marked ${paymentNoun} DUE`;
     case "staff.payment_paid":
       if (targetIsSelf) return `${actor} marked your salary PAID`;
       return target
@@ -789,9 +826,12 @@ function buildHistoryTitle(
         : `${actor} cancelled an invitation`;
     case "invitation.reject":
       if (actorIsSelf) return `You rejected the invitation`;
+      if (targetIsSelf) return `${actor} rejected your invitation`;
       return `${actor} rejected the invitation`;
     case "invitation.accept":
       if (actorIsSelf) return `You accepted invitation for ${role} access`;
+      if (targetIsSelf)
+        return `${actor} accepted your invitation for ${role} access`;
       return `${actor} accepted invitation for ${role} access`;
 
     case "calendar_event.create":
@@ -852,6 +892,15 @@ const PROPERTY_WORDS_IN_SUMMARY = [
   "the property",
 ];
 
+// "maintenance" wording that, on a home account, must be rebuilt as "rent".
+const MAINTENANCE_WORDS_IN_SUMMARY = [
+  "maintenance paid",
+  "maintenance due",
+  "maintenance as paid",
+  "maintenance as due",
+  "marked maintenance",
+];
+
 function summaryNeedsRebuild(
   summary: string | null,
   isHomeAccount: boolean,
@@ -876,6 +925,15 @@ function summaryNeedsRebuild(
     return true;
   }
 
+  // On a home account, the backend may still have stored "maintenance"
+  // in old summaries. Rebuild so it reads "rent" instead.
+  if (
+    isHomeAccount &&
+    MAINTENANCE_WORDS_IN_SUMMARY.some((w) => s.includes(w.toLowerCase()))
+  ) {
+    return true;
+  }
+
   return false;
 }
 
@@ -883,6 +941,7 @@ function mapAuditRowToHistoryEntry(
   row: AuditRow,
   currentUserId?: string | null,
   isHomeAccount: boolean = false,
+  viewerName?: string | null,
 ): HistoryEntry {
   const before = row.before ?? {};
   const after = row.after ?? {};
@@ -905,7 +964,20 @@ function mapAuditRowToHistoryEntry(
     statusRaw === "paid" || statusRaw === "due" ? statusRaw : undefined;
 
   const actorIsSelf = !!currentUserId && row.actor_user_id === currentUserId;
-  const targetIsSelf = !!currentUserId && row.target_user_id === currentUserId;
+
+  // Primary check: backend-resolved target_user_id matches the viewer.
+  // Fallback check: the backend didn't resolve target_user_id (null), but
+  // the stored target_name matches the viewer's own name. This catches
+  // member.payment_* rows where the lateral join failed to resolve the
+  // member's user_id.
+  const targetIsSelf =
+    !!currentUserId &&
+    (row.target_user_id === currentUserId ||
+      (!row.target_user_id &&
+        !!viewerName &&
+        !!row.target_name &&
+        row.target_name.trim().toLowerCase() ===
+          viewerName.trim().toLowerCase()));
 
   const isSystemActor =
     !actorIsSelf &&
@@ -936,11 +1008,13 @@ function mapAuditRowToHistoryEntry(
 
   // Prefer the frontend's buildHistoryTitle() whenever the backend's
   // stored summary would render the actor's name instead of "You",
-  // mentions a role word, or (on home accounts) says "property" instead
-  // of "room".
+  // mentions a role word, says "property" instead of "room", says
+  // "maintenance" instead of "rent", or when the viewer IS the target
+  // (so we say "for you" / "your invitation" instead of a name).
   const title =
     backendSummary &&
-    !summaryNeedsRebuild(backendSummary, isHomeAccount, actorIsSelf)
+    !summaryNeedsRebuild(backendSummary, isHomeAccount, actorIsSelf) &&
+    !targetIsSelf
       ? backendSummary
       : buildHistoryTitle(row, actorIsSelf, targetIsSelf, isHomeAccount);
 
@@ -1874,8 +1948,18 @@ export default function ProfileTabScreen(): React.ReactElement {
     return String((selectedAccount as any).type ?? "").toLowerCase() === "home";
   }, [selectedAccount]);
 
+  // ---------------------------------------------------------------------------
+  // Tenant viewer flag
+  //   A tenant = member_visibility user on a home account who is NOT
+  //   owner and NOT admin.
+  //   Tenants must NOT see the subscription card.
+  // ---------------------------------------------------------------------------
+  const isTenantViewer = isTenantAccount && isMember && !isOwner && !isAdmin;
+
   const canManageBills = isOwner || isAdmin;
-  const canSeeSubscription = isOwner || isAdmin || isMember;
+  // Members can see subscription. Tenants cannot.
+  const canSeeSubscription =
+    (isOwner || isAdmin || isMember) && !isTenantViewer;
   const canManageSubscription = isAdmin || isOwner;
 
   const historyScope: "full" | "self" | "none" =
@@ -1977,6 +2061,8 @@ export default function ProfileTabScreen(): React.ReactElement {
 
   const loadSubscription = useCallback(async () => {
     if (!selectedAccount?.id) return;
+    // Skip fetching subscription for tenants — they can't see it anyway.
+    if (isTenantViewer) return;
     try {
       const token = await getAuthToken();
       if (!token) return;
@@ -1993,7 +2079,7 @@ export default function ProfileTabScreen(): React.ReactElement {
     } catch (err) {
       console.warn("[profile] loadSubscription failed:", err);
     }
-  }, [selectedAccount?.id, getAuthToken]);
+  }, [selectedAccount?.id, getAuthToken, isTenantViewer]);
 
   useEffect(() => {
     loadSubscription();
@@ -2079,11 +2165,18 @@ export default function ProfileTabScreen(): React.ReactElement {
           ? data.history
           : [];
 
-        const visibleRows = rows.filter((r) => !isHiddenAuditRow(r));
+        // Drop hidden rows AND self-service role grants that duplicate
+        // an invitation.accept row.
+        const visibleRows = rows.filter((r) => !shouldHideAuditRow(r));
 
         setHistory(
           visibleRows.map((r) =>
-            mapAuditRowToHistoryEntry(r, user?.id, isTenantAccount),
+            mapAuditRowToHistoryEntry(
+              r,
+              user?.id,
+              isTenantAccount,
+              user?.name ?? null,
+            ),
           ),
         );
         hasLoadedHistoryOnce.current = true;
@@ -2099,6 +2192,7 @@ export default function ProfileTabScreen(): React.ReactElement {
       historyScope,
       getAuthToken,
       user?.id,
+      user?.name,
       isTenantAccount,
     ],
   );
@@ -3270,6 +3364,13 @@ export default function ProfileTabScreen(): React.ReactElement {
           </View>
         )}
 
+        {/*
+          Subscription card:
+            • Owner   → visible
+            • Admin   → visible
+            • Member  → visible
+            • Tenant  → hidden (isTenantViewer)
+        */}
         {canSeeSubscription &&
           (() => {
             const currentPlan = plans.find((p) => p.id === activePlan);
@@ -3615,18 +3716,20 @@ export default function ProfileTabScreen(): React.ReactElement {
         />
       )}
 
-      <SubscriptionPlanModal
-        visible={showPlansModal}
-        onClose={() => setShowPlansModal(false)}
-        activePlanId={activePlan}
-        activePlanPeriod={activePlanPeriod}
-        canManage={canManageSubscription}
-        plans={plans}
-        user={{ phone: user?.phone }}
-        startPayment={handleStartPayment}
-        onPlanChanged={handlePlanChanged}
-        onCancelSubscription={handleCancelSubscription}
-      />
+      {canSeeSubscription && (
+        <SubscriptionPlanModal
+          visible={showPlansModal}
+          onClose={() => setShowPlansModal(false)}
+          activePlanId={activePlan}
+          activePlanPeriod={activePlanPeriod}
+          canManage={canManageSubscription}
+          plans={plans}
+          user={{ phone: user?.phone }}
+          startPayment={handleStartPayment}
+          onPlanChanged={handlePlanChanged}
+          onCancelSubscription={handleCancelSubscription}
+        />
+      )}
 
       <AppAlert state={alert.state} onDismiss={alert.dismiss} />
     </View>
