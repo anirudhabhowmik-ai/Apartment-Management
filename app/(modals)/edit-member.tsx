@@ -900,6 +900,7 @@ export default function EditMemberScreen() {
   const [identityPhone, setIdentityPhone] = useState("");
   const [identityPhotoUri, setIdentityPhotoUri] = useState<string | null>(null);
   const [identityError, setIdentityError] = useState("");
+  const [identitySaving, setIdentitySaving] = useState(false);
 
   const [showLockedInfo, setShowLockedInfo] = useState(false);
 
@@ -1083,15 +1084,20 @@ export default function EditMemberScreen() {
     setIdentityPhone(phone);
     setIdentityPhotoUri(photoUri);
     setIdentityError("");
+    setIdentitySaving(false);
     setShowIdentityModal(true);
   };
 
   const closeIdentityEditor = () => {
+    if (identitySaving) return;
     setShowIdentityModal(false);
     setIdentityError("");
   };
 
-  const saveIdentityEditor = () => {
+  // ── UPDATED: save name, phone AND photo directly to backend on Apply ──
+  const saveIdentityEditor = async () => {
+    if (!member) return;
+
     const trimmedName = identityName.trim();
     const cleanPhone = identityPhone.replace(/\D/g, "").slice(-10);
 
@@ -1104,14 +1110,84 @@ export default function EditMemberScreen() {
       return;
     }
 
-    setName(trimmedName);
-    setPhone(cleanPhone);
-    setPhotoUri(identityPhotoUri);
-    setShowIdentityModal(false);
-    setIdentityError("");
+    // ✅ Compare against the SAVED member, not local state.
+    //    This is the key fix — `photoUri` gets updated during picking,
+    //    so comparing to it would incorrectly report "no change".
+    const originalName = (member as any)?.name ?? "";
+    const originalPhone = normalizePhone((member as any)?.phone);
+    const originalPhotoUri = (member as any)?.photoUri ?? null;
+
+    const nameChanged = trimmedName !== originalName;
+    const phoneChanged = cleanPhone !== originalPhone;
+    const photoChanged = (identityPhotoUri ?? null) !== originalPhotoUri;
+
+    if (!nameChanged && !phoneChanged && !photoChanged) {
+      setShowIdentityModal(false);
+      setIdentityError("");
+      return;
+    }
+
+    setIdentitySaving(true);
+    try {
+      const updateData: any = {};
+      if (nameChanged) updateData.name = trimmedName;
+      if (phoneChanged) updateData.phone = cleanPhone;
+      if (photoChanged && identityPhotoUri) {
+        updateData.photoUri = identityPhotoUri;
+      }
+
+      await update(memberId, updateData);
+
+      // Keep local UI state in sync
+      setName(trimmedName);
+      setPhone(cleanPhone);
+      setPhotoUri(identityPhotoUri);
+
+      // Reset the diff baseline so "Save Changes" doesn't flag
+      // identity fields as still dirty
+      if (originalRef.current) {
+        originalRef.current = {
+          ...originalRef.current,
+          name: trimmedName,
+          phone: cleanPhone,
+          photoUri: identityPhotoUri ?? "",
+        };
+      }
+
+      setShowIdentityModal(false);
+      setIdentityError("");
+    } catch (e: any) {
+      console.error("[edit-member] saveIdentityEditor failed:", e);
+
+      const code = e?.code;
+      const isPlanError =
+        code === "plan_limit_reached" ||
+        code === "member_read_only" ||
+        code === "staff_read_only";
+
+      if (isPlanError) {
+        setShowIdentityModal(false);
+        setUpgradePrompt({
+          reason: code,
+          message:
+            e?.body?.message ||
+            e?.message ||
+            "This action requires a higher plan.",
+          limit: e?.body?.limit,
+          current: e?.body?.current,
+        });
+      } else {
+        setIdentityError(
+          e?.message || "Could not save changes. Please try again.",
+        );
+      }
+    } finally {
+      setIdentitySaving(false);
+    }
   };
 
   const openIdentityPhotoPicker = () => {
+    if (identitySaving) return;
     setIsBillPhotoMode(false);
     setShowPhotoOptions(true);
   };
@@ -2594,6 +2670,7 @@ export default function EditMemberScreen() {
                       style={styles.modalCloseButton}
                       onPress={closeIdentityEditor}
                       activeOpacity={0.7}
+                      disabled={identitySaving}
                     >
                       <Ionicons name="close" size={21} color="#475569" />
                     </TouchableOpacity>
@@ -2608,6 +2685,7 @@ export default function EditMemberScreen() {
                         style={styles.identityModalAvatar}
                         onPress={openIdentityPhotoPicker}
                         activeOpacity={0.85}
+                        disabled={identitySaving}
                       >
                         {identityPhotoUri ? (
                           <Image
@@ -2651,6 +2729,7 @@ export default function EditMemberScreen() {
                         placeholder="e.g. Ramesh Kumar"
                         placeholderTextColor="#94A3B8"
                         autoCapitalize="words"
+                        editable={!identitySaving}
                       />
                     </View>
 
@@ -2672,11 +2751,13 @@ export default function EditMemberScreen() {
                         maxLength={10}
                         placeholder="9876543210"
                         placeholderTextColor="#94A3B8"
+                        editable={!identitySaving}
                       />
                       <TouchableOpacity
                         style={styles.identityContactButton}
                         onPress={pickContact}
                         activeOpacity={0.75}
+                        disabled={identitySaving}
                       >
                         {loadingContacts ? (
                           <ActivityIndicator size="small" color="#2563EB" />
@@ -2712,20 +2793,31 @@ export default function EditMemberScreen() {
                       style={styles.cancelModalButton}
                       onPress={closeIdentityEditor}
                       activeOpacity={0.8}
+                      disabled={identitySaving}
                     >
                       <Text style={styles.cancelButtonText}>Cancel</Text>
                     </TouchableOpacity>
                     <TouchableOpacity
-                      style={styles.saveButton}
+                      style={[
+                        styles.saveButton,
+                        identitySaving && { opacity: 0.7 },
+                      ]}
                       onPress={saveIdentityEditor}
                       activeOpacity={0.85}
+                      disabled={identitySaving}
                     >
-                      <Ionicons
-                        name="checkmark-circle-outline"
-                        size={18}
-                        color="#FFFFFF"
-                      />
-                      <Text style={styles.saveButtonText}>Apply</Text>
+                      {identitySaving ? (
+                        <ActivityIndicator color="#FFFFFF" size="small" />
+                      ) : (
+                        <>
+                          <Ionicons
+                            name="checkmark-circle-outline"
+                            size={18}
+                            color="#FFFFFF"
+                          />
+                          <Text style={styles.saveButtonText}>Apply</Text>
+                        </>
+                      )}
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -3872,7 +3964,7 @@ const styles = StyleSheet.create({
     minHeight: 46,
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center", // centers the icon + text group
+    justifyContent: "center",
     backgroundColor: "#dc2626",
     borderRadius: 11,
     gap: 6,
@@ -3880,15 +3972,15 @@ const styles = StyleSheet.create({
   },
 
   confirmDeleteIcon: {
-    flexShrink: 0, // icon never shrinks
+    flexShrink: 0,
   },
 
   confirmDeleteButtonText: {
     color: "#fff",
     fontSize: 13,
     fontWeight: "800",
-    textAlign: "center", // centers each wrapped line within the text box
-    flexShrink: 1, // text shrinks only when it must
+    textAlign: "center",
+    flexShrink: 1,
   },
 
   modalBackdrop: {
