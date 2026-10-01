@@ -6,7 +6,6 @@ import {
   ContactsSortOrder,
   requestPermissionsAsync,
 } from "expo-contacts";
-import * as DocumentPicker from "expo-document-picker";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
@@ -39,6 +38,7 @@ import DatePickerModal from "../../components/DatePickerModal";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useExpenses, useMembers, useStaff } from "../../hooks/useManagement";
 import type { BillAttachment, ManagementType, MemberRole } from "../../types";
+import { pickBillPdfAttachments } from "../../utils/billAttachments";
 
 type TransactionKind = "expense" | "income";
 type AddMode = "new" | "existing";
@@ -745,8 +745,6 @@ export default function AddMemberScreen() {
 
   const [upgradePrompt, setUpgradePrompt] = useState<UpgradePrompt>(null);
 
-  const hasFieldErrors = Object.values(fieldErrors).some(Boolean);
-
   const clearFieldError = (field: string) => {
     if (fieldErrors[field]) {
       setFieldErrors((current) => ({ ...current, [field]: "" }));
@@ -991,33 +989,18 @@ export default function AddMemberScreen() {
         return;
       }
 
-      const result = await DocumentPicker.getDocumentAsync({
-        type: ["application/pdf"],
-        multiple: true,
-        copyToCacheDirectory: true,
-      });
-
-      if (result.canceled) return;
-      if (!result.assets || result.assets.length === 0) return;
-
-      const picked: BillAttachment[] = [];
-      for (const asset of result.assets) {
-        if (picked.length >= remaining) break;
-        picked.push({
-          uri: asset.uri,
-          name: asset.name || "Bill.pdf",
-          mimeType: asset.mimeType || "application/pdf",
-        } as BillAttachment);
-      }
+      const { attachments: picked, selectedCount } =
+        await pickBillPdfAttachments(remaining);
+      if (picked.length === 0) return;
 
       setBillAttachments((cur) => [...cur, ...picked]);
 
-      if (result.assets.length > remaining) {
+      if (selectedCount > remaining) {
         Alert.alert(
           "Some files were skipped",
           `Only ${remaining} slot${
             remaining === 1 ? "" : "s"
-          } available. Attached ${picked.length} of ${result.assets.length} files.`,
+          } available. Attached ${picked.length} of ${selectedCount} files.`,
         );
       }
 

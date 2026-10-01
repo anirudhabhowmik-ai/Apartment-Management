@@ -624,6 +624,12 @@ const saveFileWithFolderPicker = async (
         encoding: FileSystem.EncodingType.Base64,
       });
     } else if (base64OrLocalUri.startsWith("file://")) {
+      const source = await FileSystem.getInfoAsync(base64OrLocalUri);
+      if (!source.exists || source.isDirectory) {
+        throw new Error(
+          "This attachment is no longer readable. Please edit the record and attach the file again.",
+        );
+      }
       await FileSystem.copyAsync({ from: base64OrLocalUri, to: tempUri });
     } else {
       await FileSystem.downloadAsync(base64OrLocalUri, tempUri);

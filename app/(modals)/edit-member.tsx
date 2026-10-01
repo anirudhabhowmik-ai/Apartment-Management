@@ -6,7 +6,6 @@ import {
   ContactsSortOrder,
   requestPermissionsAsync,
 } from "expo-contacts";
-import * as DocumentPicker from "expo-document-picker";
 import * as FileSystemModern from "expo-file-system";
 import * as FileSystem from "expo-file-system/legacy";
 import * as ImageManipulator from "expo-image-manipulator";
@@ -42,6 +41,7 @@ import { useAccounts } from "../../hooks/useAccounts";
 import { useExpenses, useMembers, useStaff } from "../../hooks/useManagement";
 import { useAuthStore } from "../../store/useAuthStore";
 import type { BillAttachment, ManagementType, MemberRole } from "../../types";
+import { pickBillPdfAttachments } from "../../utils/billAttachments";
 
 type TransactionKind = "expense" | "income";
 
@@ -67,12 +67,6 @@ type UpgradePrompt = {
   current?: number;
 } | null;
 
-const BLUE = "#2563EB";
-const BLUE_LIGHT = "#EFF6FF";
-const TEXT = "#111827";
-const TEXT_SECONDARY = "#6B7280";
-const BORDER = "#E5E7EB";
-const BACKGROUND = "#F8FAFC";
 const RED = "#DC2626";
 const GREEN = "#16A34A";
 
@@ -282,6 +276,12 @@ async function saveBillWithFolderPicker(
         encoding: FileSystem.EncodingType.Base64,
       });
     } else if (uri.startsWith("file://")) {
+      const source = await FileSystem.getInfoAsync(uri);
+      if (!source.exists || source.isDirectory) {
+        throw new Error(
+          "This attachment is no longer readable. Please edit the record and attach the file again.",
+        );
+      }
       await FileSystem.copyAsync({ from: uri, to: tempUri });
     } else {
       await FileSystem.downloadAsync(uri, tempUri);
@@ -1311,33 +1311,18 @@ export default function EditMemberScreen() {
         return;
       }
 
-      const result = await DocumentPicker.getDocumentAsync({
-        type: ["application/pdf"],
-        multiple: true,
-        copyToCacheDirectory: true,
-      });
-
-      if (result.canceled) return;
-      if (!result.assets || result.assets.length === 0) return;
-
-      const picked: BillAttachment[] = [];
-      for (const asset of result.assets) {
-        if (picked.length >= remaining) break;
-        picked.push({
-          uri: asset.uri,
-          name: asset.name || "Bill.pdf",
-          mimeType: asset.mimeType || "application/pdf",
-        } as BillAttachment);
-      }
+      const { attachments: picked, selectedCount } =
+        await pickBillPdfAttachments(remaining);
+      if (picked.length === 0) return;
 
       setBillAttachments((cur) => [...cur, ...picked]);
 
-      if (result.assets.length > remaining) {
+      if (selectedCount > remaining) {
         Alert.alert(
           "Some files were skipped",
           `Only ${remaining} slot${
             remaining === 1 ? "" : "s"
-          } available. Attached ${picked.length} of ${result.assets.length} files.`,
+          } available. Attached ${picked.length} of ${selectedCount} files.`,
         );
       }
 
