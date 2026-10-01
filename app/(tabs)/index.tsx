@@ -2713,6 +2713,10 @@ export default function HomeScreen() {
             ? ("maintenance" as const)
             : ("salary" as const),
           staffRole: opts.isApartment ? undefined : opts.member.role,
+
+          // ── NEW: tenant + society photo support ──
+          isTenantAccount,
+          societyPhotoUri: (selectedAccount as any)?.photoUri ?? null,
         };
 
         const pdfUri = await generateBillPDF(billData);
@@ -2749,6 +2753,7 @@ export default function HomeScreen() {
     },
     [
       selectedAccount,
+      isTenantAccount,
       selfMonthKey,
       downloadingBillKey,
       getBillConfig,
@@ -4773,7 +4778,6 @@ const styles = StyleSheet.create({
   },
   roleRowWrapLast: { borderBottomWidth: 0 },
 
-  // One-row layout: left = inline info, right = amount + date
   roleRowSingle: {
     flexDirection: "row",
     alignItems: "center",
@@ -4791,7 +4795,6 @@ const styles = StyleSheet.create({
     gap: 6,
   },
 
-  // Small icon + value chip (used for Wing / Flat / Area)
   unitChip: {
     flexDirection: "row",
     alignItems: "center",
@@ -4809,7 +4812,6 @@ const styles = StyleSheet.create({
     color: "#1D4ED8",
   },
 
-  // Role chip (Room Rent / Flat Owner / Security …)
   roleInlineChip: {
     paddingHorizontal: 7,
     paddingVertical: 3,
@@ -4821,7 +4823,6 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
 
-  // Monthly amount inline
   roleInlineAmount: {
     fontSize: 12.5,
     fontWeight: "800",

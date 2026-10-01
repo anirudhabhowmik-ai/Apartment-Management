@@ -3,6 +3,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
+  Image,
   Modal,
   Pressable,
   ScrollView,
@@ -385,12 +386,19 @@ export default function GenerateBillModal({
     saveConfigToServer,
   } = useBillStore();
 
-  // ── Account-type detection ──
+  // ── Account-type + society photo detection ──
   const { selectedAccountId, selectedAccount } = useAccounts();
 
   const isTenantAccount = useMemo(() => {
     if (!selectedAccount) return false;
     return String((selectedAccount as any).type ?? "").toLowerCase() === "home";
+  }, [selectedAccount]);
+
+  // ── Society photo (from account profile) ──
+  const societyPhotoUri = useMemo(() => {
+    const uri = (selectedAccount as any)?.photoUri;
+    if (typeof uri === "string" && uri.trim().length > 0) return uri;
+    return null;
   }, [selectedAccount]);
 
   const alert = useAppAlert();
@@ -685,8 +693,17 @@ export default function GenerateBillModal({
                 height: 10,
                 borderRadius: 2,
                 backgroundColor: "#ffffff",
+                overflow: "hidden",
               }}
-            />
+            >
+              {societyPhotoUri ? (
+                <Image
+                  source={{ uri: societyPhotoUri }}
+                  style={{ width: "100%", height: "100%" }}
+                  resizeMode="cover"
+                />
+              ) : null}
+            </View>
             <View
               style={{
                 flex: 1,
@@ -742,6 +759,24 @@ export default function GenerateBillModal({
           ]}
         >
           <View style={{ padding: 5 }}>
+            {societyPhotoUri ? (
+              <View
+                style={{
+                  width: 14,
+                  height: 14,
+                  borderRadius: 3,
+                  alignSelf: "center",
+                  marginBottom: 3,
+                  overflow: "hidden",
+                }}
+              >
+                <Image
+                  source={{ uri: societyPhotoUri }}
+                  style={{ width: "100%", height: "100%" }}
+                  resizeMode="cover"
+                />
+              </View>
+            ) : null}
             <View
               style={{
                 height: 5,
@@ -809,13 +844,37 @@ export default function GenerateBillModal({
         <View style={{ padding: 5 }}>
           <View
             style={{
-              height: 5,
-              width: "55%",
-              borderRadius: 1,
-              backgroundColor: t.colors.text,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 4,
               marginBottom: 3,
             }}
-          />
+          >
+            {societyPhotoUri ? (
+              <View
+                style={{
+                  width: 12,
+                  height: 12,
+                  borderRadius: 3,
+                  overflow: "hidden",
+                }}
+              >
+                <Image
+                  source={{ uri: societyPhotoUri }}
+                  style={{ width: "100%", height: "100%" }}
+                  resizeMode="cover"
+                />
+              </View>
+            ) : null}
+            <View
+              style={{
+                height: 5,
+                width: "55%",
+                borderRadius: 1,
+                backgroundColor: t.colors.text,
+              }}
+            />
+          </View>
           <View
             style={{
               height: 3,
@@ -888,6 +947,9 @@ export default function GenerateBillModal({
     const displayEmail = useRealCommonDetails ? email : "society@email.com";
 
     const displaySignature = useRealCommonDetails ? signature : undefined;
+
+    // ── Society photo: only show in real-details previews, never in dummy ──
+    const displayPhotoUri = useRealCommonDetails ? societyPhotoUri : null;
 
     const hasContactOrEmail =
       Boolean(displayContact && displayContact.trim()) ||
@@ -1102,9 +1164,21 @@ export default function GenerateBillModal({
         {variant === "bold" ? (
           <View style={[styles.previewHeaderBold, { backgroundColor: swatch }]}>
             <View style={styles.previewHeaderLogo}>
-              <Text style={[styles.previewHeaderLogoText, { color: swatch }]}>
-                {initials}
-              </Text>
+              {displayPhotoUri ? (
+                <Image
+                  source={{ uri: displayPhotoUri }}
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    borderRadius: 10,
+                  }}
+                  resizeMode="cover"
+                />
+              ) : (
+                <Text style={[styles.previewHeaderLogoText, { color: swatch }]}>
+                  {initials}
+                </Text>
+              )}
             </View>
             <View style={{ flex: 1 }}>
               <Text style={styles.previewHeaderTitleOnBg}>
@@ -1117,6 +1191,24 @@ export default function GenerateBillModal({
           </View>
         ) : variant === "classic" ? (
           <View style={styles.previewHeaderClassic}>
+            {displayPhotoUri ? (
+              <View
+                style={{
+                  width: 56,
+                  height: 56,
+                  borderRadius: 12,
+                  overflow: "hidden",
+                  alignSelf: "center",
+                  marginBottom: 10,
+                }}
+              >
+                <Image
+                  source={{ uri: displayPhotoUri }}
+                  style={{ width: "100%", height: "100%" }}
+                  resizeMode="cover"
+                />
+              </View>
+            ) : null}
             <Text
               style={[styles.previewHeaderClassicSociety, { color: swatch }]}
             >
@@ -1139,17 +1231,45 @@ export default function GenerateBillModal({
           </View>
         ) : (
           <View style={styles.previewHeaderMinimal}>
-            <Text style={styles.previewHeaderMinimalSociety}>
-              {displaySociety}
-            </Text>
-            <Text style={styles.previewHeaderMinimalSub}>{displayAddress}</Text>
-            {hasContactOrEmail && (
-              <Text style={styles.previewHeaderMinimalSub}>
-                {displayContact}
-                {displayContact && displayEmail ? " • " : ""}
-                {displayEmail}
-              </Text>
-            )}
+            <View
+              style={{
+                flexDirection: "row",
+                alignItems: "center",
+                gap: 10,
+              }}
+            >
+              {displayPhotoUri ? (
+                <View
+                  style={{
+                    width: 38,
+                    height: 38,
+                    borderRadius: 8,
+                    overflow: "hidden",
+                  }}
+                >
+                  <Image
+                    source={{ uri: displayPhotoUri }}
+                    style={{ width: "100%", height: "100%" }}
+                    resizeMode="cover"
+                  />
+                </View>
+              ) : null}
+              <View style={{ flex: 1 }}>
+                <Text style={styles.previewHeaderMinimalSociety}>
+                  {displaySociety}
+                </Text>
+                <Text style={styles.previewHeaderMinimalSub}>
+                  {displayAddress}
+                </Text>
+                {hasContactOrEmail && (
+                  <Text style={styles.previewHeaderMinimalSub}>
+                    {displayContact}
+                    {displayContact && displayEmail ? " • " : ""}
+                    {displayEmail}
+                  </Text>
+                )}
+              </View>
+            </View>
           </View>
         )}
 
@@ -2050,6 +2170,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#ffffff",
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
   },
   previewHeaderLogoText: {
     fontSize: 13,

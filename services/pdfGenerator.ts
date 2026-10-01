@@ -1,3 +1,4 @@
+// services/pdfGenerator.ts
 import * as FileSystem from "expo-file-system/legacy";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
@@ -51,6 +52,10 @@ interface BillData {
   };
   billType: "maintenance" | "salary";
   staffRole?: string;
+
+  // ── NEW: tenant/photo support ──
+  isTenantAccount?: boolean;
+  societyPhotoUri?: string | null;
 }
 
 /* ================================================================
@@ -138,6 +143,42 @@ function buildBillFileName(billNumber: string): string {
   return `Bill-${safeSuffix}.pdf`;
 }
 
+/**
+ * Loads an image URI and returns something expo-print can render.
+ *  - http/https / data:  → returned as-is
+ *  - file:// / content:// → read as base64 and returned as a data: URI
+ * Returns null if the URI is missing or loading fails.
+ */
+async function resolvePhotoForHtml(
+  rawUri: string | null | undefined,
+): Promise<string | null> {
+  if (!rawUri) return null;
+  const uri = String(rawUri).trim();
+  if (!uri) return null;
+
+  // Already web-safe
+  if (/^https?:\/\//i.test(uri) || uri.startsWith("data:")) return uri;
+
+  // Local file → convert to base64 data URI
+  try {
+    const base64 = await FileSystem.readAsStringAsync(uri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+
+    const lower = uri.toLowerCase();
+    let mime = "image/jpeg";
+    if (lower.endsWith(".png")) mime = "image/png";
+    else if (lower.endsWith(".webp")) mime = "image/webp";
+    else if (lower.endsWith(".gif")) mime = "image/gif";
+    else if (lower.endsWith(".heic")) mime = "image/heic";
+
+    return `data:${mime};base64,${base64}`;
+  } catch (e) {
+    console.warn("[pdfGenerator] could not load society photo:", e);
+    return null;
+  }
+}
+
 /* ================================================================
    ROW BUILDER
 ================================================================ */
@@ -189,13 +230,11 @@ function buildHeaderHtml(
   societyName: string,
   address: string,
   contactLine: string,
+  photoUri: string | null,
 ): string {
   const { colors } = t;
 
   if (variant === "bold") {
-    // ✅ NO negative margins — those cause the top of the bar to be
-    // clipped by expo-print on Android. The container's top padding is
-    // already 0 for Bold, so the header sits flush against the top.
     return `
       <div style="
         background:${colors.headerBg};
@@ -211,8 +250,15 @@ function buildHeaderHtml(
           color:${colors.headerBg};
           display:flex;align-items:center;justify-content:center;
           font-size:16px;font-weight:800;letter-spacing:0.6px;
+          overflow:hidden;
         ">
-          ${escapeHtml(initials)}
+          ${
+            photoUri
+              ? `<img src="${escapeHtml(
+                  photoUri,
+                )}" style="width:100%;height:100%;object-fit:cover;" alt="Logo" />`
+              : escapeHtml(initials)
+          }
         </div>
         <div style="flex:1;">
           <div style="font-size:22px;font-weight:800;color:#ffffff;letter-spacing:0.3px;">
@@ -232,6 +278,20 @@ function buildHeaderHtml(
   if (variant === "classic") {
     return `
       <div style="text-align:center;padding-bottom:14px;">
+        ${
+          photoUri
+            ? `
+          <div style="
+            width:64px;height:64px;border-radius:14px;overflow:hidden;
+            margin:0 auto 12px auto;
+          ">
+            <img src="${escapeHtml(
+              photoUri,
+            )}" style="width:100%;height:100%;object-fit:cover;" alt="Logo" />
+          </div>
+        `
+            : ""
+        }
         <div style="
           font-size:22px;
           font-weight:800;
@@ -259,14 +319,32 @@ function buildHeaderHtml(
       border-bottom:1px solid #e5e7eb;
       text-align:left;
     ">
-      <div style="font-size:18px;font-weight:800;color:#0f172a;">
-        ${escapeHtml(societyName)}
-      </div>
-      <div style="font-size:11px;color:#94a3b8;margin-top:2px;">
-        ${escapeHtml(address)}
-      </div>
-      <div style="font-size:11px;color:#94a3b8;margin-top:2px;">
-        ${escapeHtml(contactLine)}
+      <div style="display:flex;align-items:center;gap:12px;">
+        ${
+          photoUri
+            ? `
+          <div style="
+            width:44px;height:44px;border-radius:10px;overflow:hidden;
+            flex-shrink:0;
+          ">
+            <img src="${escapeHtml(
+              photoUri,
+            )}" style="width:100%;height:100%;object-fit:cover;" alt="Logo" />
+          </div>
+        `
+            : ""
+        }
+        <div style="flex:1;">
+          <div style="font-size:18px;font-weight:800;color:#0f172a;">
+            ${escapeHtml(societyName)}
+          </div>
+          <div style="font-size:11px;color:#94a3b8;margin-top:2px;">
+            ${escapeHtml(address)}
+          </div>
+          <div style="font-size:11px;color:#94a3b8;margin-top:2px;">
+            ${escapeHtml(contactLine)}
+          </div>
+        </div>
       </div>
     </div>
   `;
@@ -297,6 +375,8 @@ export async function generateBillPDF(data: BillData): Promise<string> {
     template,
     billType,
     staffRole,
+    isTenantAccount = false,
+    societyPhotoUri = null,
   } = data;
 
   const colors = template.colors;
@@ -316,6 +396,13 @@ export async function generateBillPDF(data: BillData): Promise<string> {
     .filter(Boolean)
     .join("  |  ");
 
+  // Resolve photo to a web-safe URL (base64 for local files).
+  // We only need it for the owner bill, not for staff salary slips.
+  const resolvedPhotoUri =
+    billType === "maintenance"
+      ? await resolvePhotoForHtml(societyPhotoUri)
+      : null;
+
   const headerHtml = buildHeaderHtml(
     variant,
     template,
@@ -323,20 +410,44 @@ export async function generateBillPDF(data: BillData): Promise<string> {
     societyName,
     address,
     contactLine,
+    resolvedPhotoUri,
   );
 
-  /* ---------- Shared label / value data ---------- */
-  const memberLabel = billType === "maintenance" ? "Owner Name" : "Staff Name";
+  /* ---------- Localized labels ---------- */
+  const isOwnerBill = billType === "maintenance";
+  const ownerTenantWord = isTenantAccount ? "Tenant" : "Owner";
+  const unitLabel = isTenantAccount ? "Room Number" : "Flat Number";
+
+  const memberLabel = isOwnerBill ? `${ownerTenantWord} Name` : "Staff Name";
 
   const infoRowsData: [string, string][] = [
     [memberLabel, memberName],
-    ...(flatNumber
-      ? ([["Flat Number", flatNumber]] as [string, string][])
-      : []),
+    ...(flatNumber ? ([[unitLabel, flatNumber]] as [string, string][]) : []),
     ...(staffRole ? ([["Role", staffRole]] as [string, string][]) : []),
     ["Month", month],
     ["Payment Date", formatDate(paidDate)],
   ];
+
+  /* ---------- Bill title per variant ---------- */
+  const billTitleText = isOwnerBill
+    ? isTenantAccount
+      ? "RENT BILL"
+      : "MAINTENANCE BILL"
+    : "SALARY RECEIPT";
+
+  /* ---------- Base amount label ---------- */
+  const baseLabel = isOwnerBill
+    ? isTenantAccount
+      ? "Base Rent"
+      : "Base Maintenance"
+    : "Base Salary";
+
+  /* ---------- Total label ---------- */
+  const totalLabel = isOwnerBill
+    ? isTenantAccount
+      ? "Rent Amount"
+      : "Maintenance Amount"
+    : "Salary Amount";
 
   /* ---------- Info panel per variant ---------- */
   const infoPanelHtml = (() => {
@@ -405,10 +516,6 @@ export async function generateBillPDF(data: BillData): Promise<string> {
     `;
   })();
 
-  /* ---------- Bill title per variant ---------- */
-  const billTitleText =
-    billType === "maintenance" ? "MAINTENANCE BILL" : "SALARY RECEIPT";
-
   const billTitleHtml = (() => {
     if (variant === "bold") {
       return `
@@ -454,10 +561,7 @@ export async function generateBillPDF(data: BillData): Promise<string> {
 
   /* ---------- Amount breakdown per variant ---------- */
   const amountRowsData: [string, string][] = [
-    [
-      billType === "maintenance" ? "Base Maintenance" : "Base Salary",
-      formatCurrency(amount),
-    ],
+    [baseLabel, formatCurrency(amount)],
     ...(additionalAmount
       ? ([["Additional Amount", `+ ${formatCurrency(additionalAmount)}`]] as [
           string,
@@ -539,9 +643,6 @@ export async function generateBillPDF(data: BillData): Promise<string> {
   })();
 
   /* ---------- Total row per variant ---------- */
-  const totalLabel =
-    billType === "maintenance" ? "Maintenance Amount" : "Salary Amount";
-
   const totalHtml = (() => {
     if (variant === "bold") {
       return `
@@ -607,11 +708,13 @@ export async function generateBillPDF(data: BillData): Promise<string> {
   /* ---------- Signature alignment per variant ---------- */
   const signatureAlign = variant === "minimal" ? "flex-start" : "center";
 
-  /* ---------- Container padding per variant ----------
-     Bold uses `padding:0 30px 30px` (no top padding) so the header bar
-     sits flush against the top. Its own padding creates the space.
-     Other variants keep the standard 30px all around. */
+  /* ---------- Container padding per variant ---------- */
   const containerPadding = variant === "bold" ? "0 30px 30px" : "30px";
+
+  /* ---------- Watermark text ---------- */
+  const watermarkText =
+    template.watermarkText ||
+    (isTenantAccount && isOwnerBill ? "HOME" : "SOCIETY");
 
   const html = `
     <!DOCTYPE html>
@@ -686,9 +789,7 @@ export async function generateBillPDF(data: BillData): Promise<string> {
       <div class="bill-container">
         ${
           template.showWatermark
-            ? `<div class="watermark">${escapeHtml(
-                template.watermarkText || "SOCIETY",
-              )}</div>`
+            ? `<div class="watermark">${escapeHtml(watermarkText)}</div>`
             : ""
         }
 
