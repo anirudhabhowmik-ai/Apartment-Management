@@ -31,6 +31,8 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { DarkModeBoundary } from "../../components/DarkModeBoundary";
+import { PhotoZoomControls } from "../../components/PhotoZoomControls";
+import { usePhotoAdjustPointer } from "../../hooks/usePhotoAdjustPointer";
 import { sendOtp, verifyOtpOnly } from "../../services/otpService";
 import { useAuthStore } from "../../store/useAuthStore";
 import { getSecureItem } from "../../utils/tokenStorage";
@@ -192,6 +194,14 @@ function PhotoAdjustModal({
       y: clampNumber(t.y, -maxY, maxY),
     };
   };
+
+  const { pointerHandlers, zoomIn, zoomOut } = usePhotoAdjustPointer({
+    zoom,
+    translate,
+    setZoom,
+    setTranslate,
+    clampTranslate: clampTranslateFromRefs,
+  });
 
   type ActiveGesture =
     | {
@@ -379,7 +389,9 @@ function PhotoAdjustModal({
         <View style={adjustStyles.card}>
           <Text style={adjustStyles.title}>Adjust Photo</Text>
           <Text style={adjustStyles.subtitle}>
-            Pinch to zoom • Drag to reposition
+            {Platform.OS === "web"
+              ? "Drag to reposition and use controls to zoom"
+              : "Pinch to zoom • Drag to reposition"}
           </Text>
 
           <View style={adjustStyles.viewportWrapper}>
@@ -387,8 +399,12 @@ function PhotoAdjustModal({
               style={[
                 adjustStyles.viewport,
                 { width: VIEWPORT, height: VIEWPORT },
+                Platform.OS === "web"
+                  ? ({ touchAction: "none", cursor: "grab" } as any)
+                  : null,
               ]}
-              {...panResponder.panHandlers}
+              {...(Platform.OS === "web" ? {} : panResponder.panHandlers)}
+              {...(pointerHandlers as any)}
             >
               <Image
                 source={{ uri: image.uri }}
@@ -411,6 +427,12 @@ function PhotoAdjustModal({
               </View>
             </View>
           </View>
+
+          <PhotoZoomControls
+            zoom={zoom}
+            onZoomIn={zoomIn}
+            onZoomOut={zoomOut}
+          />
 
           <TouchableOpacity
             style={adjustStyles.resetButton}
@@ -606,10 +628,12 @@ export default function EditProfileScreen() {
 
   const choosePhoto = async () => {
     setShowPhotoOptions(false);
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      setError("Permission to access photos is required");
-      return;
+    if (Platform.OS !== "web") {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        setError("Permission to access photos is required");
+        return;
+      }
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -627,6 +651,14 @@ export default function EditProfileScreen() {
       });
       setShowAdjustModal(true);
     }
+  };
+
+  const openPhotoOptions = () => {
+    if (Platform.OS === "web") {
+      void choosePhoto();
+      return;
+    }
+    setShowPhotoOptions(true);
   };
 
   const openContactPicker = async () => {
@@ -958,7 +990,7 @@ export default function EditProfileScreen() {
             <View style={styles.photoCard}>
               <TouchableOpacity
                 style={styles.photoButton}
-                onPress={() => setShowPhotoOptions(true)}
+                onPress={openPhotoOptions}
                 activeOpacity={0.8}
               >
                 {photoUri ? (

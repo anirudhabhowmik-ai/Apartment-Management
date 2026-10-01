@@ -22,7 +22,9 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { PhotoZoomControls } from "../../components/PhotoZoomControls";
 import { DarkModeBoundary } from "../../components/DarkModeBoundary";
+import { usePhotoAdjustPointer } from "../../hooks/usePhotoAdjustPointer";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useUserRole } from "../../hooks/useUserRole";
 import { useAccountStore } from "../../store/accountStore";
@@ -587,6 +589,14 @@ function PhotoAdjustModal({
     };
   };
 
+  const { pointerHandlers, zoomIn, zoomOut } = usePhotoAdjustPointer({
+    zoom,
+    translate,
+    setZoom,
+    setTranslate,
+    clampTranslate: clampTranslateFromRefs,
+  });
+
   type ActiveGesture =
     | {
         mode: "pinch";
@@ -786,7 +796,9 @@ function PhotoAdjustModal({
         <View style={adjustStyles.card}>
           <Text style={adjustStyles.title}>Adjust Photo</Text>
           <Text style={adjustStyles.subtitle}>
-            Pinch to zoom • Drag to reposition
+            {Platform.OS === "web"
+              ? "Drag to reposition and use controls to zoom"
+              : "Pinch to zoom • Drag to reposition"}
           </Text>
 
           <View style={adjustStyles.viewportWrapper}>
@@ -794,8 +806,12 @@ function PhotoAdjustModal({
               style={[
                 adjustStyles.viewport,
                 { width: VIEWPORT, height: VIEWPORT },
+                Platform.OS === "web"
+                  ? ({ touchAction: "none", cursor: "grab" } as any)
+                  : null,
               ]}
-              {...panResponder.panHandlers}
+              {...(Platform.OS === "web" ? {} : panResponder.panHandlers)}
+              {...(pointerHandlers as any)}
             >
               <Image
                 source={{ uri: image.uri }}
@@ -820,6 +836,12 @@ function PhotoAdjustModal({
               </View>
             </View>
           </View>
+
+          <PhotoZoomControls
+            zoom={zoom}
+            onZoomIn={zoomIn}
+            onZoomOut={zoomOut}
+          />
 
           <TouchableOpacity
             style={adjustStyles.resetButton}
@@ -1179,10 +1201,6 @@ export default function AddAccountScreen() {
     }
   };
 
-  const showPhotoSelectionOptions = () => {
-    setShowPhotoOptions(true);
-  };
-
   const takePhoto = async () => {
     setShowPhotoOptions(false);
     const permission = await ImagePicker.requestCameraPermissionsAsync();
@@ -1210,10 +1228,12 @@ export default function AddAccountScreen() {
 
   const choosePhoto = async () => {
     setShowPhotoOptions(false);
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      setError("Permission to access photos is required");
-      return;
+    if (Platform.OS !== "web") {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        setError("Permission to access photos is required");
+        return;
+      }
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -1231,6 +1251,14 @@ export default function AddAccountScreen() {
       });
       setShowAdjustModal(true);
     }
+  };
+
+  const showPhotoSelectionOptions = () => {
+    if (Platform.OS === "web") {
+      void choosePhoto();
+      return;
+    }
+    setShowPhotoOptions(true);
   };
 
   const handleAdjustConfirm = (uri: string) => {

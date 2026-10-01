@@ -1,7 +1,7 @@
 // hooks/useAccounts.ts
 import * as FileSystem from "expo-file-system/legacy";
 import { useCallback, useEffect } from "react";
-import { AppState } from "react-native";
+import { AppState, Platform } from "react-native";
 import { useAccountStore } from "../store/accountStore";
 import { useAuthStore } from "../store/useAuthStore";
 import { Account, AccountType } from "../types";
@@ -33,6 +33,25 @@ async function encodePhotoForServer(localUri: string): Promise<string> {
   if (localUri.startsWith("data:") || /^https?:\/\//i.test(localUri)) {
     return localUri;
   }
+
+  if (Platform.OS === "web") {
+    const response = await fetch(localUri);
+    if (!response.ok) {
+      throw new Error("Could not read the selected photo in this browser.");
+    }
+    const blob = await response.blob();
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result === "string") resolve(reader.result);
+        else reject(new Error("Could not encode the selected photo."));
+      };
+      reader.onerror = () =>
+        reject(reader.error || new Error("Could not encode the selected photo."));
+      reader.readAsDataURL(blob);
+    });
+  }
+
   const base64 = await FileSystem.readAsStringAsync(localUri, {
     encoding: FileSystem.EncodingType.Base64,
   });

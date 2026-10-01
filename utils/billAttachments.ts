@@ -83,3 +83,24 @@ export async function pickBillPdfAttachments(
   );
   return { attachments, selectedCount: result.result.length };
 }
+
+export async function pickBillMediaAttachments(
+  limit: number,
+): Promise<{ attachments: BillAttachment[]; selectedCount: number }> {
+  const result = await DocumentPicker.getDocumentAsync({
+    type: ["image/*", "application/pdf"],
+    multiple: true,
+    copyToCacheDirectory: true,
+  });
+  if (result.canceled) return { attachments: [], selectedCount: 0 };
+
+  const assets = result.assets ?? [];
+  return {
+    attachments: assets.slice(0, limit).map((asset) => ({
+      uri: asset.uri,
+      name: asset.name || "Bill attachment",
+      mimeType: asset.mimeType || null,
+    })),
+    selectedCount: assets.length,
+  };
+}

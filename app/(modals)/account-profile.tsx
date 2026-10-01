@@ -28,7 +28,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getSecureItem } from "../../utils/tokenStorage";
 
 import { DarkModeBoundary } from "../../components/DarkModeBoundary";
+import { PhotoZoomControls } from "../../components/PhotoZoomControls";
 import { useAccounts } from "../../hooks/useAccounts";
+import { usePhotoAdjustPointer } from "../../hooks/usePhotoAdjustPointer";
 import { useMembers, useStaff } from "../../hooks/useManagement";
 import { useUserRole } from "../../hooks/useUserRole";
 import { useAuthStore } from "../../store/useAuthStore";
@@ -509,6 +511,14 @@ function PhotoAdjustModal({
     };
   };
 
+  const { pointerHandlers, zoomIn, zoomOut } = usePhotoAdjustPointer({
+    zoom,
+    translate,
+    setZoom,
+    setTranslate,
+    clampTranslate: clampTranslateFromRefs,
+  });
+
   type ActiveGesture =
     | {
         mode: "pinch";
@@ -679,7 +689,9 @@ function PhotoAdjustModal({
         <View style={adjustStyles.card}>
           <Text style={adjustStyles.title}>Adjust Photo</Text>
           <Text style={adjustStyles.subtitle}>
-            Pinch to zoom • Drag to reposition
+            {Platform.OS === "web"
+              ? "Drag to reposition and use controls to zoom"
+              : "Pinch to zoom • Drag to reposition"}
           </Text>
 
           <View style={adjustStyles.viewportWrapper}>
@@ -687,8 +699,12 @@ function PhotoAdjustModal({
               style={[
                 adjustStyles.viewport,
                 { width: VIEWPORT, height: VIEWPORT },
+                Platform.OS === "web"
+                  ? ({ touchAction: "none", cursor: "grab" } as any)
+                  : null,
               ]}
-              {...panResponder.panHandlers}
+              {...(Platform.OS === "web" ? {} : panResponder.panHandlers)}
+              {...(pointerHandlers as any)}
             >
               <Image
                 source={{ uri: image.uri }}
@@ -711,6 +727,12 @@ function PhotoAdjustModal({
               </View>
             </View>
           </View>
+
+          <PhotoZoomControls
+            zoom={zoom}
+            onZoomIn={zoomIn}
+            onZoomOut={zoomOut}
+          />
 
           <TouchableOpacity
             style={adjustStyles.resetButton}
@@ -2487,14 +2509,16 @@ export default function AccountProfileScreen() {
   const choosePhoto = async () => {
     if (!canEdit) return;
     setShowPhotoOptions(false);
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      showAlert({
-        variant: "warning",
-        title: "Permission needed",
-        message: "Please grant permission to access your photos.",
-      });
-      return;
+    if (Platform.OS !== "web") {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        showAlert({
+          variant: "warning",
+          title: "Permission needed",
+          message: "Please grant permission to access your photos.",
+        });
+        return;
+      }
     }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
@@ -2506,6 +2530,15 @@ export default function AccountProfileScreen() {
       setRawImage({ uri: asset.uri, width: asset.width, height: asset.height });
       setShowAdjustModal(true);
     }
+  };
+
+  const openPhotoOptions = () => {
+    if (!canEdit) return;
+    if (Platform.OS === "web") {
+      void choosePhoto();
+      return;
+    }
+    setShowPhotoOptions(true);
   };
 
   const handleAdjustConfirm = async (uri: string) => {
@@ -3096,7 +3129,7 @@ export default function AccountProfileScreen() {
                 {canEdit && (
                   <TouchableOpacity
                     style={styles.cameraButton}
-                    onPress={() => setShowPhotoOptions(true)}
+                    onPress={openPhotoOptions}
                     activeOpacity={0.8}
                   >
                     <Ionicons name="camera-outline" size={16} color="#FFFFFF" />

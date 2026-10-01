@@ -1421,11 +1421,13 @@ function CalendarScreenImpl() {
   const chooseAttachmentFromGallery = async () => {
     setShowPhotoOptions(false);
     try {
-      const permission =
-        await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) {
-        setFormError("Permission to access photos is required");
-        return;
+      if (Platform.OS !== "web") {
+        const permission =
+          await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!permission.granted) {
+          setFormError("Permission to access photos is required");
+          return;
+        }
       }
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ["images"],
@@ -2980,6 +2982,10 @@ function CalendarScreenImpl() {
                       ]}
                       onPress={() => {
                         if (buttonDisabled) return;
+                        if (Platform.OS === "web") {
+                          void chooseAttachmentFromGallery();
+                          return;
+                        }
                         setShowPhotoOptions(true);
                       }}
                       activeOpacity={0.8}

@@ -37,11 +37,16 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { DarkModeBoundary } from "../../components/DarkModeBoundary";
 import DatePickerModal from "../../components/DatePickerModal";
+import { PhotoZoomControls } from "../../components/PhotoZoomControls";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useExpenses, useMembers, useStaff } from "../../hooks/useManagement";
+import { usePhotoAdjustPointer } from "../../hooks/usePhotoAdjustPointer";
 import { useAuthStore } from "../../store/useAuthStore";
 import type { BillAttachment, ManagementType, MemberRole } from "../../types";
-import { pickBillPdfAttachments } from "../../utils/billAttachments";
+import {
+  pickBillMediaAttachments,
+  pickBillPdfAttachments,
+} from "../../utils/billAttachments";
 
 type TransactionKind = "expense" | "income";
 
@@ -460,6 +465,14 @@ function PhotoAdjustModal({
     };
   };
 
+  const { pointerHandlers, zoomIn, zoomOut } = usePhotoAdjustPointer({
+    zoom,
+    translate,
+    setZoom,
+    setTranslate,
+    clampTranslate: clampTranslateFromRefs,
+  });
+
   type ActiveGesture =
     | {
         mode: "pinch";
@@ -646,7 +659,9 @@ function PhotoAdjustModal({
         <View style={adjustStyles.card}>
           <Text style={adjustStyles.title}>Adjust Photo</Text>
           <Text style={adjustStyles.subtitle}>
-            Pinch to zoom • Drag to reposition
+            {Platform.OS === "web"
+              ? "Drag to reposition and use controls to zoom"
+              : "Pinch to zoom • Drag to reposition"}
           </Text>
 
           <View style={adjustStyles.viewportWrapper}>
@@ -654,8 +669,12 @@ function PhotoAdjustModal({
               style={[
                 adjustStyles.viewport,
                 { width: VIEWPORT, height: VIEWPORT },
+                Platform.OS === "web"
+                  ? ({ touchAction: "none", cursor: "grab" } as any)
+                  : null,
               ]}
-              {...panResponder.panHandlers}
+              {...(Platform.OS === "web" ? {} : panResponder.panHandlers)}
+              {...(pointerHandlers as any)}
             >
               <Image
                 source={{ uri: image.uri }}
@@ -678,6 +697,12 @@ function PhotoAdjustModal({
               </View>
             </View>
           </View>
+
+          <PhotoZoomControls
+            zoom={zoom}
+            onZoomIn={zoomIn}
+            onZoomOut={zoomOut}
+          />
 
           <TouchableOpacity
             style={adjustStyles.resetButton}
@@ -1190,11 +1215,20 @@ export default function EditMemberScreen() {
   const openIdentityPhotoPicker = () => {
     if (identitySaving) return;
     setIsBillPhotoMode(false);
+    if (Platform.OS === "web") {
+      void choosePhoto(false);
+      return;
+    }
     setShowPhotoOptions(true);
   };
 
   const showPhotoSelectionOptions = (forBill: boolean = false) => {
     setIsBillPhotoMode(forBill);
+    if (Platform.OS === "web") {
+      if (forBill) void chooseBillMediaForWeb();
+      else void choosePhoto();
+      return;
+    }
     setShowPhotoOptions(true);
   };
 
@@ -1244,25 +1278,27 @@ export default function EditMemberScreen() {
     }
   };
 
-  const choosePhoto = async () => {
+  const choosePhoto = async (forBill: boolean = isBillPhotoMode) => {
     setShowPhotoOptions(false);
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      setError("Permission to access photos is required");
-      return;
+    if (Platform.OS !== "web") {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        setError("Permission to access photos is required");
+        return;
+      }
     }
 
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
       allowsEditing: false,
       quality: 1,
-      allowsMultipleSelection: isBillPhotoMode,
+      allowsMultipleSelection: forBill,
     });
 
     if (!result.canceled && result.assets[0]) {
       const assets = result.assets;
 
-      if (isBillPhotoMode) {
+      if (forBill) {
         setBillAttachments((cur) => {
           const remaining = MAX_BILL_ATTACHMENTS - cur.length;
           if (remaining <= 0) {
@@ -1330,6 +1366,35 @@ export default function EditMemberScreen() {
     } catch (e: any) {
       console.warn("[edit-member] chooseBillPdf failed:", e);
       setError(e?.message || "Could not pick PDF. Please try again.");
+    }
+  };
+
+  const chooseBillMediaForWeb = async () => {
+    setShowPhotoOptions(false);
+    const remaining = MAX_BILL_ATTACHMENTS - billAttachments.length;
+    if (remaining <= 0) {
+      Alert.alert(
+        "Attachment limit reached",
+        `You can attach at most ${MAX_BILL_ATTACHMENTS} files. Remove one to add more.`,
+      );
+      return;
+    }
+
+    try {
+      const { attachments, selectedCount } =
+        await pickBillMediaAttachments(remaining);
+      if (attachments.length === 0) return;
+      setBillAttachments((current) => [...current, ...attachments]);
+      if (selectedCount > remaining) {
+        Alert.alert(
+          "Some files were skipped",
+          `Only ${remaining} slot${remaining === 1 ? "" : "s"} available. Attached ${attachments.length} of ${selectedCount} files.`,
+        );
+      }
+      setError("");
+    } catch (e: any) {
+      console.warn("[edit-member] chooseBillMediaForWeb failed:", e);
+      setError(e?.message || "Could not pick attachments. Please try again.");
     }
   };
 

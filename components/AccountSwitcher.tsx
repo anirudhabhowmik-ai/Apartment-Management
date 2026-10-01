@@ -29,6 +29,8 @@ import { useAuthStore } from "../store/useAuthStore";
 import { Account } from "../types";
 import { getSecureItem } from "../utils/tokenStorage";
 import { DarkModeBoundary } from "./DarkModeBoundary";
+import { PhotoZoomControls } from "./PhotoZoomControls";
+import { usePhotoAdjustPointer } from "../hooks/usePhotoAdjustPointer";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
 
@@ -172,6 +174,14 @@ function PhotoAdjustModal({
       y: clampNumber(t.y, -maxY, maxY),
     };
   };
+
+  const { pointerHandlers, zoomIn, zoomOut } = usePhotoAdjustPointer({
+    zoom,
+    translate,
+    setZoom,
+    setTranslate,
+    clampTranslate: clampTranslateFromRefs,
+  });
 
   type ActiveGesture =
     | {
@@ -343,7 +353,9 @@ function PhotoAdjustModal({
         <View style={adjustStyles.card}>
           <Text style={adjustStyles.title}>Adjust Photo</Text>
           <Text style={adjustStyles.subtitle}>
-            Pinch to zoom • Drag to reposition
+            {Platform.OS === "web"
+              ? "Drag to reposition and use controls to zoom"
+              : "Pinch to zoom • Drag to reposition"}
           </Text>
 
           <View style={adjustStyles.viewportWrapper}>
@@ -351,8 +363,12 @@ function PhotoAdjustModal({
               style={[
                 adjustStyles.viewport,
                 { width: VIEWPORT, height: VIEWPORT },
+                Platform.OS === "web"
+                  ? ({ touchAction: "none", cursor: "grab" } as any)
+                  : null,
               ]}
-              {...panResponder.panHandlers}
+              {...(Platform.OS === "web" ? {} : panResponder.panHandlers)}
+              {...(pointerHandlers as any)}
             >
               <Image
                 source={{ uri: image.uri }}
@@ -375,6 +391,12 @@ function PhotoAdjustModal({
               </View>
             </View>
           </View>
+
+          <PhotoZoomControls
+            zoom={zoom}
+            onZoomIn={zoomIn}
+            onZoomOut={zoomOut}
+          />
 
           <TouchableOpacity
             style={adjustStyles.resetButton}
@@ -683,11 +705,6 @@ export function AccountSwitcherHost() {
     });
   };
 
-  const showPhotoSelectionOptions = (accountId: string) => {
-    setEditingPhotoAccountId(accountId);
-    setShowPhotoOptions(true);
-  };
-
   const takePhoto = async () => {
     setShowPhotoOptions(false);
     const permission = await ImagePicker.requestCameraPermissionsAsync();
@@ -712,13 +729,15 @@ export function AccountSwitcherHost() {
 
   const choosePhoto = async () => {
     setShowPhotoOptions(false);
-    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permission.granted) {
-      Alert.alert(
-        "Permission needed",
-        "Please grant photo library permission to choose a photo.",
-      );
-      return;
+    if (Platform.OS !== "web") {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(
+          "Permission needed",
+          "Please grant photo library permission to choose a photo.",
+        );
+        return;
+      }
     }
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ["images"],
@@ -730,6 +749,15 @@ export function AccountSwitcherHost() {
       setRawImage({ uri: asset.uri, width: asset.width, height: asset.height });
       setShowAdjustModal(true);
     }
+  };
+
+  const showPhotoSelectionOptions = (accountId: string) => {
+    setEditingPhotoAccountId(accountId);
+    if (Platform.OS === "web") {
+      void choosePhoto();
+      return;
+    }
+    setShowPhotoOptions(true);
   };
 
   const handleAdjustConfirm = async (uri: string) => {
