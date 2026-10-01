@@ -8,7 +8,6 @@ import * as DocumentPicker from "expo-document-picker";
 import * as FileSystemModern from "expo-file-system";
 import * as FileSystem from "expo-file-system/legacy";
 import * as ImagePicker from "expo-image-picker";
-import * as SecureStore from "expo-secure-store";
 import * as Sharing from "expo-sharing";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -31,6 +30,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { getSecureItem } from "../../utils/tokenStorage";
 
 import { useAccounts } from "../../hooks/useAccounts";
 import { useUserRole } from "../../hooks/useUserRole";
@@ -59,7 +59,7 @@ function useAuthToken(): string | null | undefined {
     let alive = true;
     (async () => {
       try {
-        const v = await SecureStore.getItemAsync(AUTH_TOKEN_KEY);
+        const v = await getSecureItem(AUTH_TOKEN_KEY);
         if (!alive) return;
         setToken(v ?? null);
       } catch (e) {

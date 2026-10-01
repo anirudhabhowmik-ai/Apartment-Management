@@ -3,7 +3,6 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import * as SecureStore from "expo-secure-store";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -28,6 +27,7 @@ import { useUserRole } from "../../hooks/useUserRole";
 import { useAccountStore } from "../../store/accountStore";
 import { useAuthStore } from "../../store/useAuthStore";
 import { AccountType } from "../../types";
+import { deleteSecureItem, getSecureItem } from "../../utils/tokenStorage";
 
 const API_URL = (process.env.EXPO_PUBLIC_API_URL ?? "").replace(
   /\/api\/?$/,
@@ -977,7 +977,7 @@ const adjustStyles = StyleSheet.create({
 // ---------------------------------------------------------------------------
 
 function getToken(): Promise<string | null> {
-  return SecureStore.getItemAsync("auth_token").catch(() => null);
+  return getSecureItem("auth_token").catch(() => null);
 }
 
 function normalizePhone(raw?: string | null): string {
@@ -1394,7 +1394,7 @@ export default function AddAccountScreen() {
           {
             text: "OK",
             onPress: async () => {
-              await SecureStore.deleteItemAsync("auth_token").catch(() => {});
+              await deleteSecureItem("auth_token").catch(() => {});
               await logout().catch(() => {});
               router.replace("/(auth)/login");
             },

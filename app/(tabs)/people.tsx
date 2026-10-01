@@ -1,7 +1,6 @@
 // app/(tabs)/people.tsx
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import * as SecureStore from "expo-secure-store";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Image,
@@ -18,6 +17,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { getSecureItem } from "../../utils/tokenStorage";
 
 import DatePickerModal from "../../components/DatePickerModal";
 import GenerateBillModal from "../../components/GenerateBillModal";
@@ -274,7 +274,7 @@ const inlineAlertStyles = StyleSheet.create({
 
 async function getAuthToken(): Promise<string | null> {
   try {
-    return await SecureStore.getItemAsync(AUTH_TOKEN_KEY);
+    return await getSecureItem(AUTH_TOKEN_KEY);
   } catch {
     return null;
   }

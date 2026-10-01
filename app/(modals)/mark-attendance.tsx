@@ -1,7 +1,6 @@
 // app/(modals)/mark-attendance.tsx
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
-import * as SecureStore from "expo-secure-store";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -16,6 +15,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { getSecureItem } from "../../utils/tokenStorage";
 
 import { useStaff } from "../../hooks/useManagement";
 import { useAccountStore } from "../../store/accountStore";
@@ -28,7 +28,7 @@ const MANAGEMENT_PREFIX = "/management";
 
 async function getAuthToken(): Promise<string | null> {
   try {
-    return await SecureStore.getItemAsync(AUTH_TOKEN_KEY);
+    return await getSecureItem(AUTH_TOKEN_KEY);
   } catch {
     return null;
   }

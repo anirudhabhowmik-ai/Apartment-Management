@@ -1,6 +1,6 @@
 // store/billStore.ts
-import * as SecureStore from "expo-secure-store";
 import { create } from "zustand";
+import { getSecureItem } from "../utils/tokenStorage";
 
 const API_URL = (
   process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000"
@@ -159,7 +159,7 @@ export const DEFAULT_TEMPLATES: BillTemplateDesign[] = [
 ];
 
 async function authHeaders(): Promise<Record<string, string>> {
-  const token = await SecureStore.getItemAsync("auth_token");
+  const token = await getSecureItem("auth_token");
   return {
     "Content-Type": "application/json",
     ...(token ? { Authorization: `Bearer ${token}` } : {}),

@@ -1,7 +1,6 @@
 // app/(modals)/mark-payment.tsx
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
-import * as SecureStore from "expo-secure-store";
 import { useEffect, useState } from "react";
 import {
   Alert,
@@ -12,6 +11,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { getSecureItem } from "../../utils/tokenStorage";
 
 import DatePickerModal from "../../components/DatePickerModal";
 import {
@@ -33,7 +33,7 @@ const MANAGEMENT_PREFIX = "/management";
 
 async function getAuthToken(): Promise<string | null> {
   try {
-    return await SecureStore.getItemAsync(AUTH_TOKEN_KEY);
+    return await getSecureItem(AUTH_TOKEN_KEY);
   } catch {
     return null;
   }

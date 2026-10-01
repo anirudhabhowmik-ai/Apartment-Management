@@ -2,7 +2,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import * as SecureStore from "expo-secure-store";
 import React, {
   useCallback,
   useEffect,
@@ -27,6 +26,11 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import {
+  deleteSecureItem,
+  getSecureItem,
+  setSecureItem,
+} from "../../utils/tokenStorage";
 
 import GenerateBillModal from "../../components/GenerateBillModal";
 import SubscriptionPlanModal, {
@@ -2012,7 +2016,7 @@ export default function ProfileTabScreen(): React.ReactElement {
   }, [refreshProfile]);
 
   useEffect(() => {
-    SecureStore.getItemAsync("notifications_enabled").then((v) => {
+    getSecureItem("notifications_enabled").then((v) => {
       if (v !== null) setNotifications(v === "true");
     });
   }, []);
@@ -2031,7 +2035,7 @@ export default function ProfileTabScreen(): React.ReactElement {
 
   const getAuthToken = useCallback(async (): Promise<string | null> => {
     try {
-      return await SecureStore.getItemAsync("auth_token");
+      return await getSecureItem("auth_token");
     } catch (err) {
       console.warn("[profile] SecureStore read failed:", err);
       return null;
@@ -2047,7 +2051,7 @@ export default function ProfileTabScreen(): React.ReactElement {
         const backendValue = await loadPushPreference(token);
         if (backendValue !== null) {
           setNotifications(backendValue);
-          await SecureStore.setItemAsync(
+          await setSecureItem(
             "notifications_enabled",
             backendValue ? "true" : "false",
           );
@@ -2328,7 +2332,7 @@ export default function ProfileTabScreen(): React.ReactElement {
           {
             text: "OK",
             onPress: async () => {
-              await SecureStore.deleteItemAsync("auth_token").catch(() => {});
+              await deleteSecureItem("auth_token").catch(() => {});
               await logout().catch(() => {});
               router.replace("/(auth)/login");
             },
@@ -2361,10 +2365,7 @@ export default function ProfileTabScreen(): React.ReactElement {
   const toggleNotifications = async (value: boolean) => {
     setNotifications(value);
 
-    await SecureStore.setItemAsync(
-      "notifications_enabled",
-      value ? "true" : "false",
-    );
+    await setSecureItem("notifications_enabled", value ? "true" : "false");
 
     try {
       const token = await getAuthToken();
@@ -2373,10 +2374,7 @@ export default function ProfileTabScreen(): React.ReactElement {
     } catch (err: any) {
       console.warn("[profile] failed to save push preference:", err);
       setNotifications(!value);
-      await SecureStore.setItemAsync(
-        "notifications_enabled",
-        !value ? "true" : "false",
-      );
+      await setSecureItem("notifications_enabled", !value ? "true" : "false");
       showAlert({
         variant: "error",
         title: "Couldn't update",

@@ -1,5 +1,4 @@
 // hooks/usePayments.ts
-import * as SecureStore from "expo-secure-store";
 import { useCallback, useEffect, useRef } from "react";
 import { usePaymentStore } from "../store/paymentStore";
 import {
@@ -14,12 +13,13 @@ import {
   SalaryPayment,
   UpdatePaymentInput,
 } from "../types/payment";
+import { getSecureItem } from "../utils/tokenStorage";
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
 
 async function getToken(): Promise<string | null> {
   try {
-    return await SecureStore.getItemAsync("auth_token");
+    return await getSecureItem("auth_token");
   } catch {
     return null;
   }

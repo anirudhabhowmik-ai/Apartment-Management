@@ -5,7 +5,6 @@ import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { useIsFocused } from "expo-router/react-navigation";
-import * as SecureStore from "expo-secure-store";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -26,6 +25,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { getSecureItem } from "../../utils/tokenStorage";
 
 import { useAccounts } from "../../hooks/useAccounts";
 import { useUserRole } from "../../hooks/useUserRole";
@@ -108,6 +108,8 @@ interface AccessPerson {
   roles: InvitationRole[];
   primaryInvitation: ApiInvitation;
   invitations: ApiInvitation[];
+  invitationId?: string | null;
+  canDismiss?: boolean;
 }
 
 interface PendingGroup {
@@ -124,6 +126,9 @@ interface PeopleEntry {
   name: string;
   phone: string | null;
   photo_url: string | null;
+  kind?: "owner" | "admin" | "member" | "staff";
+  invitation_id?: string | null;
+  can_dismiss?: boolean;
 }
 
 interface PeopleResponse {
@@ -131,6 +136,8 @@ interface PeopleResponse {
   admins: PeopleEntry[];
   members: PeopleEntry[];
   staff: PeopleEntry[];
+  revokeMembers: PeopleEntry[];
+  revokeStaff: PeopleEntry[];
 }
 
 // ============================================================================
@@ -1902,17 +1909,17 @@ export default function AccountProfileScreen() {
   const [rawImage, setRawImage] = useState<RawImage | null>(null);
   const [showAdjustModal, setShowAdjustModal] = useState(false);
 
-  // Invitations — used only for pending / rejected invites
   const [invitations, setInvitations] = useState<ApiInvitation[]>([]);
   const [invitationsLoading, setInvitationsLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
-  // People with access — sourced from account_members
   const [people, setPeople] = useState<PeopleResponse>({
     owner: null,
     admins: [],
     members: [],
     staff: [],
+    revokeMembers: [],
+    revokeStaff: [],
   });
   const [peopleLoading, setPeopleLoading] = useState(false);
 
@@ -1983,8 +1990,6 @@ export default function AccountProfileScreen() {
     [pendingGroups],
   );
 
-  // ---- Accepted people — from /accounts/:id/people (account_members) ----
-
   const ownerUserId = people.owner?.user_id ?? selectedAccount?.ownerId ?? null;
 
   const acceptedOwnership = useMemo<AccessPerson[]>(() => [], []);
@@ -2052,6 +2057,8 @@ export default function AccountProfileScreen() {
         invitee_user_photo_url: p.photo_url ?? null,
       },
       invitations: [],
+      invitationId: p.invitation_id ?? null,
+      canDismiss: p.can_dismiss === true,
     }));
   }, [people.members, selectedAccount?.id]);
 
@@ -2085,6 +2092,8 @@ export default function AccountProfileScreen() {
         invitee_user_photo_url: p.photo_url ?? null,
       },
       invitations: [],
+      invitationId: p.invitation_id ?? null,
+      canDismiss: p.can_dismiss === true,
     }));
   }, [people.staff, selectedAccount?.id]);
 
@@ -2101,12 +2110,57 @@ export default function AccountProfileScreen() {
     rejectedInvitations.length +
     (selectedAccount?.ownerId === user?.id ? 1 : 0);
 
-  const totalRevocable = acceptedPeople.length;
+  const totalRevocable =
+    acceptedAdmins.length +
+    people.revokeMembers.length +
+    people.revokeStaff.length;
 
-  // Revoke modal feeds off the same lists
   const revokeAdmins = acceptedAdmins.map((p) => p.primaryInvitation);
-  const revokeMembers = acceptedMembers.map((p) => p.primaryInvitation);
-  const revokeStaff = acceptedStaff.map((p) => p.primaryInvitation);
+
+  const revokeMembers = people.revokeMembers.map((p) => ({
+    id: p.user_id,
+    account_id: selectedAccount?.id ?? "",
+    invited_phone: p.phone ?? "",
+    invited_name: p.name ?? null,
+    role: "member_visibility" as InvitationRole,
+    status: "accepted" as InvitationStatus,
+    target_member_id: null,
+    target_staff_id: null,
+    created_at: "",
+    responded_at: null,
+    dismissed_at: null,
+    accepted_by: p.user_id,
+    invited_by_phone: "",
+    account_name: "",
+    account_photo_url: null,
+    accepted_user_name: p.name ?? null,
+    accepted_user_photo_url: p.photo_url ?? null,
+    invitee_user_name: p.name ?? null,
+    invitee_user_photo_url: p.photo_url ?? null,
+  }));
+
+  const revokeStaff = people.revokeStaff.map((p) => ({
+    id: p.user_id,
+    account_id: selectedAccount?.id ?? "",
+    invited_phone: p.phone ?? "",
+    invited_name: p.name ?? null,
+    role: "staff_visibility" as InvitationRole,
+    status: "accepted" as InvitationStatus,
+    target_member_id: null,
+    target_staff_id: null,
+    created_at: "",
+    responded_at: null,
+    dismissed_at: null,
+    accepted_by: p.user_id,
+    invited_by_phone: "",
+    account_name: "",
+    account_photo_url: null,
+    accepted_user_name: p.name ?? null,
+    accepted_user_photo_url: p.photo_url ?? null,
+    invitee_user_name: p.name ?? null,
+    invitee_user_photo_url: p.photo_url ?? null,
+  }));
+
   const revokeOwnership = acceptedOwnership.map((p) => p.primaryInvitation);
 
   const getInitials = (name: string) =>
@@ -2120,7 +2174,7 @@ export default function AccountProfileScreen() {
 
   const getAuthToken = useCallback(async (): Promise<string | null> => {
     try {
-      return await SecureStore.getItemAsync("auth_token");
+      return await getSecureItem("auth_token");
     } catch (err) {
       console.warn("[account-profile] SecureStore read failed:", err);
       return null;
@@ -2128,7 +2182,7 @@ export default function AccountProfileScreen() {
   }, []);
 
   // ============================================================
-  // LOAD INVITATIONS (only for pending/rejected)
+  // LOAD INVITATIONS
   // ============================================================
 
   const loadInvitations = useCallback(
@@ -2193,7 +2247,6 @@ export default function AccountProfileScreen() {
           };
         });
 
-        // Keep only pending/rejected — accepted comes from /people now
         setInvitations(
           normalized.filter(
             (i) => i.status === "pending" || i.status === "rejected",
@@ -2230,6 +2283,10 @@ export default function AccountProfileScreen() {
           admins: Array.isArray(data?.admins) ? data.admins : [],
           members: Array.isArray(data?.members) ? data.members : [],
           staff: Array.isArray(data?.staff) ? data.staff : [],
+          revokeMembers: Array.isArray(data?.revokeMembers)
+            ? data.revokeMembers
+            : [],
+          revokeStaff: Array.isArray(data?.revokeStaff) ? data.revokeStaff : [],
         });
       } catch (err) {
         console.warn("[account-profile] loadPeople error:", err);
@@ -2254,7 +2311,6 @@ export default function AccountProfileScreen() {
     }
   }, [isFocused, loadInvitations, loadPeople]);
 
-  // Poll both endpoints every 30 s while focused
   useEffect(() => {
     if (!isFocused) return;
     if (!selectedAccount?.id) return;
@@ -2428,6 +2484,42 @@ export default function AccountProfileScreen() {
       setDeletingInvitation(false);
     }
   };
+
+  const dismissPersonInvitation = useCallback(
+    async (invitationId: string) => {
+      const token = await getAuthToken();
+      if (!token || !selectedAccount?.id) return;
+
+      try {
+        const res = await fetch(
+          `${API_URL}/api/accounts/${selectedAccount.id}/invitations/${invitationId}/dismiss`,
+          {
+            method: "POST",
+            headers: { Authorization: `Bearer ${token}` },
+          },
+        );
+
+        if (!res.ok) {
+          showAlert({
+            variant: "error",
+            title: "Couldn't dismiss",
+            message: "Please try again.",
+          });
+          return;
+        }
+
+        await loadPeople({ silent: true });
+      } catch (err) {
+        console.error("dismiss error:", err);
+        showAlert({
+          variant: "error",
+          title: "Network error",
+          message: "Please try again.",
+        });
+      }
+    },
+    [getAuthToken, selectedAccount?.id, loadPeople, showAlert],
+  );
 
   const confirmDeletePendingGroup = async (ids: string[]) => {
     if (!pendingGroupToDelete || ids.length === 0) return;
@@ -2760,6 +2852,19 @@ export default function AccountProfileScreen() {
         <View style={[styles.accessBadge, badge.style]}>
           <Text style={badge.text}>{badge.label}</Text>
         </View>
+
+        {person.canDismiss &&
+        person.invitationId &&
+        (kind === "member" || kind === "staff") ? (
+          <TouchableOpacity
+            style={styles.dismissPersonButton}
+            onPress={() => dismissPersonInvitation(person.invitationId!)}
+            activeOpacity={0.7}
+            hitSlop={8}
+          >
+            <Ionicons name="close" size={14} color="#64748B" />
+          </TouchableOpacity>
+        ) : null}
       </View>
     );
   };
@@ -3270,7 +3375,7 @@ export default function AccountProfileScreen() {
             )}
         </View>
 
-        {/* DANGER ZONE (owner only) */}
+        {/* DANGER ZONE */}
         {isOwner && (
           <>
             <Text
@@ -3504,7 +3609,7 @@ export default function AccountProfileScreen() {
 }
 
 // ============================================================================
-// STYLES — identical to what you have
+// STYLES
 // ============================================================================
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: "#F8FAFC" },
@@ -3820,6 +3925,15 @@ const styles = StyleSheet.create({
     height: 35,
     borderRadius: 10,
     backgroundColor: "#FEF2F2",
+    alignItems: "center",
+    justifyContent: "center",
+    marginLeft: 6,
+  },
+  dismissPersonButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 9,
+    backgroundColor: "#F1F5F9",
     alignItems: "center",
     justifyContent: "center",
     marginLeft: 6,

@@ -1,6 +1,5 @@
 // hooks/useManagement.ts
 import * as FileSystem from "expo-file-system/legacy";
-import * as SecureStore from "expo-secure-store";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { create } from "zustand";
 import {
@@ -10,6 +9,7 @@ import {
   Member,
   Staff,
 } from "../types";
+import { getSecureItem } from "../utils/tokenStorage";
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
 
@@ -37,7 +37,7 @@ const EMPTY_MEMBERS: Member[] = [];
 
 async function getToken(): Promise<string | null> {
   try {
-    return await SecureStore.getItemAsync("auth_token");
+    return await getSecureItem("auth_token");
   } catch {
     return null;
   }

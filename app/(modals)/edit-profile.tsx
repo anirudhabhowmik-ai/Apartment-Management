@@ -32,6 +32,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { sendOtp, verifyOtpOnly } from "../../services/otpService";
 import { useAuthStore } from "../../store/useAuthStore";
+import { getSecureItem } from "../../utils/tokenStorage";
 
 const BLUE = "#2563EB";
 const BLUE_LIGHT = "#EFF6FF";
@@ -97,7 +98,7 @@ async function authedFetch(
 async function getToken(): Promise<string | null> {
   try {
     const SecureStore = require("expo-secure-store");
-    return await SecureStore.getItemAsync("auth_token");
+    return await getSecureItem("auth_token");
   } catch {
     return null;
   }

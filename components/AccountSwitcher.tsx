@@ -3,7 +3,6 @@ import { Ionicons } from "@expo/vector-icons";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
-import * as SecureStore from "expo-secure-store";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -28,6 +27,7 @@ import { useAccounts } from "../hooks/useAccounts";
 import { useAccountStore } from "../store/accountStore";
 import { useAuthStore } from "../store/useAuthStore";
 import { Account } from "../types";
+import { getSecureItem } from "../utils/tokenStorage";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
 
@@ -609,7 +609,7 @@ export function AccountSwitcherHost() {
 
   const getAuthToken = async (): Promise<string | null> => {
     try {
-      return await SecureStore.getItemAsync("auth_token");
+      return await getSecureItem("auth_token");
     } catch (err) {
       console.warn("[account-switcher] SecureStore read failed:", err);
       return null;

@@ -2,7 +2,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useRouter } from "expo-router";
 import { useIsFocused } from "expo-router/react-navigation";
-import * as SecureStore from "expo-secure-store";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -19,6 +18,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { getSecureItem } from "../../utils/tokenStorage";
 
 import { useAccounts } from "../../hooks/useAccounts";
 import { useExpenses, useMembers, useStaff } from "../../hooks/useManagement";
@@ -201,7 +201,7 @@ const OPENING_BALANCE_PREFIX = "/opening-balance";
 
 async function getAuthToken(): Promise<string | null> {
   try {
-    return await SecureStore.getItemAsync(AUTH_TOKEN_KEY);
+    return await getSecureItem(AUTH_TOKEN_KEY);
   } catch {
     return null;
   }

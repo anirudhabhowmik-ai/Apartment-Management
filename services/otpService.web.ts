@@ -1,24 +1,22 @@
-// services/otpService.ts
-import { OTPWidget } from "@msg91comm/sendotp-react-native";
+// services/otpService.web.ts
+// Web-only implementation. Uses the backend as a proxy to MSG91 so the
+// browser never hits control.msg91.com directly (which would be blocked
+// by CORS). Native uses otpService.ts and the MSG91 SDK.
+
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type {
-  SendOtpResponse,
-  VerifyOtpOnlyResponse,
-  VerifyOtpResponse,
+    SendOtpResponse,
+    VerifyOtpOnlyResponse,
+    VerifyOtpResponse,
 } from "./otpTypes";
 
 export type {
-  SendOtpResponse, VerifyOtpOnlyResponse, VerifyOtpResponse
+    SendOtpResponse, VerifyOtpOnlyResponse, VerifyOtpResponse
 } from "./otpTypes";
 
-const MSG91_WIDGET_ID = process.env.EXPO_PUBLIC_MSG91_WIDGET_ID;
-const MSG91_TOKEN = process.env.EXPO_PUBLIC_MSG91_WIDGET_TOKEN;
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
-
-const REQ_ID_STORAGE_PREFIX = "msg91_reqid:";
-
-// Must match backend REVIEWER_PHONE.
 const REVIEWER_PHONE = "9999999999";
+const REQ_ID_STORAGE_PREFIX = "msg91_reqid:";
 
 function toTenDigits(phone: string): string {
   let digits = String(phone ?? "").replace(/\D/g, "");
@@ -26,7 +24,28 @@ function toTenDigits(phone: string): string {
   return digits;
 }
 
-let widgetInitialized = false;
+function normalizePhoneForMsg91(phone: string): string | null {
+  let digits = String(phone ?? "").replace(/\D/g, "");
+  if (digits.length === 10) digits = `91${digits}`;
+  if (!/^91[6-9]\d{9}$/.test(digits)) return null;
+  return digits;
+}
+
+function getMsg91ErrorMessage(message?: unknown): string {
+  if (typeof message === "string" && message.trim()) return message;
+  return "Unable to process OTP. Please try again.";
+}
+
+function requireApiUrl(): string {
+  if (!API_BASE_URL) {
+    throw new Error(
+      "EXPO_PUBLIC_API_URL is missing. Cannot talk to backend proxy.",
+    );
+  }
+  return API_BASE_URL;
+}
+
+// ---- reqId storage (per phone, persisted in AsyncStorage) ----
 
 const reqIdByPhone: Record<string, string> = {};
 
@@ -39,7 +58,7 @@ async function setReqId(identifier: string, reqId: string) {
   try {
     await AsyncStorage.setItem(storageKey(identifier), reqId);
   } catch (e) {
-    console.warn("[otpService] setReqId storage failed:", e);
+    console.warn("[otpService.web] setReqId storage failed:", e);
   }
 }
 
@@ -52,7 +71,7 @@ async function getReqId(identifier: string): Promise<string | null> {
       return stored;
     }
   } catch (e) {
-    console.warn("[otpService] getReqId storage failed:", e);
+    console.warn("[otpService.web] getReqId storage failed:", e);
   }
   return null;
 }
@@ -62,79 +81,77 @@ async function clearReqId(identifier: string) {
   try {
     await AsyncStorage.removeItem(storageKey(identifier));
   } catch (e) {
-    console.warn("[otpService] clearReqId storage failed:", e);
+    console.warn("[otpService.web] clearReqId storage failed:", e);
   }
 }
 
-function getMsg91ErrorMessage(message?: unknown): string {
-  if (typeof message === "string" && message.trim()) return message;
-  return "Unable to process OTP. Please try again.";
-}
-
-function initializeWidget() {
-  if (widgetInitialized) return;
-  if (!MSG91_WIDGET_ID || !MSG91_TOKEN) {
-    throw new Error(
-      "MSG91 Widget configuration is missing. Check EXPO_PUBLIC_MSG91_WIDGET_ID and EXPO_PUBLIC_MSG91_WIDGET_TOKEN.",
-    );
-  }
-  OTPWidget.initializeWidget(MSG91_WIDGET_ID, MSG91_TOKEN);
-  widgetInitialized = true;
-}
-
-function normalizePhoneForMsg91(phone: string): string | null {
-  let digits = String(phone ?? "").replace(/\D/g, "");
-  if (digits.length === 10) digits = `91${digits}`;
-  if (!/^91[6-9]\d{9}$/.test(digits)) return null;
-  return digits;
-}
+// ---- sendOtp ----
 
 export async function sendOtp(phone: string): Promise<SendOtpResponse> {
   try {
     const ten = toTenDigits(phone);
 
     if (ten === REVIEWER_PHONE) {
-      console.log("[otpService] Reviewer mode — skipping MSG91 send");
+      console.log("[otpService.web] Reviewer mode — skipping MSG91 send");
       return { success: true, message: "OTP sent successfully." };
     }
-
-    initializeWidget();
 
     const identifier = normalizePhoneForMsg91(phone);
     if (!identifier) {
       return { success: false, message: "Invalid Indian phone number." };
     }
 
-    console.log("[otpService] Sending OTP through MSG91 for", identifier);
+    console.log(
+      "[otpService.web] Sending OTP via backend proxy for",
+      identifier,
+    );
 
-    const response = await OTPWidget.sendOTP({ identifier });
-    console.log("[otpService] MSG91 send OTP response:", response);
+    const res = await fetch(`${requireApiUrl()}/auth/send-widget-otp`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone: identifier }),
+    });
 
-    const reqId =
-      response?.message ||
-      response?.reqId ||
-      response?.["req-id"] ||
-      response?.data?.reqId;
+    let data: any = null;
+    try {
+      data = await res.json();
+    } catch {
+      data = null;
+    }
 
-    if (response?.type !== "success" || !reqId) {
-      console.error("[otpService] MSG91 send OTP failed:", response);
+    console.log("[otpService.web] Backend send-widget-otp response:", data);
+
+    if (data?.type !== "success") {
+      console.error("[otpService.web] send OTP failed:", data);
       return {
         success: false,
-        message: getMsg91ErrorMessage(response?.message),
+        message: getMsg91ErrorMessage(data?.message),
+      };
+    }
+
+    // MSG91 widget API returns the reqId in the "message" field.
+    const reqId = data.message;
+    if (!reqId) {
+      console.error("[otpService.web] No reqId returned:", data);
+      return {
+        success: false,
+        message: "OTP was not sent correctly. Please try again.",
       };
     }
 
     await setReqId(identifier, String(reqId));
-    console.log("[otpService] reqId saved for", identifier, "→", reqId);
+    console.log("[otpService.web] reqId saved for", identifier, "→", reqId);
 
     return { success: true, message: "OTP sent successfully." };
   } catch (error) {
-    console.error("[otpService] sendOtp error:", error);
+    console.error("[otpService.web] sendOtp error:", error);
     return { success: false, message: "Unable to send OTP. Please try again." };
   }
 }
 
-async function msg91VerifyAndGetAccessToken(
+// ---- verify helpers ----
+
+async function verifyWidgetOtp(
   phone: string,
   otp: string,
 ): Promise<{
@@ -143,75 +160,62 @@ async function msg91VerifyAndGetAccessToken(
   identifier?: string;
   message?: string;
 }> {
-  initializeWidget();
-
   const identifier = normalizePhoneForMsg91(phone);
   if (!identifier) {
     return { success: false, message: "Invalid Indian phone number." };
   }
 
-  if (!/^\d{6}$/.test(otp)) {
-    return { success: false, message: "OTP must be 6 digits." };
+  if (!/^\d{4,6}$/.test(otp)) {
+    return { success: false, message: "OTP must be 4-6 digits." };
   }
 
   const reqId = await getReqId(identifier);
-
-  console.log("[otpService] verify called", {
-    identifier,
-    hasReqId: !!reqId,
-    reqId,
-  });
-
   if (!reqId) {
-    console.error(
-      "[otpService] reqId missing for",
-      identifier,
-      "— did sendOtp() succeed on this exact phone?",
-    );
     return {
       success: false,
       message: "OTP session expired. Please request a new OTP.",
     };
   }
 
-  console.log("[otpService] Verifying OTP with MSG91 reqId:", reqId);
+  console.log("[otpService.web] Verifying via backend reqId:", reqId);
 
-  const response = await OTPWidget.verifyOTP({ reqId, otp });
-  console.log("[otpService] MSG91 verify response:", response);
+  const res = await fetch(`${requireApiUrl()}/auth/verify-widget-otp`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reqId, otp }),
+  });
 
-  if (response?.type !== "success") {
-    console.error("[otpService] MSG91 verify failed:", response);
-    return {
-      success: false,
-      message: getMsg91ErrorMessage(response?.message),
-    };
+  let data: any = null;
+  try {
+    data = await res.json();
+  } catch {
+    data = null;
   }
 
-  const accessToken = response?.message;
-  if (!accessToken) {
-    console.error(
-      "[otpService] MSG91 verify succeeded but no access token was returned:",
-      response,
-    );
+  console.log("[otpService.web] Backend verify-widget-otp response:", data);
+
+  if (data?.type !== "success" || !data?.message) {
     return {
       success: false,
-      message: "OTP verification failed. Access token was not received.",
+      message: getMsg91ErrorMessage(data?.message),
     };
   }
 
   return {
     success: true,
-    accessToken: String(accessToken),
+    accessToken: String(data.message),
     identifier,
   };
 }
+
+// ---- verifyOtpOnly (used by profile phone change on web) ----
 
 export async function verifyOtpOnly(
   phone: string,
   otp: string,
 ): Promise<VerifyOtpOnlyResponse> {
   try {
-    const result = await msg91VerifyAndGetAccessToken(phone, otp);
+    const result = await verifyWidgetOtp(phone, otp);
     if (!result.success || !result.identifier) {
       return { success: false, message: result.message };
     }
@@ -226,7 +230,7 @@ export async function verifyOtpOnly(
       message: "OTP verified.",
     };
   } catch (error) {
-    console.error("[otpService] verifyOtpOnly error:", error);
+    console.error("[otpService.web] verifyOtpOnly error:", error);
     return {
       success: false,
       message: "Unable to verify OTP. Please try again.",
@@ -234,22 +238,22 @@ export async function verifyOtpOnly(
   }
 }
 
+// ---- verifyOtp (used by login on web) ----
+
 export async function verifyOtp(
   phone: string,
   otp: string,
 ): Promise<VerifyOtpResponse> {
   try {
-    if (!API_BASE_URL) {
-      console.error("[otpService] EXPO_PUBLIC_API_URL missing.");
-      return { success: false, message: "Backend API URL is not configured." };
-    }
-
+    const apiBase = requireApiUrl();
     const ten = toTenDigits(phone);
 
     if (ten === REVIEWER_PHONE) {
-      console.log("[otpService] Reviewer mode — calling /auth/reviewer-login");
+      console.log(
+        "[otpService.web] Reviewer mode — calling /auth/reviewer-login",
+      );
 
-      const res = await fetch(`${API_BASE_URL}/auth/reviewer-login`, {
+      const res = await fetch(`${apiBase}/auth/reviewer-login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ phone: ten, otp }),
@@ -263,7 +267,11 @@ export async function verifyOtp(
       }
 
       if (!res.ok || !data?.success) {
-        console.error("[otpService] Reviewer login failed:", res.status, data);
+        console.error(
+          "[otpService.web] Reviewer login failed:",
+          res.status,
+          data,
+        );
         return {
           success: false,
           message: data?.message || "Invalid OTP, please try again",
@@ -279,7 +287,7 @@ export async function verifyOtp(
       };
     }
 
-    const result = await msg91VerifyAndGetAccessToken(phone, otp);
+    const result = await verifyWidgetOtp(phone, otp);
     if (!result.success || !result.accessToken || !result.identifier) {
       return {
         success: false,
@@ -287,7 +295,8 @@ export async function verifyOtp(
       };
     }
 
-    const backendResponse = await fetch(`${API_BASE_URL}/auth/verify-widget`, {
+    // Feed the MSG91 access token into the same backend endpoint mobile uses.
+    const backendResponse = await fetch(`${apiBase}/auth/verify-widget`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -302,6 +311,8 @@ export async function verifyOtp(
     } catch {
       backendData = null;
     }
+
+    console.log("[otpService.web] verify-widget response:", backendData);
 
     if (backendData?.code === "account_deleted") {
       await clearReqId(result.identifier);
@@ -318,7 +329,7 @@ export async function verifyOtp(
 
     if (!backendResponse.ok || !backendData?.success) {
       console.error(
-        "[otpService] Backend auth failed:",
+        "[otpService.web] Backend auth failed:",
         backendResponse.status,
         backendData,
       );
@@ -339,7 +350,7 @@ export async function verifyOtp(
       message: backendData.message,
     };
   } catch (error) {
-    console.error("[otpService] verifyOtp error:", error);
+    console.error("[otpService.web] verifyOtp error:", error);
     return {
       success: false,
       message: "Unable to verify OTP. Please try again.",
@@ -347,19 +358,18 @@ export async function verifyOtp(
   }
 }
 
+// ---- recoverAccount (unchanged from your existing flow) ----
+
 export async function recoverAccount(
   recoveryToken: string,
 ): Promise<VerifyOtpResponse> {
   try {
-    if (!API_BASE_URL) {
-      console.error("[otpService] EXPO_PUBLIC_API_URL missing.");
-      return { success: false, message: "Backend API URL is not configured." };
-    }
+    const apiBase = requireApiUrl();
     if (!recoveryToken) {
       return { success: false, message: "Recovery session expired." };
     }
 
-    const res = await fetch(`${API_BASE_URL}/auth/recover`, {
+    const res = await fetch(`${apiBase}/auth/recover`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ recoveryToken }),
@@ -373,7 +383,11 @@ export async function recoverAccount(
     }
 
     if (!res.ok || !data?.success) {
-      console.error("[otpService] recoverAccount failed:", res.status, data);
+      console.error(
+        "[otpService.web] recoverAccount failed:",
+        res.status,
+        data,
+      );
       return {
         success: false,
         message:
@@ -389,7 +403,7 @@ export async function recoverAccount(
       message: data.message,
     };
   } catch (error) {
-    console.error("[otpService] recoverAccount error:", error);
+    console.error("[otpService.web] recoverAccount error:", error);
     return {
       success: false,
       message: "Unable to recover account. Please try again.",

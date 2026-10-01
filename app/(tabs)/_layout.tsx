@@ -1,7 +1,6 @@
 // app/(tabs)/_layout.tsx
 import { Ionicons } from "@expo/vector-icons";
 import { Tabs, useFocusEffect, useRouter } from "expo-router";
-import * as SecureStore from "expo-secure-store";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
@@ -19,6 +18,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { getSecureItem } from "../../utils/tokenStorage";
 
 import {
   AccountSwitcherHost,
@@ -255,7 +255,7 @@ export default function TabsLayout() {
     if (!accountId) return;
 
     try {
-      const token = await SecureStore.getItemAsync("auth_token");
+      const token = await getSecureItem("auth_token");
       if (!token) return;
 
       const res = await fetch(`${API_URL}/api/accounts/${accountId}/my-role`, {

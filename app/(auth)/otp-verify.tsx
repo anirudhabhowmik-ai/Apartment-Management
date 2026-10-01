@@ -1,6 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Redirect, useRouter } from "expo-router";
-import * as SecureStore from "expo-secure-store";
 import { useEffect, useRef, useState } from "react";
 import {
   Dimensions,
@@ -13,11 +12,12 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
-  View
+  View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { recoverAccount, sendOtp, verifyOtp } from "../../services/otpService";
 import { useAuthStore } from "../../store/useAuthStore";
+import { setSecureItem } from "../../utils/tokenStorage";
 
 const { width: screenWidth } = Dimensions.get("window");
 
@@ -361,7 +361,7 @@ export default function OtpVerifyScreen() {
       return;
     }
 
-    await SecureStore.setItemAsync("auth_token", token);
+    await setSecureItem("auth_token", token);
 
     const phone = returnedPhone || `+91${pendingPhone}`;
 

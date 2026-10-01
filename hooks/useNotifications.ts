@@ -1,7 +1,7 @@
 // hooks/useNotifications.ts
-import * as SecureStore from "expo-secure-store";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AppState } from "react-native";
+import { getSecureItem } from "../utils/tokenStorage";
 
 const API_URL = (
   process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000"
@@ -49,7 +49,7 @@ interface UseNotificationsResult {
 // ---------------------------------------------------------------------------
 async function getAuthToken(): Promise<string | null> {
   try {
-    return await SecureStore.getItemAsync("auth_token");
+    return await getSecureItem("auth_token");
   } catch (err) {
     console.warn("[useNotifications] SecureStore read failed:", err);
     return null;

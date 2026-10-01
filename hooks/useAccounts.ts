@@ -1,11 +1,11 @@
 // hooks/useAccounts.ts
 import * as FileSystem from "expo-file-system/legacy";
-import * as SecureStore from "expo-secure-store";
 import { useCallback, useEffect } from "react";
 import { AppState } from "react-native";
 import { useAccountStore } from "../store/accountStore";
 import { useAuthStore } from "../store/useAuthStore";
 import { Account, AccountType } from "../types";
+import { getSecureItem } from "../utils/tokenStorage";
 import { onAccessLoss } from "./useManagement";
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_URL;
@@ -22,7 +22,7 @@ const inflightByUserId: Record<
 
 async function getToken(): Promise<string | null> {
   try {
-    return await SecureStore.getItemAsync("auth_token");
+    return await getSecureItem("auth_token");
   } catch {
     return null;
   }

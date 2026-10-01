@@ -1,9 +1,9 @@
 // store/accountStore.ts
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as SecureStore from "expo-secure-store";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { Account } from "../types";
+import { getSecureItem } from "../utils/tokenStorage";
 
 const BASE_URL = process.env.EXPO_PUBLIC_API_URL;
 
@@ -38,7 +38,7 @@ interface AccountState {
 
 async function persistLastAccountToServer(accountId: string | null) {
   try {
-    const token = await SecureStore.getItemAsync("auth_token");
+    const token = await getSecureItem("auth_token");
     if (!token) return;
 
     await fetch(`${BASE_URL}/accounts/me/last-account`, {

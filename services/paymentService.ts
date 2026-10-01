@@ -1,6 +1,5 @@
 // services/paymentService.ts
-import * as SecureStore from "expo-secure-store";
-
+import { getSecureItem } from "../utils/tokenStorage";
 const API_URL = (
   process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000"
 ).replace(/\/api\/?$/, "");
@@ -24,7 +23,7 @@ interface CreateOrderResponse {
 
 async function getAuthToken(): Promise<string | null> {
   try {
-    return await SecureStore.getItemAsync(AUTH_TOKEN_KEY);
+    return await getSecureItem(AUTH_TOKEN_KEY);
   } catch {
     return null;
   }

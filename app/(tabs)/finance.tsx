@@ -3,7 +3,6 @@ import { downloadFinanceReportPdf } from "@/services/financeReportPdf";
 import { Ionicons } from "@expo/vector-icons";
 import * as FileSystem from "expo-file-system/legacy";
 import { useRouter } from "expo-router";
-import * as SecureStore from "expo-secure-store";
 import * as Sharing from "expo-sharing";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -22,6 +21,7 @@ import {
   View,
 } from "react-native";
 import * as XLSX from "xlsx";
+import { getSecureItem } from "../../utils/tokenStorage";
 
 import { useAccounts } from "../../hooks/useAccounts";
 import { useExpenses, useMembers, useStaff } from "../../hooks/useManagement";
@@ -322,7 +322,7 @@ const OPENING_BALANCE_PREFIX = "/opening-balance";
 
 async function getAuthToken(): Promise<string | null> {
   try {
-    return await SecureStore.getItemAsync(AUTH_TOKEN_KEY);
+    return await getSecureItem(AUTH_TOKEN_KEY);
   } catch {
     return null;
   }

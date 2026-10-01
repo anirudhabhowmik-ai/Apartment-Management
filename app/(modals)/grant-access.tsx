@@ -7,7 +7,6 @@ import {
   requestPermissionsAsync,
 } from "expo-contacts";
 import { useLocalSearchParams, useRouter } from "expo-router";
-import * as SecureStore from "expo-secure-store";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -25,6 +24,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { getSecureItem } from "../../utils/tokenStorage";
 
 import {
   closeNameConflict,
@@ -671,7 +671,7 @@ export default function GrantAccessScreen() {
 
     (async () => {
       try {
-        const token = await SecureStore.getItemAsync("auth_token");
+        const token = await getSecureItem("auth_token");
         if (!token) {
           if (!cancelled) setInvitationsReady(true);
           return;
@@ -1079,7 +1079,7 @@ export default function GrantAccessScreen() {
 
   const getAuthToken = async (): Promise<string | null> => {
     try {
-      return await SecureStore.getItemAsync("auth_token");
+      return await getSecureItem("auth_token");
     } catch {
       return null;
     }

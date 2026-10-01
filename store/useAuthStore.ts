@@ -1,9 +1,9 @@
 // store/useAuthStore.ts
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as FileSystem from "expo-file-system/legacy";
-import * as SecureStore from "expo-secure-store";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { deleteSecureItem, getSecureItem } from "../utils/tokenStorage";
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
 const AUTH_TOKEN_KEY = "auth_token";
@@ -51,7 +51,7 @@ interface AuthState {
 
 async function getAuthToken(): Promise<string | null> {
   try {
-    return await SecureStore.getItemAsync(AUTH_TOKEN_KEY);
+    return await getSecureItem(AUTH_TOKEN_KEY);
   } catch {
     return null;
   }
@@ -124,7 +124,7 @@ async function clearAllAuthStorage(): Promise<void> {
   try {
     await Promise.all(
       USER_SCOPED_SECURE_KEYS.map((key) =>
-        SecureStore.deleteItemAsync(key).catch(() => undefined),
+        deleteSecureItem(key).catch(() => undefined),
       ),
     );
   } catch (e) {

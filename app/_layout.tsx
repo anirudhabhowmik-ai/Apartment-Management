@@ -1,6 +1,5 @@
 // app/_layout.tsx
 import { Stack } from "expo-router";
-import * as SecureStore from "expo-secure-store";
 import { useEffect } from "react";
 import { LogBox, Platform } from "react-native";
 
@@ -11,6 +10,7 @@ import {
   resetRevenueCat,
 } from "../services/revenueCatService";
 import { useAuthStore } from "../store/useAuthStore";
+import { getSecureItem } from "../utils/tokenStorage";
 
 LogBox.ignoreLogs([
   "Can't perform a React state update on a component that hasn't mounted yet",
@@ -48,7 +48,7 @@ export default function RootLayout() {
         }
         console.log("[push] got token:", expoToken);
 
-        const authToken = await SecureStore.getItemAsync(AUTH_TOKEN_KEY);
+        const authToken = await getSecureItem(AUTH_TOKEN_KEY);
         if (!authToken || cancelled) {
           console.log("[push] no auth token, skipping register");
           return;
