@@ -1,5 +1,5 @@
-import { Directory, File, Paths } from "expo-file-system";
 import * as DocumentPicker from "expo-document-picker";
+import { Directory, File, Paths } from "expo-file-system";
 import { Platform } from "react-native";
 import type { BillAttachment } from "../types/member";
 
@@ -19,7 +19,9 @@ export async function persistBillAttachment(
   if (source.uri.startsWith(destinationDirectory.uri)) return attachment;
 
   if (!source.exists) {
-    throw new Error("This attachment is no longer readable. Please select it again.");
+    throw new Error(
+      "This attachment is no longer readable. Please select it again.",
+    );
   }
 
   destinationDirectory.create({
