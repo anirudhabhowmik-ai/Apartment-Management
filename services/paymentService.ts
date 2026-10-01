@@ -42,13 +42,32 @@ function isWebPlatform(): boolean {
   }
 }
 
+// APK builds (development/preview) use Razorpay on Android too — see
+// EXPO_PUBLIC_PAYMENT_PROVIDER in eas.json. Only the Play Store app-bundle
+// build sets it to "google_play", which is the only case Razorpay must be
+// blocked for (Play policy requires Google Play Billing there).
+function isGooglePlayBillingBuild(): boolean {
+  try {
+    const { Platform } = require("react-native");
+    if (Platform?.OS !== "android") return false;
+    return (process.env.EXPO_PUBLIC_PAYMENT_PROVIDER ?? "google_play") ===
+      "google_play";
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Tells the backend which client is calling.
+ * Tells the backend which client is calling, so it knows whether Razorpay
+ * is an allowed payment method for this build.
  *   web   → Razorpay web checkout is allowed
- *   mobile → Razorpay is blocked; RevenueCat handles payments
+ *   mobile → Razorpay is blocked; RevenueCat/Google Play Billing handles payments
  */
 function getPlatformHeader(): "web" | "mobile" {
-  return isWebPlatform() ? "web" : "mobile";
+  if (isWebPlatform()) return "web";
+  // Android APK builds (Razorpay-enabled) are reported like "web" so the
+  // backend's existing web/mobile guard allows Razorpay order creation.
+  return isGooglePlayBillingBuild() ? "mobile" : "web";
 }
 
 /**

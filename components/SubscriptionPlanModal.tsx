@@ -34,6 +34,23 @@ export interface SubscriptionPlan {
 }
 
 // ---------------------------------------------------------------------------
+// Which payment provider this build uses on Android.
+// Google Play policy requires Play Store app-bundle releases to sell digital
+// subscriptions through Google Play Billing, so EAS sets
+// EXPO_PUBLIC_PAYMENT_PROVIDER="google_play" only for the production
+// (app-bundle) profile. APK builds (development/preview, or any APK
+// distributed outside the Play Store) set it to "razorpay" instead, since
+// that policy doesn't apply to them. iOS always uses the App Store (Apple
+// requires IAP for all distributions), and web always uses Razorpay.
+// ---------------------------------------------------------------------------
+const ANDROID_PAYMENT_PROVIDER =
+  process.env.EXPO_PUBLIC_PAYMENT_PROVIDER ?? "google_play";
+
+const usesNativeStoreBilling =
+  Platform.OS === "ios" ||
+  (Platform.OS === "android" && ANDROID_PAYMENT_PROVIDER === "google_play");
+
+// ---------------------------------------------------------------------------
 // Product IDs used on Google Play / App Store.
 // These MUST match the actual product identifiers RevenueCat returns,
 // which on Google Play use the format "<subscriptionId>:<basePlanId>".
@@ -267,9 +284,9 @@ export default function SubscriptionPlanModal({
 
     try {
       // ═══════════════════════════════════════════════════════════════════
-      // WEB → Razorpay
+      // Razorpay: web, and Android builds not distributed via the Play Store
       // ═══════════════════════════════════════════════════════════════════
-      if (Platform.OS === "web") {
+      if (!usesNativeStoreBilling) {
         const planLabel = `${selectedPlan.name} (${billingPeriod})`;
         const result = await startPayment(
           price,
@@ -746,9 +763,9 @@ export default function SubscriptionPlanModal({
               <ActivityIndicator size="large" color="#2563EB" />
               <Text style={styles.processingTitle}>Processing</Text>
               <Text style={styles.processingText}>
-                {Platform.OS === "web"
-                  ? "Please complete the payment in the Razorpay checkout."
-                  : "Please complete the purchase in the store checkout."}
+                {usesNativeStoreBilling
+                  ? "Please complete the purchase in the store checkout."
+                  : "Please complete the payment in the Razorpay checkout."}
               </Text>
             </View>
           </View>
