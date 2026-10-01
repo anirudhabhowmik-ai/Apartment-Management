@@ -1,5 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
-import { Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import {
+    Platform,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
+} from "react-native";
 
 export function PhotoZoomControls({
   zoom,

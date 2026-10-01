@@ -24,13 +24,13 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAccounts } from "../hooks/useAccounts";
+import { usePhotoAdjustPointer } from "../hooks/usePhotoAdjustPointer";
 import { useAccountStore } from "../store/accountStore";
 import { useAuthStore } from "../store/useAuthStore";
 import { Account } from "../types";
 import { getSecureItem } from "../utils/tokenStorage";
 import { DarkModeBoundary } from "./DarkModeBoundary";
 import { PhotoZoomControls } from "./PhotoZoomControls";
-import { usePhotoAdjustPointer } from "../hooks/usePhotoAdjustPointer";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
 
@@ -730,7 +730,8 @@ export function AccountSwitcherHost() {
   const choosePhoto = async () => {
     setShowPhotoOptions(false);
     if (Platform.OS !== "web") {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      const permission =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
         Alert.alert(
           "Permission needed",

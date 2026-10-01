@@ -47,7 +47,9 @@ async function encodePhotoForServer(localUri: string): Promise<string> {
         else reject(new Error("Could not encode the selected photo."));
       };
       reader.onerror = () =>
-        reject(reader.error || new Error("Could not encode the selected photo."));
+        reject(
+          reader.error || new Error("Could not encode the selected photo."),
+        );
       reader.readAsDataURL(blob);
     });
   }

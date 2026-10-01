@@ -629,7 +629,8 @@ export default function EditProfileScreen() {
   const choosePhoto = async () => {
     setShowPhotoOptions(false);
     if (Platform.OS !== "web") {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      const permission =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
         setError("Permission to access photos is required");
         return;

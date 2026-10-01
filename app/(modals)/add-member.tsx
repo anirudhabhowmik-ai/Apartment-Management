@@ -37,8 +37,8 @@ import { DarkModeBoundary } from "../../components/DarkModeBoundary";
 import DatePickerModal from "../../components/DatePickerModal";
 import { PhotoZoomControls } from "../../components/PhotoZoomControls";
 import { useAccounts } from "../../hooks/useAccounts";
-import { usePhotoAdjustPointer } from "../../hooks/usePhotoAdjustPointer";
 import { useExpenses, useMembers, useStaff } from "../../hooks/useManagement";
+import { usePhotoAdjustPointer } from "../../hooks/usePhotoAdjustPointer";
 import type { BillAttachment, ManagementType, MemberRole } from "../../types";
 import {
   pickBillMediaAttachments,
@@ -944,7 +944,8 @@ export default function AddMemberScreen() {
   const choosePhoto = async () => {
     setShowPhotoOptions(false);
     if (Platform.OS !== "web") {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      const permission =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
         setError("Permission to access photos is required");
         return;

@@ -22,10 +22,10 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { PhotoZoomControls } from "../../components/PhotoZoomControls";
 import { DarkModeBoundary } from "../../components/DarkModeBoundary";
-import { usePhotoAdjustPointer } from "../../hooks/usePhotoAdjustPointer";
+import { PhotoZoomControls } from "../../components/PhotoZoomControls";
 import { useAccounts } from "../../hooks/useAccounts";
+import { usePhotoAdjustPointer } from "../../hooks/usePhotoAdjustPointer";
 import { useUserRole } from "../../hooks/useUserRole";
 import { useAccountStore } from "../../store/accountStore";
 import { useAuthStore } from "../../store/useAuthStore";
@@ -1229,7 +1229,8 @@ export default function AddAccountScreen() {
   const choosePhoto = async () => {
     setShowPhotoOptions(false);
     if (Platform.OS !== "web") {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      const permission =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
         setError("Permission to access photos is required");
         return;

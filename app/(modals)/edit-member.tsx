@@ -1281,7 +1281,8 @@ export default function EditMemberScreen() {
   const choosePhoto = async (forBill: boolean = isBillPhotoMode) => {
     setShowPhotoOptions(false);
     if (Platform.OS !== "web") {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      const permission =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
         setError("Permission to access photos is required");
         return;

@@ -30,8 +30,8 @@ import { getSecureItem } from "../../utils/tokenStorage";
 import { DarkModeBoundary } from "../../components/DarkModeBoundary";
 import { PhotoZoomControls } from "../../components/PhotoZoomControls";
 import { useAccounts } from "../../hooks/useAccounts";
-import { usePhotoAdjustPointer } from "../../hooks/usePhotoAdjustPointer";
 import { useMembers, useStaff } from "../../hooks/useManagement";
+import { usePhotoAdjustPointer } from "../../hooks/usePhotoAdjustPointer";
 import { useUserRole } from "../../hooks/useUserRole";
 import { useAuthStore } from "../../store/useAuthStore";
 
@@ -2510,7 +2510,8 @@ export default function AccountProfileScreen() {
     if (!canEdit) return;
     setShowPhotoOptions(false);
     if (Platform.OS !== "web") {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      const permission =
+        await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
         showAlert({
           variant: "warning",
