@@ -50,8 +50,10 @@ function isGooglePlayBillingBuild(): boolean {
   try {
     const { Platform } = require("react-native");
     if (Platform?.OS !== "android") return false;
-    return (process.env.EXPO_PUBLIC_PAYMENT_PROVIDER ?? "google_play") ===
-      "google_play";
+    return (
+      (process.env.EXPO_PUBLIC_PAYMENT_PROVIDER ?? "google_play") ===
+      "google_play"
+    );
   } catch {
     return false;
   }
