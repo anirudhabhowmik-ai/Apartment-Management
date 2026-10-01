@@ -2,7 +2,7 @@
   "expo": {
     "name": "Apartment Management",
     "slug": "anirudhabhowmik",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "apartmentmanagement",
@@ -25,7 +25,7 @@
       "softwareKeyboardLayoutMode": "resize",
       "predictiveBackGestureEnabled": false,
       "package": "com.anirudhabhowmik.apartmentmanagement",
-      "versionCode": 3,
+      "versionCode": 4,
       "googleServicesFile": "./google-services.json",
       "permissions": [
         "android.permission.READ_EXTERNAL_STORAGE",

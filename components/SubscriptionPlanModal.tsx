@@ -34,16 +34,17 @@ export interface SubscriptionPlan {
 
 // ---------------------------------------------------------------------------
 // Product IDs used on Google Play / App Store.
-// These MUST match what you create in Play Console + RevenueCat.
+// These MUST match the actual product identifiers RevenueCat returns,
+// which on Google Play use the format "<subscriptionId>:<basePlanId>".
 // ---------------------------------------------------------------------------
 const PRODUCT_IDS: Record<string, Record<BillingPeriod, string>> = {
   pro: {
-    monthly: "pro_monthly",
-    yearly: "pro_yearly",
+    monthly: "pro_monthly:pro-monthly",
+    yearly: "pro_yearly:pro-yearly",
   },
   business: {
-    monthly: "business_monthly",
-    yearly: "business_yearly",
+    monthly: "business_monthly:business-monthly",
+    yearly: "business_yearly:business-yearly",
   },
 };
 
@@ -188,16 +189,42 @@ export default function SubscriptionPlanModal({
   // -------------------------------------------------------------------------
   const findPackageForPlan = async (planId: string, period: BillingPeriod) => {
     const offering = await getCurrentOffering();
+
+    // ── Debug (safe to remove once working) ──────────────────────────────
+    console.log(
+      "[paywall] offering identifier:",
+      offering?.identifier ?? "NONE",
+    );
+    console.log(
+      "[paywall] available packages:",
+      offering?.availablePackages.map((p) => ({
+        packageId: p.identifier,
+        productId: p.product.identifier,
+      })) ?? [],
+    );
+    // ─────────────────────────────────────────────────────────────────────
+
     if (!offering) return null;
 
     const productId = PRODUCT_IDS[planId]?.[period];
     if (!productId) return null;
 
-    return (
+    // 1. Exact match on the full product identifier
+    let pkg =
       offering.availablePackages.find(
         (p) => p.product.identifier === productId,
-      ) || null
-    );
+      ) || null;
+
+    // 2. Fallback: match on the part before the colon
+    if (!pkg) {
+      const baseId = productId.split(":")[0];
+      pkg =
+        offering.availablePackages.find(
+          (p) => p.product.identifier.split(":")[0] === baseId,
+        ) || null;
+    }
+
+    return pkg;
   };
 
   const handleSelectPlan = async (planId: string) => {
@@ -206,7 +233,6 @@ export default function SubscriptionPlanModal({
     const selectedPlan = plans.find((p) => p.id === planId);
     if (!selectedPlan) return;
 
-    // Tapping the active plan with the same period: no-op
     if (activePlanId === planId && activePlanPeriod === billingPeriod) {
       onClose();
       return;
@@ -299,9 +325,6 @@ export default function SubscriptionPlanModal({
         return;
       }
 
-      // RevenueCat confirms the purchase.
-      // The webhook on our backend will also update the DB shortly,
-      // but we fire onPlanChanged here so the UI reflects it immediately.
       await onPlanChanged({
         plan: selectedPlan,
         period: billingPeriod,

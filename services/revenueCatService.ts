@@ -2,17 +2,29 @@
 import Constants from "expo-constants";
 import { Platform } from "react-native";
 import Purchases, {
-    CustomerInfo,
-    LOG_LEVEL,
-    PurchasesOffering,
-    PurchasesPackage,
+  CustomerInfo,
+  LOG_LEVEL,
+  PurchasesOffering,
+  PurchasesPackage,
 } from "react-native-purchases";
 
 // ── Config ────────────────────────────────────────────────────────────────
+//
+// Hardcoded fallbacks — match what's in app.json extra.*
+// This guarantees RevenueCat works even if Constants.expoConfig.extra
+// is empty in a production EAS build.
+//
+// ⚠️ The Google key below MUST be the PUBLIC app-specific Google Play SDK
+// key from RevenueCat → Project Settings → API Keys → Public app-specific keys.
+const GOOGLE_API_KEY_FALLBACK = "goog_lbEQMPIHcXXLJOsvKpXEWanyrla";
+const APPLE_API_KEY_FALLBACK = "appl_PLACEHOLDER";
+
 const GOOGLE_API_KEY =
-  (Constants.expoConfig?.extra as any)?.revenuecatGoogleApiKey || "";
+  (Constants.expoConfig?.extra as any)?.revenuecatGoogleApiKey ||
+  GOOGLE_API_KEY_FALLBACK;
 const APPLE_API_KEY =
-  (Constants.expoConfig?.extra as any)?.revenuecatAppleApiKey || "";
+  (Constants.expoConfig?.extra as any)?.revenuecatAppleApiKey ||
+  APPLE_API_KEY_FALLBACK;
 
 export const ENTITLEMENT_PRO = "pro";
 export const ENTITLEMENT_BUSINESS = "business";
