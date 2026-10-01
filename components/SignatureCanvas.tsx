@@ -649,45 +649,109 @@ export default function SignatureCanvas({
         case "tl": {
           const newX = clampNumber(rect.x + dx, 0, right - MIN_CROP_SIZE);
           const newY = clampNumber(rect.y + dy, 0, bottom - MIN_CROP_SIZE);
-          next = { x: newX, y: newY, width: right - newX, height: bottom - newY };
+          next = {
+            x: newX,
+            y: newY,
+            width: right - newX,
+            height: bottom - newY,
+          };
           break;
         }
         case "tr": {
-          const newRight = clampNumber(right + dx, rect.x + MIN_CROP_SIZE, CROP_VIEWPORT_W);
+          const newRight = clampNumber(
+            right + dx,
+            rect.x + MIN_CROP_SIZE,
+            CROP_VIEWPORT_W,
+          );
           const newY = clampNumber(rect.y + dy, 0, bottom - MIN_CROP_SIZE);
-          next = { x: rect.x, y: newY, width: newRight - rect.x, height: bottom - newY };
+          next = {
+            x: rect.x,
+            y: newY,
+            width: newRight - rect.x,
+            height: bottom - newY,
+          };
           break;
         }
         case "bl": {
           const newX = clampNumber(rect.x + dx, 0, right - MIN_CROP_SIZE);
-          const newBottom = clampNumber(bottom + dy, rect.y + MIN_CROP_SIZE, CROP_VIEWPORT_H);
-          next = { x: newX, y: rect.y, width: right - newX, height: newBottom - rect.y };
+          const newBottom = clampNumber(
+            bottom + dy,
+            rect.y + MIN_CROP_SIZE,
+            CROP_VIEWPORT_H,
+          );
+          next = {
+            x: newX,
+            y: rect.y,
+            width: right - newX,
+            height: newBottom - rect.y,
+          };
           break;
         }
         case "br": {
-          const newRight = clampNumber(right + dx, rect.x + MIN_CROP_SIZE, CROP_VIEWPORT_W);
-          const newBottom = clampNumber(bottom + dy, rect.y + MIN_CROP_SIZE, CROP_VIEWPORT_H);
-          next = { x: rect.x, y: rect.y, width: newRight - rect.x, height: newBottom - rect.y };
+          const newRight = clampNumber(
+            right + dx,
+            rect.x + MIN_CROP_SIZE,
+            CROP_VIEWPORT_W,
+          );
+          const newBottom = clampNumber(
+            bottom + dy,
+            rect.y + MIN_CROP_SIZE,
+            CROP_VIEWPORT_H,
+          );
+          next = {
+            x: rect.x,
+            y: rect.y,
+            width: newRight - rect.x,
+            height: newBottom - rect.y,
+          };
           break;
         }
         case "top": {
           const newY = clampNumber(rect.y + dy, 0, bottom - MIN_CROP_SIZE);
-          next = { x: rect.x, y: newY, width: rect.width, height: bottom - newY };
+          next = {
+            x: rect.x,
+            y: newY,
+            width: rect.width,
+            height: bottom - newY,
+          };
           break;
         }
         case "bottom": {
-          const newBottom = clampNumber(bottom + dy, rect.y + MIN_CROP_SIZE, CROP_VIEWPORT_H);
-          next = { x: rect.x, y: rect.y, width: rect.width, height: newBottom - rect.y };
+          const newBottom = clampNumber(
+            bottom + dy,
+            rect.y + MIN_CROP_SIZE,
+            CROP_VIEWPORT_H,
+          );
+          next = {
+            x: rect.x,
+            y: rect.y,
+            width: rect.width,
+            height: newBottom - rect.y,
+          };
           break;
         }
         case "left": {
           const newX = clampNumber(rect.x + dx, 0, right - MIN_CROP_SIZE);
-          next = { x: newX, y: rect.y, width: right - newX, height: rect.height };
+          next = {
+            x: newX,
+            y: rect.y,
+            width: right - newX,
+            height: rect.height,
+          };
           break;
         }
         case "right": {
-          const newRight = clampNumber(right + dx, rect.x + MIN_CROP_SIZE, CROP_VIEWPORT_W);
-          next = { x: rect.x, y: rect.y, width: newRight - rect.x, height: rect.height };
+          const newRight = clampNumber(
+            right + dx,
+            rect.x + MIN_CROP_SIZE,
+            CROP_VIEWPORT_W,
+          );
+          next = {
+            x: rect.x,
+            y: rect.y,
+            width: newRight - rect.x,
+            height: rect.height,
+          };
           break;
         }
       }
@@ -1191,50 +1255,50 @@ export default function SignatureCanvas({
           {mode === "upload" && uploadStage === "crop" && rawImage && (
             <>
               <View style={sigStyles.cropModeSwitcher}>
-                  <TouchableOpacity
+                <TouchableOpacity
+                  style={[
+                    sigStyles.cropModeButton,
+                    !isCropMode && sigStyles.cropModeButtonActive,
+                  ]}
+                  onPress={() => setIsCropMode(false)}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons
+                    name="move-outline"
+                    size={15}
+                    color={!isCropMode ? "#1a73e8" : "#94a3b8"}
+                  />
+                  <Text
                     style={[
-                      sigStyles.cropModeButton,
-                      !isCropMode && sigStyles.cropModeButtonActive,
+                      sigStyles.cropModeButtonText,
+                      !isCropMode && sigStyles.cropModeButtonTextActive,
                     ]}
-                    onPress={() => setIsCropMode(false)}
-                    activeOpacity={0.8}
                   >
-                    <Ionicons
-                      name="move-outline"
-                      size={15}
-                      color={!isCropMode ? "#1a73e8" : "#94a3b8"}
-                    />
-                    <Text
-                      style={[
-                        sigStyles.cropModeButtonText,
-                        !isCropMode && sigStyles.cropModeButtonTextActive,
-                      ]}
-                    >
-                      Adjust Photo
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
+                    Adjust Photo
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    sigStyles.cropModeButton,
+                    isCropMode && sigStyles.cropModeButtonActive,
+                  ]}
+                  onPress={() => setIsCropMode(true)}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons
+                    name="crop"
+                    size={15}
+                    color={isCropMode ? "#1a73e8" : "#94a3b8"}
+                  />
+                  <Text
                     style={[
-                      sigStyles.cropModeButton,
-                      isCropMode && sigStyles.cropModeButtonActive,
+                      sigStyles.cropModeButtonText,
+                      isCropMode && sigStyles.cropModeButtonTextActive,
                     ]}
-                    onPress={() => setIsCropMode(true)}
-                    activeOpacity={0.8}
                   >
-                    <Ionicons
-                      name="crop"
-                      size={15}
-                      color={isCropMode ? "#1a73e8" : "#94a3b8"}
-                    />
-                    <Text
-                      style={[
-                        sigStyles.cropModeButtonText,
-                        isCropMode && sigStyles.cropModeButtonTextActive,
-                      ]}
-                    >
-                      Crop
-                    </Text>
-                  </TouchableOpacity>
+                    Crop
+                  </Text>
+                </TouchableOpacity>
               </View>
               <Text style={sigStyles.cropModeHint}>
                 {Platform.OS === "web"
@@ -1338,7 +1402,10 @@ export default function SignatureCanvas({
                         style={[
                           sigStyles.cropGestureLayer,
                           Platform.OS === "web"
-                            ? ({ touchAction: "none", cursor: "crosshair" } as any)
+                            ? ({
+                                touchAction: "none",
+                                cursor: "crosshair",
+                              } as any)
                             : null,
                         ]}
                         {...(Platform.OS === "web"
