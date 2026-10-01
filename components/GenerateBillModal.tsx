@@ -1,6 +1,6 @@
 // components/GenerateBillModal.tsx
 import { Ionicons } from "@expo/vector-icons";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Modal,
@@ -285,45 +285,90 @@ function sanitizeContactNumber(value: string): string {
   return value.replace(/\D/g, "").slice(0, 10);
 }
 
-function getLabels(memberType: BillMemberType) {
-  return memberType === "owner"
-    ? {
-        docTitle: "Maintenance Bill",
-        monthLabel: "Maintenance Month",
-        totalLabel: "Maintenance Amount",
-      }
-    : {
-        docTitle: "Salary Slip",
-        monthLabel: "Salary Month",
-        totalLabel: "Salary Amount",
+/**
+ * Builds localized labels based on account type (home vs apartment)
+ * and member type (owner vs staff).
+ */
+function getLabels(memberType: BillMemberType, isTenantAccount: boolean) {
+  if (memberType === "owner") {
+    if (isTenantAccount) {
+      return {
+        docTitle: "Rent Bill",
+        monthLabel: "Rent Month",
+        totalLabel: "Rent Amount",
+        baseLabel: "Base Rent",
+        unitLabel: "Room Number",
+        areaLabel: "Room Area",
+        personLabel: "Tenant Name",
+        societyLabel: "Home",
       };
+    }
+    return {
+      docTitle: "Maintenance Bill",
+      monthLabel: "Maintenance Month",
+      totalLabel: "Maintenance Amount",
+      baseLabel: "Base Maintenance",
+      unitLabel: "Flat Number",
+      areaLabel: "Flat Area",
+      personLabel: "Owner Name",
+      societyLabel: "Society",
+    };
+  }
+  return {
+    docTitle: "Salary Slip",
+    monthLabel: "Salary Month",
+    totalLabel: "Salary Amount",
+    baseLabel: "Base Salary",
+    unitLabel: "Room Number",
+    areaLabel: "Area",
+    personLabel: "Staff Name",
+    societyLabel: "Society",
+  };
 }
 
-function makeDummyPreviewData(memberType: BillMemberType) {
-  const labels = getLabels(memberType);
+function makeDummyPreviewData(
+  memberType: BillMemberType,
+  isTenantAccount: boolean,
+) {
+  const labels = getLabels(memberType, isTenantAccount);
 
-  return memberType === "owner"
-    ? {
+  if (memberType === "owner") {
+    if (isTenantAccount) {
+      return {
         ...labels,
         rows: [
-          ["Owner Name", "Rahul Sharma"],
-          ["Flat Number", "A-204"],
-          ["Flat Area", "1,200 sq. ft."],
+          [labels.personLabel, "Rahul Sharma"],
+          [labels.unitLabel, "Room 12"],
+          [labels.areaLabel, "450 sq. ft."],
           [labels.monthLabel, "December 2024"],
-          ["Maintenance Charges", "₹2,500"],
+          ["Rent Charges", "₹8,000"],
         ] as [string, string][],
-        totalValue: "₹2,500",
-      }
-    : {
-        ...labels,
-        rows: [
-          ["Staff Name", "Suresh Kumar"],
-          ["Role", "Security Guard"],
-          [labels.monthLabel, "December 2024"],
-          ["Present Days", "28 / 30"],
-        ] as [string, string][],
-        totalValue: "₹9,000",
+        totalValue: "₹8,000",
       };
+    }
+    return {
+      ...labels,
+      rows: [
+        [labels.personLabel, "Rahul Sharma"],
+        [labels.unitLabel, "A-204"],
+        [labels.areaLabel, "1,200 sq. ft."],
+        [labels.monthLabel, "December 2024"],
+        ["Maintenance Charges", "₹2,500"],
+      ] as [string, string][],
+      totalValue: "₹2,500",
+    };
+  }
+
+  return {
+    ...labels,
+    rows: [
+      [labels.personLabel, "Suresh Kumar"],
+      ["Role", "Security Guard"],
+      [labels.monthLabel, "December 2024"],
+      ["Present Days", "28 / 30"],
+    ] as [string, string][],
+    totalValue: "₹9,000",
+  };
 }
 
 export default function GenerateBillModal({
@@ -339,7 +384,14 @@ export default function GenerateBillModal({
     fetchConfigFromServer,
     saveConfigToServer,
   } = useBillStore();
-  const { selectedAccountId } = useAccounts();
+
+  // ── Account-type detection ──
+  const { selectedAccountId, selectedAccount } = useAccounts();
+
+  const isTenantAccount = useMemo(() => {
+    if (!selectedAccount) return false;
+    return String((selectedAccount as any).type ?? "").toLowerCase() === "home";
+  }, [selectedAccount]);
 
   const alert = useAppAlert();
   const showAlert = alert.show;
@@ -354,7 +406,7 @@ export default function GenerateBillModal({
   }, [initialMemberType]);
 
   const existingConfig = getBillConfig(memberType);
-  const labels = getLabels(memberType);
+  const labels = getLabels(memberType, isTenantAccount);
 
   const accentColor = memberType === "owner" ? "#1a73e8" : "#7c3aed";
   const accentBg = memberType === "owner" ? "#eff6ff" : "#f3e8ff";
@@ -448,7 +500,7 @@ export default function GenerateBillModal({
   const selectedTemplate =
     templates.find((t) => t.id === templateId) ?? templates[0];
 
-  const dummy = makeDummyPreviewData(memberType);
+  const dummy = makeDummyPreviewData(memberType, isTenantAccount);
 
   const goBack = () => {
     if (step === "details") setStep("design");
@@ -457,7 +509,11 @@ export default function GenerateBillModal({
 
   const handleDetailsNext = () => {
     if (!societyName.trim()) {
-      setFormError("Please enter the society name");
+      setFormError(
+        isTenantAccount && memberType === "owner"
+          ? "Please enter the home name"
+          : "Please enter the society name",
+      );
       return;
     }
     if (contactNumber.length > 0 && contactNumber.length !== 10) {
@@ -516,12 +572,19 @@ export default function GenerateBillModal({
       );
       onSaved?.(saved);
 
+      const docWord =
+        memberType === "owner"
+          ? isTenantAccount
+            ? "tenant bill"
+            : "owner bill"
+          : "staff slip";
+
       showAlert({
         variant: "success",
         title: "Template saved",
-        message: `Your ${
-          memberType === "owner" ? "owner bill" : "staff slip"
-        } template has been saved for the whole society.`,
+        message: `Your ${docWord} template has been saved for the whole ${
+          isTenantAccount && memberType === "owner" ? "home" : "society"
+        }.`,
         buttons: [
           {
             text: "Great",
@@ -804,12 +867,19 @@ export default function GenerateBillModal({
 
   const renderPreviewCard = (useRealCommonDetails: boolean) => {
     const displaySociety = useRealCommonDetails
-      ? societyName || "Your Society Name"
-      : "Green Valley Apartments";
+      ? societyName ||
+        (isTenantAccount && memberType === "owner"
+          ? "My Home"
+          : "Your Society Name")
+      : isTenantAccount && memberType === "owner"
+        ? "My Home"
+        : "Green Valley Apartments";
 
     const displayAddress = useRealCommonDetails
       ? address
-      : "123, Main Road, City";
+      : isTenantAccount && memberType === "owner"
+        ? "123, Home Street, City"
+        : "123, Main Road, City";
 
     const displayContact = useRealCommonDetails
       ? contactNumber
@@ -974,7 +1044,7 @@ export default function GenerateBillModal({
             };
 
     const infoRows = [
-      { label: "Owner/Staff Name", value: dummy.rows[0][1] },
+      { label: dummy.personLabel, value: dummy.rows[0][1] },
       ...dummy.rows.slice(1),
     ];
 
@@ -1096,10 +1166,7 @@ export default function GenerateBillModal({
                   justifyContent: "space-between",
                 }}
               >
-                <Text style={rowLabelStyle}>
-                  Base{" "}
-                  {dummy.docTitle === "Salary Slip" ? "Salary" : "Maintenance"}
-                </Text>
+                <Text style={rowLabelStyle}>{dummy.baseLabel}</Text>
                 <Text
                   style={{
                     fontSize: 12.5,
@@ -1189,7 +1256,9 @@ export default function GenerateBillModal({
               <View>
                 <Text style={styles.title}>
                   {memberType === "owner"
-                    ? "Owner Bill Template"
+                    ? isTenantAccount
+                      ? "Tenant Bill Template"
+                      : "Owner Bill Template"
                     : "Staff Slip Template"}
                 </Text>
 
@@ -1218,7 +1287,7 @@ export default function GenerateBillModal({
               activeOpacity={0.8}
             >
               <Ionicons
-                name="home-outline"
+                name={isTenantAccount ? "key-outline" : "home-outline"}
                 size={15}
                 color={memberType === "owner" ? "#1a73e8" : "#64748b"}
               />
@@ -1228,7 +1297,7 @@ export default function GenerateBillModal({
                   memberType === "owner" && styles.memberTypeTextOwnerActive,
                 ]}
               >
-                Owner Bill
+                {isTenantAccount ? "Tenant Bill" : "Owner Bill"}
               </Text>
             </TouchableOpacity>
 
@@ -1359,10 +1428,18 @@ export default function GenerateBillModal({
                 </Text>
 
                 <View style={styles.inputGroup}>
-                  <Text style={styles.label}>Society Name *</Text>
+                  <Text style={styles.label}>
+                    {isTenantAccount && memberType === "owner"
+                      ? "Home Name *"
+                      : "Society Name *"}
+                  </Text>
                   <TextInput
                     style={styles.input}
-                    placeholder="e.g. Green Valley Apartments"
+                    placeholder={
+                      isTenantAccount && memberType === "owner"
+                        ? "e.g. My Home"
+                        : "e.g. Green Valley Apartments"
+                    }
                     placeholderTextColor="#999"
                     value={societyName}
                     onChangeText={(value) => {
@@ -1393,7 +1470,11 @@ export default function GenerateBillModal({
 
                 <View style={styles.rowGroup}>
                   <View style={[styles.inputGroup, { flex: 1 }]}>
-                    <Text style={styles.label}>Society Number</Text>
+                    <Text style={styles.label}>
+                      {isTenantAccount && memberType === "owner"
+                        ? "Home Number"
+                        : "Society Number"}
+                    </Text>
                     <TextInput
                       style={[
                         styles.input,
@@ -1440,7 +1521,11 @@ export default function GenerateBillModal({
                   </View>
 
                   <View style={[styles.inputGroup, { flex: 1 }]}>
-                    <Text style={styles.label}>Society Email</Text>
+                    <Text style={styles.label}>
+                      {isTenantAccount && memberType === "owner"
+                        ? "Home Email"
+                        : "Society Email"}
+                    </Text>
                     <TextInput
                       style={[
                         styles.input,
