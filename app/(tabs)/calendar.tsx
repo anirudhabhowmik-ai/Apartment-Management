@@ -4698,6 +4698,9 @@ const styles = StyleSheet.create({
     padding: 12,
     borderWidth: 1,
     borderColor: "#e2e8f0",
+    ...(Platform.OS === "web"
+      ? { width: "100%", maxWidth: 480, alignSelf: "center" }
+      : null),
   },
   weekdayRow: { flexDirection: "row", marginBottom: 6 },
   weekdayCell: { flex: 1, alignItems: "center", paddingVertical: 4 },
