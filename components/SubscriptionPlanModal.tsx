@@ -13,11 +13,11 @@ import {
   View,
 } from "react-native";
 
-import { DarkModeBoundary } from "./DarkModeBoundary";
 import {
   getCurrentOffering,
   purchasePackage,
 } from "../services/revenueCatService";
+import { DarkModeBoundary } from "./DarkModeBoundary";
 
 export type BillingPeriod = "monthly" | "yearly";
 
@@ -357,395 +357,402 @@ export default function SubscriptionPlanModal({
   return (
     <DarkModeBoundary>
       <>
-      {/* ---------------- Main plans modal ---------------- */}
-      <Modal
-        transparent
-        animationType="slide"
-        visible={visible}
-        onRequestClose={onClose}
-      >
-        <View style={styles.plansModalOverlay}>
-          <View style={styles.plansModalContainer}>
-            {/* Header */}
-            <View style={styles.plansModalHeader}>
-              <View style={styles.headerTextContainer}>
-                <Text style={styles.plansModalTitle}>Choose Your Plan</Text>
-                <Text style={styles.modalSubtitle}>
-                  {activePlanId !== "free"
-                    ? `Current plan: ${currentPlanName} (${activePlanPeriod})`
-                    : "Choose the plan that fits your community"}
-                </Text>
+        {/* ---------------- Main plans modal ---------------- */}
+        <Modal
+          transparent
+          animationType="slide"
+          visible={visible}
+          onRequestClose={onClose}
+        >
+          <View style={styles.plansModalOverlay}>
+            <View style={styles.plansModalContainer}>
+              {/* Header */}
+              <View style={styles.plansModalHeader}>
+                <View style={styles.headerTextContainer}>
+                  <Text style={styles.plansModalTitle}>Choose Your Plan</Text>
+                  <Text style={styles.modalSubtitle}>
+                    {activePlanId !== "free"
+                      ? `Current plan: ${currentPlanName} (${activePlanPeriod})`
+                      : "Choose the plan that fits your community"}
+                  </Text>
+                </View>
+
+                <TouchableOpacity
+                  style={styles.plansModalCloseButton}
+                  onPress={onClose}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="close" size={22} color="#475569" />
+                </TouchableOpacity>
               </View>
 
-              <TouchableOpacity
-                style={styles.plansModalCloseButton}
-                onPress={onClose}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="close" size={22} color="#475569" />
-              </TouchableOpacity>
-            </View>
-
-            {/* Monthly / Yearly toggle */}
-            <View style={styles.billingToggleContainer}>
-              <TouchableOpacity
-                style={[
-                  styles.billingToggleButton,
-                  billingPeriod === "monthly"
-                    ? styles.billingToggleButtonActive
-                    : null,
-                ]}
-                onPress={() => setBillingPeriod("monthly")}
-                activeOpacity={0.8}
-              >
-                <Ionicons
-                  name="calendar-outline"
-                  size={15}
-                  color={billingPeriod === "monthly" ? "#2563EB" : "#64748B"}
-                />
-                <Text
+              {/* Monthly / Yearly toggle */}
+              <View style={styles.billingToggleContainer}>
+                <TouchableOpacity
                   style={[
-                    styles.billingToggleText,
+                    styles.billingToggleButton,
                     billingPeriod === "monthly"
-                      ? styles.billingToggleTextActive
+                      ? styles.billingToggleButtonActive
                       : null,
                   ]}
+                  onPress={() => setBillingPeriod("monthly")}
+                  activeOpacity={0.8}
                 >
-                  Monthly
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.billingToggleButton,
-                  billingPeriod === "yearly"
-                    ? styles.billingToggleButtonActive
-                    : null,
-                ]}
-                onPress={() => setBillingPeriod("yearly")}
-                activeOpacity={0.8}
-              >
-                <Ionicons
-                  name="calendar"
-                  size={15}
-                  color={billingPeriod === "yearly" ? "#2563EB" : "#64748B"}
-                />
-                <Text
-                  style={[
-                    styles.billingToggleText,
-                    billingPeriod === "yearly"
-                      ? styles.billingToggleTextActive
-                      : null,
-                  ]}
-                >
-                  Yearly
-                </Text>
-                <View style={styles.billingSavingsBadge}>
-                  <Text style={styles.billingSavingsText}>SAVE UP TO 25%</Text>
-                </View>
-              </TouchableOpacity>
-            </View>
-
-            {/* Plans list */}
-            <ScrollView
-              style={styles.plansScroll}
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={styles.plansList}
-              nestedScrollEnabled
-              keyboardShouldPersistTaps="handled"
-            >
-              {plans.map((plan) => {
-                const isActive =
-                  plan.id === "free"
-                    ? activePlanId === "free"
-                    : activePlanId === plan.id &&
-                      activePlanPeriod === billingPeriod;
-
-                const isPopular = plan.popular;
-                const displayPeriod: BillingPeriod = billingPeriod;
-                const price = getPlanPrice(plan, displayPeriod);
-                const periodLabel = getPlanPeriodLabel(plan, displayPeriod);
-                const monthlyPrice = plan.monthlyPrice;
-
-                const yearlySavings =
-                  displayPeriod === "yearly" && monthlyPrice > 0
-                    ? monthlyPrice * 12 - plan.yearlyPrice
-                    : 0;
-
-                const showCancelOnThisCard =
-                  isActive &&
-                  plan.id !== "free" &&
-                  canManage &&
-                  !!onCancelSubscription;
-
-                return (
-                  <View
-                    key={plan.id}
+                  <Ionicons
+                    name="calendar-outline"
+                    size={15}
+                    color={billingPeriod === "monthly" ? "#2563EB" : "#64748B"}
+                  />
+                  <Text
                     style={[
-                      styles.planCard,
-                      isPopular ? styles.planCardPopular : null,
-                      isActive ? styles.planCardActive : null,
+                      styles.billingToggleText,
+                      billingPeriod === "monthly"
+                        ? styles.billingToggleTextActive
+                        : null,
                     ]}
                   >
-                    {isPopular ? (
-                      <View style={styles.popularTopLabel}>
-                        <Ionicons name="star" size={11} color="#FFFFFF" />
-                        <Text style={styles.popularTopLabelText}>
-                          MOST POPULAR
-                        </Text>
-                      </View>
-                    ) : null}
+                    Monthly
+                  </Text>
+                </TouchableOpacity>
 
-                    <View style={styles.planCardHeader}>
-                      <View style={styles.planCardLeft}>
-                        <View style={styles.planNameRow}>
-                          <Text style={styles.planCardName}>{plan.name}</Text>
+                <TouchableOpacity
+                  style={[
+                    styles.billingToggleButton,
+                    billingPeriod === "yearly"
+                      ? styles.billingToggleButtonActive
+                      : null,
+                  ]}
+                  onPress={() => setBillingPeriod("yearly")}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons
+                    name="calendar"
+                    size={15}
+                    color={billingPeriod === "yearly" ? "#2563EB" : "#64748B"}
+                  />
+                  <Text
+                    style={[
+                      styles.billingToggleText,
+                      billingPeriod === "yearly"
+                        ? styles.billingToggleTextActive
+                        : null,
+                    ]}
+                  >
+                    Yearly
+                  </Text>
+                  <View style={styles.billingSavingsBadge}>
+                    <Text style={styles.billingSavingsText}>
+                      SAVE UP TO 25%
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
 
-                          {isActive ? (
-                            <View style={styles.planCardActiveBadge}>
-                              <Ionicons
-                                name="checkmark"
-                                size={10}
-                                color="#FFFFFF"
-                              />
-                              <Text style={styles.planCardActiveText}>
-                                {plan.id === "free"
-                                  ? "ACTIVE"
-                                  : `ACTIVE · ${
-                                      billingPeriod === "yearly"
-                                        ? "YEARLY"
-                                        : "MONTHLY"
-                                    }`}
-                              </Text>
-                            </View>
-                          ) : null}
-                        </View>
+              {/* Plans list */}
+              <ScrollView
+                style={styles.plansScroll}
+                showsVerticalScrollIndicator={false}
+                contentContainerStyle={styles.plansList}
+                nestedScrollEnabled
+                keyboardShouldPersistTaps="handled"
+              >
+                {plans.map((plan) => {
+                  const isActive =
+                    plan.id === "free"
+                      ? activePlanId === "free"
+                      : activePlanId === plan.id &&
+                        activePlanPeriod === billingPeriod;
 
-                        <View style={styles.priceRow}>
-                          <Text style={styles.planCardPrice}>
-                            {price === 0
-                              ? "Free"
-                              : `₹${price.toLocaleString("en-IN")}`}
-                          </Text>
-                          {price > 0 ? (
-                            <Text style={styles.planCardPeriod}>
-                              {periodLabel}
-                            </Text>
-                          ) : null}
-                        </View>
+                  const isPopular = plan.popular;
+                  const displayPeriod: BillingPeriod = billingPeriod;
+                  const price = getPlanPrice(plan, displayPeriod);
+                  const periodLabel = getPlanPeriodLabel(plan, displayPeriod);
+                  const monthlyPrice = plan.monthlyPrice;
 
-                        {displayPeriod === "yearly" && monthlyPrice > 0 ? (
-                          <View style={styles.annualPriceRow}>
-                            <Text style={styles.planCardStrikethrough}>
-                              ₹{(monthlyPrice * 12).toLocaleString("en-IN")}
-                            </Text>
-                            <Text style={styles.planCardBillingNote}>
-                              billed annually
-                            </Text>
-                          </View>
-                        ) : null}
+                  const yearlySavings =
+                    displayPeriod === "yearly" && monthlyPrice > 0
+                      ? monthlyPrice * 12 - plan.yearlyPrice
+                      : 0;
 
-                        {displayPeriod === "yearly" && yearlySavings > 0 ? (
-                          <View style={styles.planCardYearlySavings}>
-                            <Ionicons
-                              name="trending-down-outline"
-                              size={13}
-                              color="#15803D"
-                            />
-                            <Text style={styles.planCardYearlySavingsText}>
-                              Save ₹{yearlySavings.toLocaleString("en-IN")} per
-                              year
-                            </Text>
-                          </View>
-                        ) : null}
-                      </View>
+                  const showCancelOnThisCard =
+                    isActive &&
+                    plan.id !== "free" &&
+                    canManage &&
+                    !!onCancelSubscription;
 
-                      <View
-                        style={[
-                          styles.planCardIcon,
-                          { backgroundColor: plan.color + "15" },
-                        ]}
-                      >
-                        <Ionicons
-                          name={plan.icon}
-                          size={23}
-                          color={plan.color}
-                        />
-                      </View>
-                    </View>
-
-                    <View style={styles.planDivider} />
-
-                    <View style={styles.planCardFeatures}>
-                      <Text style={styles.includesText}>
-                        {plan.id === "free"
-                          ? "Everything you need to get started"
-                          : plan.id === "pro"
-                            ? "More control for growing communities"
-                            : "Everything included"}
-                      </Text>
-
-                      {plan.features.map((feature, index) => (
-                        <View key={index} style={styles.planCardFeature}>
-                          <View
-                            style={[
-                              styles.featureIcon,
-                              { backgroundColor: plan.color + "12" },
-                            ]}
-                          >
-                            <Ionicons
-                              name="checkmark"
-                              size={12}
-                              color={plan.color}
-                            />
-                          </View>
-                          <Text style={styles.planCardFeatureText}>
-                            {feature}
-                          </Text>
-                        </View>
-                      ))}
-                    </View>
-
-                    <View style={styles.planActionArea}>
-                      {canManage ? (
-                        <>
-                          {isActive ? (
-                            <View style={styles.currentPlanPill}>
-                              <Ionicons
-                                name="checkmark-circle"
-                                size={16}
-                                color="#16A34A"
-                              />
-                              <Text style={styles.currentPlanPillText}>
-                                Current Plan
-                              </Text>
-                            </View>
-                          ) : (
-                            <TouchableOpacity
-                              style={[
-                                styles.choosePlanButton,
-                                plan.id === "business"
-                                  ? styles.choosePlanButtonBusiness
-                                  : null,
-                              ]}
-                              onPress={() => handleSelectPlan(plan.id)}
-                              activeOpacity={0.85}
-                              disabled={isPaymentProcessing}
-                            >
-                              <Text style={styles.choosePlanButtonText}>
-                                {price === 0
-                                  ? `Switch to ${plan.name}`
-                                  : `Choose ${plan.name}`}
-                              </Text>
-                              <Ionicons
-                                name="arrow-forward"
-                                size={16}
-                                color="#FFFFFF"
-                              />
-                            </TouchableOpacity>
-                          )}
-
-                          {showCancelOnThisCard ? (
-                            <TouchableOpacity
-                              style={styles.cancelInlineButton}
-                              onPress={() => setShowCancelConfirm(true)}
-                              activeOpacity={0.75}
-                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                            >
-                              <Ionicons
-                                name="close-circle-outline"
-                                size={15}
-                                color="#DC2626"
-                              />
-                              <Text style={styles.cancelInlineText}>
-                                Cancel Subscription
-                              </Text>
-                            </TouchableOpacity>
-                          ) : null}
-                        </>
-                      ) : isActive ? (
-                        <View style={styles.currentPlanPill}>
-                          <Ionicons
-                            name="checkmark-circle"
-                            size={16}
-                            color="#16A34A"
-                          />
-                          <Text style={styles.currentPlanPillText}>
-                            Current Plan
+                  return (
+                    <View
+                      key={plan.id}
+                      style={[
+                        styles.planCard,
+                        isPopular ? styles.planCardPopular : null,
+                        isActive ? styles.planCardActive : null,
+                      ]}
+                    >
+                      {isPopular ? (
+                        <View style={styles.popularTopLabel}>
+                          <Ionicons name="star" size={11} color="#FFFFFF" />
+                          <Text style={styles.popularTopLabelText}>
+                            MOST POPULAR
                           </Text>
                         </View>
                       ) : null}
+
+                      <View style={styles.planCardHeader}>
+                        <View style={styles.planCardLeft}>
+                          <View style={styles.planNameRow}>
+                            <Text style={styles.planCardName}>{plan.name}</Text>
+
+                            {isActive ? (
+                              <View style={styles.planCardActiveBadge}>
+                                <Ionicons
+                                  name="checkmark"
+                                  size={10}
+                                  color="#FFFFFF"
+                                />
+                                <Text style={styles.planCardActiveText}>
+                                  {plan.id === "free"
+                                    ? "ACTIVE"
+                                    : `ACTIVE · ${
+                                        billingPeriod === "yearly"
+                                          ? "YEARLY"
+                                          : "MONTHLY"
+                                      }`}
+                                </Text>
+                              </View>
+                            ) : null}
+                          </View>
+
+                          <View style={styles.priceRow}>
+                            <Text style={styles.planCardPrice}>
+                              {price === 0
+                                ? "Free"
+                                : `₹${price.toLocaleString("en-IN")}`}
+                            </Text>
+                            {price > 0 ? (
+                              <Text style={styles.planCardPeriod}>
+                                {periodLabel}
+                              </Text>
+                            ) : null}
+                          </View>
+
+                          {displayPeriod === "yearly" && monthlyPrice > 0 ? (
+                            <View style={styles.annualPriceRow}>
+                              <Text style={styles.planCardStrikethrough}>
+                                ₹{(monthlyPrice * 12).toLocaleString("en-IN")}
+                              </Text>
+                              <Text style={styles.planCardBillingNote}>
+                                billed annually
+                              </Text>
+                            </View>
+                          ) : null}
+
+                          {displayPeriod === "yearly" && yearlySavings > 0 ? (
+                            <View style={styles.planCardYearlySavings}>
+                              <Ionicons
+                                name="trending-down-outline"
+                                size={13}
+                                color="#15803D"
+                              />
+                              <Text style={styles.planCardYearlySavingsText}>
+                                Save ₹{yearlySavings.toLocaleString("en-IN")}{" "}
+                                per year
+                              </Text>
+                            </View>
+                          ) : null}
+                        </View>
+
+                        <View
+                          style={[
+                            styles.planCardIcon,
+                            { backgroundColor: plan.color + "15" },
+                          ]}
+                        >
+                          <Ionicons
+                            name={plan.icon}
+                            size={23}
+                            color={plan.color}
+                          />
+                        </View>
+                      </View>
+
+                      <View style={styles.planDivider} />
+
+                      <View style={styles.planCardFeatures}>
+                        <Text style={styles.includesText}>
+                          {plan.id === "free"
+                            ? "Everything you need to get started"
+                            : plan.id === "pro"
+                              ? "More control for growing communities"
+                              : "Everything included"}
+                        </Text>
+
+                        {plan.features.map((feature, index) => (
+                          <View key={index} style={styles.planCardFeature}>
+                            <View
+                              style={[
+                                styles.featureIcon,
+                                { backgroundColor: plan.color + "12" },
+                              ]}
+                            >
+                              <Ionicons
+                                name="checkmark"
+                                size={12}
+                                color={plan.color}
+                              />
+                            </View>
+                            <Text style={styles.planCardFeatureText}>
+                              {feature}
+                            </Text>
+                          </View>
+                        ))}
+                      </View>
+
+                      <View style={styles.planActionArea}>
+                        {canManage ? (
+                          <>
+                            {isActive ? (
+                              <View style={styles.currentPlanPill}>
+                                <Ionicons
+                                  name="checkmark-circle"
+                                  size={16}
+                                  color="#16A34A"
+                                />
+                                <Text style={styles.currentPlanPillText}>
+                                  Current Plan
+                                </Text>
+                              </View>
+                            ) : (
+                              <TouchableOpacity
+                                style={[
+                                  styles.choosePlanButton,
+                                  plan.id === "business"
+                                    ? styles.choosePlanButtonBusiness
+                                    : null,
+                                ]}
+                                onPress={() => handleSelectPlan(plan.id)}
+                                activeOpacity={0.85}
+                                disabled={isPaymentProcessing}
+                              >
+                                <Text style={styles.choosePlanButtonText}>
+                                  {price === 0
+                                    ? `Switch to ${plan.name}`
+                                    : `Choose ${plan.name}`}
+                                </Text>
+                                <Ionicons
+                                  name="arrow-forward"
+                                  size={16}
+                                  color="#FFFFFF"
+                                />
+                              </TouchableOpacity>
+                            )}
+
+                            {showCancelOnThisCard ? (
+                              <TouchableOpacity
+                                style={styles.cancelInlineButton}
+                                onPress={() => setShowCancelConfirm(true)}
+                                activeOpacity={0.75}
+                                hitSlop={{
+                                  top: 8,
+                                  bottom: 8,
+                                  left: 8,
+                                  right: 8,
+                                }}
+                              >
+                                <Ionicons
+                                  name="close-circle-outline"
+                                  size={15}
+                                  color="#DC2626"
+                                />
+                                <Text style={styles.cancelInlineText}>
+                                  Cancel Subscription
+                                </Text>
+                              </TouchableOpacity>
+                            ) : null}
+                          </>
+                        ) : isActive ? (
+                          <View style={styles.currentPlanPill}>
+                            <Ionicons
+                              name="checkmark-circle"
+                              size={16}
+                              color="#16A34A"
+                            />
+                            <Text style={styles.currentPlanPillText}>
+                              Current Plan
+                            </Text>
+                          </View>
+                        ) : null}
+                      </View>
                     </View>
-                  </View>
-                );
-              })}
+                  );
+                })}
 
-              <Text style={styles.bottomNote}>
-                You can change your plan anytime.
+                <Text style={styles.bottomNote}>
+                  You can change your plan anytime.
+                </Text>
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>
+
+        {/* ---------------- Cancel confirmation modal ---------------- */}
+        <Modal
+          transparent
+          animationType="fade"
+          visible={showCancelConfirm}
+          onRequestClose={() => setShowCancelConfirm(false)}
+        >
+          <View style={styles.confirmBackdrop}>
+            <View style={styles.confirmCard}>
+              <View style={styles.confirmIconCircle}>
+                <Ionicons name="alert-circle" size={34} color="#DC2626" />
+              </View>
+
+              <Text style={styles.confirmTitle}>Cancel Subscription?</Text>
+
+              <Text style={styles.confirmMessage}>
+                You&apos;ll be moved to the{" "}
+                <Text style={styles.confirmStrongText}>Free plan</Text>{" "}
+                immediately and lose access to all premium features on{" "}
+                <Text style={styles.confirmStrongText}>{currentPlanName}</Text>.
               </Text>
-            </ScrollView>
-          </View>
-        </View>
-      </Modal>
 
-      {/* ---------------- Cancel confirmation modal ---------------- */}
-      <Modal
-        transparent
-        animationType="fade"
-        visible={showCancelConfirm}
-        onRequestClose={() => setShowCancelConfirm(false)}
-      >
-        <View style={styles.confirmBackdrop}>
-          <View style={styles.confirmCard}>
-            <View style={styles.confirmIconCircle}>
-              <Ionicons name="alert-circle" size={34} color="#DC2626" />
-            </View>
+              <View style={styles.confirmActions}>
+                <TouchableOpacity
+                  style={styles.confirmKeepButton}
+                  onPress={() => setShowCancelConfirm(false)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.confirmKeepText}>Keep Plan</Text>
+                </TouchableOpacity>
 
-            <Text style={styles.confirmTitle}>Cancel Subscription?</Text>
-
-            <Text style={styles.confirmMessage}>
-              You&apos;ll be moved to the{" "}
-              <Text style={styles.confirmStrongText}>Free plan</Text>{" "}
-              immediately and lose access to all premium features on{" "}
-              <Text style={styles.confirmStrongText}>{currentPlanName}</Text>.
-            </Text>
-
-            <View style={styles.confirmActions}>
-              <TouchableOpacity
-                style={styles.confirmKeepButton}
-                onPress={() => setShowCancelConfirm(false)}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.confirmKeepText}>Keep Plan</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.confirmCancelButton}
-                onPress={handleConfirmCancel}
-                activeOpacity={0.85}
-              >
-                <Ionicons name="close-circle" size={16} color="#FFFFFF" />
-                <Text style={styles.confirmCancelText}>Yes, Cancel</Text>
-              </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.confirmCancelButton}
+                  onPress={handleConfirmCancel}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="close-circle" size={16} color="#FFFFFF" />
+                  <Text style={styles.confirmCancelText}>Yes, Cancel</Text>
+                </TouchableOpacity>
+              </View>
             </View>
           </View>
-        </View>
-      </Modal>
+        </Modal>
 
-      {/* ---------------- Payment processing overlay ---------------- */}
-      {isPaymentProcessing ? (
-        <View style={styles.processingOverlay}>
-          <View style={styles.processingCard}>
-            <ActivityIndicator size="large" color="#2563EB" />
-            <Text style={styles.processingTitle}>Processing</Text>
-            <Text style={styles.processingText}>
-              {Platform.OS === "web"
-                ? "Please complete the payment in the Razorpay checkout."
-                : "Please complete the purchase in the store checkout."}
-            </Text>
+        {/* ---------------- Payment processing overlay ---------------- */}
+        {isPaymentProcessing ? (
+          <View style={styles.processingOverlay}>
+            <View style={styles.processingCard}>
+              <ActivityIndicator size="large" color="#2563EB" />
+              <Text style={styles.processingTitle}>Processing</Text>
+              <Text style={styles.processingText}>
+                {Platform.OS === "web"
+                  ? "Please complete the payment in the Razorpay checkout."
+                  : "Please complete the purchase in the store checkout."}
+              </Text>
+            </View>
           </View>
-        </View>
-      ) : null}
+        ) : null}
       </>
     </DarkModeBoundary>
   );

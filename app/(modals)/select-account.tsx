@@ -3,13 +3,13 @@ import { Ionicons } from "@expo/vector-icons";
 import { useRouter } from "expo-router";
 import { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Image,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Image,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DarkModeBoundary } from "../../components/DarkModeBoundary";
@@ -111,140 +111,148 @@ export default function SelectAccountScreen() {
   return (
     <DarkModeBoundary>
       <View style={[styles.container, { paddingTop: insets.top }]}>
-      <ScrollView
-        contentContainerStyle={[
-          styles.content,
-          { paddingBottom: Math.max(insets.bottom, 24) },
-        ]}
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.header}>
-          <View style={styles.avatarCircle}>
-            <Ionicons name="person" size={30} color="#1a73e8" />
-          </View>
-
-          <Text style={styles.welcomeTitle}>Welcome back!</Text>
-
-          <Text style={styles.welcomeSubtitle}>
-            {user?.phone ? `+91 ${user.phone.replace("+91", "")}` : ""}
-          </Text>
-
-          <Text style={styles.welcomeHint}>
-            Choose an account to continue or create a new one
-          </Text>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Your Accounts</Text>
-
-          {accounts.map((account) => {
-            const isSelected = account.id === selectedAccountId;
-            const isHome = account.type === "home";
-            const roleMeta = roleBadgeMeta((account as any).role, isHome);
-
-            return (
-              <TouchableOpacity
-                key={account.id}
-                style={[
-                  styles.accountCard,
-                  isSelected && styles.accountCardSelected,
-                ]}
-                onPress={() => handleSelectAccount(account.id)}
-                activeOpacity={0.8}
-              >
-                <View style={styles.accountIconWrap}>
-                  {account.photoUri ? (
-                    <Image
-                      source={{ uri: account.photoUri }}
-                      style={styles.accountImage}
-                    />
-                  ) : (
-                    <Ionicons
-                      name={account.type === "apartment" ? "business" : "home"}
-                      size={22}
-                      color="#1a73e8"
-                    />
-                  )}
-                </View>
-
-                <View style={styles.accountInfo}>
-                  <Text style={styles.accountName} numberOfLines={1}>
-                    {account.name}
-                  </Text>
-
-                  <Text style={styles.accountType}>
-                    {account.type === "apartment"
-                      ? "Apartment Society"
-                      : "Personal Home"}
-                  </Text>
-
-                  <View style={styles.ownerRow}>
-                    <Ionicons
-                      name={roleMeta.icon}
-                      size={14}
-                      color={roleMeta.color}
-                    />
-                    <Text style={[styles.ownerText, { color: roleMeta.color }]}>
-                      {roleMeta.label}
-                    </Text>
-                  </View>
-                </View>
-
-                <View style={styles.chevronWrap}>
-                  <Ionicons name="chevron-forward" size={18} color="#94a3b8" />
-                </View>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-
-        <TouchableOpacity
-          style={styles.createNewButton}
-          onPress={handleCreateNew}
-          activeOpacity={0.85}
+        <ScrollView
+          contentContainerStyle={[
+            styles.content,
+            { paddingBottom: Math.max(insets.bottom, 24) },
+          ]}
+          showsVerticalScrollIndicator={false}
         >
-          <View style={styles.createNewIcon}>
-            <Ionicons name="add" size={22} color="#1a73e8" />
-          </View>
+          <View style={styles.header}>
+            <View style={styles.avatarCircle}>
+              <Ionicons name="person" size={30} color="#1a73e8" />
+            </View>
 
-          <View style={styles.createNewTextWrap}>
-            <Text style={styles.createNewTitle}>Create New Account</Text>
-            <Text style={styles.createNewSubtitle}>
-              Set up a new apartment, home, or join via invitation
+            <Text style={styles.welcomeTitle}>Welcome back!</Text>
+
+            <Text style={styles.welcomeSubtitle}>
+              {user?.phone ? `+91 ${user.phone.replace("+91", "")}` : ""}
+            </Text>
+
+            <Text style={styles.welcomeHint}>
+              Choose an account to continue or create a new one
             </Text>
           </View>
 
-          <Ionicons name="arrow-forward" size={18} color="#1a73e8" />
-        </TouchableOpacity>
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Your Accounts</Text>
 
-        <Text style={styles.footerNote}>
-          You can switch between accounts anytime from the account switcher
-        </Text>
+            {accounts.map((account) => {
+              const isSelected = account.id === selectedAccountId;
+              const isHome = account.type === "home";
+              const roleMeta = roleBadgeMeta((account as any).role, isHome);
 
-        <View style={styles.logoutSection}>
-          <View style={styles.logoutDivider} />
+              return (
+                <TouchableOpacity
+                  key={account.id}
+                  style={[
+                    styles.accountCard,
+                    isSelected && styles.accountCardSelected,
+                  ]}
+                  onPress={() => handleSelectAccount(account.id)}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.accountIconWrap}>
+                    {account.photoUri ? (
+                      <Image
+                        source={{ uri: account.photoUri }}
+                        style={styles.accountImage}
+                      />
+                    ) : (
+                      <Ionicons
+                        name={
+                          account.type === "apartment" ? "business" : "home"
+                        }
+                        size={22}
+                        color="#1a73e8"
+                      />
+                    )}
+                  </View>
+
+                  <View style={styles.accountInfo}>
+                    <Text style={styles.accountName} numberOfLines={1}>
+                      {account.name}
+                    </Text>
+
+                    <Text style={styles.accountType}>
+                      {account.type === "apartment"
+                        ? "Apartment Society"
+                        : "Personal Home"}
+                    </Text>
+
+                    <View style={styles.ownerRow}>
+                      <Ionicons
+                        name={roleMeta.icon}
+                        size={14}
+                        color={roleMeta.color}
+                      />
+                      <Text
+                        style={[styles.ownerText, { color: roleMeta.color }]}
+                      >
+                        {roleMeta.label}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.chevronWrap}>
+                    <Ionicons
+                      name="chevron-forward"
+                      size={18}
+                      color="#94a3b8"
+                    />
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
 
           <TouchableOpacity
-            style={styles.logoutButton}
-            onPress={handleLogout}
-            disabled={loggingOut}
-            activeOpacity={0.8}
+            style={styles.createNewButton}
+            onPress={handleCreateNew}
+            activeOpacity={0.85}
           >
-            {loggingOut ? (
-              <ActivityIndicator size="small" color="#dc2626" />
-            ) : (
-              <>
-                <Ionicons name="log-out-outline" size={18} color="#dc2626" />
-                <Text style={styles.logoutButtonText}>Log out</Text>
-              </>
-            )}
+            <View style={styles.createNewIcon}>
+              <Ionicons name="add" size={22} color="#1a73e8" />
+            </View>
+
+            <View style={styles.createNewTextWrap}>
+              <Text style={styles.createNewTitle}>Create New Account</Text>
+              <Text style={styles.createNewSubtitle}>
+                Set up a new apartment, home, or join via invitation
+              </Text>
+            </View>
+
+            <Ionicons name="arrow-forward" size={18} color="#1a73e8" />
           </TouchableOpacity>
 
-          <Text style={styles.logoutHint}>
-            You can log in again anytime with your phone number.
+          <Text style={styles.footerNote}>
+            You can switch between accounts anytime from the account switcher
           </Text>
-        </View>
-      </ScrollView>
+
+          <View style={styles.logoutSection}>
+            <View style={styles.logoutDivider} />
+
+            <TouchableOpacity
+              style={styles.logoutButton}
+              onPress={handleLogout}
+              disabled={loggingOut}
+              activeOpacity={0.8}
+            >
+              {loggingOut ? (
+                <ActivityIndicator size="small" color="#dc2626" />
+              ) : (
+                <>
+                  <Ionicons name="log-out-outline" size={18} color="#dc2626" />
+                  <Text style={styles.logoutButtonText}>Log out</Text>
+                </>
+              )}
+            </TouchableOpacity>
+
+            <Text style={styles.logoutHint}>
+              You can log in again anytime with your phone number.
+            </Text>
+          </View>
+        </ScrollView>
       </View>
     </DarkModeBoundary>
   );

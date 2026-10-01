@@ -19,8 +19,8 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getSecureItem } from "../../utils/tokenStorage";
 
-import DatePickerModal from "../../components/DatePickerModal";
 import { DarkModeBoundary } from "../../components/DarkModeBoundary";
+import DatePickerModal from "../../components/DatePickerModal";
 import GenerateBillModal from "../../components/GenerateBillModal";
 import MonthYearPickerModal from "../../components/MonthYearPickerModal";
 import { useAccounts } from "../../hooks/useAccounts";
@@ -104,70 +104,71 @@ function AppAlert({
   return (
     <DarkModeBoundary>
       <Modal
-      transparent
-      visible={state.visible}
-      animationType="fade"
-      onRequestClose={onDismiss}
-      statusBarTranslucent
-    >
-      <Pressable style={inlineAlertStyles.backdrop} onPress={onDismiss}>
-        <Pressable
-          style={inlineAlertStyles.card}
-          onPress={(e) => e.stopPropagation()}
-        >
-          <View
-            style={[inlineAlertStyles.iconCircle, { backgroundColor: m.bg }]}
+        transparent
+        visible={state.visible}
+        animationType="fade"
+        onRequestClose={onDismiss}
+        statusBarTranslucent
+      >
+        <Pressable style={inlineAlertStyles.backdrop} onPress={onDismiss}>
+          <Pressable
+            style={inlineAlertStyles.card}
+            onPress={(e) => e.stopPropagation()}
           >
-            <Ionicons name={m.icon} size={30} color={m.color} />
-          </View>
+            <View
+              style={[inlineAlertStyles.iconCircle, { backgroundColor: m.bg }]}
+            >
+              <Ionicons name={m.icon} size={30} color={m.color} />
+            </View>
 
-          <Text style={inlineAlertStyles.title}>{title}</Text>
+            <Text style={inlineAlertStyles.title}>{title}</Text>
 
-          {message ? (
-            <Text style={inlineAlertStyles.message}>{message}</Text>
-          ) : null}
+            {message ? (
+              <Text style={inlineAlertStyles.message}>{message}</Text>
+            ) : null}
 
-          <View
-            style={[
-              inlineAlertStyles.actions,
-              isStacked && inlineAlertStyles.actionsStacked,
-            ]}
-          >
-            {buttons.map((btn, idx) => {
-              const isDestructive = btn.style === "destructive";
-              const isCancel = btn.style === "cancel";
-              const isPrimary = !isDestructive && !isCancel;
+            <View
+              style={[
+                inlineAlertStyles.actions,
+                isStacked && inlineAlertStyles.actionsStacked,
+              ]}
+            >
+              {buttons.map((btn, idx) => {
+                const isDestructive = btn.style === "destructive";
+                const isCancel = btn.style === "cancel";
+                const isPrimary = !isDestructive && !isCancel;
 
-              return (
-                <Pressable
-                  key={`${btn.text}-${idx}`}
-                  onPress={() => handlePress(btn)}
-                  style={({ pressed }) => [
-                    inlineAlertStyles.button,
-                    hasTwo && inlineAlertStyles.buttonHalf,
-                    isStacked && inlineAlertStyles.buttonFull,
-                    isCancel && inlineAlertStyles.buttonCancel,
-                    isDestructive && inlineAlertStyles.buttonDestructive,
-                    isPrimary && inlineAlertStyles.buttonPrimary,
-                    pressed && { opacity: 0.85 },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      inlineAlertStyles.buttonText,
-                      isCancel && inlineAlertStyles.buttonTextCancel,
-                      isDestructive && inlineAlertStyles.buttonTextDestructive,
-                      isPrimary && inlineAlertStyles.buttonTextPrimary,
+                return (
+                  <Pressable
+                    key={`${btn.text}-${idx}`}
+                    onPress={() => handlePress(btn)}
+                    style={({ pressed }) => [
+                      inlineAlertStyles.button,
+                      hasTwo && inlineAlertStyles.buttonHalf,
+                      isStacked && inlineAlertStyles.buttonFull,
+                      isCancel && inlineAlertStyles.buttonCancel,
+                      isDestructive && inlineAlertStyles.buttonDestructive,
+                      isPrimary && inlineAlertStyles.buttonPrimary,
+                      pressed && { opacity: 0.85 },
                     ]}
                   >
-                    {btn.text}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
+                    <Text
+                      style={[
+                        inlineAlertStyles.buttonText,
+                        isCancel && inlineAlertStyles.buttonTextCancel,
+                        isDestructive &&
+                          inlineAlertStyles.buttonTextDestructive,
+                        isPrimary && inlineAlertStyles.buttonTextPrimary,
+                      ]}
+                    >
+                      {btn.text}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </Pressable>
         </Pressable>
-      </Pressable>
       </Modal>
     </DarkModeBoundary>
   );
@@ -1769,373 +1770,501 @@ export default function PeopleScreen() {
   return (
     <DarkModeBoundary>
       <View style={styles.container}>
-      {/* ── HEADER: title + subtitle + month pill (NO new card) ─────── */}
-      <View style={styles.header}>
-        <View style={styles.headerTop}>
-          <View style={styles.headerTitleArea}>
-            <Text style={styles.title}>
-              {isAdmin ? "Management" : isMember ? "Residents" : "Directory"}
-            </Text>
-            <Text style={styles.headerSubtitle} numberOfLines={1}>
-              {selectedAccount?.name || "Your property"}
-            </Text>
+        {/* ── HEADER: title + subtitle + month pill (NO new card) ─────── */}
+        <View style={styles.header}>
+          <View style={styles.headerTop}>
+            <View style={styles.headerTitleArea}>
+              <Text style={styles.title}>
+                {isAdmin ? "Management" : isMember ? "Residents" : "Directory"}
+              </Text>
+              <Text style={styles.headerSubtitle} numberOfLines={1}>
+                {selectedAccount?.name || "Your property"}
+              </Text>
+            </View>
+
+            <View style={styles.monthPill}>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.monthArrow,
+                  pressed && styles.pressedButton,
+                ]}
+                onPress={handlePrevMonth}
+                hitSlop={6}
+              >
+                <Ionicons
+                  name="chevron-back"
+                  size={18}
+                  color={COLORS.primary}
+                />
+              </Pressable>
+
+              <Pressable
+                style={({ pressed }) => [
+                  styles.monthCenter,
+                  pressed && styles.pressedButton,
+                ]}
+                onPress={() => setShowMonthPicker(true)}
+              >
+                <Text style={styles.monthText}>
+                  {selectedMonth ? formatMonth(selectedMonth) : "All months"}
+                </Text>
+                {showingCurrentMonth ? (
+                  <View style={styles.monthCurrentDot} />
+                ) : null}
+              </Pressable>
+
+              <Pressable
+                style={({ pressed }) => [
+                  styles.monthArrow,
+                  pressed && styles.pressedButton,
+                ]}
+                onPress={handleNextMonth}
+                hitSlop={6}
+              >
+                <Ionicons
+                  name="chevron-forward"
+                  size={18}
+                  color={COLORS.primary}
+                />
+              </Pressable>
+            </View>
           </View>
 
-          <View style={styles.monthPill}>
+          {!showingCurrentMonth ? (
             <Pressable
               style={({ pressed }) => [
-                styles.monthArrow,
+                styles.todayRow,
                 pressed && styles.pressedButton,
               ]}
-              onPress={handlePrevMonth}
-              hitSlop={6}
+              onPress={handleTodayMonth}
             >
-              <Ionicons name="chevron-back" size={18} color={COLORS.primary} />
-            </Pressable>
-
-            <Pressable
-              style={({ pressed }) => [
-                styles.monthCenter,
-                pressed && styles.pressedButton,
-              ]}
-              onPress={() => setShowMonthPicker(true)}
-            >
-              <Text style={styles.monthText}>
-                {selectedMonth ? formatMonth(selectedMonth) : "All months"}
+              <Ionicons name="today-outline" size={13} color={COLORS.primary} />
+              <Text style={styles.todayRowText}>
+                Not on current month · Tap to go to{" "}
+                {formatMonthLong(getCurrentMonth())}
               </Text>
-              {showingCurrentMonth ? (
-                <View style={styles.monthCurrentDot} />
-              ) : null}
             </Pressable>
+          ) : null}
 
-            <Pressable
-              style={({ pressed }) => [
-                styles.monthArrow,
-                pressed && styles.pressedButton,
-              ]}
-              onPress={handleNextMonth}
-              hitSlop={6}
-            >
-              <Ionicons
-                name="chevron-forward"
-                size={18}
-                color={COLORS.primary}
-              />
-            </Pressable>
+          <View style={styles.tabsContainer}>
+            {tabTypes
+              .filter((type) => visibleTabTypes.includes(type))
+              .map((type) => {
+                const isActive = activeTab === type;
+                return (
+                  <Pressable
+                    key={type}
+                    style={({ pressed }) => [
+                      styles.tab,
+                      isActive && styles.tabActive,
+                      pressed && !isActive && styles.tabPressed,
+                    ]}
+                    onPress={() => setActiveTab(type)}
+                  >
+                    <Ionicons
+                      name={getTabIcon(type)}
+                      size={17}
+                      color={isActive ? COLORS.primary : COLORS.secondary}
+                    />
+                    <Text
+                      style={[styles.tabText, isActive && styles.tabTextActive]}
+                      numberOfLines={1}
+                    >
+                      {getTabLabel(type, selectedAccount?.type)}
+                    </Text>
+                  </Pressable>
+                );
+              })}
           </View>
         </View>
 
-        {!showingCurrentMonth ? (
-          <Pressable
-            style={({ pressed }) => [
-              styles.todayRow,
-              pressed && styles.pressedButton,
-            ]}
-            onPress={handleTodayMonth}
-          >
-            <Ionicons name="today-outline" size={13} color={COLORS.primary} />
-            <Text style={styles.todayRowText}>
-              Not on current month · Tap to go to{" "}
-              {formatMonthLong(getCurrentMonth())}
-            </Text>
-          </Pressable>
-        ) : null}
-
-        <View style={styles.tabsContainer}>
-          {tabTypes
-            .filter((type) => visibleTabTypes.includes(type))
-            .map((type) => {
-              const isActive = activeTab === type;
-              return (
+        {showToolbar ? (
+          <View style={styles.stickyToolbar}>
+            <View style={styles.searchBox}>
+              <Ionicons name="search-outline" size={20} color={COLORS.muted} />
+              <TextInput
+                style={styles.searchInput}
+                value={activeSearch}
+                onChangeText={setActiveSearch}
+                placeholder={
+                  isExpenseTab
+                    ? "Search by transaction name"
+                    : "Search by name or mobile no."
+                }
+                placeholderTextColor={COLORS.muted}
+                autoCapitalize="none"
+                autoCorrect={false}
+                returnKeyType="search"
+                onSubmitEditing={() => Keyboard.dismiss()}
+                blurOnSubmit
+              />
+              {activeSearch.length > 0 && (
                 <Pressable
-                  key={type}
-                  style={({ pressed }) => [
-                    styles.tab,
-                    isActive && styles.tabActive,
-                    pressed && !isActive && styles.tabPressed,
-                  ]}
-                  onPress={() => setActiveTab(type)}
+                  onPress={() => setActiveSearch("")}
+                  hitSlop={8}
+                  style={styles.searchClearButton}
                 >
                   <Ionicons
-                    name={getTabIcon(type)}
-                    size={17}
-                    color={isActive ? COLORS.primary : COLORS.secondary}
+                    name="close-circle"
+                    size={20}
+                    color={COLORS.muted}
                   />
-                  <Text
-                    style={[styles.tabText, isActive && styles.tabTextActive]}
-                    numberOfLines={1}
-                  >
-                    {getTabLabel(type, selectedAccount?.type)}
-                  </Text>
                 </Pressable>
-              );
-            })}
-        </View>
-      </View>
+              )}
+            </View>
 
-      {showToolbar ? (
-        <View style={styles.stickyToolbar}>
-          <View style={styles.searchBox}>
-            <Ionicons name="search-outline" size={20} color={COLORS.muted} />
-            <TextInput
-              style={styles.searchInput}
-              value={activeSearch}
-              onChangeText={setActiveSearch}
-              placeholder={
-                isExpenseTab
-                  ? "Search by transaction name"
-                  : "Search by name or mobile no."
-              }
-              placeholderTextColor={COLORS.muted}
-              autoCapitalize="none"
-              autoCorrect={false}
-              returnKeyType="search"
-              onSubmitEditing={() => Keyboard.dismiss()}
-              blurOnSubmit
-            />
-            {activeSearch.length > 0 && (
-              <Pressable
-                onPress={() => setActiveSearch("")}
-                hitSlop={8}
-                style={styles.searchClearButton}
-              >
-                <Ionicons name="close-circle" size={20} color={COLORS.muted} />
-              </Pressable>
-            )}
-          </View>
-
-          <View style={styles.chipRow}>
-            {filterOptions.map((option) => {
-              const selected = activeFilter === option.key;
-              return (
-                <Pressable
-                  key={option.key}
-                  style={({ pressed }) => [
-                    styles.chip,
-                    selected && {
-                      backgroundColor: option.bg,
-                      borderColor: option.border,
-                    },
-                    pressed && styles.pressedButton,
-                  ]}
-                  onPress={() => {
-                    Keyboard.dismiss();
-                    setActiveFilter(option.key);
-                  }}
-                >
-                  <Text
-                    style={[
-                      styles.chipText,
-                      selected && { color: option.color, fontWeight: "700" },
+            <View style={styles.chipRow}>
+              {filterOptions.map((option) => {
+                const selected = activeFilter === option.key;
+                return (
+                  <Pressable
+                    key={option.key}
+                    style={({ pressed }) => [
+                      styles.chip,
+                      selected && {
+                        backgroundColor: option.bg,
+                        borderColor: option.border,
+                      },
+                      pressed && styles.pressedButton,
                     ]}
-                  >
-                    {option.label}
-                  </Text>
-                  <View
-                    style={[
-                      styles.chipCount,
-                      selected && { backgroundColor: option.color },
-                    ]}
+                    onPress={() => {
+                      Keyboard.dismiss();
+                      setActiveFilter(option.key);
+                    }}
                   >
                     <Text
                       style={[
-                        styles.chipCountText,
-                        selected && { color: COLORS.white },
+                        styles.chipText,
+                        selected && { color: option.color, fontWeight: "700" },
                       ]}
                     >
-                      {option.count}
+                      {option.label}
                     </Text>
-                  </View>
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
-      ) : null}
-
-      <ScrollView
-        style={styles.scrollArea}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={[
-          styles.listContent,
-          { paddingBottom: listBottomPadding },
-        ]}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="on-drag"
-        automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
-      >
-        {showSummary ? (
-          <View style={styles.summaryCard}>
-            {summary.kind === "expense" ? (
-              <>
-                <Text style={styles.summaryTitle}>
-                  Cash flow · {formatMonthLong(month)}
-                </Text>
-                <View style={styles.summaryRow}>
-                  <SummaryStat
-                    label="Income"
-                    value={formatINR(summary.income)}
-                    color={COLORS.successDark}
-                  />
-                  <SummaryStat
-                    label="Expense"
-                    value={formatINR(summary.expense)}
-                    color={COLORS.danger}
-                  />
-                  <SummaryStat
-                    label="Net"
-                    value={formatINR(summary.income - summary.expense)}
-                    color={
-                      summary.income - summary.expense >= 0
-                        ? COLORS.successDark
-                        : COLORS.danger
-                    }
-                    align="right"
-                  />
-                </View>
-              </>
-            ) : (
-              <>
-                <View style={styles.summaryTitleRow}>
-                  <Text style={styles.summaryTitle}>
-                    {isStaffTab ? "Salaries" : "Maintenance"} ·{" "}
-                    {formatMonthLong(month)}
-                  </Text>
-                  <Text style={styles.summaryPct}>{summaryPct}% paid</Text>
-                </View>
-                <View style={styles.progressTrack}>
-                  <View
-                    style={[
-                      styles.progressFill,
-                      { width: `${summaryPct}%` as any },
-                    ]}
-                  />
-                </View>
-                <View style={styles.summaryRow}>
-                  <SummaryStat
-                    label="Paid"
-                    value={formatINR(summary.paidAmount)}
-                    hint={`${summary.paidCount} ${
-                      summary.paidCount === 1 ? "record" : "records"
-                    }`}
-                    color={COLORS.successDark}
-                  />
-                  <SummaryStat
-                    label="Pending"
-                    value={formatINR(summary.dueAmount)}
-                    hint={`${summary.dueCount} ${
-                      summary.dueCount === 1 ? "record" : "records"
-                    }`}
-                    color={COLORS.danger}
-                    align="right"
-                  />
-                </View>
-              </>
-            )}
+                    <View
+                      style={[
+                        styles.chipCount,
+                        selected && { backgroundColor: option.color },
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.chipCountText,
+                          selected && { color: COLORS.white },
+                        ]}
+                      >
+                        {option.count}
+                      </Text>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
           </View>
         ) : null}
 
-        {visibleGroupedCards.length === 0 ? (
-          <View style={styles.emptyCard}>
-            <View
-              style={[
-                styles.emptyIcon,
-                isStaffTab && styles.emptyIconStaff,
-                isExpenseTab && styles.emptyIconExpense,
-              ]}
-            >
-              <Ionicons
-                name={
-                  activeSearch
-                    ? "search-outline"
-                    : isFilterActive
-                      ? "funnel-outline"
-                      : getTabIcon(activeTab)
-                }
-                size={32}
-                color={
-                  isStaffTab
-                    ? COLORS.purple
-                    : isExpenseTab
-                      ? COLORS.success
-                      : COLORS.primary
-                }
-              />
+        <ScrollView
+          style={styles.scrollArea}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={[
+            styles.listContent,
+            { paddingBottom: listBottomPadding },
+          ]}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
+        >
+          {showSummary ? (
+            <View style={styles.summaryCard}>
+              {summary.kind === "expense" ? (
+                <>
+                  <Text style={styles.summaryTitle}>
+                    Cash flow · {formatMonthLong(month)}
+                  </Text>
+                  <View style={styles.summaryRow}>
+                    <SummaryStat
+                      label="Income"
+                      value={formatINR(summary.income)}
+                      color={COLORS.successDark}
+                    />
+                    <SummaryStat
+                      label="Expense"
+                      value={formatINR(summary.expense)}
+                      color={COLORS.danger}
+                    />
+                    <SummaryStat
+                      label="Net"
+                      value={formatINR(summary.income - summary.expense)}
+                      color={
+                        summary.income - summary.expense >= 0
+                          ? COLORS.successDark
+                          : COLORS.danger
+                      }
+                      align="right"
+                    />
+                  </View>
+                </>
+              ) : (
+                <>
+                  <View style={styles.summaryTitleRow}>
+                    <Text style={styles.summaryTitle}>
+                      {isStaffTab ? "Salaries" : "Maintenance"} ·{" "}
+                      {formatMonthLong(month)}
+                    </Text>
+                    <Text style={styles.summaryPct}>{summaryPct}% paid</Text>
+                  </View>
+                  <View style={styles.progressTrack}>
+                    <View
+                      style={[
+                        styles.progressFill,
+                        { width: `${summaryPct}%` as any },
+                      ]}
+                    />
+                  </View>
+                  <View style={styles.summaryRow}>
+                    <SummaryStat
+                      label="Paid"
+                      value={formatINR(summary.paidAmount)}
+                      hint={`${summary.paidCount} ${
+                        summary.paidCount === 1 ? "record" : "records"
+                      }`}
+                      color={COLORS.successDark}
+                    />
+                    <SummaryStat
+                      label="Pending"
+                      value={formatINR(summary.dueAmount)}
+                      hint={`${summary.dueCount} ${
+                        summary.dueCount === 1 ? "record" : "records"
+                      }`}
+                      color={COLORS.danger}
+                      align="right"
+                    />
+                  </View>
+                </>
+              )}
             </View>
-            <Text style={styles.emptyTitle}>
-              {activeSearch
-                ? "No matches found"
-                : isFilterActive
-                  ? `No ${filterLabel.toLowerCase()} ${
-                      isStaffTab
-                        ? "staff"
-                        : isExpenseTab
-                          ? "transactions"
-                          : "members"
-                    }`
-                  : `No ${getTabLabel(
-                      activeTab,
-                      selectedAccount?.type,
-                    ).toLowerCase()} yet`}
-            </Text>
-            <Text style={styles.emptySubtitle}>
-              {activeSearch
-                ? `Nothing matches "${activeSearch}". Try a different name or number.`
-                : isFilterActive
-                  ? `No entries with "${filterLabel}" status for this month.`
-                  : isExpenseTab
-                    ? "Add your first transaction to start tracking income and expenses."
-                    : isStaffTab
-                      ? "Add staff members to manage attendance and salary."
-                      : selectedAccount?.type === "home"
-                        ? "Add tenants to start managing your property."
-                        : "Add apartment members to manage maintenance and payments."}
-            </Text>
-            {(activeSearch || isFilterActive) && (
-              <Pressable
-                style={({ pressed }) => [
-                  styles.clearFiltersButton,
-                  pressed && styles.pressedButton,
+          ) : null}
+
+          {visibleGroupedCards.length === 0 ? (
+            <View style={styles.emptyCard}>
+              <View
+                style={[
+                  styles.emptyIcon,
+                  isStaffTab && styles.emptyIconStaff,
+                  isExpenseTab && styles.emptyIconExpense,
                 ]}
-                onPress={() => {
-                  setActiveSearch("");
-                  setActiveFilter("all");
-                }}
               >
                 <Ionicons
-                  name="close-circle-outline"
-                  size={17}
-                  color={COLORS.primary}
+                  name={
+                    activeSearch
+                      ? "search-outline"
+                      : isFilterActive
+                        ? "funnel-outline"
+                        : getTabIcon(activeTab)
+                  }
+                  size={32}
+                  color={
+                    isStaffTab
+                      ? COLORS.purple
+                      : isExpenseTab
+                        ? COLORS.success
+                        : COLORS.primary
+                  }
                 />
-                <Text style={styles.clearFiltersText}>
-                  Clear search and filter
-                </Text>
-              </Pressable>
-            )}
-          </View>
-        ) : (
-          <View style={styles.cardsWrap}>
-            {visibleGroupedCards.map((card) => {
-              const primaryRecord = card.records[0];
+              </View>
+              <Text style={styles.emptyTitle}>
+                {activeSearch
+                  ? "No matches found"
+                  : isFilterActive
+                    ? `No ${filterLabel.toLowerCase()} ${
+                        isStaffTab
+                          ? "staff"
+                          : isExpenseTab
+                            ? "transactions"
+                            : "members"
+                      }`
+                    : `No ${getTabLabel(
+                        activeTab,
+                        selectedAccount?.type,
+                      ).toLowerCase()} yet`}
+              </Text>
+              <Text style={styles.emptySubtitle}>
+                {activeSearch
+                  ? `Nothing matches "${activeSearch}". Try a different name or number.`
+                  : isFilterActive
+                    ? `No entries with "${filterLabel}" status for this month.`
+                    : isExpenseTab
+                      ? "Add your first transaction to start tracking income and expenses."
+                      : isStaffTab
+                        ? "Add staff members to manage attendance and salary."
+                        : selectedAccount?.type === "home"
+                          ? "Add tenants to start managing your property."
+                          : "Add apartment members to manage maintenance and payments."}
+              </Text>
+              {(activeSearch || isFilterActive) && (
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.clearFiltersButton,
+                    pressed && styles.pressedButton,
+                  ]}
+                  onPress={() => {
+                    setActiveSearch("");
+                    setActiveFilter("all");
+                  }}
+                >
+                  <Ionicons
+                    name="close-circle-outline"
+                    size={17}
+                    color={COLORS.primary}
+                  />
+                  <Text style={styles.clearFiltersText}>
+                    Clear search and filter
+                  </Text>
+                </Pressable>
+              )}
+            </View>
+          ) : (
+            <View style={styles.cardsWrap}>
+              {visibleGroupedCards.map((card) => {
+                const primaryRecord = card.records[0];
 
-              if (isExpenseTab) {
-                const txn = primaryRecord;
-                const isIncome = getTransactionTypeLabel(txn) === "income";
-                const isPaid = txn.status === "paid";
+                if (isExpenseTab) {
+                  const txn = primaryRecord;
+                  const isIncome = getTransactionTypeLabel(txn) === "income";
+                  const isPaid = txn.status === "paid";
+                  return (
+                    <Pressable
+                      key={`${card.user_id}-${refreshKey}`}
+                      style={({ pressed }) => [
+                        styles.memberCard,
+                        pressed && styles.memberCardPressed,
+                      ]}
+                      onPress={() => {
+                        Keyboard.dismiss();
+                        if (canEdit && txn) {
+                          router.push({
+                            pathname: "/(modals)/edit-member",
+                            params: {
+                              memberId: txn.id,
+                              accountId: selectedAccountId || "",
+                              groupType: activeTab,
+                            },
+                          });
+                        }
+                      }}
+                    >
+                      <View style={styles.txnRow}>
+                        <View
+                          style={[
+                            styles.txnIcon,
+                            {
+                              backgroundColor: isIncome
+                                ? COLORS.successLight
+                                : COLORS.dangerLight,
+                            },
+                          ]}
+                        >
+                          <Ionicons
+                            name={isIncome ? "arrow-down" : "arrow-up"}
+                            size={22}
+                            color={
+                              isIncome ? COLORS.successDark : COLORS.danger
+                            }
+                          />
+                        </View>
+
+                        <View style={styles.txnInfo}>
+                          <Text style={styles.memberName} numberOfLines={1}>
+                            {card.name || "Untitled"}
+                          </Text>
+                          <Text style={styles.txnMeta} numberOfLines={1}>
+                            {getCategoryLabel(txn.role)}
+                            {txn.dueDate
+                              ? `  ·  ${formatFullDate(txn.dueDate)}`
+                              : ""}
+                          </Text>
+                        </View>
+
+                        <View style={styles.txnRight}>
+                          <Text
+                            style={[
+                              styles.txnAmount,
+                              {
+                                color: isIncome
+                                  ? COLORS.successDark
+                                  : COLORS.text,
+                              },
+                            ]}
+                            numberOfLines={1}
+                          >
+                            {isIncome ? "+" : "−"}
+                            {formatINR(Number(txn.amount) || 0)}
+                          </Text>
+                          <View
+                            style={[
+                              styles.statusPill,
+                              isPaid
+                                ? styles.statusPillPaid
+                                : styles.statusPillDue,
+                            ]}
+                          >
+                            <View
+                              style={[
+                                styles.statusDot,
+                                {
+                                  backgroundColor: isPaid
+                                    ? COLORS.success
+                                    : COLORS.danger,
+                                },
+                              ]}
+                            />
+                            <Text
+                              style={[
+                                styles.statusPillText,
+                                {
+                                  color: isPaid
+                                    ? COLORS.successDark
+                                    : COLORS.danger,
+                                },
+                              ]}
+                            >
+                              {isPaid ? "Paid" : "Due"}
+                            </Text>
+                          </View>
+                        </View>
+                      </View>
+                    </Pressable>
+                  );
+                }
+
+                const isSelf = myUserId === card.user_id;
+                const subline = [
+                  card.phone ? formatPhoneForDisplay(card.phone) : null,
+                  (card.totalCount ?? card.records.length) > 1
+                    ? `${
+                        card.records.length !==
+                        (card.totalCount ?? card.records.length)
+                          ? `${card.records.length} of ${card.totalCount}`
+                          : card.records.length
+                      } ${isStaffTab ? "roles" : "flats"}`
+                    : null,
+                ]
+                  .filter(Boolean)
+                  .join("  ·  ");
+
                 return (
                   <Pressable
-                    key={`${card.user_id}-${refreshKey}`}
+                    key={`${card.user_id}-${refreshKey}-${attendanceVersion}`}
                     style={({ pressed }) => [
                       styles.memberCard,
                       pressed && styles.memberCardPressed,
                     ]}
                     onPress={() => {
                       Keyboard.dismiss();
-                      if (canEdit && txn) {
+                      if (canEdit && primaryRecord) {
                         router.push({
                           pathname: "/(modals)/edit-member",
                           params: {
-                            memberId: txn.id,
+                            memberId: primaryRecord.id,
                             accountId: selectedAccountId || "",
                             groupType: activeTab,
                           },
@@ -2143,945 +2272,837 @@ export default function PeopleScreen() {
                       }
                     }}
                   >
-                    <View style={styles.txnRow}>
+                    <View style={styles.memberTop}>
                       <View
                         style={[
-                          styles.txnIcon,
-                          {
-                            backgroundColor: isIncome
-                              ? COLORS.successLight
-                              : COLORS.dangerLight,
-                          },
+                          styles.memberAvatar,
+                          isStaffTab && styles.memberAvatarStaff,
                         ]}
                       >
-                        <Ionicons
-                          name={isIncome ? "arrow-down" : "arrow-up"}
-                          size={22}
-                          color={isIncome ? COLORS.successDark : COLORS.danger}
-                        />
-                      </View>
-
-                      <View style={styles.txnInfo}>
-                        <Text style={styles.memberName} numberOfLines={1}>
-                          {card.name || "Untitled"}
-                        </Text>
-                        <Text style={styles.txnMeta} numberOfLines={1}>
-                          {getCategoryLabel(txn.role)}
-                          {txn.dueDate
-                            ? `  ·  ${formatFullDate(txn.dueDate)}`
-                            : ""}
-                        </Text>
-                      </View>
-
-                      <View style={styles.txnRight}>
-                        <Text
-                          style={[
-                            styles.txnAmount,
-                            {
-                              color: isIncome
-                                ? COLORS.successDark
-                                : COLORS.text,
-                            },
-                          ]}
-                          numberOfLines={1}
-                        >
-                          {isIncome ? "+" : "−"}
-                          {formatINR(Number(txn.amount) || 0)}
-                        </Text>
-                        <View
-                          style={[
-                            styles.statusPill,
-                            isPaid
-                              ? styles.statusPillPaid
-                              : styles.statusPillDue,
-                          ]}
-                        >
-                          <View
-                            style={[
-                              styles.statusDot,
-                              {
-                                backgroundColor: isPaid
-                                  ? COLORS.success
-                                  : COLORS.danger,
-                              },
-                            ]}
+                        {card.photo_url ? (
+                          <Image
+                            source={{ uri: card.photo_url }}
+                            style={styles.memberPhoto}
                           />
-                          <Text
-                            style={[
-                              styles.statusPillText,
-                              {
-                                color: isPaid
-                                  ? COLORS.successDark
-                                  : COLORS.danger,
-                              },
-                            ]}
-                          >
-                            {isPaid ? "Paid" : "Due"}
+                        ) : (
+                          <Text style={styles.memberInitial}>
+                            {card.name?.charAt(0)?.toUpperCase() || "?"}
                           </Text>
-                        </View>
+                        )}
                       </View>
-                    </View>
-                  </Pressable>
-                );
-              }
 
-              const isSelf = myUserId === card.user_id;
-              const subline = [
-                card.phone ? formatPhoneForDisplay(card.phone) : null,
-                (card.totalCount ?? card.records.length) > 1
-                  ? `${
-                      card.records.length !==
-                      (card.totalCount ?? card.records.length)
-                        ? `${card.records.length} of ${card.totalCount}`
-                        : card.records.length
-                    } ${isStaffTab ? "roles" : "flats"}`
-                  : null,
-              ]
-                .filter(Boolean)
-                .join("  ·  ");
-
-              return (
-                <Pressable
-                  key={`${card.user_id}-${refreshKey}-${attendanceVersion}`}
-                  style={({ pressed }) => [
-                    styles.memberCard,
-                    pressed && styles.memberCardPressed,
-                  ]}
-                  onPress={() => {
-                    Keyboard.dismiss();
-                    if (canEdit && primaryRecord) {
-                      router.push({
-                        pathname: "/(modals)/edit-member",
-                        params: {
-                          memberId: primaryRecord.id,
-                          accountId: selectedAccountId || "",
-                          groupType: activeTab,
-                        },
-                      });
-                    }
-                  }}
-                >
-                  <View style={styles.memberTop}>
-                    <View
-                      style={[
-                        styles.memberAvatar,
-                        isStaffTab && styles.memberAvatarStaff,
-                      ]}
-                    >
-                      {card.photo_url ? (
-                        <Image
-                          source={{ uri: card.photo_url }}
-                          style={styles.memberPhoto}
-                        />
-                      ) : (
-                        <Text style={styles.memberInitial}>
-                          {card.name?.charAt(0)?.toUpperCase() || "?"}
-                        </Text>
-                      )}
-                    </View>
-
-                    <View style={styles.memberInfo}>
-                      <View style={styles.memberNameRow}>
-                        <Text style={styles.memberName} numberOfLines={1}>
-                          {card.name}
-                        </Text>
-                        {isSelf ? (
-                          <View style={styles.youBadge}>
-                            <Text style={styles.youBadgeText}>You</Text>
-                          </View>
+                      <View style={styles.memberInfo}>
+                        <View style={styles.memberNameRow}>
+                          <Text style={styles.memberName} numberOfLines={1}>
+                            {card.name}
+                          </Text>
+                          {isSelf ? (
+                            <View style={styles.youBadge}>
+                              <Text style={styles.youBadgeText}>You</Text>
+                            </View>
+                          ) : null}
+                        </View>
+                        {subline ? (
+                          <Text style={styles.memberSubline} numberOfLines={1}>
+                            {subline}
+                          </Text>
                         ) : null}
                       </View>
-                      {subline ? (
-                        <Text style={styles.memberSubline} numberOfLines={1}>
-                          {subline}
-                        </Text>
-                      ) : null}
-                    </View>
 
-                    {card.phone ? (
-                      <Pressable
-                        style={({ pressed }) => [
-                          styles.callButton,
-                          pressed && styles.pressedButton,
-                        ]}
-                        onPress={(event) => {
-                          event.stopPropagation();
-                          Keyboard.dismiss();
-                          callNumber(card.phone, (title, message) =>
-                            showAlert({
-                              variant: "error",
-                              title,
-                              message,
-                            }),
-                          );
-                        }}
-                        hitSlop={6}
-                      >
-                        <Ionicons
-                          name="call"
-                          size={18}
-                          color={COLORS.primary}
-                        />
-                      </Pressable>
-                    ) : null}
-                  </View>
-
-                  {card.records.map((record: any) => {
-                    const monthlyPaymentData = getPaymentForMonth(
-                      record,
-                      selectedMonth,
-                    );
-                    const statusPaymentAmount = resolveDueAmount(
-                      record,
-                      selectedMonth,
-                      {
-                        isApartmentTab,
-                        isStaffTab,
-                        getAttendanceRecord,
-                      },
-                    );
-                    const isPaidThisMonth =
-                      monthlyPaymentData.status === "paid";
-
-                    const paidDateForMonth: string | null =
-                      isPaidThisMonth &&
-                      typeof monthlyPaymentData.paidDate === "string" &&
-                      monthlyPaymentData.paidDate.length >= 10
-                        ? monthlyPaymentData.paidDate
-                        : null;
-
-                    const roleStyle = isApartmentTab
-                      ? getMemberRoleStyle(record.role, isTenantAccount)
-                      : getStaffRoleStyle(record.role);
-
-                    const recordChips = isApartmentTab
-                      ? buildMemberRecordChips(record, isTenantAccount)
-                      : [];
-
-                    const monthlyAmount = isApartmentTab
-                      ? Number(record.maintenanceAmount) || 0
-                      : Number(record.monthlySalary) || 0;
-
-                    const att = isStaffTab
-                      ? getAttendanceRecord(record.id, month)
-                      : undefined;
-                    const attStatuses =
-                      (att?.statuses as
-                        | Record<string, AttendanceStatus>
-                        | undefined) ?? modalAttendance?.statuses;
-                    const totalDays = getDaysInMonthCount(month);
-                    const paidDays = getPaidDaysCount(month, attStatuses);
-                    const showPaidDaysChip =
-                      canSeePaidDays && isStaffTab && paidDays != null;
-
-                    const showPay = canEdit && showFinancialInfo;
-                    const showAttendance = canEdit && isStaffTab;
-
-                    return (
-                      <View key={record.id} style={styles.recordBlock}>
+                      {card.phone ? (
                         <Pressable
                           style={({ pressed }) => [
-                            styles.recordRow,
-                            pressed && styles.recordRowPressed,
+                            styles.callButton,
+                            pressed && styles.pressedButton,
                           ]}
                           onPress={(event) => {
                             event.stopPropagation();
                             Keyboard.dismiss();
-                            if (canEdit) {
-                              router.push({
-                                pathname: "/(modals)/edit-member",
-                                params: {
-                                  memberId: record.id,
-                                  accountId: selectedAccountId || "",
-                                  groupType: activeTab,
-                                },
-                              });
-                            }
+                            callNumber(card.phone, (title, message) =>
+                              showAlert({
+                                variant: "error",
+                                title,
+                                message,
+                              }),
+                            );
                           }}
+                          hitSlop={6}
                         >
-                          {/* ── LEFT: everything inline on ONE row ─────── */}
-                          <View style={styles.recordInfo}>
-                            <View style={styles.recordInlineRow}>
-                              {/* Area / Wing / Flat chips */}
-                              {isApartmentTab && recordChips.length > 0
-                                ? recordChips.map((chip) => (
-                                    <View
-                                      key={chip.key}
-                                      style={styles.recordChip}
-                                    >
-                                      <Ionicons
-                                        name={chip.icon}
-                                        size={11}
-                                        color={COLORS.primaryDark}
-                                      />
-                                      <Text style={styles.recordChipValue}>
-                                        {chip.value}
-                                      </Text>
-                                    </View>
-                                  ))
-                                : null}
+                          <Ionicons
+                            name="call"
+                            size={18}
+                            color={COLORS.primary}
+                          />
+                        </Pressable>
+                      ) : null}
+                    </View>
 
-                              {/* Role badge: Room Rent / Shop Rent … */}
-                              <View
-                                style={[
-                                  styles.roleBadge,
-                                  {
-                                    backgroundColor: roleStyle.bg,
-                                    borderColor: roleStyle.border,
+                    {card.records.map((record: any) => {
+                      const monthlyPaymentData = getPaymentForMonth(
+                        record,
+                        selectedMonth,
+                      );
+                      const statusPaymentAmount = resolveDueAmount(
+                        record,
+                        selectedMonth,
+                        {
+                          isApartmentTab,
+                          isStaffTab,
+                          getAttendanceRecord,
+                        },
+                      );
+                      const isPaidThisMonth =
+                        monthlyPaymentData.status === "paid";
+
+                      const paidDateForMonth: string | null =
+                        isPaidThisMonth &&
+                        typeof monthlyPaymentData.paidDate === "string" &&
+                        monthlyPaymentData.paidDate.length >= 10
+                          ? monthlyPaymentData.paidDate
+                          : null;
+
+                      const roleStyle = isApartmentTab
+                        ? getMemberRoleStyle(record.role, isTenantAccount)
+                        : getStaffRoleStyle(record.role);
+
+                      const recordChips = isApartmentTab
+                        ? buildMemberRecordChips(record, isTenantAccount)
+                        : [];
+
+                      const monthlyAmount = isApartmentTab
+                        ? Number(record.maintenanceAmount) || 0
+                        : Number(record.monthlySalary) || 0;
+
+                      const att = isStaffTab
+                        ? getAttendanceRecord(record.id, month)
+                        : undefined;
+                      const attStatuses =
+                        (att?.statuses as
+                          | Record<string, AttendanceStatus>
+                          | undefined) ?? modalAttendance?.statuses;
+                      const totalDays = getDaysInMonthCount(month);
+                      const paidDays = getPaidDaysCount(month, attStatuses);
+                      const showPaidDaysChip =
+                        canSeePaidDays && isStaffTab && paidDays != null;
+
+                      const showPay = canEdit && showFinancialInfo;
+                      const showAttendance = canEdit && isStaffTab;
+
+                      return (
+                        <View key={record.id} style={styles.recordBlock}>
+                          <Pressable
+                            style={({ pressed }) => [
+                              styles.recordRow,
+                              pressed && styles.recordRowPressed,
+                            ]}
+                            onPress={(event) => {
+                              event.stopPropagation();
+                              Keyboard.dismiss();
+                              if (canEdit) {
+                                router.push({
+                                  pathname: "/(modals)/edit-member",
+                                  params: {
+                                    memberId: record.id,
+                                    accountId: selectedAccountId || "",
+                                    groupType: activeTab,
                                   },
-                                ]}
-                              >
+                                });
+                              }
+                            }}
+                          >
+                            {/* ── LEFT: everything inline on ONE row ─────── */}
+                            <View style={styles.recordInfo}>
+                              <View style={styles.recordInlineRow}>
+                                {/* Area / Wing / Flat chips */}
+                                {isApartmentTab && recordChips.length > 0
+                                  ? recordChips.map((chip) => (
+                                      <View
+                                        key={chip.key}
+                                        style={styles.recordChip}
+                                      >
+                                        <Ionicons
+                                          name={chip.icon}
+                                          size={11}
+                                          color={COLORS.primaryDark}
+                                        />
+                                        <Text style={styles.recordChipValue}>
+                                          {chip.value}
+                                        </Text>
+                                      </View>
+                                    ))
+                                  : null}
+
+                                {/* Role badge: Room Rent / Shop Rent … */}
+                                <View
+                                  style={[
+                                    styles.roleBadge,
+                                    {
+                                      backgroundColor: roleStyle.bg,
+                                      borderColor: roleStyle.border,
+                                    },
+                                  ]}
+                                >
+                                  <Text
+                                    style={[
+                                      styles.roleBadgeText,
+                                      { color: roleStyle.text },
+                                    ]}
+                                    numberOfLines={1}
+                                  >
+                                    {roleStyle.label}
+                                  </Text>
+                                </View>
+
+                                {/* Monthly amount inline: ₹5,000/mo */}
+                                <Text
+                                  style={styles.recordInlineAmount}
+                                  numberOfLines={1}
+                                >
+                                  {formatINR(monthlyAmount)}/mo
+                                </Text>
+
+                                {/* Paid days chip */}
+                                {showPaidDaysChip ? (
+                                  <View style={styles.paidDaysChip}>
+                                    <Ionicons
+                                      name="checkmark-circle"
+                                      size={10}
+                                      color="#15803D"
+                                    />
+                                    <Text style={styles.paidDaysChipText}>
+                                      {paidDays}
+                                      {totalDays ? `/${totalDays}` : ""}
+                                    </Text>
+                                  </View>
+                                ) : null}
+                              </View>
+                            </View>
+
+                            {/* ── RIGHT: paid amount + paid date only ───── */}
+                            {showFinancialInfo ? (
+                              <View style={styles.recordRight}>
                                 <Text
                                   style={[
-                                    styles.roleBadgeText,
-                                    { color: roleStyle.text },
+                                    styles.recordAmount,
+                                    {
+                                      color: isPaidThisMonth
+                                        ? COLORS.successDark
+                                        : COLORS.danger,
+                                    },
                                   ]}
                                   numberOfLines={1}
                                 >
-                                  {roleStyle.label}
+                                  {formatINR(statusPaymentAmount)}
                                 </Text>
-                              </View>
-
-                              {/* Monthly amount inline: ₹5,000/mo */}
-                              <Text
-                                style={styles.recordInlineAmount}
-                                numberOfLines={1}
-                              >
-                                {formatINR(monthlyAmount)}/mo
-                              </Text>
-
-                              {/* Paid days chip */}
-                              {showPaidDaysChip ? (
-                                <View style={styles.paidDaysChip}>
-                                  <Ionicons
-                                    name="checkmark-circle"
-                                    size={10}
-                                    color="#15803D"
-                                  />
-                                  <Text style={styles.paidDaysChipText}>
-                                    {paidDays}
-                                    {totalDays ? `/${totalDays}` : ""}
-                                  </Text>
-                                </View>
-                              ) : null}
-                            </View>
-                          </View>
-
-                          {/* ── RIGHT: paid amount + paid date only ───── */}
-                          {showFinancialInfo ? (
-                            <View style={styles.recordRight}>
-                              <Text
-                                style={[
-                                  styles.recordAmount,
-                                  {
-                                    color: isPaidThisMonth
-                                      ? COLORS.successDark
-                                      : COLORS.danger,
-                                  },
-                                ]}
-                                numberOfLines={1}
-                              >
-                                {formatINR(statusPaymentAmount)}
-                              </Text>
-                              <Text
-                                style={[
-                                  styles.statusInlineText,
-                                  {
-                                    color: isPaidThisMonth
-                                      ? COLORS.successDark
-                                      : COLORS.danger,
-                                  },
-                                ]}
-                                numberOfLines={1}
-                              >
-                                {isPaidThisMonth
-                                  ? paidDateForMonth
-                                    ? `Paid ${formatBadgeDate(paidDateForMonth)}`
-                                    : "Paid"
-                                  : "Due"}
-                              </Text>
-                            </View>
-                          ) : null}
-                        </Pressable>
-
-                        {canEdit && (showPay || showAttendance) ? (
-                          <View style={styles.recordActionsRow}>
-                            {showAttendance ? (
-                              <Pressable
-                                style={({ pressed }) => [
-                                  styles.recordActionButton,
-                                  styles.recordActionAttendance,
-                                  pressed && styles.recordActionButtonPressed,
-                                ]}
-                                onPress={(event) => {
-                                  event.stopPropagation();
-                                  Keyboard.dismiss();
-                                  router.push({
-                                    pathname: "/(modals)/mark-attendance",
-                                    params: {
-                                      memberId: record.id,
-                                      accountId: selectedAccountId || "",
-                                      month: selectedMonth || "",
-                                    },
-                                  });
-                                }}
-                              >
-                                <Ionicons
-                                  name="calendar-outline"
-                                  size={16}
-                                  color={COLORS.purple}
-                                />
                                 <Text
                                   style={[
-                                    styles.recordActionText,
-                                    { color: COLORS.purple },
+                                    styles.statusInlineText,
+                                    {
+                                      color: isPaidThisMonth
+                                        ? COLORS.successDark
+                                        : COLORS.danger,
+                                    },
                                   ]}
+                                  numberOfLines={1}
                                 >
-                                  Attendance
+                                  {isPaidThisMonth
+                                    ? paidDateForMonth
+                                      ? `Paid ${formatBadgeDate(paidDateForMonth)}`
+                                      : "Paid"
+                                    : "Due"}
                                 </Text>
-                              </Pressable>
+                              </View>
                             ) : null}
+                          </Pressable>
 
-                            {showPay ? (
-                              <Pressable
-                                style={({ pressed }) => [
-                                  styles.recordActionButton,
-                                  pressed && styles.recordActionButtonPressed,
-                                ]}
-                                onPress={(event) => {
-                                  event.stopPropagation();
-                                  Keyboard.dismiss();
-                                  openPaymentModal(record);
-                                }}
-                              >
-                                <Ionicons
-                                  name="cash-outline"
-                                  size={16}
-                                  color={COLORS.primary}
-                                />
-                                <Text style={styles.recordActionText}>
-                                  Payment
-                                </Text>
-                              </Pressable>
-                            ) : null}
-                          </View>
-                        ) : null}
+                          {canEdit && (showPay || showAttendance) ? (
+                            <View style={styles.recordActionsRow}>
+                              {showAttendance ? (
+                                <Pressable
+                                  style={({ pressed }) => [
+                                    styles.recordActionButton,
+                                    styles.recordActionAttendance,
+                                    pressed && styles.recordActionButtonPressed,
+                                  ]}
+                                  onPress={(event) => {
+                                    event.stopPropagation();
+                                    Keyboard.dismiss();
+                                    router.push({
+                                      pathname: "/(modals)/mark-attendance",
+                                      params: {
+                                        memberId: record.id,
+                                        accountId: selectedAccountId || "",
+                                        month: selectedMonth || "",
+                                      },
+                                    });
+                                  }}
+                                >
+                                  <Ionicons
+                                    name="calendar-outline"
+                                    size={16}
+                                    color={COLORS.purple}
+                                  />
+                                  <Text
+                                    style={[
+                                      styles.recordActionText,
+                                      { color: COLORS.purple },
+                                    ]}
+                                  >
+                                    Attendance
+                                  </Text>
+                                </Pressable>
+                              ) : null}
+
+                              {showPay ? (
+                                <Pressable
+                                  style={({ pressed }) => [
+                                    styles.recordActionButton,
+                                    pressed && styles.recordActionButtonPressed,
+                                  ]}
+                                  onPress={(event) => {
+                                    event.stopPropagation();
+                                    Keyboard.dismiss();
+                                    openPaymentModal(record);
+                                  }}
+                                >
+                                  <Ionicons
+                                    name="cash-outline"
+                                    size={16}
+                                    color={COLORS.primary}
+                                  />
+                                  <Text style={styles.recordActionText}>
+                                    Payment
+                                  </Text>
+                                </Pressable>
+                              ) : null}
+                            </View>
+                          ) : null}
+                        </View>
+                      );
+                    })}
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
+        </ScrollView>
+
+        {canEdit && !keyboardVisible ? (
+          <Pressable
+            style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}
+            onPress={() => handleAdd(activeTab)}
+          >
+            <Ionicons name="add" size={22} color={COLORS.white} />
+            <Text style={styles.fabText}>
+              {getAddButtonLabel(activeTab, selectedAccount?.type)}
+            </Text>
+          </Pressable>
+        ) : null}
+
+        <MonthYearPickerModal
+          visible={showMonthPicker}
+          value={selectedMonth}
+          onClose={() => setShowMonthPicker(false)}
+          onSelect={setSelectedMonth}
+        />
+
+        {canEdit && (
+          <Modal
+            transparent
+            animationType="fade"
+            visible={Boolean(paymentMember)}
+            onRequestClose={() => setPaymentMember(null)}
+          >
+            <KeyboardAvoidingView
+              style={styles.modalOverlay}
+              behavior={Platform.OS === "ios" ? "padding" : undefined}
+            >
+              <View style={styles.paymentModal}>
+                <View style={styles.paymentModalHeader}>
+                  <View style={styles.paymentHeaderIcon}>
+                    <Ionicons
+                      name={isApartmentTab ? "home-outline" : "wallet-outline"}
+                      size={22}
+                      color={COLORS.primary}
+                    />
+                  </View>
+                  <View style={styles.paymentHeaderInfo}>
+                    <Text style={styles.paymentTitle}>Payment details</Text>
+                    <Text style={styles.paymentMemberName} numberOfLines={1}>
+                      {paymentMember?.name}
+                    </Text>
+                  </View>
+                  <Pressable
+                    style={styles.closeModalButton}
+                    onPress={() => {
+                      Keyboard.dismiss();
+                      setPaymentMember(null);
+                    }}
+                  >
+                    <Ionicons name="close" size={20} color={COLORS.text} />
+                  </Pressable>
+                </View>
+
+                <ScrollView
+                  style={styles.paymentScroll}
+                  contentContainerStyle={styles.paymentScrollContent}
+                  showsVerticalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                  keyboardDismissMode="on-drag"
+                >
+                  <View style={styles.paymentMonthRow}>
+                    <View>
+                      <Text style={styles.paymentMonthLabel}>Payment for</Text>
+                      <Text style={styles.paymentMonthText}>
+                        {formatMonthLong(selectedMonth || paidDate.slice(0, 7))}
+                      </Text>
+                    </View>
+                    <View
+                      style={[
+                        styles.statusSmallBadge,
+                        selectedStatus === "paid"
+                          ? styles.statusSmallBadgePaid
+                          : styles.statusSmallBadgeDue,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.statusSmallText,
+                          selectedStatus === "paid"
+                            ? styles.statusSmallTextPaid
+                            : styles.statusSmallTextDue,
+                        ]}
+                      >
+                        {selectedStatus === "paid" ? "Paid" : "Due"}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <Text style={styles.sectionLabel}>Payment status</Text>
+
+                  <View style={styles.statusRadioRow}>
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.statusRadioOption,
+                        selectedStatus === "paid" &&
+                          styles.statusRadioOptionPaid,
+                        pressed && styles.statusRadioOptionPressed,
+                      ]}
+                      onPress={() => setSelectedStatus("paid")}
+                    >
+                      <Ionicons
+                        name={
+                          selectedStatus === "paid"
+                            ? "checkmark-circle"
+                            : "ellipse-outline"
+                        }
+                        size={22}
+                        color={
+                          selectedStatus === "paid"
+                            ? COLORS.success
+                            : COLORS.muted
+                        }
+                      />
+                      <Text
+                        style={[
+                          styles.statusRadioTitle,
+                          selectedStatus === "paid" &&
+                            styles.statusRadioTitlePaid,
+                        ]}
+                      >
+                        Paid
+                      </Text>
+                    </Pressable>
+
+                    <Pressable
+                      style={({ pressed }) => [
+                        styles.statusRadioOption,
+                        selectedStatus === "due" && styles.statusRadioOptionDue,
+                        pressed && styles.statusRadioOptionPressed,
+                      ]}
+                      onPress={() => setSelectedStatus("due")}
+                    >
+                      <Ionicons
+                        name={
+                          selectedStatus === "due" ? "time" : "ellipse-outline"
+                        }
+                        size={22}
+                        color={
+                          selectedStatus === "due"
+                            ? COLORS.danger
+                            : COLORS.muted
+                        }
+                      />
+                      <Text
+                        style={[
+                          styles.statusRadioTitle,
+                          selectedStatus === "due" &&
+                            styles.statusRadioTitleDue,
+                        ]}
+                      >
+                        Due
+                      </Text>
+                    </Pressable>
+                  </View>
+
+                  <Text style={styles.sectionLabel}>
+                    {isApartmentTab ? "Maintenance amount" : "Monthly salary"}
+                  </Text>
+
+                  <View style={styles.amountCard}>
+                    <View style={styles.amountLeft}>
+                      <Ionicons
+                        name="cash-outline"
+                        size={20}
+                        color={COLORS.primary}
+                      />
+                      <Text style={styles.amountLabel}>
+                        {isApartmentTab ? "Base amount" : "Monthly salary"}
+                      </Text>
+                    </View>
+                    <Text style={styles.amountValue}>
+                      {formatINR(baseSalary)}
+                    </Text>
+                  </View>
+
+                  {isStaffTab && attendanceAdjustedSalary != null ? (
+                    <>
+                      <Text style={styles.sectionLabel}>
+                        Attendance adjusted
+                      </Text>
+                      <View
+                        style={[
+                          styles.amountCard,
+                          {
+                            borderColor: COLORS.primarySoft,
+                            backgroundColor: COLORS.primaryLight,
+                          },
+                        ]}
+                      >
+                        <View style={styles.amountLeft}>
+                          <Ionicons
+                            name="calendar-outline"
+                            size={20}
+                            color={COLORS.primary}
+                          />
+                          <Text
+                            style={[
+                              styles.amountLabel,
+                              { color: COLORS.primaryDark, fontWeight: "700" },
+                            ]}
+                          >
+                            Payable this month
+                          </Text>
+                        </View>
+                        <Text
+                          style={[
+                            styles.amountValue,
+                            { color: COLORS.primaryDark },
+                          ]}
+                        >
+                          {formatINR(attendanceAdjustedSalary)}
+                        </Text>
                       </View>
-                    );
-                  })}
-                </Pressable>
-              );
-            })}
-          </View>
+                    </>
+                  ) : null}
+
+                  <Pressable
+                    style={styles.modifierButton}
+                    onPress={() => {
+                      setShowAdditionalAmount(!showAdditionalAmount);
+                      if (showAdditionalAmount) {
+                        setAdditionalAmount("");
+                        setAdditionalNote("");
+                      }
+                    }}
+                  >
+                    <View
+                      style={[
+                        styles.modifierIcon,
+                        showAdditionalAmount
+                          ? styles.modifierIconRemove
+                          : styles.modifierIconAdd,
+                      ]}
+                    >
+                      <Ionicons
+                        name={showAdditionalAmount ? "remove" : "add"}
+                        size={18}
+                        color={
+                          showAdditionalAmount ? COLORS.danger : COLORS.primary
+                        }
+                      />
+                    </View>
+                    <Text
+                      style={[
+                        styles.modifierText,
+                        showAdditionalAmount && styles.modifierTextRemove,
+                      ]}
+                    >
+                      {showAdditionalAmount
+                        ? "Remove additional amount"
+                        : "Add additional amount"}
+                    </Text>
+                    <Ionicons
+                      name={
+                        showAdditionalAmount ? "chevron-up" : "chevron-down"
+                      }
+                      size={16}
+                      color={COLORS.muted}
+                    />
+                  </Pressable>
+
+                  {showAdditionalAmount && (
+                    <View style={styles.inputGroup}>
+                      <TextInput
+                        style={styles.modalInput}
+                        placeholder="Additional amount"
+                        placeholderTextColor={COLORS.muted}
+                        keyboardType="numeric"
+                        value={additionalAmount}
+                        onChangeText={(value) =>
+                          setAdditionalAmount(value.replace(/[^0-9]/g, ""))
+                        }
+                      />
+                      <TextInput
+                        style={styles.modalInput}
+                        placeholder="Note, e.g. bonus or event work"
+                        placeholderTextColor={COLORS.muted}
+                        value={additionalNote}
+                        onChangeText={setAdditionalNote}
+                      />
+                    </View>
+                  )}
+
+                  <Pressable
+                    style={styles.modifierButton}
+                    onPress={() => {
+                      setShowDeduction(!showDeduction);
+                      if (showDeduction) {
+                        setDeductionAmount("");
+                        setDeductionNote("");
+                      }
+                    }}
+                  >
+                    <View
+                      style={[
+                        styles.modifierIcon,
+                        showDeduction
+                          ? styles.modifierIconRemove
+                          : styles.modifierIconAdd,
+                      ]}
+                    >
+                      <Ionicons
+                        name="remove"
+                        size={18}
+                        color={showDeduction ? COLORS.danger : COLORS.primary}
+                      />
+                    </View>
+                    <Text
+                      style={[
+                        styles.modifierText,
+                        showDeduction && styles.modifierTextRemove,
+                      ]}
+                    >
+                      {showDeduction ? "Remove deduction" : "Add deduction"}
+                    </Text>
+                    <Ionicons
+                      name={showDeduction ? "chevron-up" : "chevron-down"}
+                      size={16}
+                      color={COLORS.muted}
+                    />
+                  </Pressable>
+
+                  {showDeduction && (
+                    <View style={styles.inputGroup}>
+                      <TextInput
+                        style={styles.modalInput}
+                        placeholder="Deduction amount"
+                        placeholderTextColor={COLORS.muted}
+                        keyboardType="numeric"
+                        value={deductionAmount}
+                        onChangeText={(value) =>
+                          setDeductionAmount(value.replace(/[^0-9]/g, ""))
+                        }
+                      />
+                      <TextInput
+                        style={styles.modalInput}
+                        placeholder="Note, e.g. advance or absence"
+                        placeholderTextColor={COLORS.muted}
+                        value={deductionNote}
+                        onChangeText={setDeductionNote}
+                      />
+                    </View>
+                  )}
+
+                  <View style={styles.netAmountCard}>
+                    <View>
+                      <Text style={styles.netAmountLabel}>
+                        {selectedStatus === "paid"
+                          ? "Net paid"
+                          : "Amount to pay"}
+                      </Text>
+                      <Text style={styles.netAmountHint}>
+                        Base + additions − deductions
+                      </Text>
+                    </View>
+                    <Text style={styles.netAmountValue}>
+                      {formatINR(netPaidAmount)}
+                    </Text>
+                  </View>
+
+                  {selectedStatus === "paid" && (
+                    <>
+                      <Text style={styles.sectionLabel}>Paid date</Text>
+                      <Pressable
+                        style={styles.dateSelector}
+                        onPress={() => setShowPaidDatePicker(true)}
+                      >
+                        <View style={styles.dateIcon}>
+                          <Ionicons
+                            name="calendar-outline"
+                            size={18}
+                            color={COLORS.primary}
+                          />
+                        </View>
+                        <Text style={styles.dateText}>
+                          {formatFullDate(paidDate)}
+                        </Text>
+                        <Ionicons
+                          name="chevron-forward"
+                          size={18}
+                          color={COLORS.muted}
+                        />
+                      </Pressable>
+                    </>
+                  )}
+
+                  <View style={styles.paymentBottomSpace} />
+                </ScrollView>
+
+                <View style={styles.modalActions}>
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.cancelButton,
+                      pressed && styles.cancelButtonPressed,
+                    ]}
+                    onPress={() => {
+                      Keyboard.dismiss();
+                      setPaymentMember(null);
+                    }}
+                    disabled={saving}
+                  >
+                    <Text style={styles.cancelButtonText}>Cancel</Text>
+                  </Pressable>
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.saveButton,
+                      selectedStatus === "due" && styles.saveDueButton,
+                      pressed && styles.saveButtonPressed,
+                      saving && styles.saveButtonDisabled,
+                    ]}
+                    onPress={() => {
+                      Keyboard.dismiss();
+                      handleSavePayment();
+                    }}
+                    disabled={saving}
+                  >
+                    <Ionicons
+                      name={
+                        selectedStatus === "paid"
+                          ? "checkmark-circle-outline"
+                          : "time-outline"
+                      }
+                      size={19}
+                      color={COLORS.white}
+                    />
+                    <Text style={styles.saveButtonText}>
+                      {saving
+                        ? "Saving..."
+                        : selectedStatus === "paid"
+                          ? "Save as paid"
+                          : "Save as due"}
+                    </Text>
+                  </Pressable>
+                </View>
+              </View>
+            </KeyboardAvoidingView>
+          </Modal>
         )}
-      </ScrollView>
 
-      {canEdit && !keyboardVisible ? (
-        <Pressable
-          style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}
-          onPress={() => handleAdd(activeTab)}
-        >
-          <Ionicons name="add" size={22} color={COLORS.white} />
-          <Text style={styles.fabText}>
-            {getAddButtonLabel(activeTab, selectedAccount?.type)}
-          </Text>
-        </Pressable>
-      ) : null}
-
-      <MonthYearPickerModal
-        visible={showMonthPicker}
-        value={selectedMonth}
-        onClose={() => setShowMonthPicker(false)}
-        onSelect={setSelectedMonth}
-      />
-
-      {canEdit && (
         <Modal
           transparent
           animationType="fade"
-          visible={Boolean(paymentMember)}
-          onRequestClose={() => setPaymentMember(null)}
-        >
-          <KeyboardAvoidingView
-            style={styles.modalOverlay}
-            behavior={Platform.OS === "ios" ? "padding" : undefined}
-          >
-            <View style={styles.paymentModal}>
-              <View style={styles.paymentModalHeader}>
-                <View style={styles.paymentHeaderIcon}>
-                  <Ionicons
-                    name={isApartmentTab ? "home-outline" : "wallet-outline"}
-                    size={22}
-                    color={COLORS.primary}
-                  />
-                </View>
-                <View style={styles.paymentHeaderInfo}>
-                  <Text style={styles.paymentTitle}>Payment details</Text>
-                  <Text style={styles.paymentMemberName} numberOfLines={1}>
-                    {paymentMember?.name}
-                  </Text>
-                </View>
-                <Pressable
-                  style={styles.closeModalButton}
-                  onPress={() => {
-                    Keyboard.dismiss();
-                    setPaymentMember(null);
-                  }}
-                >
-                  <Ionicons name="close" size={20} color={COLORS.text} />
-                </Pressable>
-              </View>
-
-              <ScrollView
-                style={styles.paymentScroll}
-                contentContainerStyle={styles.paymentScrollContent}
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-                keyboardDismissMode="on-drag"
-              >
-                <View style={styles.paymentMonthRow}>
-                  <View>
-                    <Text style={styles.paymentMonthLabel}>Payment for</Text>
-                    <Text style={styles.paymentMonthText}>
-                      {formatMonthLong(selectedMonth || paidDate.slice(0, 7))}
-                    </Text>
-                  </View>
-                  <View
-                    style={[
-                      styles.statusSmallBadge,
-                      selectedStatus === "paid"
-                        ? styles.statusSmallBadgePaid
-                        : styles.statusSmallBadgeDue,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.statusSmallText,
-                        selectedStatus === "paid"
-                          ? styles.statusSmallTextPaid
-                          : styles.statusSmallTextDue,
-                      ]}
-                    >
-                      {selectedStatus === "paid" ? "Paid" : "Due"}
-                    </Text>
-                  </View>
-                </View>
-
-                <Text style={styles.sectionLabel}>Payment status</Text>
-
-                <View style={styles.statusRadioRow}>
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.statusRadioOption,
-                      selectedStatus === "paid" && styles.statusRadioOptionPaid,
-                      pressed && styles.statusRadioOptionPressed,
-                    ]}
-                    onPress={() => setSelectedStatus("paid")}
-                  >
-                    <Ionicons
-                      name={
-                        selectedStatus === "paid"
-                          ? "checkmark-circle"
-                          : "ellipse-outline"
-                      }
-                      size={22}
-                      color={
-                        selectedStatus === "paid"
-                          ? COLORS.success
-                          : COLORS.muted
-                      }
-                    />
-                    <Text
-                      style={[
-                        styles.statusRadioTitle,
-                        selectedStatus === "paid" &&
-                          styles.statusRadioTitlePaid,
-                      ]}
-                    >
-                      Paid
-                    </Text>
-                  </Pressable>
-
-                  <Pressable
-                    style={({ pressed }) => [
-                      styles.statusRadioOption,
-                      selectedStatus === "due" && styles.statusRadioOptionDue,
-                      pressed && styles.statusRadioOptionPressed,
-                    ]}
-                    onPress={() => setSelectedStatus("due")}
-                  >
-                    <Ionicons
-                      name={
-                        selectedStatus === "due" ? "time" : "ellipse-outline"
-                      }
-                      size={22}
-                      color={
-                        selectedStatus === "due" ? COLORS.danger : COLORS.muted
-                      }
-                    />
-                    <Text
-                      style={[
-                        styles.statusRadioTitle,
-                        selectedStatus === "due" && styles.statusRadioTitleDue,
-                      ]}
-                    >
-                      Due
-                    </Text>
-                  </Pressable>
-                </View>
-
-                <Text style={styles.sectionLabel}>
-                  {isApartmentTab ? "Maintenance amount" : "Monthly salary"}
-                </Text>
-
-                <View style={styles.amountCard}>
-                  <View style={styles.amountLeft}>
-                    <Ionicons
-                      name="cash-outline"
-                      size={20}
-                      color={COLORS.primary}
-                    />
-                    <Text style={styles.amountLabel}>
-                      {isApartmentTab ? "Base amount" : "Monthly salary"}
-                    </Text>
-                  </View>
-                  <Text style={styles.amountValue}>
-                    {formatINR(baseSalary)}
-                  </Text>
-                </View>
-
-                {isStaffTab && attendanceAdjustedSalary != null ? (
-                  <>
-                    <Text style={styles.sectionLabel}>Attendance adjusted</Text>
-                    <View
-                      style={[
-                        styles.amountCard,
-                        {
-                          borderColor: COLORS.primarySoft,
-                          backgroundColor: COLORS.primaryLight,
-                        },
-                      ]}
-                    >
-                      <View style={styles.amountLeft}>
-                        <Ionicons
-                          name="calendar-outline"
-                          size={20}
-                          color={COLORS.primary}
-                        />
-                        <Text
-                          style={[
-                            styles.amountLabel,
-                            { color: COLORS.primaryDark, fontWeight: "700" },
-                          ]}
-                        >
-                          Payable this month
-                        </Text>
-                      </View>
-                      <Text
-                        style={[
-                          styles.amountValue,
-                          { color: COLORS.primaryDark },
-                        ]}
-                      >
-                        {formatINR(attendanceAdjustedSalary)}
-                      </Text>
-                    </View>
-                  </>
-                ) : null}
-
-                <Pressable
-                  style={styles.modifierButton}
-                  onPress={() => {
-                    setShowAdditionalAmount(!showAdditionalAmount);
-                    if (showAdditionalAmount) {
-                      setAdditionalAmount("");
-                      setAdditionalNote("");
-                    }
-                  }}
-                >
-                  <View
-                    style={[
-                      styles.modifierIcon,
-                      showAdditionalAmount
-                        ? styles.modifierIconRemove
-                        : styles.modifierIconAdd,
-                    ]}
-                  >
-                    <Ionicons
-                      name={showAdditionalAmount ? "remove" : "add"}
-                      size={18}
-                      color={
-                        showAdditionalAmount ? COLORS.danger : COLORS.primary
-                      }
-                    />
-                  </View>
-                  <Text
-                    style={[
-                      styles.modifierText,
-                      showAdditionalAmount && styles.modifierTextRemove,
-                    ]}
-                  >
-                    {showAdditionalAmount
-                      ? "Remove additional amount"
-                      : "Add additional amount"}
-                  </Text>
-                  <Ionicons
-                    name={showAdditionalAmount ? "chevron-up" : "chevron-down"}
-                    size={16}
-                    color={COLORS.muted}
-                  />
-                </Pressable>
-
-                {showAdditionalAmount && (
-                  <View style={styles.inputGroup}>
-                    <TextInput
-                      style={styles.modalInput}
-                      placeholder="Additional amount"
-                      placeholderTextColor={COLORS.muted}
-                      keyboardType="numeric"
-                      value={additionalAmount}
-                      onChangeText={(value) =>
-                        setAdditionalAmount(value.replace(/[^0-9]/g, ""))
-                      }
-                    />
-                    <TextInput
-                      style={styles.modalInput}
-                      placeholder="Note, e.g. bonus or event work"
-                      placeholderTextColor={COLORS.muted}
-                      value={additionalNote}
-                      onChangeText={setAdditionalNote}
-                    />
-                  </View>
-                )}
-
-                <Pressable
-                  style={styles.modifierButton}
-                  onPress={() => {
-                    setShowDeduction(!showDeduction);
-                    if (showDeduction) {
-                      setDeductionAmount("");
-                      setDeductionNote("");
-                    }
-                  }}
-                >
-                  <View
-                    style={[
-                      styles.modifierIcon,
-                      showDeduction
-                        ? styles.modifierIconRemove
-                        : styles.modifierIconAdd,
-                    ]}
-                  >
-                    <Ionicons
-                      name="remove"
-                      size={18}
-                      color={showDeduction ? COLORS.danger : COLORS.primary}
-                    />
-                  </View>
-                  <Text
-                    style={[
-                      styles.modifierText,
-                      showDeduction && styles.modifierTextRemove,
-                    ]}
-                  >
-                    {showDeduction ? "Remove deduction" : "Add deduction"}
-                  </Text>
-                  <Ionicons
-                    name={showDeduction ? "chevron-up" : "chevron-down"}
-                    size={16}
-                    color={COLORS.muted}
-                  />
-                </Pressable>
-
-                {showDeduction && (
-                  <View style={styles.inputGroup}>
-                    <TextInput
-                      style={styles.modalInput}
-                      placeholder="Deduction amount"
-                      placeholderTextColor={COLORS.muted}
-                      keyboardType="numeric"
-                      value={deductionAmount}
-                      onChangeText={(value) =>
-                        setDeductionAmount(value.replace(/[^0-9]/g, ""))
-                      }
-                    />
-                    <TextInput
-                      style={styles.modalInput}
-                      placeholder="Note, e.g. advance or absence"
-                      placeholderTextColor={COLORS.muted}
-                      value={deductionNote}
-                      onChangeText={setDeductionNote}
-                    />
-                  </View>
-                )}
-
-                <View style={styles.netAmountCard}>
-                  <View>
-                    <Text style={styles.netAmountLabel}>
-                      {selectedStatus === "paid" ? "Net paid" : "Amount to pay"}
-                    </Text>
-                    <Text style={styles.netAmountHint}>
-                      Base + additions − deductions
-                    </Text>
-                  </View>
-                  <Text style={styles.netAmountValue}>
-                    {formatINR(netPaidAmount)}
-                  </Text>
-                </View>
-
-                {selectedStatus === "paid" && (
-                  <>
-                    <Text style={styles.sectionLabel}>Paid date</Text>
-                    <Pressable
-                      style={styles.dateSelector}
-                      onPress={() => setShowPaidDatePicker(true)}
-                    >
-                      <View style={styles.dateIcon}>
-                        <Ionicons
-                          name="calendar-outline"
-                          size={18}
-                          color={COLORS.primary}
-                        />
-                      </View>
-                      <Text style={styles.dateText}>
-                        {formatFullDate(paidDate)}
-                      </Text>
-                      <Ionicons
-                        name="chevron-forward"
-                        size={18}
-                        color={COLORS.muted}
-                      />
-                    </Pressable>
-                  </>
-                )}
-
-                <View style={styles.paymentBottomSpace} />
-              </ScrollView>
-
-              <View style={styles.modalActions}>
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.cancelButton,
-                    pressed && styles.cancelButtonPressed,
-                  ]}
-                  onPress={() => {
-                    Keyboard.dismiss();
-                    setPaymentMember(null);
-                  }}
-                  disabled={saving}
-                >
-                  <Text style={styles.cancelButtonText}>Cancel</Text>
-                </Pressable>
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.saveButton,
-                    selectedStatus === "due" && styles.saveDueButton,
-                    pressed && styles.saveButtonPressed,
-                    saving && styles.saveButtonDisabled,
-                  ]}
-                  onPress={() => {
-                    Keyboard.dismiss();
-                    handleSavePayment();
-                  }}
-                  disabled={saving}
-                >
-                  <Ionicons
-                    name={
-                      selectedStatus === "paid"
-                        ? "checkmark-circle-outline"
-                        : "time-outline"
-                    }
-                    size={19}
-                    color={COLORS.white}
-                  />
-                  <Text style={styles.saveButtonText}>
-                    {saving
-                      ? "Saving..."
-                      : selectedStatus === "paid"
-                        ? "Save as paid"
-                        : "Save as due"}
-                  </Text>
-                </Pressable>
-              </View>
-            </View>
-          </KeyboardAvoidingView>
-        </Modal>
-      )}
-
-      <Modal
-        transparent
-        animationType="fade"
-        visible={templateMissing.visible}
-        onRequestClose={closeTemplateMissingModal}
-      >
-        <Pressable
-          style={styles.templateBackdrop}
-          onPress={closeTemplateMissingModal}
+          visible={templateMissing.visible}
+          onRequestClose={closeTemplateMissingModal}
         >
           <Pressable
-            style={styles.templateCard}
-            onPress={(event) => event.stopPropagation()}
+            style={styles.templateBackdrop}
+            onPress={closeTemplateMissingModal}
           >
-            <View style={styles.templateIconWrap}>
-              <Ionicons
-                name="document-text-outline"
-                size={30}
-                color="#D97706"
-              />
-            </View>
+            <Pressable
+              style={styles.templateCard}
+              onPress={(event) => event.stopPropagation()}
+            >
+              <View style={styles.templateIconWrap}>
+                <Ionicons
+                  name="document-text-outline"
+                  size={30}
+                  color="#D97706"
+                />
+              </View>
 
-            <Text style={styles.templateTitle}>Set up the bill template</Text>
+              <Text style={styles.templateTitle}>Set up the bill template</Text>
 
-            <Text style={styles.templateMessage}>
-              {templateMissing.isApartment
-                ? "You haven't configured the owner bill template yet. Set it up once and you'll be able to download a bill for every paid month."
-                : "You haven't configured the staff payslip template yet. Set it up once and you'll be able to download a payslip for every paid month."}
-            </Text>
+              <Text style={styles.templateMessage}>
+                {templateMissing.isApartment
+                  ? "You haven't configured the owner bill template yet. Set it up once and you'll be able to download a bill for every paid month."
+                  : "You haven't configured the staff payslip template yet. Set it up once and you'll be able to download a payslip for every paid month."}
+              </Text>
 
-            <View style={styles.templateActions}>
-              <Pressable
-                style={({ pressed }) => [
-                  styles.templateCancelButton,
-                  pressed && styles.templateButtonPressed,
-                ]}
-                onPress={closeTemplateMissingModal}
-              >
-                <Text style={styles.templateCancelText}>Not now</Text>
-              </Pressable>
+              <View style={styles.templateActions}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.templateCancelButton,
+                    pressed && styles.templateButtonPressed,
+                  ]}
+                  onPress={closeTemplateMissingModal}
+                >
+                  <Text style={styles.templateCancelText}>Not now</Text>
+                </Pressable>
 
-              <Pressable
-                style={({ pressed }) => [
-                  styles.templatePrimaryButton,
-                  pressed && styles.templateButtonPressed,
-                ]}
-                onPress={handleGoToBillSetup}
-              >
-                <Ionicons name="settings-outline" size={16} color="#fff" />
-                <Text style={styles.templatePrimaryText}>Set up now</Text>
-              </Pressable>
-            </View>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.templatePrimaryButton,
+                    pressed && styles.templateButtonPressed,
+                  ]}
+                  onPress={handleGoToBillSetup}
+                >
+                  <Ionicons name="settings-outline" size={16} color="#fff" />
+                  <Text style={styles.templatePrimaryText}>Set up now</Text>
+                </Pressable>
+              </View>
+            </Pressable>
           </Pressable>
-        </Pressable>
-      </Modal>
+        </Modal>
 
-      <GenerateBillModal
-        visible={showGenerateBillModal}
-        memberType={generateBillMemberType}
-        onMemberTypeChange={setGenerateBillMemberType}
-        onClose={() => setShowGenerateBillModal(false)}
-        onSaved={() => {
-          setShowGenerateBillModal(false);
-        }}
-      />
+        <GenerateBillModal
+          visible={showGenerateBillModal}
+          memberType={generateBillMemberType}
+          onMemberTypeChange={setGenerateBillMemberType}
+          onClose={() => setShowGenerateBillModal(false)}
+          onSaved={() => {
+            setShowGenerateBillModal(false);
+          }}
+        />
 
-      <DatePickerModal
-        visible={showPaidDatePicker}
-        value={paidDate}
-        onSelect={setPaidDate}
-        onClose={() => setShowPaidDatePicker(false)}
-      />
+        <DatePickerModal
+          visible={showPaidDatePicker}
+          value={paidDate}
+          onSelect={setPaidDate}
+          onClose={() => setShowPaidDatePicker(false)}
+        />
 
-      <AppAlert state={alert.state} onDismiss={alert.dismiss} />
+        <AppAlert state={alert.state} onDismiss={alert.dismiss} />
       </View>
     </DarkModeBoundary>
   );

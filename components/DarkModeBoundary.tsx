@@ -19,16 +19,19 @@ const COLOR_KEYS = new Set([
 function parseColor(value: string) {
   const hex = value.match(/^#([\da-f]{3}|[\da-f]{6})$/i);
   if (hex) {
-    const digits = hex[1].length === 3
-      ? [...hex[1]].map((part) => part + part).join("")
-      : hex[1];
-    return [0, 2, 4].map((index) => parseInt(digits.slice(index, index + 2), 16));
+    const digits =
+      hex[1].length === 3
+        ? [...hex[1]].map((part) => part + part).join("")
+        : hex[1];
+    return [0, 2, 4].map((index) =>
+      parseInt(digits.slice(index, index + 2), 16),
+    );
   }
 
-  const rgb = value.match(/^rgba?\((\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\)$/i);
-  return rgb
-    ? [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])]
-    : null;
+  const rgb = value.match(
+    /^rgba?\((\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\)$/i,
+  );
+  return rgb ? [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])] : null;
 }
 
 function mapColor(value: unknown, key: string): unknown {
@@ -45,7 +48,8 @@ function mapColor(value: unknown, key: string): unknown {
   if (!rgb) return value;
 
   const [red, green, blue] = rgb.map((channel) => channel / 255);
-  const lightness = (Math.max(red, green, blue) + Math.min(red, green, blue)) / 2;
+  const lightness =
+    (Math.max(red, green, blue) + Math.min(red, green, blue)) / 2;
   const saturation = Math.max(red, green, blue) - Math.min(red, green, blue);
   const lowChroma = saturation < 0.34;
 
@@ -70,7 +74,8 @@ function mapColor(value: unknown, key: string): unknown {
 
 function mapStyle(style: unknown): unknown {
   if (Array.isArray(style)) return style.map(mapStyle);
-  if (typeof style === "number") return mapStyle(StyleSheet.flatten(style as never));
+  if (typeof style === "number")
+    return mapStyle(StyleSheet.flatten(style as never));
   if (!style || typeof style !== "object") return style;
 
   const result: Record<string, unknown> = { ...style };
@@ -92,7 +97,8 @@ function mapStyle(style: unknown): unknown {
 }
 
 function transformNode(node: React.ReactNode): React.ReactNode {
-  if (Array.isArray(node)) return React.Children.toArray(node).map(transformNode);
+  if (Array.isArray(node))
+    return React.Children.toArray(node).map(transformNode);
   if (!isValidElement<Record<string, unknown>>(node)) return node;
 
   const props = { ...node.props };
@@ -125,11 +131,7 @@ function transformNode(node: React.ReactNode): React.ReactNode {
   return React.cloneElement(node, props);
 }
 
-export function DarkModeBoundary({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export function DarkModeBoundary({ children }: { children: React.ReactNode }) {
   const isDarkMode = useThemeStore((state) => state.isDarkMode);
   if (!isDarkMode) return children;
   return <>{transformNode(children)}</>;

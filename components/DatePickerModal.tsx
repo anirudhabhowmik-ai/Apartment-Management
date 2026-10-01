@@ -1,12 +1,12 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useMemo, useState } from "react";
 import {
-  Modal,
-  Platform,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    Modal,
+    Platform,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { DarkModeBoundary } from "./DarkModeBoundary";
 
@@ -134,93 +134,95 @@ export default function DatePickerModal({
   return (
     <DarkModeBoundary>
       <Modal
-      visible={visible}
-      transparent
-      animationType="fade"
-      onRequestClose={onClose}
-    >
-      <View style={styles.backdrop}>
-        <View style={styles.card}>
-          <View style={styles.header}>
-            <TouchableOpacity
-              style={styles.navButton}
-              onPress={goPrevMonth}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="chevron-back" size={20} color="#1e293b" />
-            </TouchableOpacity>
-            <Text style={styles.headerTitle}>
-              {MONTHS[viewMonth]} {viewYear}
-            </Text>
-            <TouchableOpacity
-              style={styles.navButton}
-              onPress={goNextMonth}
-              activeOpacity={0.7}
-            >
-              <Ionicons name="chevron-forward" size={20} color="#1e293b" />
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.weekRow}>
-            {WEEKDAYS.map((w) => (
-              <Text key={w} style={styles.weekday}>
-                {w}
+        visible={visible}
+        transparent
+        animationType="fade"
+        onRequestClose={onClose}
+      >
+        <View style={styles.backdrop}>
+          <View style={styles.card}>
+            <View style={styles.header}>
+              <TouchableOpacity
+                style={styles.navButton}
+                onPress={goPrevMonth}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="chevron-back" size={20} color="#1e293b" />
+              </TouchableOpacity>
+              <Text style={styles.headerTitle}>
+                {MONTHS[viewMonth]} {viewYear}
               </Text>
-            ))}
-          </View>
+              <TouchableOpacity
+                style={styles.navButton}
+                onPress={goNextMonth}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="chevron-forward" size={20} color="#1e293b" />
+              </TouchableOpacity>
+            </View>
 
-          <View style={styles.grid}>
-            {grid.map((day, idx) => {
-              if (day === null) {
-                return <View key={`e-${idx}`} style={styles.cell} />;
-              }
-              const sel = isSelected(day);
-              const tod = isToday(day);
-              return (
-                <TouchableOpacity
-                  key={`d-${day}`}
-                  style={[styles.cell, sel && styles.cellSelected]}
-                  onPress={() => handlePickDay(day)}
-                  activeOpacity={0.7}
-                >
-                  <Text
-                    style={[
-                      styles.cellText,
-                      tod && !sel && styles.cellTextToday,
-                      sel && styles.cellTextSelected,
-                    ]}
+            <View style={styles.weekRow}>
+              {WEEKDAYS.map((w) => (
+                <Text key={w} style={styles.weekday}>
+                  {w}
+                </Text>
+              ))}
+            </View>
+
+            <View style={styles.grid}>
+              {grid.map((day, idx) => {
+                if (day === null) {
+                  return <View key={`e-${idx}`} style={styles.cell} />;
+                }
+                const sel = isSelected(day);
+                const tod = isToday(day);
+                return (
+                  <TouchableOpacity
+                    key={`d-${day}`}
+                    style={[styles.cell, sel && styles.cellSelected]}
+                    onPress={() => handlePickDay(day)}
+                    activeOpacity={0.7}
                   >
-                    {day}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </View>
+                    <Text
+                      style={[
+                        styles.cellText,
+                        tod && !sel && styles.cellTextToday,
+                        sel && styles.cellTextSelected,
+                      ]}
+                    >
+                      {day}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
 
-          <View style={styles.previewRow}>
-            <Ionicons name="calendar-outline" size={16} color="#2563eb" />
-            <Text style={styles.previewText}>{formatLocalDate(selected)}</Text>
-          </View>
+            <View style={styles.previewRow}>
+              <Ionicons name="calendar-outline" size={16} color="#2563eb" />
+              <Text style={styles.previewText}>
+                {formatLocalDate(selected)}
+              </Text>
+            </View>
 
-          <View style={styles.actionRow}>
-            <TouchableOpacity
-              style={styles.cancelButton}
-              onPress={onClose}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.cancelText}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.confirmButton}
-              onPress={handleConfirm}
-              activeOpacity={0.85}
-            >
-              <Ionicons name="checkmark" size={18} color="#fff" />
-              <Text style={styles.confirmText}>Confirm</Text>
-            </TouchableOpacity>
+            <View style={styles.actionRow}>
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={onClose}
+                activeOpacity={0.8}
+              >
+                <Text style={styles.cancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.confirmButton}
+                onPress={handleConfirm}
+                activeOpacity={0.85}
+              >
+                <Ionicons name="checkmark" size={18} color="#fff" />
+                <Text style={styles.confirmText}>Confirm</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
-      </View>
       </Modal>
     </DarkModeBoundary>
   );

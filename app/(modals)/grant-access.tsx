@@ -2445,678 +2445,696 @@ export default function GrantAccessScreen() {
   return (
     <DarkModeBoundary>
       <KeyboardAvoidingView
-      style={[styles.screen, { paddingBottom: insets.bottom }]}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      keyboardVerticalOffset={0}
-    >
-      <ScrollView
-        style={styles.scroll}
-        contentContainerStyle={[
-          styles.container,
-          { paddingBottom: Math.max(insets.bottom, 24) },
-        ]}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="none"
-        bounces={false}
+        style={[styles.screen, { paddingBottom: insets.bottom }]}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={0}
       >
-        <View style={styles.introCard}>
-          <View style={styles.introIcon}>
-            <Ionicons name={introIcon} size={24} color="#2563EB" />
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={[
+            styles.container,
+            { paddingBottom: Math.max(insets.bottom, 24) },
+          ]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="none"
+          bounces={false}
+        >
+          <View style={styles.introCard}>
+            <View style={styles.introIcon}>
+              <Ionicons name={introIcon} size={24} color="#2563EB" />
+            </View>
+            <View style={styles.introContent}>
+              <Text style={styles.introTitle}>{introTitle}</Text>
+              <Text style={styles.introDescription}>{introDescription}</Text>
+            </View>
           </View>
-          <View style={styles.introContent}>
-            <Text style={styles.introTitle}>{introTitle}</Text>
-            <Text style={styles.introDescription}>{introDescription}</Text>
-          </View>
-        </View>
 
-        {!pageReady ? (
-          <View style={styles.loadingBlock}>
-            <ActivityIndicator size="small" color="#2563EB" />
-            <Text style={styles.loadingText}>Loading people…</Text>
-          </View>
-        ) : (
-          <>
-            {/* ── Tab bar for tabbed visibility mode ── */}
-            {isTabbedVisibility ? (
-              <View style={styles.visibilityTabs}>
-                {[
-                  {
-                    key: "member" as const,
-                    label: memberRoleWord,
-                    icon: isTenantAccount
-                      ? ("key-outline" as const)
-                      : ("home-outline" as const),
-                    color: "#2563EB",
-                    bg: "#EFF6FF",
-                  },
-                  {
-                    key: "staff" as const,
-                    label: "Staff",
-                    icon: "briefcase-outline" as const,
-                    color: "#7C3AED",
-                    bg: "#F5F3FF",
-                  },
-                ].map((t) => {
-                  const active = visibilityTab === t.key;
-                  return (
-                    <TouchableOpacity
-                      key={t.key}
-                      style={[
-                        styles.visibilityTab,
-                        active && {
-                          backgroundColor: t.bg,
-                          borderColor: t.color + "40",
-                        },
-                      ]}
-                      onPress={() => setVisibilityTab(t.key)}
-                      activeOpacity={0.8}
-                    >
-                      <Ionicons
-                        name={t.icon}
-                        size={17}
-                        color={active ? t.color : "#64748B"}
-                      />
-                      <Text
+          {!pageReady ? (
+            <View style={styles.loadingBlock}>
+              <ActivityIndicator size="small" color="#2563EB" />
+              <Text style={styles.loadingText}>Loading people…</Text>
+            </View>
+          ) : (
+            <>
+              {/* ── Tab bar for tabbed visibility mode ── */}
+              {isTabbedVisibility ? (
+                <View style={styles.visibilityTabs}>
+                  {[
+                    {
+                      key: "member" as const,
+                      label: memberRoleWord,
+                      icon: isTenantAccount
+                        ? ("key-outline" as const)
+                        : ("home-outline" as const),
+                      color: "#2563EB",
+                      bg: "#EFF6FF",
+                    },
+                    {
+                      key: "staff" as const,
+                      label: "Staff",
+                      icon: "briefcase-outline" as const,
+                      color: "#7C3AED",
+                      bg: "#F5F3FF",
+                    },
+                  ].map((t) => {
+                    const active = visibilityTab === t.key;
+                    return (
+                      <TouchableOpacity
+                        key={t.key}
                         style={[
-                          styles.visibilityTabText,
-                          active && { color: t.color, fontWeight: "800" },
+                          styles.visibilityTab,
+                          active && {
+                            backgroundColor: t.bg,
+                            borderColor: t.color + "40",
+                          },
                         ]}
+                        onPress={() => setVisibilityTab(t.key)}
+                        activeOpacity={0.8}
                       >
-                        {t.label}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            ) : null}
-
-            {/* Recipient picker (hidden in tabbed mode) */}
-            {!isTabbedVisibility && !isVisibilityFlow && !isStaffFlow ? (
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>RECIPIENT</Text>
-                <View style={styles.sourceRow}>
-                  <TouchableOpacity
-                    style={[
-                      styles.sourceTile,
-                      source === "new" && styles.sourceTileActive,
-                    ]}
-                    onPress={() => {
-                      setSource("new");
-                      setSelectedMemberIds([]);
-                      setError("");
-                    }}
-                    activeOpacity={0.8}
-                  >
-                    <View
-                      style={[
-                        styles.sourceTileIcon,
-                        source === "new" && styles.sourceTileIconActive,
-                      ]}
-                    >
-                      <Ionicons
-                        name="call-outline"
-                        size={22}
-                        color={source === "new" ? "#2563EB" : "#64748B"}
-                      />
-                    </View>
-                    <Text
-                      style={[
-                        styles.sourceTileTitle,
-                        source === "new" && styles.sourceTileTitleActive,
-                      ]}
-                      numberOfLines={1}
-                    >
-                      New phone
-                    </Text>
-                    <Text
-                      style={styles.sourceTileDescription}
-                      numberOfLines={2}
-                    >
-                      Invite by phone number
-                    </Text>
-                    {source === "new" ? (
-                      <View style={styles.sourceTileCheck}>
-                        <Ionicons name="checkmark" size={13} color="#FFFFFF" />
-                      </View>
-                    ) : null}
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[
-                      styles.sourceTile,
-                      source === "existing" && styles.sourceTileActive,
-                    ]}
-                    onPress={() => {
-                      setSource("existing");
-                      setName("");
-                      setPhone("");
-                      setError("");
-                    }}
-                    activeOpacity={0.8}
-                  >
-                    <View
-                      style={[
-                        styles.sourceTileIcon,
-                        source === "existing" && styles.sourceTileIconActive,
-                      ]}
-                    >
-                      <Ionicons
-                        name="people-outline"
-                        size={22}
-                        color={source === "existing" ? "#2563EB" : "#64748B"}
-                      />
-                    </View>
-                    <Text
-                      style={[
-                        styles.sourceTileTitle,
-                        source === "existing" && styles.sourceTileTitleActive,
-                      ]}
-                      numberOfLines={1}
-                    >
-                      Existing person
-                    </Text>
-                    <Text
-                      style={styles.sourceTileDescription}
-                      numberOfLines={2}
-                    >
-                      Pick from {memberRoleWordLower}s
-                    </Text>
-                    {source === "existing" ? (
-                      <View style={styles.sourceTileCheck}>
-                        <Ionicons name="checkmark" size={13} color="#FFFFFF" />
-                      </View>
-                    ) : null}
-                  </TouchableOpacity>
+                        <Ionicons
+                          name={t.icon}
+                          size={17}
+                          color={active ? t.color : "#64748B"}
+                        />
+                        <Text
+                          style={[
+                            styles.visibilityTabText,
+                            active && { color: t.color, fontWeight: "800" },
+                          ]}
+                        >
+                          {t.label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
                 </View>
-              </View>
-            ) : null}
+              ) : null}
 
-            {!isTabbedVisibility &&
-            !isVisibilityFlow &&
-            !isStaffFlow &&
-            source === "new" ? (
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>PERSON DETAILS</Text>
-                <View style={styles.formCard}>
-                  <Text style={styles.inputLabel}>Full name</Text>
-                  <View style={styles.inputWrapper}>
-                    <Ionicons name="person-outline" size={19} color="#64748B" />
-                    <TextInput
-                      style={styles.input}
-                      value={name}
-                      onChangeText={(value) => {
-                        setName(value);
+              {/* Recipient picker (hidden in tabbed mode) */}
+              {!isTabbedVisibility && !isVisibilityFlow && !isStaffFlow ? (
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>RECIPIENT</Text>
+                  <View style={styles.sourceRow}>
+                    <TouchableOpacity
+                      style={[
+                        styles.sourceTile,
+                        source === "new" && styles.sourceTileActive,
+                      ]}
+                      onPress={() => {
+                        setSource("new");
+                        setSelectedMemberIds([]);
                         setError("");
                       }}
-                      placeholder="Enter full name"
-                      placeholderTextColor="#94A3B8"
-                      autoCapitalize="words"
-                    />
-                  </View>
-
-                  <Text style={[styles.inputLabel, styles.phoneLabel]}>
-                    Phone number
-                  </Text>
-
-                  <View style={styles.phoneRow}>
-                    <View style={styles.phoneWrapper}>
-                      <View style={styles.countryCode}>
-                        <Text style={styles.countryCodeText}>+91</Text>
+                      activeOpacity={0.8}
+                    >
+                      <View
+                        style={[
+                          styles.sourceTileIcon,
+                          source === "new" && styles.sourceTileIconActive,
+                        ]}
+                      >
+                        <Ionicons
+                          name="call-outline"
+                          size={22}
+                          color={source === "new" ? "#2563EB" : "#64748B"}
+                        />
                       </View>
-                      <TextInput
-                        style={styles.phoneInput}
-                        value={phone}
-                        onChangeText={(value) => {
-                          setPhone(value.replace(/[^0-9]/g, "").slice(0, 10));
-                          setError("");
-                        }}
-                        keyboardType="phone-pad"
-                        maxLength={10}
-                        placeholder="98765 43210"
-                        placeholderTextColor="#94A3B8"
-                      />
-                    </View>
+                      <Text
+                        style={[
+                          styles.sourceTileTitle,
+                          source === "new" && styles.sourceTileTitleActive,
+                        ]}
+                        numberOfLines={1}
+                      >
+                        New phone
+                      </Text>
+                      <Text
+                        style={styles.sourceTileDescription}
+                        numberOfLines={2}
+                      >
+                        Invite by phone number
+                      </Text>
+                      {source === "new" ? (
+                        <View style={styles.sourceTileCheck}>
+                          <Ionicons
+                            name="checkmark"
+                            size={13}
+                            color="#FFFFFF"
+                          />
+                        </View>
+                      ) : null}
+                    </TouchableOpacity>
 
                     <TouchableOpacity
-                      onPress={pickContact}
-                      style={styles.contactButton}
-                      activeOpacity={0.75}
+                      style={[
+                        styles.sourceTile,
+                        source === "existing" && styles.sourceTileActive,
+                      ]}
+                      onPress={() => {
+                        setSource("existing");
+                        setName("");
+                        setPhone("");
+                        setError("");
+                      }}
+                      activeOpacity={0.8}
                     >
-                      <Ionicons
-                        name="person-add-outline"
-                        size={20}
-                        color="#2563EB"
-                      />
+                      <View
+                        style={[
+                          styles.sourceTileIcon,
+                          source === "existing" && styles.sourceTileIconActive,
+                        ]}
+                      >
+                        <Ionicons
+                          name="people-outline"
+                          size={22}
+                          color={source === "existing" ? "#2563EB" : "#64748B"}
+                        />
+                      </View>
+                      <Text
+                        style={[
+                          styles.sourceTileTitle,
+                          source === "existing" && styles.sourceTileTitleActive,
+                        ]}
+                        numberOfLines={1}
+                      >
+                        Existing person
+                      </Text>
+                      <Text
+                        style={styles.sourceTileDescription}
+                        numberOfLines={2}
+                      >
+                        Pick from {memberRoleWordLower}s
+                      </Text>
+                      {source === "existing" ? (
+                        <View style={styles.sourceTileCheck}>
+                          <Ionicons
+                            name="checkmark"
+                            size={13}
+                            color="#FFFFFF"
+                          />
+                        </View>
+                      ) : null}
                     </TouchableOpacity>
                   </View>
-
-                  {phone.length > 0 && phone.length !== 10 ? (
-                    <View style={styles.phoneHintRow}>
-                      <Ionicons
-                        name="information-circle-outline"
-                        size={14}
-                        color="#DC2626"
-                      />
-                      <Text style={styles.phoneHint}>Enter all 10 digits</Text>
-                    </View>
-                  ) : null}
                 </View>
-              </View>
-            ) : null}
+              ) : null}
 
-            {renderAfterTransferSection()}
+              {!isTabbedVisibility &&
+              !isVisibilityFlow &&
+              !isStaffFlow &&
+              source === "new" ? (
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>PERSON DETAILS</Text>
+                  <View style={styles.formCard}>
+                    <Text style={styles.inputLabel}>Full name</Text>
+                    <View style={styles.inputWrapper}>
+                      <Ionicons
+                        name="person-outline"
+                        size={19}
+                        color="#64748B"
+                      />
+                      <TextInput
+                        style={styles.input}
+                        value={name}
+                        onChangeText={(value) => {
+                          setName(value);
+                          setError("");
+                        }}
+                        placeholder="Enter full name"
+                        placeholderTextColor="#94A3B8"
+                        autoCapitalize="words"
+                      />
+                    </View>
 
-            {!isTabbedVisibility &&
-            !isVisibilityFlow &&
-            !isStaffFlow &&
-            source === "existing" ? (
-              <View style={styles.section}>
-                <Text style={styles.sectionTitle}>SELECT PEOPLE</Text>
-                {activeMembers.length > 0 ? (
-                  <>
-                    <View style={styles.selectControlsRow}>
-                      <View style={styles.searchBoxInline}>
-                        <Ionicons
-                          name="search-outline"
-                          size={19}
-                          color="#64748B"
-                        />
+                    <Text style={[styles.inputLabel, styles.phoneLabel]}>
+                      Phone number
+                    </Text>
+
+                    <View style={styles.phoneRow}>
+                      <View style={styles.phoneWrapper}>
+                        <View style={styles.countryCode}>
+                          <Text style={styles.countryCodeText}>+91</Text>
+                        </View>
                         <TextInput
-                          style={styles.searchInput}
-                          value={search}
+                          style={styles.phoneInput}
+                          value={phone}
                           onChangeText={(value) => {
-                            setSearch(value);
+                            setPhone(value.replace(/[^0-9]/g, "").slice(0, 10));
                             setError("");
                           }}
-                          placeholder="Search name or phone no."
+                          keyboardType="phone-pad"
+                          maxLength={10}
+                          placeholder="98765 43210"
                           placeholderTextColor="#94A3B8"
-                          autoCapitalize="none"
                         />
-                        {search.length > 0 ? (
-                          <TouchableOpacity
-                            onPress={() => setSearch("")}
-                            activeOpacity={0.7}
-                          >
-                            <Ionicons
-                              name="close-circle"
-                              size={19}
-                              color="#94A3B8"
-                            />
-                          </TouchableOpacity>
-                        ) : null}
                       </View>
 
                       <TouchableOpacity
-                        style={styles.selectAllButton}
-                        onPress={allSelected ? handleClearAll : handleSelectAll}
-                        activeOpacity={0.8}
+                        onPress={pickContact}
+                        style={styles.contactButton}
+                        activeOpacity={0.75}
                       >
                         <Ionicons
-                          name={
-                            allSelected
-                              ? "close-circle-outline"
-                              : "checkmark-done"
-                          }
-                          size={16}
-                          color={allSelected ? "#DC2626" : "#2563EB"}
-                        />
-                        <Text
-                          style={[
-                            styles.selectAllText,
-                            allSelected && styles.clearAllText,
-                          ]}
-                        >
-                          {allSelected ? "Clear all" : "Select all"}
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-
-                    <View style={styles.groupHeader}>
-                      <View style={styles.groupTitleRow}>
-                        <Ionicons
-                          name={
-                            isTenantAccount ? "key-outline" : "home-outline"
-                          }
-                          size={17}
+                          name="person-add-outline"
+                          size={20}
                           color="#2563EB"
                         />
-                        <Text style={styles.groupTitle}>
-                          {isTenantAccount ? "Tenants" : "Members"}
-                        </Text>
-                      </View>
-                      <Text style={styles.groupCount}>
-                        {filteredActiveMembers.length}
-                      </Text>
-                    </View>
-
-                    {filteredActiveMembers.length === 0 ? (
-                      <View style={styles.emptyCard}>
-                        <View style={styles.emptyIcon}>
-                          <Ionicons
-                            name="people-outline"
-                            size={28}
-                            color="#64748B"
-                          />
-                        </View>
-                        <Text style={styles.emptyTitle}>
-                          No matching {memberRoleWordLower}s
-                        </Text>
-                        <Text style={styles.emptyDescription}>
-                          Try searching with another name, phone number, or
-                          apartment.
-                        </Text>
-                      </View>
-                    ) : (
-                      filteredActiveMembers.map(renderMemberRow)
-                    )}
-                  </>
-                ) : (
-                  <View style={styles.emptyCard}>
-                    <View style={styles.emptyIcon}>
-                      <Ionicons
-                        name="people-outline"
-                        size={28}
-                        color="#64748B"
-                      />
-                    </View>
-                    <Text style={styles.emptyTitle}>No people available</Text>
-                    <Text style={styles.emptyDescription}>
-                      {getEmptyStateText()}
-                    </Text>
-                  </View>
-                )}
-              </View>
-            ) : null}
-
-            {/* ── Member visibility list (standalone or tabbed) ── */}
-            {isVisibilityFlow ||
-            (isTabbedVisibility && visibilityTab === "member") ? (
-              <View style={styles.section}>
-                {hasMembers ? (
-                  <>
-                    <View style={styles.selectControlsRow}>
-                      <View style={styles.searchBoxInline}>
-                        <Ionicons
-                          name="search-outline"
-                          size={19}
-                          color="#64748B"
-                        />
-                        <TextInput
-                          style={styles.searchInput}
-                          value={search}
-                          onChangeText={(value) => {
-                            setSearch(value);
-                            setError("");
-                          }}
-                          placeholder="Search name or phone no."
-                          placeholderTextColor="#94A3B8"
-                          autoCapitalize="none"
-                        />
-                        {search.length > 0 ? (
-                          <TouchableOpacity
-                            onPress={() => setSearch("")}
-                            activeOpacity={0.7}
-                          >
-                            <Ionicons
-                              name="close-circle"
-                              size={19}
-                              color="#94A3B8"
-                            />
-                          </TouchableOpacity>
-                        ) : null}
-                      </View>
-
-                      <TouchableOpacity
-                        style={styles.selectAllButton}
-                        onPress={allSelected ? handleClearAll : handleSelectAll}
-                        activeOpacity={0.8}
-                      >
-                        <Ionicons
-                          name={
-                            allSelected
-                              ? "close-circle-outline"
-                              : "checkmark-done"
-                          }
-                          size={16}
-                          color={allSelected ? "#DC2626" : "#2563EB"}
-                        />
-                        <Text
-                          style={[
-                            styles.selectAllText,
-                            allSelected && styles.clearAllText,
-                          ]}
-                        >
-                          {allSelected ? "Clear all" : "Select all"}
-                        </Text>
                       </TouchableOpacity>
                     </View>
 
-                    {filteredMembers.length === 0 ? (
-                      <View style={styles.emptyCard}>
-                        <View style={styles.emptyIcon}>
-                          <Ionicons
-                            name="people-outline"
-                            size={28}
-                            color="#64748B"
-                          />
-                        </View>
-                        <Text style={styles.emptyTitle}>
-                          {visibilityCandidates.length === 0
-                            ? `No apartment ${memberRoleWordLower}s available`
-                            : `No matching apartment ${memberRoleWordLower}s`}
-                        </Text>
-                        <Text style={styles.emptyDescription}>
-                          {visibilityCandidates.length === 0
-                            ? `Every apartment ${memberRoleWordLower} already has a pending or active visibility invitation.`
-                            : "Try searching with another name, phone number, apartment or wing."}
+                    {phone.length > 0 && phone.length !== 10 ? (
+                      <View style={styles.phoneHintRow}>
+                        <Ionicons
+                          name="information-circle-outline"
+                          size={14}
+                          color="#DC2626"
+                        />
+                        <Text style={styles.phoneHint}>
+                          Enter all 10 digits
                         </Text>
                       </View>
-                    ) : (
-                      filteredMembers.map(renderMemberRow)
-                    )}
-                  </>
-                ) : (
-                  <View style={styles.emptyCard}>
-                    <View style={styles.emptyIcon}>
-                      <Ionicons
-                        name="people-outline"
-                        size={28}
-                        color="#64748B"
-                      />
-                    </View>
-                    <Text style={styles.emptyTitle}>No people available</Text>
-                    <Text style={styles.emptyDescription}>
-                      {getEmptyStateText()}
-                    </Text>
+                    ) : null}
                   </View>
-                )}
-              </View>
-            ) : null}
+                </View>
+              ) : null}
 
-            {/* ── Staff visibility list (standalone or tabbed) ── */}
-            {isStaffFlow ||
-            (isTabbedVisibility && visibilityTab === "staff") ? (
-              <View style={styles.section}>
-                {hasStaff ? (
-                  <>
-                    <View style={styles.selectControlsRow}>
-                      <View style={styles.searchBoxInline}>
-                        <Ionicons
-                          name="search-outline"
-                          size={19}
-                          color="#64748B"
-                        />
-                        <TextInput
-                          style={styles.searchInput}
-                          value={search}
-                          onChangeText={(value) => {
-                            setSearch(value);
-                            setError("");
-                          }}
-                          placeholder="Search staff name, phone or role"
-                          placeholderTextColor="#94A3B8"
-                          autoCapitalize="none"
-                        />
-                        {search.length > 0 ? (
-                          <TouchableOpacity
-                            onPress={() => setSearch("")}
-                            activeOpacity={0.7}
-                          >
-                            <Ionicons
-                              name="close-circle"
-                              size={19}
-                              color="#94A3B8"
-                            />
-                          </TouchableOpacity>
-                        ) : null}
-                      </View>
+              {renderAfterTransferSection()}
 
-                      <TouchableOpacity
-                        style={styles.selectAllButton}
-                        onPress={
-                          allStaffSelected
-                            ? handleClearAllStaff
-                            : handleSelectAllStaff
-                        }
-                        activeOpacity={0.8}
-                      >
-                        <Ionicons
-                          name={
-                            allStaffSelected
-                              ? "close-circle-outline"
-                              : "checkmark-done"
-                          }
-                          size={16}
-                          color={allStaffSelected ? "#DC2626" : "#2563EB"}
-                        />
-                        <Text
-                          style={[
-                            styles.selectAllText,
-                            allStaffSelected && styles.clearAllText,
-                          ]}
-                        >
-                          {allStaffSelected ? "Clear all" : "Select all"}
-                        </Text>
-                      </TouchableOpacity>
-                    </View>
-
-                    {filteredStaff.length === 0 ? (
-                      <View style={styles.emptyCard}>
-                        <View style={styles.emptyIcon}>
+              {!isTabbedVisibility &&
+              !isVisibilityFlow &&
+              !isStaffFlow &&
+              source === "existing" ? (
+                <View style={styles.section}>
+                  <Text style={styles.sectionTitle}>SELECT PEOPLE</Text>
+                  {activeMembers.length > 0 ? (
+                    <>
+                      <View style={styles.selectControlsRow}>
+                        <View style={styles.searchBoxInline}>
                           <Ionicons
-                            name="briefcase-outline"
-                            size={28}
+                            name="search-outline"
+                            size={19}
                             color="#64748B"
                           />
+                          <TextInput
+                            style={styles.searchInput}
+                            value={search}
+                            onChangeText={(value) => {
+                              setSearch(value);
+                              setError("");
+                            }}
+                            placeholder="Search name or phone no."
+                            placeholderTextColor="#94A3B8"
+                            autoCapitalize="none"
+                          />
+                          {search.length > 0 ? (
+                            <TouchableOpacity
+                              onPress={() => setSearch("")}
+                              activeOpacity={0.7}
+                            >
+                              <Ionicons
+                                name="close-circle"
+                                size={19}
+                                color="#94A3B8"
+                              />
+                            </TouchableOpacity>
+                          ) : null}
                         </View>
-                        <Text style={styles.emptyTitle}>
-                          {staffCandidates.length === 0
-                            ? "No staff available"
-                            : "No matching staff"}
-                        </Text>
-                        <Text style={styles.emptyDescription}>
-                          {staffCandidates.length === 0
-                            ? "Every staff member already has a pending or active visibility invitation."
-                            : "Try searching with another name, phone number, or role."}
-                        </Text>
+
+                        <TouchableOpacity
+                          style={styles.selectAllButton}
+                          onPress={
+                            allSelected ? handleClearAll : handleSelectAll
+                          }
+                          activeOpacity={0.8}
+                        >
+                          <Ionicons
+                            name={
+                              allSelected
+                                ? "close-circle-outline"
+                                : "checkmark-done"
+                            }
+                            size={16}
+                            color={allSelected ? "#DC2626" : "#2563EB"}
+                          />
+                          <Text
+                            style={[
+                              styles.selectAllText,
+                              allSelected && styles.clearAllText,
+                            ]}
+                          >
+                            {allSelected ? "Clear all" : "Select all"}
+                          </Text>
+                        </TouchableOpacity>
                       </View>
-                    ) : (
-                      <>
-                        <View style={styles.groupHeader}>
-                          <View style={styles.groupTitleRow}>
-                            <Ionicons
-                              name="briefcase-outline"
-                              size={17}
-                              color="#7C3AED"
-                            />
-                            <Text style={styles.groupTitle}>Staff</Text>
-                          </View>
-                          <Text style={styles.groupCount}>
-                            {filteredStaff.length}
+
+                      <View style={styles.groupHeader}>
+                        <View style={styles.groupTitleRow}>
+                          <Ionicons
+                            name={
+                              isTenantAccount ? "key-outline" : "home-outline"
+                            }
+                            size={17}
+                            color="#2563EB"
+                          />
+                          <Text style={styles.groupTitle}>
+                            {isTenantAccount ? "Tenants" : "Members"}
                           </Text>
                         </View>
-                        {filteredStaff.map(renderStaffRow)}
-                      </>
-                    )}
-                  </>
-                ) : (
-                  <View style={styles.emptyCard}>
-                    <View style={styles.emptyIcon}>
-                      <Ionicons
-                        name="briefcase-outline"
-                        size={28}
-                        color="#64748B"
-                      />
+                        <Text style={styles.groupCount}>
+                          {filteredActiveMembers.length}
+                        </Text>
+                      </View>
+
+                      {filteredActiveMembers.length === 0 ? (
+                        <View style={styles.emptyCard}>
+                          <View style={styles.emptyIcon}>
+                            <Ionicons
+                              name="people-outline"
+                              size={28}
+                              color="#64748B"
+                            />
+                          </View>
+                          <Text style={styles.emptyTitle}>
+                            No matching {memberRoleWordLower}s
+                          </Text>
+                          <Text style={styles.emptyDescription}>
+                            Try searching with another name, phone number, or
+                            apartment.
+                          </Text>
+                        </View>
+                      ) : (
+                        filteredActiveMembers.map(renderMemberRow)
+                      )}
+                    </>
+                  ) : (
+                    <View style={styles.emptyCard}>
+                      <View style={styles.emptyIcon}>
+                        <Ionicons
+                          name="people-outline"
+                          size={28}
+                          color="#64748B"
+                        />
+                      </View>
+                      <Text style={styles.emptyTitle}>No people available</Text>
+                      <Text style={styles.emptyDescription}>
+                        {getEmptyStateText()}
+                      </Text>
                     </View>
-                    <Text style={styles.emptyTitle}>No staff available</Text>
-                    <Text style={styles.emptyDescription}>
-                      Add staff in the management tab first, then come back to
-                      grant them visibility.
-                    </Text>
-                  </View>
-                )}
+                  )}
+                </View>
+              ) : null}
+
+              {/* ── Member visibility list (standalone or tabbed) ── */}
+              {isVisibilityFlow ||
+              (isTabbedVisibility && visibilityTab === "member") ? (
+                <View style={styles.section}>
+                  {hasMembers ? (
+                    <>
+                      <View style={styles.selectControlsRow}>
+                        <View style={styles.searchBoxInline}>
+                          <Ionicons
+                            name="search-outline"
+                            size={19}
+                            color="#64748B"
+                          />
+                          <TextInput
+                            style={styles.searchInput}
+                            value={search}
+                            onChangeText={(value) => {
+                              setSearch(value);
+                              setError("");
+                            }}
+                            placeholder="Search name or phone no."
+                            placeholderTextColor="#94A3B8"
+                            autoCapitalize="none"
+                          />
+                          {search.length > 0 ? (
+                            <TouchableOpacity
+                              onPress={() => setSearch("")}
+                              activeOpacity={0.7}
+                            >
+                              <Ionicons
+                                name="close-circle"
+                                size={19}
+                                color="#94A3B8"
+                              />
+                            </TouchableOpacity>
+                          ) : null}
+                        </View>
+
+                        <TouchableOpacity
+                          style={styles.selectAllButton}
+                          onPress={
+                            allSelected ? handleClearAll : handleSelectAll
+                          }
+                          activeOpacity={0.8}
+                        >
+                          <Ionicons
+                            name={
+                              allSelected
+                                ? "close-circle-outline"
+                                : "checkmark-done"
+                            }
+                            size={16}
+                            color={allSelected ? "#DC2626" : "#2563EB"}
+                          />
+                          <Text
+                            style={[
+                              styles.selectAllText,
+                              allSelected && styles.clearAllText,
+                            ]}
+                          >
+                            {allSelected ? "Clear all" : "Select all"}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+
+                      {filteredMembers.length === 0 ? (
+                        <View style={styles.emptyCard}>
+                          <View style={styles.emptyIcon}>
+                            <Ionicons
+                              name="people-outline"
+                              size={28}
+                              color="#64748B"
+                            />
+                          </View>
+                          <Text style={styles.emptyTitle}>
+                            {visibilityCandidates.length === 0
+                              ? `No apartment ${memberRoleWordLower}s available`
+                              : `No matching apartment ${memberRoleWordLower}s`}
+                          </Text>
+                          <Text style={styles.emptyDescription}>
+                            {visibilityCandidates.length === 0
+                              ? `Every apartment ${memberRoleWordLower} already has a pending or active visibility invitation.`
+                              : "Try searching with another name, phone number, apartment or wing."}
+                          </Text>
+                        </View>
+                      ) : (
+                        filteredMembers.map(renderMemberRow)
+                      )}
+                    </>
+                  ) : (
+                    <View style={styles.emptyCard}>
+                      <View style={styles.emptyIcon}>
+                        <Ionicons
+                          name="people-outline"
+                          size={28}
+                          color="#64748B"
+                        />
+                      </View>
+                      <Text style={styles.emptyTitle}>No people available</Text>
+                      <Text style={styles.emptyDescription}>
+                        {getEmptyStateText()}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              ) : null}
+
+              {/* ── Staff visibility list (standalone or tabbed) ── */}
+              {isStaffFlow ||
+              (isTabbedVisibility && visibilityTab === "staff") ? (
+                <View style={styles.section}>
+                  {hasStaff ? (
+                    <>
+                      <View style={styles.selectControlsRow}>
+                        <View style={styles.searchBoxInline}>
+                          <Ionicons
+                            name="search-outline"
+                            size={19}
+                            color="#64748B"
+                          />
+                          <TextInput
+                            style={styles.searchInput}
+                            value={search}
+                            onChangeText={(value) => {
+                              setSearch(value);
+                              setError("");
+                            }}
+                            placeholder="Search staff name, phone or role"
+                            placeholderTextColor="#94A3B8"
+                            autoCapitalize="none"
+                          />
+                          {search.length > 0 ? (
+                            <TouchableOpacity
+                              onPress={() => setSearch("")}
+                              activeOpacity={0.7}
+                            >
+                              <Ionicons
+                                name="close-circle"
+                                size={19}
+                                color="#94A3B8"
+                              />
+                            </TouchableOpacity>
+                          ) : null}
+                        </View>
+
+                        <TouchableOpacity
+                          style={styles.selectAllButton}
+                          onPress={
+                            allStaffSelected
+                              ? handleClearAllStaff
+                              : handleSelectAllStaff
+                          }
+                          activeOpacity={0.8}
+                        >
+                          <Ionicons
+                            name={
+                              allStaffSelected
+                                ? "close-circle-outline"
+                                : "checkmark-done"
+                            }
+                            size={16}
+                            color={allStaffSelected ? "#DC2626" : "#2563EB"}
+                          />
+                          <Text
+                            style={[
+                              styles.selectAllText,
+                              allStaffSelected && styles.clearAllText,
+                            ]}
+                          >
+                            {allStaffSelected ? "Clear all" : "Select all"}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+
+                      {filteredStaff.length === 0 ? (
+                        <View style={styles.emptyCard}>
+                          <View style={styles.emptyIcon}>
+                            <Ionicons
+                              name="briefcase-outline"
+                              size={28}
+                              color="#64748B"
+                            />
+                          </View>
+                          <Text style={styles.emptyTitle}>
+                            {staffCandidates.length === 0
+                              ? "No staff available"
+                              : "No matching staff"}
+                          </Text>
+                          <Text style={styles.emptyDescription}>
+                            {staffCandidates.length === 0
+                              ? "Every staff member already has a pending or active visibility invitation."
+                              : "Try searching with another name, phone number, or role."}
+                          </Text>
+                        </View>
+                      ) : (
+                        <>
+                          <View style={styles.groupHeader}>
+                            <View style={styles.groupTitleRow}>
+                              <Ionicons
+                                name="briefcase-outline"
+                                size={17}
+                                color="#7C3AED"
+                              />
+                              <Text style={styles.groupTitle}>Staff</Text>
+                            </View>
+                            <Text style={styles.groupCount}>
+                              {filteredStaff.length}
+                            </Text>
+                          </View>
+                          {filteredStaff.map(renderStaffRow)}
+                        </>
+                      )}
+                    </>
+                  ) : (
+                    <View style={styles.emptyCard}>
+                      <View style={styles.emptyIcon}>
+                        <Ionicons
+                          name="briefcase-outline"
+                          size={28}
+                          color="#64748B"
+                        />
+                      </View>
+                      <Text style={styles.emptyTitle}>No staff available</Text>
+                      <Text style={styles.emptyDescription}>
+                        Add staff in the management tab first, then come back to
+                        grant them visibility.
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              ) : null}
+
+              {error ? (
+                <View style={styles.errorBox}>
+                  <Ionicons
+                    name="alert-circle-outline"
+                    size={19}
+                    color="#DC2626"
+                  />
+                  <Text style={styles.errorText}>{error}</Text>
+                </View>
+              ) : null}
+
+              <View style={styles.bottomAction}>
+                <TouchableOpacity
+                  style={[
+                    styles.saveButton,
+                    saveButtonDisabled ? styles.saveButtonDisabled : null,
+                    isOwnershipFlow && !saveButtonDisabled
+                      ? styles.saveButtonOwnership
+                      : null,
+                  ]}
+                  onPress={handleSave}
+                  activeOpacity={0.85}
+                  disabled={saveButtonDisabled}
+                >
+                  {submitting ? (
+                    <ActivityIndicator color="#FFFFFF" size="small" />
+                  ) : (
+                    <>
+                      <Ionicons
+                        name={
+                          isOwnershipFlow
+                            ? "swap-horizontal-outline"
+                            : "shield-checkmark-outline"
+                        }
+                        size={20}
+                        color="#FFFFFF"
+                      />
+                      <Text style={styles.saveText}>{saveLabel}</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.cancelButton}
+                  onPress={() => router.back()}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.cancelText}>Cancel</Text>
+                </TouchableOpacity>
               </View>
-            ) : null}
 
-            {error ? (
-              <View style={styles.errorBox}>
-                <Ionicons
-                  name="alert-circle-outline"
-                  size={19}
-                  color="#DC2626"
-                />
-                <Text style={styles.errorText}>{error}</Text>
-              </View>
-            ) : null}
+              <View style={styles.bottomSpace} />
+            </>
+          )}
+        </ScrollView>
 
-            <View style={styles.bottomAction}>
-              <TouchableOpacity
-                style={[
-                  styles.saveButton,
-                  saveButtonDisabled ? styles.saveButtonDisabled : null,
-                  isOwnershipFlow && !saveButtonDisabled
-                    ? styles.saveButtonOwnership
-                    : null,
-                ]}
-                onPress={handleSave}
-                activeOpacity={0.85}
-                disabled={saveButtonDisabled}
-              >
-                {submitting ? (
-                  <ActivityIndicator color="#FFFFFF" size="small" />
-                ) : (
-                  <>
-                    <Ionicons
-                      name={
-                        isOwnershipFlow
-                          ? "swap-horizontal-outline"
-                          : "shield-checkmark-outline"
-                      }
-                      size={20}
-                      color="#FFFFFF"
-                    />
-                    <Text style={styles.saveText}>{saveLabel}</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.cancelButton}
-                onPress={() => router.back()}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.cancelText}>Cancel</Text>
-              </TouchableOpacity>
-            </View>
-
-            <View style={styles.bottomSpace} />
-          </>
-        )}
-      </ScrollView>
-
-      {renderContactPickerModal()}
-      {renderFeedbackModal()}
+        {renderContactPickerModal()}
+        {renderFeedbackModal()}
       </KeyboardAvoidingView>
     </DarkModeBoundary>
   );

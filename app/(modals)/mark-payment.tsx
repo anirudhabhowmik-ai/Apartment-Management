@@ -529,387 +529,388 @@ export default function MarkPaymentScreen() {
   return (
     <DarkModeBoundary>
       <View style={styles.screen}>
-      <Stack.Screen
-        options={{
-          title: isEditing ? "Edit Payment Details" : "Payment Details",
-        }}
-      />
+        <Stack.Screen
+          options={{
+            title: isEditing ? "Edit Payment Details" : "Payment Details",
+          }}
+        />
 
-      <View style={styles.modalCard}>
-        <View style={styles.header}>
-          <Text style={styles.memberName}>{member?.name || "Member"}</Text>
+        <View style={styles.modalCard}>
+          <View style={styles.header}>
+            <Text style={styles.memberName}>{member?.name || "Member"}</Text>
 
-          <View style={styles.paymentForRow}>
-            <Text style={styles.paymentForLabel}>Payment for</Text>
-            <Text style={styles.paymentForMonth}>
-              {formatMonth(paymentMonth)}
-            </Text>
-          </View>
-        </View>
-
-        <ScrollView
-          style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator
-          keyboardShouldPersistTaps="handled"
-          bounces
-        >
-          <Text style={styles.label}>
-            {type === "maintenance" ? "Maintenance Amount" : "Monthly Salary"}
-          </Text>
-
-          <View style={styles.amountDisplay}>
-            <Text style={styles.amount}>₹{baseSalary || 0}</Text>
+            <View style={styles.paymentForRow}>
+              <Text style={styles.paymentForLabel}>Payment for</Text>
+              <Text style={styles.paymentForMonth}>
+                {formatMonth(paymentMonth)}
+              </Text>
+            </View>
           </View>
 
-          {isStaffMember && attendanceAdjustedSalary != null ? (
-            <>
-              <Text style={styles.label}>Attendance Adjusted</Text>
-              <View
-                style={[
-                  styles.amountDisplay,
-                  {
-                    backgroundColor: "#eaf2ff",
-                    borderWidth: 1,
-                    borderColor: "#bfdbfe",
-                  },
-                ]}
-              >
-                <Text style={[styles.amount, { color: "#1d4ed8" }]}>
-                  ₹{attendanceAdjustedSalary}
-                </Text>
-              </View>
-            </>
-          ) : null}
-
-          <Text style={styles.label}>Payment Status</Text>
-
-          <TouchableOpacity
-            style={[
-              styles.statusSelector,
-              {
-                backgroundColor: currentStatusInfo.bgColor,
-                borderColor: currentStatusInfo.borderColor,
-              },
-            ]}
-            onPress={() => setShowStatusOptions((visible) => !visible)}
-            activeOpacity={0.7}
+          <ScrollView
+            style={styles.scrollView}
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator
+            keyboardShouldPersistTaps="handled"
+            bounces
           >
-            <View style={styles.statusSelectorLeft}>
-              <View
-                style={[
-                  styles.statusIconContainer,
-                  { backgroundColor: currentStatusInfo.color },
-                ]}
-              >
-                <Ionicons
-                  name={currentStatusInfo.icon as any}
-                  size={16}
-                  color="#fff"
-                />
-              </View>
-              <Text
-                style={[
-                  styles.statusSelectorText,
-                  { color: currentStatusInfo.textColor },
-                ]}
-              >
-                {currentStatusInfo.label}
-              </Text>
-            </View>
-            <View style={styles.statusSelectorRight}>
-              <Text style={styles.statusChangeHint}>
-                {selectedStatus !== paymentStatus ? "• Pending change" : ""}
-              </Text>
-              <Ionicons
-                name={showStatusOptions ? "chevron-up" : "chevron-down"}
-                size={20}
-                color="#94a3b8"
-              />
-            </View>
-          </TouchableOpacity>
+            <Text style={styles.label}>
+              {type === "maintenance" ? "Maintenance Amount" : "Monthly Salary"}
+            </Text>
 
-          {showStatusOptions && (
-            <View style={styles.statusOptions}>
-              <TouchableOpacity
-                style={[
-                  styles.statusOption,
-                  selectedStatus === "paid" && styles.statusOptionSelected,
-                ]}
-                onPress={() => selectPaymentStatus("paid")}
-                activeOpacity={0.7}
-              >
+            <View style={styles.amountDisplay}>
+              <Text style={styles.amount}>₹{baseSalary || 0}</Text>
+            </View>
+
+            {isStaffMember && attendanceAdjustedSalary != null ? (
+              <>
+                <Text style={styles.label}>Attendance Adjusted</Text>
                 <View
                   style={[
-                    styles.radioOuter,
-                    selectedStatus === "paid" && styles.radioOuterSelected,
+                    styles.amountDisplay,
+                    {
+                      backgroundColor: "#eaf2ff",
+                      borderWidth: 1,
+                      borderColor: "#bfdbfe",
+                    },
                   ]}
                 >
-                  {selectedStatus === "paid" && (
-                    <View style={styles.radioInner} />
-                  )}
-                </View>
-
-                <View style={styles.statusOptionContent}>
-                  <View style={styles.statusOptionIconWrapper}>
-                    <Ionicons
-                      name="checkmark-circle"
-                      size={20}
-                      color="#16a34a"
-                    />
-                  </View>
-                  <View style={styles.statusOptionInfo}>
-                    <Text
-                      style={[
-                        styles.statusOptionTitle,
-                        selectedStatus === "paid" &&
-                          styles.statusOptionTitlePaid,
-                      ]}
-                    >
-                      Paid
-                    </Text>
-                    <Text style={styles.statusOptionSubtitle}>
-                      Payment has been received
-                    </Text>
-                  </View>
-                </View>
-
-                {selectedStatus === "paid" && (
-                  <Ionicons name="checkmark" size={18} color="#16a34a" />
-                )}
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.statusOption,
-                  selectedStatus === "due" && styles.statusOptionSelected,
-                ]}
-                onPress={() => selectPaymentStatus("due")}
-                activeOpacity={0.7}
-              >
-                <View
-                  style={[
-                    styles.radioOuter,
-                    selectedStatus === "due" && styles.radioOuterSelected,
-                  ]}
-                >
-                  {selectedStatus === "due" && (
-                    <View style={styles.radioInner} />
-                  )}
-                </View>
-
-                <View style={styles.statusOptionContent}>
-                  <View style={styles.statusOptionIconWrapper}>
-                    <Ionicons name="time" size={20} color="#dc2626" />
-                  </View>
-                  <View style={styles.statusOptionInfo}>
-                    <Text
-                      style={[
-                        styles.statusOptionTitle,
-                        selectedStatus === "due" && styles.statusOptionTitleDue,
-                      ]}
-                    >
-                      Due
-                    </Text>
-                    <Text style={styles.statusOptionSubtitle}>
-                      Payment is still pending
-                    </Text>
-                  </View>
-                </View>
-
-                {selectedStatus === "due" && (
-                  <Ionicons name="checkmark" size={18} color="#dc2626" />
-                )}
-              </TouchableOpacity>
-
-              {selectedStatus !== paymentStatus && (
-                <View style={styles.statusChangeIndicator}>
-                  <Ionicons
-                    name="information-circle"
-                    size={16}
-                    color="#2563eb"
-                  />
-                  <Text style={styles.statusChangeIndicatorText}>
-                    Status will change to "{selectedStatusInfo.label}" when you
-                    save
+                  <Text style={[styles.amount, { color: "#1d4ed8" }]}>
+                    ₹{attendanceAdjustedSalary}
                   </Text>
                 </View>
-              )}
-            </View>
-          )}
+              </>
+            ) : null}
 
-          <TouchableOpacity
-            style={styles.additionalButton}
-            onPress={() => setShowAdditionalAmount((visible) => !visible)}
-            activeOpacity={0.7}
-          >
-            <Ionicons
-              name={
-                showAdditionalAmount
-                  ? "remove-circle-outline"
-                  : "add-circle-outline"
-              }
-              size={18}
-              color={showAdditionalAmount ? "#dc2626" : "#2563EB"}
-            />
-            <Text
+            <Text style={styles.label}>Payment Status</Text>
+
+            <TouchableOpacity
               style={[
-                styles.additionalButtonText,
-                showAdditionalAmount && styles.removeAdditionalButtonText,
+                styles.statusSelector,
+                {
+                  backgroundColor: currentStatusInfo.bgColor,
+                  borderColor: currentStatusInfo.borderColor,
+                },
               ]}
+              onPress={() => setShowStatusOptions((visible) => !visible)}
+              activeOpacity={0.7}
             >
-              {showAdditionalAmount
-                ? "Remove additional amount"
-                : "Add additional amount"}
-            </Text>
-          </TouchableOpacity>
+              <View style={styles.statusSelectorLeft}>
+                <View
+                  style={[
+                    styles.statusIconContainer,
+                    { backgroundColor: currentStatusInfo.color },
+                  ]}
+                >
+                  <Ionicons
+                    name={currentStatusInfo.icon as any}
+                    size={16}
+                    color="#fff"
+                  />
+                </View>
+                <Text
+                  style={[
+                    styles.statusSelectorText,
+                    { color: currentStatusInfo.textColor },
+                  ]}
+                >
+                  {currentStatusInfo.label}
+                </Text>
+              </View>
+              <View style={styles.statusSelectorRight}>
+                <Text style={styles.statusChangeHint}>
+                  {selectedStatus !== paymentStatus ? "• Pending change" : ""}
+                </Text>
+                <Ionicons
+                  name={showStatusOptions ? "chevron-up" : "chevron-down"}
+                  size={20}
+                  color="#94a3b8"
+                />
+              </View>
+            </TouchableOpacity>
 
-          {showAdditionalAmount && (
-            <View style={styles.expandedSection}>
-              <TextInput
-                style={styles.input}
-                placeholder="Additional amount"
-                placeholderTextColor="#94a3b8"
-                keyboardType="numeric"
-                inputMode="numeric"
-                value={additionalAmount}
-                onChangeText={(value) =>
-                  setAdditionalAmount(sanitizeAmountText(value))
-                }
-              />
-              <TextInput
-                style={styles.input}
-                placeholder="Note, e.g. bonus or event work"
-                placeholderTextColor="#94a3b8"
-                value={additionalNote}
-                onChangeText={setAdditionalNote}
-              />
-            </View>
-          )}
+            {showStatusOptions && (
+              <View style={styles.statusOptions}>
+                <TouchableOpacity
+                  style={[
+                    styles.statusOption,
+                    selectedStatus === "paid" && styles.statusOptionSelected,
+                  ]}
+                  onPress={() => selectPaymentStatus("paid")}
+                  activeOpacity={0.7}
+                >
+                  <View
+                    style={[
+                      styles.radioOuter,
+                      selectedStatus === "paid" && styles.radioOuterSelected,
+                    ]}
+                  >
+                    {selectedStatus === "paid" && (
+                      <View style={styles.radioInner} />
+                    )}
+                  </View>
 
-          <TouchableOpacity
-            style={styles.additionalButton}
-            onPress={() => setShowDeduction((visible) => !visible)}
-            activeOpacity={0.7}
-          >
-            <Ionicons
-              name="remove-circle-outline"
-              size={18}
-              color={showDeduction ? "#dc2626" : "#2563EB"}
-            />
-            <Text
-              style={[
-                styles.additionalButtonText,
-                showDeduction && styles.removeAdditionalButtonText,
-              ]}
+                  <View style={styles.statusOptionContent}>
+                    <View style={styles.statusOptionIconWrapper}>
+                      <Ionicons
+                        name="checkmark-circle"
+                        size={20}
+                        color="#16a34a"
+                      />
+                    </View>
+                    <View style={styles.statusOptionInfo}>
+                      <Text
+                        style={[
+                          styles.statusOptionTitle,
+                          selectedStatus === "paid" &&
+                            styles.statusOptionTitlePaid,
+                        ]}
+                      >
+                        Paid
+                      </Text>
+                      <Text style={styles.statusOptionSubtitle}>
+                        Payment has been received
+                      </Text>
+                    </View>
+                  </View>
+
+                  {selectedStatus === "paid" && (
+                    <Ionicons name="checkmark" size={18} color="#16a34a" />
+                  )}
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[
+                    styles.statusOption,
+                    selectedStatus === "due" && styles.statusOptionSelected,
+                  ]}
+                  onPress={() => selectPaymentStatus("due")}
+                  activeOpacity={0.7}
+                >
+                  <View
+                    style={[
+                      styles.radioOuter,
+                      selectedStatus === "due" && styles.radioOuterSelected,
+                    ]}
+                  >
+                    {selectedStatus === "due" && (
+                      <View style={styles.radioInner} />
+                    )}
+                  </View>
+
+                  <View style={styles.statusOptionContent}>
+                    <View style={styles.statusOptionIconWrapper}>
+                      <Ionicons name="time" size={20} color="#dc2626" />
+                    </View>
+                    <View style={styles.statusOptionInfo}>
+                      <Text
+                        style={[
+                          styles.statusOptionTitle,
+                          selectedStatus === "due" &&
+                            styles.statusOptionTitleDue,
+                        ]}
+                      >
+                        Due
+                      </Text>
+                      <Text style={styles.statusOptionSubtitle}>
+                        Payment is still pending
+                      </Text>
+                    </View>
+                  </View>
+
+                  {selectedStatus === "due" && (
+                    <Ionicons name="checkmark" size={18} color="#dc2626" />
+                  )}
+                </TouchableOpacity>
+
+                {selectedStatus !== paymentStatus && (
+                  <View style={styles.statusChangeIndicator}>
+                    <Ionicons
+                      name="information-circle"
+                      size={16}
+                      color="#2563eb"
+                    />
+                    <Text style={styles.statusChangeIndicatorText}>
+                      Status will change to "{selectedStatusInfo.label}" when
+                      you save
+                    </Text>
+                  </View>
+                )}
+              </View>
+            )}
+
+            <TouchableOpacity
+              style={styles.additionalButton}
+              onPress={() => setShowAdditionalAmount((visible) => !visible)}
+              activeOpacity={0.7}
             >
-              {showDeduction ? "Remove deduction" : "Less deduction"}
-            </Text>
-          </TouchableOpacity>
-
-          {showDeduction && (
-            <View style={styles.expandedSection}>
-              <TextInput
-                style={styles.input}
-                placeholder="Deduction amount"
-                placeholderTextColor="#94a3b8"
-                keyboardType="numeric"
-                inputMode="numeric"
-                value={deductionAmount}
-                onChangeText={(value) =>
-                  setDeductionAmount(sanitizeAmountText(value))
+              <Ionicons
+                name={
+                  showAdditionalAmount
+                    ? "remove-circle-outline"
+                    : "add-circle-outline"
                 }
+                size={18}
+                color={showAdditionalAmount ? "#dc2626" : "#2563EB"}
               />
-              <TextInput
-                style={styles.input}
-                placeholder="Note, e.g. advance or absence"
-                placeholderTextColor="#94a3b8"
-                value={deductionNote}
-                onChangeText={setDeductionNote}
-              />
-            </View>
-          )}
-
-          <View style={styles.netAmountCard}>
-            <View>
-              <Text style={styles.netPaidLabel}>
-                {selectedStatus === "due"
-                  ? "Amount to Pay"
-                  : "Total Amount Received"}
-              </Text>
-              <Text style={styles.netAmountHint}>
-                {selectedStatus === "due"
-                  ? "Member needs to pay this amount"
-                  : "Total amount received"}
-              </Text>
-            </View>
-            <Text style={styles.netAmount}>₹{netPaidAmount}</Text>
-          </View>
-
-          {selectedStatus === "paid" && (
-            <>
-              <Text style={styles.label}>Paid Date</Text>
-              <TouchableOpacity
-                style={styles.dateSelector}
-                onPress={() => setShowDatePicker(true)}
-                activeOpacity={0.7}
+              <Text
+                style={[
+                  styles.additionalButtonText,
+                  showAdditionalAmount && styles.removeAdditionalButtonText,
+                ]}
               >
-                <Text style={styles.dateText}>{paidDate}</Text>
-                <Ionicons name="calendar-outline" size={19} color="#2563EB" />
-              </TouchableOpacity>
-            </>
-          )}
+                {showAdditionalAmount
+                  ? "Remove additional amount"
+                  : "Add additional amount"}
+              </Text>
+            </TouchableOpacity>
 
-          <View style={styles.scrollBottomSpace} />
-        </ScrollView>
+            {showAdditionalAmount && (
+              <View style={styles.expandedSection}>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Additional amount"
+                  placeholderTextColor="#94a3b8"
+                  keyboardType="numeric"
+                  inputMode="numeric"
+                  value={additionalAmount}
+                  onChangeText={(value) =>
+                    setAdditionalAmount(sanitizeAmountText(value))
+                  }
+                />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Note, e.g. bonus or event work"
+                  placeholderTextColor="#94a3b8"
+                  value={additionalNote}
+                  onChangeText={setAdditionalNote}
+                />
+              </View>
+            )}
 
-        <View style={styles.bottomActions}>
-          <TouchableOpacity
-            style={styles.cancelButton}
-            onPress={() => router.back()}
-            disabled={saving}
-            activeOpacity={0.7}
-          >
-            <Text style={styles.cancelText}>Cancel</Text>
-          </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.additionalButton}
+              onPress={() => setShowDeduction((visible) => !visible)}
+              activeOpacity={0.7}
+            >
+              <Ionicons
+                name="remove-circle-outline"
+                size={18}
+                color={showDeduction ? "#dc2626" : "#2563EB"}
+              />
+              <Text
+                style={[
+                  styles.additionalButtonText,
+                  showDeduction && styles.removeAdditionalButtonText,
+                ]}
+              >
+                {showDeduction ? "Remove deduction" : "Less deduction"}
+              </Text>
+            </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[
-              styles.saveButton,
-              selectedStatus === "due" && styles.saveDueButton,
-              saving && styles.saveButtonDisabled,
-              selectedStatus !== paymentStatus && styles.saveButtonHighlight,
-            ]}
-            onPress={handleSave}
-            disabled={saving}
-            activeOpacity={0.8}
-          >
-            <Ionicons
-              name={
-                selectedStatus === "paid"
-                  ? "checkmark-circle-outline"
-                  : "time-outline"
-              }
-              size={19}
-              color="#fff"
-            />
-            <Text style={styles.saveButtonText}>
-              {saving
-                ? "Saving..."
-                : selectedStatus === "paid"
-                  ? "Save as Paid"
-                  : "Save as Due"}
-            </Text>
-          </TouchableOpacity>
+            {showDeduction && (
+              <View style={styles.expandedSection}>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Deduction amount"
+                  placeholderTextColor="#94a3b8"
+                  keyboardType="numeric"
+                  inputMode="numeric"
+                  value={deductionAmount}
+                  onChangeText={(value) =>
+                    setDeductionAmount(sanitizeAmountText(value))
+                  }
+                />
+                <TextInput
+                  style={styles.input}
+                  placeholder="Note, e.g. advance or absence"
+                  placeholderTextColor="#94a3b8"
+                  value={deductionNote}
+                  onChangeText={setDeductionNote}
+                />
+              </View>
+            )}
+
+            <View style={styles.netAmountCard}>
+              <View>
+                <Text style={styles.netPaidLabel}>
+                  {selectedStatus === "due"
+                    ? "Amount to Pay"
+                    : "Total Amount Received"}
+                </Text>
+                <Text style={styles.netAmountHint}>
+                  {selectedStatus === "due"
+                    ? "Member needs to pay this amount"
+                    : "Total amount received"}
+                </Text>
+              </View>
+              <Text style={styles.netAmount}>₹{netPaidAmount}</Text>
+            </View>
+
+            {selectedStatus === "paid" && (
+              <>
+                <Text style={styles.label}>Paid Date</Text>
+                <TouchableOpacity
+                  style={styles.dateSelector}
+                  onPress={() => setShowDatePicker(true)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={styles.dateText}>{paidDate}</Text>
+                  <Ionicons name="calendar-outline" size={19} color="#2563EB" />
+                </TouchableOpacity>
+              </>
+            )}
+
+            <View style={styles.scrollBottomSpace} />
+          </ScrollView>
+
+          <View style={styles.bottomActions}>
+            <TouchableOpacity
+              style={styles.cancelButton}
+              onPress={() => router.back()}
+              disabled={saving}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.cancelText}>Cancel</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.saveButton,
+                selectedStatus === "due" && styles.saveDueButton,
+                saving && styles.saveButtonDisabled,
+                selectedStatus !== paymentStatus && styles.saveButtonHighlight,
+              ]}
+              onPress={handleSave}
+              disabled={saving}
+              activeOpacity={0.8}
+            >
+              <Ionicons
+                name={
+                  selectedStatus === "paid"
+                    ? "checkmark-circle-outline"
+                    : "time-outline"
+                }
+                size={19}
+                color="#fff"
+              />
+              <Text style={styles.saveButtonText}>
+                {saving
+                  ? "Saving..."
+                  : selectedStatus === "paid"
+                    ? "Save as Paid"
+                    : "Save as Due"}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
 
-      <DatePickerModal
-        visible={showDatePicker}
-        onClose={() => setShowDatePicker(false)}
-        value={paidDate}
-        onSelect={setPaidDate}
-      />
+        <DatePickerModal
+          visible={showDatePicker}
+          onClose={() => setShowDatePicker(false)}
+          value={paidDate}
+          onSelect={setPaidDate}
+        />
       </View>
     </DarkModeBoundary>
   );

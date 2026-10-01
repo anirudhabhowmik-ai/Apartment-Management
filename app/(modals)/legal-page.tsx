@@ -2,12 +2,12 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Stack, useLocalSearchParams, useRouter } from "expo-router";
 import {
-  Linking,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
+    Linking,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { DarkModeBoundary } from "../../components/DarkModeBoundary";
@@ -418,62 +418,62 @@ export default function LegalPageScreen() {
   return (
     <DarkModeBoundary>
       <SafeAreaView style={styles.container}>
-      <Stack.Screen
-        options={{
-          title: displayTitle,
-          headerBackTitle: "Back",
-          headerStyle: {
-            backgroundColor: isDarkMode ? "#151C27" : "#fff",
-          },
-          headerTintColor: isDarkMode ? "#E7EDF5" : "#0F172A",
-          headerShadowVisible: false,
-          headerTitleStyle: { fontSize: 17, fontWeight: "600" },
-        }}
-      />
-      <View style={styles.headerBorder} />
-      <ScrollView
-        contentContainerStyle={styles.content}
-        showsVerticalScrollIndicator={false}
-      >
-        {(type === "privacy" || type === "terms") && (
-          <Pressable
-            onPress={openOnWeb}
-            style={({ pressed }) => [
-              styles.webLink,
-              pressed && { opacity: 0.75 },
-            ]}
-          >
-            <Ionicons name="open-outline" size={16} color="#1a73e8" />
-            <Text style={styles.webLinkText}>Open official page on web</Text>
-          </Pressable>
-        )}
+        <Stack.Screen
+          options={{
+            title: displayTitle,
+            headerBackTitle: "Back",
+            headerStyle: {
+              backgroundColor: isDarkMode ? "#151C27" : "#fff",
+            },
+            headerTintColor: isDarkMode ? "#E7EDF5" : "#0F172A",
+            headerShadowVisible: false,
+            headerTitleStyle: { fontSize: 17, fontWeight: "600" },
+          }}
+        />
+        <View style={styles.headerBorder} />
+        <ScrollView
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+        >
+          {(type === "privacy" || type === "terms") && (
+            <Pressable
+              onPress={openOnWeb}
+              style={({ pressed }) => [
+                styles.webLink,
+                pressed && { opacity: 0.75 },
+              ]}
+            >
+              <Ionicons name="open-outline" size={16} color="#1a73e8" />
+              <Text style={styles.webLinkText}>Open official page on web</Text>
+            </Pressable>
+          )}
 
-        <Text style={styles.lastUpdated}>
-          Last updated:{" "}
-          {new Date().toLocaleDateString("en-IN", {
-            day: "2-digit",
-            month: "short",
-            year: "numeric",
-          })}
-        </Text>
+          <Text style={styles.lastUpdated}>
+            Last updated:{" "}
+            {new Date().toLocaleDateString("en-IN", {
+              day: "2-digit",
+              month: "short",
+              year: "numeric",
+            })}
+          </Text>
 
-        {content.map((section, index) => (
-          <View key={index} style={styles.section}>
-            <Text style={styles.heading}>{section.heading}</Text>
-            <Text style={styles.description}>{section.description}</Text>
-            {section.points.map((point, pointIndex) => (
-              <View key={pointIndex} style={styles.pointRow}>
-                <Text style={styles.bullet}>•</Text>
-                <Text style={styles.pointText}>{point}</Text>
-              </View>
-            ))}
-          </View>
-        ))}
+          {content.map((section, index) => (
+            <View key={index} style={styles.section}>
+              <Text style={styles.heading}>{section.heading}</Text>
+              <Text style={styles.description}>{section.description}</Text>
+              {section.points.map((point, pointIndex) => (
+                <View key={pointIndex} style={styles.pointRow}>
+                  <Text style={styles.bullet}>•</Text>
+                  <Text style={styles.pointText}>{point}</Text>
+                </View>
+              ))}
+            </View>
+          ))}
 
-        <Text style={styles.footer}>
-          © {new Date().getFullYear()} {APP_NAME}. All rights reserved.
-        </Text>
-      </ScrollView>
+          <Text style={styles.footer}>
+            © {new Date().getFullYear()} {APP_NAME}. All rights reserved.
+          </Text>
+        </ScrollView>
       </SafeAreaView>
     </DarkModeBoundary>
   );

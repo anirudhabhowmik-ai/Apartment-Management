@@ -1,25 +1,25 @@
 import { Ionicons } from "@expo/vector-icons";
 import {
-  Contact,
-  ContactField,
-  ContactsSortOrder,
-  requestPermissionsAsync,
+    Contact,
+    ContactField,
+    ContactsSortOrder,
+    requestPermissionsAsync,
 } from "expo-contacts";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
-  Alert,
-  KeyboardAvoidingView,
-  Linking,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableWithoutFeedback,
-  View,
+    Alert,
+    KeyboardAvoidingView,
+    Linking,
+    Modal,
+    Platform,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableWithoutFeedback,
+    View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DarkModeBoundary } from "../../components/DarkModeBoundary";
@@ -500,211 +500,211 @@ export default function LoginScreen() {
   return (
     <DarkModeBoundary>
       <KeyboardAvoidingView
-      style={[
-        styles.container,
-        {
-          paddingBottom: Platform.OS === "ios" ? insets.bottom : 0,
-        },
-      ]}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      keyboardVerticalOffset={0}
-    >
-      <ScrollView
-        style={styles.screenScroll}
-        contentContainerStyle={[
-          styles.screenContent,
+        style={[
+          styles.container,
           {
-            paddingBottom: Math.max(insets.bottom, 24),
+            paddingBottom: Platform.OS === "ios" ? insets.bottom : 0,
           },
         ]}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="none"
-        showsVerticalScrollIndicator={false}
-        bounces={false}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={0}
       >
-        {/* ========================================================
+        <ScrollView
+          style={styles.screenScroll}
+          contentContainerStyle={[
+            styles.screenContent,
+            {
+              paddingBottom: Math.max(insets.bottom, 24),
+            },
+          ]}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="none"
+          showsVerticalScrollIndicator={false}
+          bounces={false}
+        >
+          {/* ========================================================
             HEADER
         ======================================================== */}
 
-        <View style={styles.header}>
-          <View style={styles.logoContainer}>
-            <View style={styles.logoCircle}>
-              <Ionicons name="business-outline" size={40} color="#1a73e8" />
+          <View style={styles.header}>
+            <View style={styles.logoContainer}>
+              <View style={styles.logoCircle}>
+                <Ionicons name="business-outline" size={40} color="#1a73e8" />
+              </View>
             </View>
+
+            <Text style={styles.title}>Property Manager</Text>
+
+            <Text style={styles.subtitle}>
+              Manage your properties effortlessly
+            </Text>
           </View>
 
-          <Text style={styles.title}>Property Manager</Text>
-
-          <Text style={styles.subtitle}>
-            Manage your properties effortlessly
-          </Text>
-        </View>
-
-        {/* ========================================================
+          {/* ========================================================
             LOGIN CARD
         ======================================================== */}
 
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Welcome Back</Text>
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Welcome Back</Text>
 
-          <Text style={styles.cardSubtitle}>
-            Sign in to manage your properties, tenants, and expenses
-          </Text>
+            <Text style={styles.cardSubtitle}>
+              Sign in to manage your properties, tenants, and expenses
+            </Text>
 
-          {/* PHONE INPUT */}
+            {/* PHONE INPUT */}
 
-          <View style={styles.inputWrapper}>
-            <Text style={styles.inputLabel}>Phone Number</Text>
+            <View style={styles.inputWrapper}>
+              <Text style={styles.inputLabel}>Phone Number</Text>
 
-            <View
-              style={[styles.inputRow, isFocused && styles.inputRowFocused]}
-            >
-              {/* COUNTRY CODE */}
+              <View
+                style={[styles.inputRow, isFocused && styles.inputRowFocused]}
+              >
+                {/* COUNTRY CODE */}
 
-              <View style={styles.countryCode}>
-                <Text style={styles.prefix}>+91</Text>
+                <View style={styles.countryCode}>
+                  <Text style={styles.prefix}>+91</Text>
 
-                <View style={styles.divider} />
+                  <View style={styles.divider} />
+                </View>
+
+                {/* PHONE INPUT */}
+
+                <TextInput
+                  style={styles.input}
+                  placeholder="Phone number"
+                  placeholderTextColor="#999"
+                  keyboardType="number-pad"
+                  maxLength={10}
+                  value={phone}
+                  onChangeText={(text) => setPhone(text.replace(/[^0-9]/g, ""))}
+                  onFocus={() => setIsFocused(true)}
+                  onBlur={() => setIsFocused(false)}
+                  returnKeyType="done"
+                  {...(Platform.OS === "web"
+                    ? ({
+                        outlineStyle: "none",
+                      } as any)
+                    : {})}
+                />
+
+                {/* CONTACT BUTTON */}
+
+                <Pressable
+                  onPress={pickContact}
+                  style={({ pressed }) => [
+                    styles.contactIcon,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Ionicons name="person-outline" size={22} color="#1a73e8" />
+                </Pressable>
               </View>
 
-              {/* PHONE INPUT */}
+              {/* ERROR */}
 
-              <TextInput
-                style={styles.input}
-                placeholder="Phone number"
-                placeholderTextColor="#999"
-                keyboardType="number-pad"
-                maxLength={10}
-                value={phone}
-                onChangeText={(text) => setPhone(text.replace(/[^0-9]/g, ""))}
-                onFocus={() => setIsFocused(true)}
-                onBlur={() => setIsFocused(false)}
-                returnKeyType="done"
-                {...(Platform.OS === "web"
-                  ? ({
-                      outlineStyle: "none",
-                    } as any)
-                  : {})}
-              />
-
-              {/* CONTACT BUTTON */}
-
-              <Pressable
-                onPress={pickContact}
-                style={({ pressed }) => [
-                  styles.contactIcon,
-                  pressed && styles.pressed,
-                ]}
-              >
-                <Ionicons name="person-outline" size={22} color="#1a73e8" />
-              </Pressable>
+              {error ? <Text style={styles.error}>{error}</Text> : null}
             </View>
 
-            {/* ERROR */}
-
-            {error ? <Text style={styles.error}>{error}</Text> : null}
-          </View>
-
-          {/* CONTINUE BUTTON */}
-
-          <Pressable
-            style={({ pressed }) => [
-              styles.button,
-              loading && styles.buttonDisabled,
-              pressed && !loading && styles.buttonPressed,
-            ]}
-            onPress={handleSendOtp}
-            disabled={loading}
-          >
-            <Text style={styles.buttonText}>
-              {loading ? "Sending..." : "Continue with OTP"}
-            </Text>
-
-            {!loading && (
-              <Ionicons
-                name="arrow-forward"
-                size={20}
-                color="#fff"
-                style={styles.buttonIcon}
-              />
-            )}
-          </Pressable>
-
-          {/* LEGAL CONSENT */}
-
-          <View style={styles.legalRow}>
-            <Text style={styles.legalText}>
-              By continuing, you agree to our{" "}
-            </Text>
+            {/* CONTINUE BUTTON */}
 
             <Pressable
-              onPress={() => openLegalUrl("terms")}
-              hitSlop={6}
-              style={({ pressed }) => pressed && styles.pressed}
+              style={({ pressed }) => [
+                styles.button,
+                loading && styles.buttonDisabled,
+                pressed && !loading && styles.buttonPressed,
+              ]}
+              onPress={handleSendOtp}
+              disabled={loading}
             >
-              <Text style={styles.legalLink}>Terms of Service</Text>
+              <Text style={styles.buttonText}>
+                {loading ? "Sending..." : "Continue with OTP"}
+              </Text>
+
+              {!loading && (
+                <Ionicons
+                  name="arrow-forward"
+                  size={20}
+                  color="#fff"
+                  style={styles.buttonIcon}
+                />
+              )}
             </Pressable>
 
-            <Text style={styles.legalText}> and </Text>
+            {/* LEGAL CONSENT */}
 
-            <Pressable
-              onPress={() => openLegalUrl("privacy")}
-              hitSlop={6}
-              style={({ pressed }) => pressed && styles.pressed}
-            >
-              <Text style={styles.legalLink}>Privacy Policy</Text>
-            </Pressable>
+            <View style={styles.legalRow}>
+              <Text style={styles.legalText}>
+                By continuing, you agree to our{" "}
+              </Text>
+
+              <Pressable
+                onPress={() => openLegalUrl("terms")}
+                hitSlop={6}
+                style={({ pressed }) => pressed && styles.pressed}
+              >
+                <Text style={styles.legalLink}>Terms of Service</Text>
+              </Pressable>
+
+              <Text style={styles.legalText}> and </Text>
+
+              <Pressable
+                onPress={() => openLegalUrl("privacy")}
+                hitSlop={6}
+                style={({ pressed }) => pressed && styles.pressed}
+              >
+                <Text style={styles.legalLink}>Privacy Policy</Text>
+              </Pressable>
+            </View>
           </View>
-        </View>
 
-        {/* ========================================================
+          {/* ========================================================
             FEATURES FOOTER
         ======================================================== */}
 
-        <View style={styles.footer}>
-          <View style={styles.featureRow}>
-            {/* PROPERTY */}
+          <View style={styles.footer}>
+            <View style={styles.featureRow}>
+              {/* PROPERTY */}
 
-            <View style={styles.featureItem}>
-              <View style={styles.featureIcon}>
-                <Ionicons name="home-outline" size={20} color="#1a73e8" />
+              <View style={styles.featureItem}>
+                <View style={styles.featureIcon}>
+                  <Ionicons name="home-outline" size={20} color="#1a73e8" />
+                </View>
+
+                <Text style={styles.featureText} numberOfLines={2}>
+                  Manage{"\n"}Properties
+                </Text>
               </View>
 
-              <Text style={styles.featureText} numberOfLines={2}>
-                Manage{"\n"}Properties
-              </Text>
-            </View>
+              {/* TENANTS */}
 
-            {/* TENANTS */}
+              <View style={styles.featureItem}>
+                <View style={styles.featureIcon}>
+                  <Ionicons name="people-outline" size={20} color="#1a73e8" />
+                </View>
 
-            <View style={styles.featureItem}>
-              <View style={styles.featureIcon}>
-                <Ionicons name="people-outline" size={20} color="#1a73e8" />
+                <Text style={styles.featureText} numberOfLines={2}>
+                  Tenant{"\n"}Management
+                </Text>
               </View>
 
-              <Text style={styles.featureText} numberOfLines={2}>
-                Tenant{"\n"}Management
-              </Text>
-            </View>
+              {/* EXPENSES */}
 
-            {/* EXPENSES */}
+              <View style={styles.featureItem}>
+                <View style={styles.featureIcon}>
+                  <Ionicons name="cash-outline" size={20} color="#1a73e8" />
+                </View>
 
-            <View style={styles.featureItem}>
-              <View style={styles.featureIcon}>
-                <Ionicons name="cash-outline" size={20} color="#1a73e8" />
+                <Text style={styles.featureText} numberOfLines={2}>
+                  Track{"\n"}Expenses
+                </Text>
               </View>
-
-              <Text style={styles.featureText} numberOfLines={2}>
-                Track{"\n"}Expenses
-              </Text>
             </View>
           </View>
-        </View>
-      </ScrollView>
+        </ScrollView>
 
-      {/* CONTACT PICKER */}
+        {/* CONTACT PICKER */}
 
-      {renderContactPickerModal()}
+        {renderContactPickerModal()}
       </KeyboardAvoidingView>
     </DarkModeBoundary>
   );

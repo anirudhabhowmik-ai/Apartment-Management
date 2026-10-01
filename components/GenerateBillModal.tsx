@@ -14,7 +14,6 @@ import {
   View,
 } from "react-native";
 
-import { DarkModeBoundary } from "./DarkModeBoundary";
 import { useAccounts } from "../hooks/useAccounts";
 import {
   BillMemberType,
@@ -22,6 +21,7 @@ import {
   SignatureData,
   useBillStore,
 } from "../store/billStore";
+import { DarkModeBoundary } from "./DarkModeBoundary";
 import SignatureCanvas from "./SignatureCanvas";
 import SignaturePreview from "./SignaturePreview";
 
@@ -88,70 +88,71 @@ function AppAlert({
   return (
     <DarkModeBoundary>
       <Modal
-      transparent
-      visible={state.visible}
-      animationType="fade"
-      onRequestClose={onDismiss}
-      statusBarTranslucent
-    >
-      <Pressable style={inlineAlertStyles.backdrop} onPress={onDismiss}>
-        <Pressable
-          style={inlineAlertStyles.card}
-          onPress={(e) => e.stopPropagation()}
-        >
-          <View
-            style={[inlineAlertStyles.iconCircle, { backgroundColor: m.bg }]}
+        transparent
+        visible={state.visible}
+        animationType="fade"
+        onRequestClose={onDismiss}
+        statusBarTranslucent
+      >
+        <Pressable style={inlineAlertStyles.backdrop} onPress={onDismiss}>
+          <Pressable
+            style={inlineAlertStyles.card}
+            onPress={(e) => e.stopPropagation()}
           >
-            <Ionicons name={m.icon} size={30} color={m.color} />
-          </View>
+            <View
+              style={[inlineAlertStyles.iconCircle, { backgroundColor: m.bg }]}
+            >
+              <Ionicons name={m.icon} size={30} color={m.color} />
+            </View>
 
-          <Text style={inlineAlertStyles.title}>{title}</Text>
+            <Text style={inlineAlertStyles.title}>{title}</Text>
 
-          {message ? (
-            <Text style={inlineAlertStyles.message}>{message}</Text>
-          ) : null}
+            {message ? (
+              <Text style={inlineAlertStyles.message}>{message}</Text>
+            ) : null}
 
-          <View
-            style={[
-              inlineAlertStyles.actions,
-              isStacked && inlineAlertStyles.actionsStacked,
-            ]}
-          >
-            {buttons.map((btn, idx) => {
-              const isDestructive = btn.style === "destructive";
-              const isCancel = btn.style === "cancel";
-              const isPrimary = !isDestructive && !isCancel;
+            <View
+              style={[
+                inlineAlertStyles.actions,
+                isStacked && inlineAlertStyles.actionsStacked,
+              ]}
+            >
+              {buttons.map((btn, idx) => {
+                const isDestructive = btn.style === "destructive";
+                const isCancel = btn.style === "cancel";
+                const isPrimary = !isDestructive && !isCancel;
 
-              return (
-                <Pressable
-                  key={`${btn.text}-${idx}`}
-                  onPress={() => handlePress(btn)}
-                  style={({ pressed }) => [
-                    inlineAlertStyles.button,
-                    hasTwo && inlineAlertStyles.buttonHalf,
-                    isStacked && inlineAlertStyles.buttonFull,
-                    isCancel && inlineAlertStyles.buttonCancel,
-                    isDestructive && inlineAlertStyles.buttonDestructive,
-                    isPrimary && inlineAlertStyles.buttonPrimary,
-                    pressed && { opacity: 0.85 },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      inlineAlertStyles.buttonText,
-                      isCancel && inlineAlertStyles.buttonTextCancel,
-                      isDestructive && inlineAlertStyles.buttonTextDestructive,
-                      isPrimary && inlineAlertStyles.buttonTextPrimary,
+                return (
+                  <Pressable
+                    key={`${btn.text}-${idx}`}
+                    onPress={() => handlePress(btn)}
+                    style={({ pressed }) => [
+                      inlineAlertStyles.button,
+                      hasTwo && inlineAlertStyles.buttonHalf,
+                      isStacked && inlineAlertStyles.buttonFull,
+                      isCancel && inlineAlertStyles.buttonCancel,
+                      isDestructive && inlineAlertStyles.buttonDestructive,
+                      isPrimary && inlineAlertStyles.buttonPrimary,
+                      pressed && { opacity: 0.85 },
                     ]}
                   >
-                    {btn.text}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
+                    <Text
+                      style={[
+                        inlineAlertStyles.buttonText,
+                        isCancel && inlineAlertStyles.buttonTextCancel,
+                        isDestructive &&
+                          inlineAlertStyles.buttonTextDestructive,
+                        isPrimary && inlineAlertStyles.buttonTextPrimary,
+                      ]}
+                    >
+                      {btn.text}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </Pressable>
         </Pressable>
-      </Pressable>
       </Modal>
     </DarkModeBoundary>
   );

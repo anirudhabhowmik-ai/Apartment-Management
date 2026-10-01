@@ -10,9 +10,9 @@ import {
   initializeRevenueCat,
   resetRevenueCat,
 } from "../services/revenueCatService";
+import { useThemeStore } from "../store/themeStore";
 import { useAuthStore } from "../store/useAuthStore";
 import { getSecureItem } from "../utils/tokenStorage";
-import { useThemeStore } from "../store/themeStore";
 
 LogBox.ignoreLogs([
   "Can't perform a React state update on a component that hasn't mounted yet",

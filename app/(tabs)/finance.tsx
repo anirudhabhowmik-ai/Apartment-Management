@@ -105,70 +105,71 @@ function AppAlert({
   return (
     <DarkModeBoundary>
       <Modal
-      transparent
-      visible={state.visible}
-      animationType="fade"
-      onRequestClose={onDismiss}
-      statusBarTranslucent
-    >
-      <Pressable style={inlineAlertStyles.backdrop} onPress={onDismiss}>
-        <Pressable
-          style={inlineAlertStyles.card}
-          onPress={(e) => e.stopPropagation()}
-        >
-          <View
-            style={[inlineAlertStyles.iconCircle, { backgroundColor: m.bg }]}
+        transparent
+        visible={state.visible}
+        animationType="fade"
+        onRequestClose={onDismiss}
+        statusBarTranslucent
+      >
+        <Pressable style={inlineAlertStyles.backdrop} onPress={onDismiss}>
+          <Pressable
+            style={inlineAlertStyles.card}
+            onPress={(e) => e.stopPropagation()}
           >
-            <Ionicons name={m.icon} size={30} color={m.color} />
-          </View>
+            <View
+              style={[inlineAlertStyles.iconCircle, { backgroundColor: m.bg }]}
+            >
+              <Ionicons name={m.icon} size={30} color={m.color} />
+            </View>
 
-          <Text style={inlineAlertStyles.title}>{title}</Text>
+            <Text style={inlineAlertStyles.title}>{title}</Text>
 
-          {message ? (
-            <Text style={inlineAlertStyles.message}>{message}</Text>
-          ) : null}
+            {message ? (
+              <Text style={inlineAlertStyles.message}>{message}</Text>
+            ) : null}
 
-          <View
-            style={[
-              inlineAlertStyles.actions,
-              isStacked && inlineAlertStyles.actionsStacked,
-            ]}
-          >
-            {buttons.map((btn, idx) => {
-              const isDestructive = btn.style === "destructive";
-              const isCancel = btn.style === "cancel";
-              const isPrimary = !isDestructive && !isCancel;
+            <View
+              style={[
+                inlineAlertStyles.actions,
+                isStacked && inlineAlertStyles.actionsStacked,
+              ]}
+            >
+              {buttons.map((btn, idx) => {
+                const isDestructive = btn.style === "destructive";
+                const isCancel = btn.style === "cancel";
+                const isPrimary = !isDestructive && !isCancel;
 
-              return (
-                <Pressable
-                  key={`${btn.text}-${idx}`}
-                  onPress={() => handlePress(btn)}
-                  style={({ pressed }) => [
-                    inlineAlertStyles.button,
-                    hasTwo && inlineAlertStyles.buttonHalf,
-                    isStacked && inlineAlertStyles.buttonFull,
-                    isCancel && inlineAlertStyles.buttonCancel,
-                    isDestructive && inlineAlertStyles.buttonDestructive,
-                    isPrimary && inlineAlertStyles.buttonPrimary,
-                    pressed && { opacity: 0.85 },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      inlineAlertStyles.buttonText,
-                      isCancel && inlineAlertStyles.buttonTextCancel,
-                      isDestructive && inlineAlertStyles.buttonTextDestructive,
-                      isPrimary && inlineAlertStyles.buttonTextPrimary,
+                return (
+                  <Pressable
+                    key={`${btn.text}-${idx}`}
+                    onPress={() => handlePress(btn)}
+                    style={({ pressed }) => [
+                      inlineAlertStyles.button,
+                      hasTwo && inlineAlertStyles.buttonHalf,
+                      isStacked && inlineAlertStyles.buttonFull,
+                      isCancel && inlineAlertStyles.buttonCancel,
+                      isDestructive && inlineAlertStyles.buttonDestructive,
+                      isPrimary && inlineAlertStyles.buttonPrimary,
+                      pressed && { opacity: 0.85 },
                     ]}
                   >
-                    {btn.text}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
+                    <Text
+                      style={[
+                        inlineAlertStyles.buttonText,
+                        isCancel && inlineAlertStyles.buttonTextCancel,
+                        isDestructive &&
+                          inlineAlertStyles.buttonTextDestructive,
+                        isPrimary && inlineAlertStyles.buttonTextPrimary,
+                      ]}
+                    >
+                      {btn.text}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </Pressable>
         </Pressable>
-      </Pressable>
       </Modal>
     </DarkModeBoundary>
   );
@@ -2152,13 +2153,13 @@ export default function FinanceScreen() {
     return (
       <DarkModeBoundary>
         <View style={styles.container}>
-        <View style={styles.loadingContainer}>
-          <View style={styles.loadingIcon}>
-            <Ionicons name="wallet-outline" size={28} color="#2563EB" />
+          <View style={styles.loadingContainer}>
+            <View style={styles.loadingIcon}>
+              <Ionicons name="wallet-outline" size={28} color="#2563EB" />
+            </View>
+            <ActivityIndicator size="small" color="#2563EB" />
+            <Text style={styles.loadingText}>Loading finances...</Text>
           </View>
-          <ActivityIndicator size="small" color="#2563EB" />
-          <Text style={styles.loadingText}>Loading finances...</Text>
-        </View>
         </View>
       </DarkModeBoundary>
     );
@@ -2168,39 +2169,39 @@ export default function FinanceScreen() {
     return (
       <DarkModeBoundary>
         <View style={styles.container}>
-        <View style={styles.emptyState}>
-          <View style={styles.emptyIcon}>
-            <Ionicons name="wallet-outline" size={38} color="#2563EB" />
-          </View>
-          <Text style={styles.emptyTitle}>No Property Selected</Text>
-          <Text style={styles.emptySubtitle}>
-            {accounts.length > 0
-              ? "Select a property to view its financial overview."
-              : "Create a property to start managing finances."}
-          </Text>
-          <TouchableOpacity
-            style={styles.selectButton}
-            onPress={() => {
-              if (accounts.length > 0) {
-                setAccountSwitcherOpen(true);
-              } else {
-                router.push({
-                  pathname: "/(modals)/add-account",
-                  params: { mode: "create" },
-                });
-              }
-            }}
-          >
-            <Ionicons
-              name={accounts.length > 0 ? "business-outline" : "add"}
-              size={18}
-              color="#fff"
-            />
-            <Text style={styles.selectButtonText}>
-              {accounts.length > 0 ? "Select Property" : "Create Property"}
+          <View style={styles.emptyState}>
+            <View style={styles.emptyIcon}>
+              <Ionicons name="wallet-outline" size={38} color="#2563EB" />
+            </View>
+            <Text style={styles.emptyTitle}>No Property Selected</Text>
+            <Text style={styles.emptySubtitle}>
+              {accounts.length > 0
+                ? "Select a property to view its financial overview."
+                : "Create a property to start managing finances."}
             </Text>
-          </TouchableOpacity>
-        </View>
+            <TouchableOpacity
+              style={styles.selectButton}
+              onPress={() => {
+                if (accounts.length > 0) {
+                  setAccountSwitcherOpen(true);
+                } else {
+                  router.push({
+                    pathname: "/(modals)/add-account",
+                    params: { mode: "create" },
+                  });
+                }
+              }}
+            >
+              <Ionicons
+                name={accounts.length > 0 ? "business-outline" : "add"}
+                size={18}
+                color="#fff"
+              />
+              <Text style={styles.selectButtonText}>
+                {accounts.length > 0 ? "Select Property" : "Create Property"}
+              </Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </DarkModeBoundary>
     );
@@ -2217,499 +2218,505 @@ export default function FinanceScreen() {
   return (
     <DarkModeBoundary>
       <View style={styles.container}>
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor="#2563EB"
-          />
-        }
-        showsVerticalScrollIndicator={false}
-      >
-        <View style={styles.header}>
-          <View style={styles.headerTextContainer}>
-            <Text style={styles.headerEyebrow}>FINANCE</Text>
-            <Text style={styles.headerTitle}>Money Overview</Text>
-            <View style={styles.propertyRow}>
-              <Ionicons name="business-outline" size={13} color="#64748B" />
-              <Text style={styles.propertyName} numberOfLines={1}>
-                {selectedAccount.name}
-              </Text>
-            </View>
-          </View>
-          <View style={styles.headerIcon}>
-            <Ionicons name="wallet" size={21} color="#2563EB" />
-          </View>
-        </View>
-
-        <View style={styles.balanceHero}>
-          <View style={styles.heroCircleOne} />
-          <View style={styles.heroCircleTwo} />
-
-          <View style={styles.heroTopRow}>
-            <View style={{ flex: 1, minWidth: 0 }}>
-              <Text style={styles.heroSmallLabel}>
-                Start With Opening Balance
-              </Text>
-
-              <Text
-                style={[
-                  styles.heroAmount,
-                  openingBalance < 0 && styles.heroNegative,
-                ]}
-              >
-                ₹{openingBalance.toLocaleString("en-IN")}
-              </Text>
-
-              {hasBeenEdited ? (
-                <View style={styles.heroMetaBlock}>
-                  {openingBalanceMeta.updatedByPhone ? (
-                    <TouchableOpacity
-                      style={styles.heroPhonePill}
-                      onPress={() =>
-                        handleCall(openingBalanceMeta.updatedByPhone)
-                      }
-                      hitSlop={6}
-                      activeOpacity={0.75}
-                    >
-                      <Ionicons name="call" size={11} color="#fff" />
-                      <Text style={styles.heroPhonePillText}>
-                        {formatPhoneForDisplay(
-                          openingBalanceMeta.updatedByPhone,
-                        )}
-                      </Text>
-                    </TouchableOpacity>
-                  ) : null}
-
-                  {openingBalanceMeta.updatedAt ? (
-                    <Text style={styles.heroMetaText} numberOfLines={1}>
-                      Edited on {formatEditedAt(openingBalanceMeta.updatedAt)}
-                    </Text>
-                  ) : null}
-                </View>
-              ) : null}
-            </View>
-
-            {canEditBalance && (
-              <TouchableOpacity
-                style={styles.heroEditButton}
-                onPress={openOpeningBalanceEditor}
-                disabled={openingBalanceLoading}
-              >
-                <Ionicons name="create-outline" size={16} color="#fff" />
-                <Text style={styles.heroEditText}>Edit</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-
-          <View style={styles.heroDivider} />
-
-          <View style={styles.heroBottomRow}>
-            <View style={styles.heroMetric}>
-              <Text style={styles.heroMetricLabel}>Carried Forward</Text>
-              {carriedForwardLoading ? (
-                <ActivityIndicator
-                  size="small"
-                  color="#fff"
-                  style={{ alignSelf: "flex-start", marginTop: 4 }}
-                />
-              ) : (
-                <Text style={styles.heroMetricValue}>
-                  ₹{carriedForwardBalance.toLocaleString("en-IN")}
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor="#2563EB"
+            />
+          }
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.header}>
+            <View style={styles.headerTextContainer}>
+              <Text style={styles.headerEyebrow}>FINANCE</Text>
+              <Text style={styles.headerTitle}>Money Overview</Text>
+              <View style={styles.propertyRow}>
+                <Ionicons name="business-outline" size={13} color="#64748B" />
+                <Text style={styles.propertyName} numberOfLines={1}>
+                  {selectedAccount.name}
                 </Text>
+              </View>
+            </View>
+            <View style={styles.headerIcon}>
+              <Ionicons name="wallet" size={21} color="#2563EB" />
+            </View>
+          </View>
+
+          <View style={styles.balanceHero}>
+            <View style={styles.heroCircleOne} />
+            <View style={styles.heroCircleTwo} />
+
+            <View style={styles.heroTopRow}>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={styles.heroSmallLabel}>
+                  Start With Opening Balance
+                </Text>
+
+                <Text
+                  style={[
+                    styles.heroAmount,
+                    openingBalance < 0 && styles.heroNegative,
+                  ]}
+                >
+                  ₹{openingBalance.toLocaleString("en-IN")}
+                </Text>
+
+                {hasBeenEdited ? (
+                  <View style={styles.heroMetaBlock}>
+                    {openingBalanceMeta.updatedByPhone ? (
+                      <TouchableOpacity
+                        style={styles.heroPhonePill}
+                        onPress={() =>
+                          handleCall(openingBalanceMeta.updatedByPhone)
+                        }
+                        hitSlop={6}
+                        activeOpacity={0.75}
+                      >
+                        <Ionicons name="call" size={11} color="#fff" />
+                        <Text style={styles.heroPhonePillText}>
+                          {formatPhoneForDisplay(
+                            openingBalanceMeta.updatedByPhone,
+                          )}
+                        </Text>
+                      </TouchableOpacity>
+                    ) : null}
+
+                    {openingBalanceMeta.updatedAt ? (
+                      <Text style={styles.heroMetaText} numberOfLines={1}>
+                        Edited on {formatEditedAt(openingBalanceMeta.updatedAt)}
+                      </Text>
+                    ) : null}
+                  </View>
+                ) : null}
+              </View>
+
+              {canEditBalance && (
+                <TouchableOpacity
+                  style={styles.heroEditButton}
+                  onPress={openOpeningBalanceEditor}
+                  disabled={openingBalanceLoading}
+                >
+                  <Ionicons name="create-outline" size={16} color="#fff" />
+                  <Text style={styles.heroEditText}>Edit</Text>
+                </TouchableOpacity>
               )}
             </View>
 
-            <View style={styles.heroMetricDivider} />
+            <View style={styles.heroDivider} />
 
-            <View style={styles.heroMetric}>
-              <Text style={styles.heroMetricLabel}>This Month</Text>
-              <Text
-                style={[
-                  styles.heroMetricValue,
-                  summary.net < 0 && styles.heroNegativeSmall,
-                ]}
-              >
-                {summary.net >= 0 ? "+" : "-"}₹
-                {Math.abs(summary.net).toLocaleString("en-IN")}
-              </Text>
-            </View>
+            <View style={styles.heroBottomRow}>
+              <View style={styles.heroMetric}>
+                <Text style={styles.heroMetricLabel}>Carried Forward</Text>
+                {carriedForwardLoading ? (
+                  <ActivityIndicator
+                    size="small"
+                    color="#fff"
+                    style={{ alignSelf: "flex-start", marginTop: 4 }}
+                  />
+                ) : (
+                  <Text style={styles.heroMetricValue}>
+                    ₹{carriedForwardBalance.toLocaleString("en-IN")}
+                  </Text>
+                )}
+              </View>
 
-            <View style={styles.heroMetricDivider} />
+              <View style={styles.heroMetricDivider} />
 
-            <View style={styles.heroMetric}>
-              <Text style={styles.heroMetricLabel}>Net Balance</Text>
-              <Text
-                style={[
-                  styles.heroMetricValue,
-                  netBalance < 0 && styles.heroNegativeSmall,
-                ]}
-                numberOfLines={1}
-              >
-                {netBalance < 0 ? "-" : ""}₹
-                {Math.abs(netBalance).toLocaleString("en-IN")}
-              </Text>
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.monthCard}>
-          <View style={styles.monthLeft}>
-            <View style={styles.calendarIcon}>
-              <Ionicons name="calendar-outline" size={18} color="#2563EB" />
-            </View>
-            <View>
-              <Text style={styles.monthCaption}>BILLING MONTH</Text>
-              <Text style={styles.monthText}>
-                {selectedMonth.toLocaleString("default", {
-                  month: "long",
-                  year: "numeric",
-                })}
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.monthActions}>
-            <TouchableOpacity
-              onPress={() => handleMonthChange("prev")}
-              style={styles.monthArrow}
-            >
-              <Ionicons name="chevron-back" size={19} color="#334155" />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              onPress={() => handleMonthChange("next")}
-              style={styles.monthArrow}
-            >
-              <Ionicons name="chevron-forward" size={19} color="#334155" />
-            </TouchableOpacity>
-
-            {canDownloadReport && (
-              <TouchableOpacity
-                style={styles.reportButton}
-                onPress={() => setShowReportOptions(true)}
-              >
-                <Ionicons name="document-text-outline" size={16} color="#fff" />
-                <Text style={styles.reportButtonText}>Report</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
-
-        <View style={styles.sectionLabelRow}>
-          <Text style={styles.sectionLabel}>Monthly Summary</Text>
-          <Text style={styles.sectionLabelHint}>Paid only</Text>
-        </View>
-
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.summaryScrollContent}
-          style={styles.summaryScroll}
-        >
-          <View style={styles.summaryCardWrapper}>
-            <SummaryCard
-              title="Income"
-              amount={summary.totalIncome}
-              icon="arrow-down"
-              color="#16A34A"
-              backgroundColor="#ECFDF3"
-            />
-          </View>
-          <View style={styles.summaryCardWrapper}>
-            <SummaryCard
-              title="Expenses"
-              amount={summary.totalExpense}
-              icon="arrow-up"
-              color="#DC2626"
-              backgroundColor="#FEF2F2"
-            />
-          </View>
-        </ScrollView>
-
-        <View style={styles.filterHeader}>
-          <Text style={styles.sectionLabel}>Transactions</Text>
-          <Text style={styles.transactionCountTop}>
-            {filteredPayments.length} records
-          </Text>
-        </View>
-
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.filterContainer}
-        >
-          {(
-            [
-              { type: "all", label: "All", icon: "apps-outline" },
-              {
-                type: "income",
-                label: "Income",
-                icon: "trending-up-outline",
-              },
-              {
-                type: "expense",
-                label: "Expense",
-                icon: "trending-down-outline",
-              },
-              { type: "pending", label: "Due", icon: "time-outline" },
-            ] as {
-              type: FilterType;
-              label: string;
-              icon: keyof typeof Ionicons.glyphMap;
-            }[]
-          ).map((item) => {
-            const active = filter === item.type;
-            return (
-              <TouchableOpacity
-                key={item.type}
-                style={[styles.filterChip, active && styles.filterChipActive]}
-                onPress={() => setFilter(item.type)}
-              >
-                <Ionicons
-                  name={item.icon}
-                  size={14}
-                  color={active ? "#fff" : "#64748B"}
-                />
+              <View style={styles.heroMetric}>
+                <Text style={styles.heroMetricLabel}>This Month</Text>
                 <Text
                   style={[
-                    styles.filterChipText,
-                    active && styles.filterChipTextActive,
+                    styles.heroMetricValue,
+                    summary.net < 0 && styles.heroNegativeSmall,
                   ]}
                 >
-                  {item.label}
+                  {summary.net >= 0 ? "+" : "-"}₹
+                  {Math.abs(summary.net).toLocaleString("en-IN")}
                 </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </ScrollView>
-
-        <View style={styles.transactionsSection}>
-          {filteredPayments.length === 0 ? (
-            <View style={styles.emptyTransactions}>
-              <View style={styles.emptyTransactionIcon}>
-                <Ionicons name="receipt-outline" size={28} color="#94A3B8" />
               </View>
-              <Text style={styles.emptyTransactionTitle}>No transactions</Text>
-              <Text style={styles.emptyText}>
-                No transactions match this filter for the selected month.
-              </Text>
+
+              <View style={styles.heroMetricDivider} />
+
+              <View style={styles.heroMetric}>
+                <Text style={styles.heroMetricLabel}>Net Balance</Text>
+                <Text
+                  style={[
+                    styles.heroMetricValue,
+                    netBalance < 0 && styles.heroNegativeSmall,
+                  ]}
+                  numberOfLines={1}
+                >
+                  {netBalance < 0 ? "-" : ""}₹
+                  {Math.abs(netBalance).toLocaleString("en-IN")}
+                </Text>
+              </View>
             </View>
-          ) : (
-            groupedCards.map((card) => (
-              <GroupedCard
-                key={card.user_id}
-                card={card}
-                onShowDetails={openDetails}
-                onCall={handleCall}
-              />
-            ))
-          )}
-        </View>
+          </View>
 
-        <View style={styles.bottomPadding} />
-      </ScrollView>
-
-      {detailPayment ? (
-        <TransactionDetailModal
-          visible={Boolean(detailPayment)}
-          onClose={closeDetails}
-          title={
-            (detailPayment as any).title ||
-            (detailPayment as any).name ||
-            getCategoryLabel((detailPayment as any).rawCategory)
-          }
-          description={(detailPayment as any).description || ""}
-          attachments={normalizeAttachments(
-            (detailPayment as any).bill_attachments,
-          )}
-          onDownload={handleDownloadAttachment}
-        />
-      ) : null}
-
-      {canDownloadReport && (
-        <Modal
-          transparent
-          animationType="slide"
-          visible={showReportOptions}
-          onRequestClose={() => setShowReportOptions(false)}
-        >
-          <View style={styles.modalOverlay}>
-            <View style={styles.bottomSheet}>
-              <View style={styles.sheetHandle} />
-
-              <View style={styles.sheetHeader}>
-                <View>
-                  <Text style={styles.sheetTitle}>Download Report</Text>
-                  <Text style={styles.sheetSubtitle}>
-                    Choose a format for{" "}
-                    {selectedMonth.toLocaleString("default", {
-                      month: "long",
-                      year: "numeric",
-                    })}
-                  </Text>
-                </View>
-
-                <TouchableOpacity
-                  style={styles.sheetCloseButton}
-                  onPress={() => setShowReportOptions(false)}
-                >
-                  <Ionicons name="close" size={20} color="#64748B" />
-                </TouchableOpacity>
+          <View style={styles.monthCard}>
+            <View style={styles.monthLeft}>
+              <View style={styles.calendarIcon}>
+                <Ionicons name="calendar-outline" size={18} color="#2563EB" />
               </View>
+              <View>
+                <Text style={styles.monthCaption}>BILLING MONTH</Text>
+                <Text style={styles.monthText}>
+                  {selectedMonth.toLocaleString("default", {
+                    month: "long",
+                    year: "numeric",
+                  })}
+                </Text>
+              </View>
+            </View>
 
+            <View style={styles.monthActions}>
               <TouchableOpacity
-                style={styles.reportOption}
-                onPress={() => {
-                  setShowReportOptions(false);
-                  handleDownloadExcel();
-                }}
+                onPress={() => handleMonthChange("prev")}
+                style={styles.monthArrow}
               >
-                <View
-                  style={[
-                    styles.reportOptionIcon,
-                    { backgroundColor: "#ECFDF3" },
-                  ]}
-                >
-                  <Ionicons name="grid-outline" size={22} color="#16A34A" />
-                </View>
-                <View style={styles.reportOptionInfo}>
-                  <Text style={styles.reportOptionTitle}>Excel Report</Text>
-                  <Text style={styles.reportOptionSubtitle}>
-                    Detailed spreadsheet with transactions
-                  </Text>
-                </View>
-                <Ionicons name="chevron-forward" size={19} color="#94A3B8" />
+                <Ionicons name="chevron-back" size={19} color="#334155" />
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.reportOption}
-                onPress={handleDownloadPdf}
+                onPress={() => handleMonthChange("next")}
+                style={styles.monthArrow}
               >
-                <View
-                  style={[
-                    styles.reportOptionIcon,
-                    { backgroundColor: "#FEF2F2" },
-                  ]}
+                <Ionicons name="chevron-forward" size={19} color="#334155" />
+              </TouchableOpacity>
+
+              {canDownloadReport && (
+                <TouchableOpacity
+                  style={styles.reportButton}
+                  onPress={() => setShowReportOptions(true)}
                 >
                   <Ionicons
                     name="document-text-outline"
-                    size={22}
-                    color="#DC2626"
+                    size={16}
+                    color="#fff"
+                  />
+                  <Text style={styles.reportButtonText}>Report</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          </View>
+
+          <View style={styles.sectionLabelRow}>
+            <Text style={styles.sectionLabel}>Monthly Summary</Text>
+            <Text style={styles.sectionLabelHint}>Paid only</Text>
+          </View>
+
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.summaryScrollContent}
+            style={styles.summaryScroll}
+          >
+            <View style={styles.summaryCardWrapper}>
+              <SummaryCard
+                title="Income"
+                amount={summary.totalIncome}
+                icon="arrow-down"
+                color="#16A34A"
+                backgroundColor="#ECFDF3"
+              />
+            </View>
+            <View style={styles.summaryCardWrapper}>
+              <SummaryCard
+                title="Expenses"
+                amount={summary.totalExpense}
+                icon="arrow-up"
+                color="#DC2626"
+                backgroundColor="#FEF2F2"
+              />
+            </View>
+          </ScrollView>
+
+          <View style={styles.filterHeader}>
+            <Text style={styles.sectionLabel}>Transactions</Text>
+            <Text style={styles.transactionCountTop}>
+              {filteredPayments.length} records
+            </Text>
+          </View>
+
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.filterContainer}
+          >
+            {(
+              [
+                { type: "all", label: "All", icon: "apps-outline" },
+                {
+                  type: "income",
+                  label: "Income",
+                  icon: "trending-up-outline",
+                },
+                {
+                  type: "expense",
+                  label: "Expense",
+                  icon: "trending-down-outline",
+                },
+                { type: "pending", label: "Due", icon: "time-outline" },
+              ] as {
+                type: FilterType;
+                label: string;
+                icon: keyof typeof Ionicons.glyphMap;
+              }[]
+            ).map((item) => {
+              const active = filter === item.type;
+              return (
+                <TouchableOpacity
+                  key={item.type}
+                  style={[styles.filterChip, active && styles.filterChipActive]}
+                  onPress={() => setFilter(item.type)}
+                >
+                  <Ionicons
+                    name={item.icon}
+                    size={14}
+                    color={active ? "#fff" : "#64748B"}
+                  />
+                  <Text
+                    style={[
+                      styles.filterChipText,
+                      active && styles.filterChipTextActive,
+                    ]}
+                  >
+                    {item.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </ScrollView>
+
+          <View style={styles.transactionsSection}>
+            {filteredPayments.length === 0 ? (
+              <View style={styles.emptyTransactions}>
+                <View style={styles.emptyTransactionIcon}>
+                  <Ionicons name="receipt-outline" size={28} color="#94A3B8" />
+                </View>
+                <Text style={styles.emptyTransactionTitle}>
+                  No transactions
+                </Text>
+                <Text style={styles.emptyText}>
+                  No transactions match this filter for the selected month.
+                </Text>
+              </View>
+            ) : (
+              groupedCards.map((card) => (
+                <GroupedCard
+                  key={card.user_id}
+                  card={card}
+                  onShowDetails={openDetails}
+                  onCall={handleCall}
+                />
+              ))
+            )}
+          </View>
+
+          <View style={styles.bottomPadding} />
+        </ScrollView>
+
+        {detailPayment ? (
+          <TransactionDetailModal
+            visible={Boolean(detailPayment)}
+            onClose={closeDetails}
+            title={
+              (detailPayment as any).title ||
+              (detailPayment as any).name ||
+              getCategoryLabel((detailPayment as any).rawCategory)
+            }
+            description={(detailPayment as any).description || ""}
+            attachments={normalizeAttachments(
+              (detailPayment as any).bill_attachments,
+            )}
+            onDownload={handleDownloadAttachment}
+          />
+        ) : null}
+
+        {canDownloadReport && (
+          <Modal
+            transparent
+            animationType="slide"
+            visible={showReportOptions}
+            onRequestClose={() => setShowReportOptions(false)}
+          >
+            <View style={styles.modalOverlay}>
+              <View style={styles.bottomSheet}>
+                <View style={styles.sheetHandle} />
+
+                <View style={styles.sheetHeader}>
+                  <View>
+                    <Text style={styles.sheetTitle}>Download Report</Text>
+                    <Text style={styles.sheetSubtitle}>
+                      Choose a format for{" "}
+                      {selectedMonth.toLocaleString("default", {
+                        month: "long",
+                        year: "numeric",
+                      })}
+                    </Text>
+                  </View>
+
+                  <TouchableOpacity
+                    style={styles.sheetCloseButton}
+                    onPress={() => setShowReportOptions(false)}
+                  >
+                    <Ionicons name="close" size={20} color="#64748B" />
+                  </TouchableOpacity>
+                </View>
+
+                <TouchableOpacity
+                  style={styles.reportOption}
+                  onPress={() => {
+                    setShowReportOptions(false);
+                    handleDownloadExcel();
+                  }}
+                >
+                  <View
+                    style={[
+                      styles.reportOptionIcon,
+                      { backgroundColor: "#ECFDF3" },
+                    ]}
+                  >
+                    <Ionicons name="grid-outline" size={22} color="#16A34A" />
+                  </View>
+                  <View style={styles.reportOptionInfo}>
+                    <Text style={styles.reportOptionTitle}>Excel Report</Text>
+                    <Text style={styles.reportOptionSubtitle}>
+                      Detailed spreadsheet with transactions
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={19} color="#94A3B8" />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.reportOption}
+                  onPress={handleDownloadPdf}
+                >
+                  <View
+                    style={[
+                      styles.reportOptionIcon,
+                      { backgroundColor: "#FEF2F2" },
+                    ]}
+                  >
+                    <Ionicons
+                      name="document-text-outline"
+                      size={22}
+                      color="#DC2626"
+                    />
+                  </View>
+                  <View style={styles.reportOptionInfo}>
+                    <Text style={styles.reportOptionTitle}>PDF Report</Text>
+                    <Text style={styles.reportOptionSubtitle}>
+                      Share a clean financial summary
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={19} color="#94A3B8" />
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.cancelButton}
+                  onPress={() => setShowReportOptions(false)}
+                >
+                  <Text style={styles.cancelButtonText}>Cancel</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </Modal>
+        )}
+
+        {canEditBalance && (
+          <Modal
+            transparent
+            animationType="slide"
+            visible={showOpeningBalanceEditor}
+            onRequestClose={() => setShowOpeningBalanceEditor(false)}
+          >
+            <View style={styles.modalOverlay}>
+              <View style={styles.bottomSheet}>
+                <View style={styles.sheetHandle} />
+
+                <View style={styles.sheetHeader}>
+                  <View>
+                    <Text style={styles.sheetTitle}>Opening Balance</Text>
+                    <Text style={styles.sheetSubtitle}>
+                      Set the starting balance for this property.
+                    </Text>
+                  </View>
+
+                  <TouchableOpacity
+                    style={styles.sheetCloseButton}
+                    onPress={() => setShowOpeningBalanceEditor(false)}
+                  >
+                    <Ionicons name="close" size={20} color="#64748B" />
+                  </TouchableOpacity>
+                </View>
+
+                <Text style={styles.inputLabel}>Starting balance</Text>
+
+                <View style={styles.amountInputContainer}>
+                  <Text style={styles.currencySymbol}>₹</Text>
+                  <TextInput
+                    autoFocus
+                    keyboardType="numeric"
+                    placeholder="0"
+                    placeholderTextColor="#94A3B8"
+                    style={styles.openingBalanceInput}
+                    value={openingBalanceInput}
+                    onChangeText={(value) =>
+                      setOpeningBalanceInput(value.replace(/[^0-9]/g, ""))
+                    }
                   />
                 </View>
-                <View style={styles.reportOptionInfo}>
-                  <Text style={styles.reportOptionTitle}>PDF Report</Text>
-                  <Text style={styles.reportOptionSubtitle}>
-                    Share a clean financial summary
+
+                {hasBeenEdited ? (
+                  <View style={styles.editedInfoRow}>
+                    <Ionicons name="call-outline" size={14} color="#64748B" />
+                    <Text style={styles.editedInfoText}>
+                      Last edited
+                      {openingBalanceMeta.updatedByPhone
+                        ? ` by ${formatPhoneForDisplay(
+                            openingBalanceMeta.updatedByPhone,
+                          )}`
+                        : ""}
+                      {openingBalanceMeta.updatedAt
+                        ? ` on ${formatEditedAt(openingBalanceMeta.updatedAt)}`
+                        : ""}
+                    </Text>
+                  </View>
+                ) : (
+                  <Text style={styles.inputHint}>
+                    This balance will be carried forward to future months
+                    automatically.
                   </Text>
+                )}
+
+                <View style={styles.openingBalanceActions}>
+                  <TouchableOpacity
+                    style={styles.cancelOutlineButton}
+                    onPress={() => setShowOpeningBalanceEditor(false)}
+                  >
+                    <Text style={styles.cancelOutlineText}>Cancel</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.saveOpeningBalanceButton}
+                    onPress={saveOpeningBalance}
+                  >
+                    <Ionicons name="checkmark" size={18} color="#fff" />
+                    <Text style={styles.saveOpeningBalanceText}>
+                      Save Balance
+                    </Text>
+                  </TouchableOpacity>
                 </View>
-                <Ionicons name="chevron-forward" size={19} color="#94A3B8" />
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.cancelButton}
-                onPress={() => setShowReportOptions(false)}
-              >
-                <Text style={styles.cancelButtonText}>Cancel</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </Modal>
-      )}
-
-      {canEditBalance && (
-        <Modal
-          transparent
-          animationType="slide"
-          visible={showOpeningBalanceEditor}
-          onRequestClose={() => setShowOpeningBalanceEditor(false)}
-        >
-          <View style={styles.modalOverlay}>
-            <View style={styles.bottomSheet}>
-              <View style={styles.sheetHandle} />
-
-              <View style={styles.sheetHeader}>
-                <View>
-                  <Text style={styles.sheetTitle}>Opening Balance</Text>
-                  <Text style={styles.sheetSubtitle}>
-                    Set the starting balance for this property.
-                  </Text>
-                </View>
-
-                <TouchableOpacity
-                  style={styles.sheetCloseButton}
-                  onPress={() => setShowOpeningBalanceEditor(false)}
-                >
-                  <Ionicons name="close" size={20} color="#64748B" />
-                </TouchableOpacity>
-              </View>
-
-              <Text style={styles.inputLabel}>Starting balance</Text>
-
-              <View style={styles.amountInputContainer}>
-                <Text style={styles.currencySymbol}>₹</Text>
-                <TextInput
-                  autoFocus
-                  keyboardType="numeric"
-                  placeholder="0"
-                  placeholderTextColor="#94A3B8"
-                  style={styles.openingBalanceInput}
-                  value={openingBalanceInput}
-                  onChangeText={(value) =>
-                    setOpeningBalanceInput(value.replace(/[^0-9]/g, ""))
-                  }
-                />
-              </View>
-
-              {hasBeenEdited ? (
-                <View style={styles.editedInfoRow}>
-                  <Ionicons name="call-outline" size={14} color="#64748B" />
-                  <Text style={styles.editedInfoText}>
-                    Last edited
-                    {openingBalanceMeta.updatedByPhone
-                      ? ` by ${formatPhoneForDisplay(
-                          openingBalanceMeta.updatedByPhone,
-                        )}`
-                      : ""}
-                    {openingBalanceMeta.updatedAt
-                      ? ` on ${formatEditedAt(openingBalanceMeta.updatedAt)}`
-                      : ""}
-                  </Text>
-                </View>
-              ) : (
-                <Text style={styles.inputHint}>
-                  This balance will be carried forward to future months
-                  automatically.
-                </Text>
-              )}
-
-              <View style={styles.openingBalanceActions}>
-                <TouchableOpacity
-                  style={styles.cancelOutlineButton}
-                  onPress={() => setShowOpeningBalanceEditor(false)}
-                >
-                  <Text style={styles.cancelOutlineText}>Cancel</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={styles.saveOpeningBalanceButton}
-                  onPress={saveOpeningBalance}
-                >
-                  <Ionicons name="checkmark" size={18} color="#fff" />
-                  <Text style={styles.saveOpeningBalanceText}>
-                    Save Balance
-                  </Text>
-                </TouchableOpacity>
               </View>
             </View>
-          </View>
-        </Modal>
-      )}
+          </Modal>
+        )}
 
-      <AppAlert state={alert.state} onDismiss={alert.dismiss} />
+        <AppAlert state={alert.state} onDismiss={alert.dismiss} />
       </View>
     </DarkModeBoundary>
   );

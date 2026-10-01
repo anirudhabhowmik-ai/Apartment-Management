@@ -3764,6 +3764,188 @@ export default function HomeScreen() {
     return (
       <DarkModeBoundary>
         <View style={styles.container}>
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={styles.scrollContent}
+            refreshControl={
+              <RefreshControl
+                refreshing={refreshing}
+                onRefresh={onRefresh}
+                tintColor="#2563EB"
+                colors={["#2563EB"]}
+              />
+            }
+          >
+            {renderPendingOffers()}
+
+            <View style={styles.header}>
+              <View style={styles.headerTop}>
+                <View style={styles.headerTextContainer}>
+                  <Text style={styles.greeting}>{getGreeting()} 👋</Text>
+                  <Text style={styles.accountName} numberOfLines={1}>
+                    {selectedAccount?.name || "My Property"}
+                  </Text>
+                  <View style={styles.accountTypeRow}>
+                    <View style={styles.accountStatusDot} />
+                    <Text style={styles.accountTypeText}>{portalLabel}</Text>
+                    <View style={styles.dotSeparator} />
+                    <Text style={styles.monthText}>
+                      {getCurrentMonthLabel()}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+
+            {renderProfileBlock()}
+
+            {isMember ? (
+              <>
+                <View style={styles.section}>
+                  <View style={styles.sectionHeader}>
+                    <View>
+                      <Text style={styles.sectionTitle}>Society Overview</Text>
+                      <Text style={styles.sectionSubtitle}>
+                        Your community at a glance
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={styles.groupOverviewGrid}>
+                    <GroupOverviewCard
+                      title={isTenantAccount ? "Tenants" : "Members"}
+                      subtitle={
+                        isTenantAccount ? "Tenant accounts" : "Owner accounts"
+                      }
+                      count={totalMemberRecords}
+                      countLabel={
+                        totalMemberRecords === 1 ? "account" : "accounts"
+                      }
+                      icon="people-outline"
+                      color="#2563EB"
+                      onPress={handleOpenMembersGroup}
+                    />
+                    <GroupOverviewCard
+                      title="Staff"
+                      subtitle="Working on site"
+                      count={staffMembers.length}
+                      countLabel={staffMembers.length === 1 ? "staff" : "staff"}
+                      icon="briefcase-outline"
+                      color="#16A34A"
+                      onPress={handleOpenStaffGroup}
+                    />
+                  </View>
+                </View>
+
+                {!isTenantAccount ? (
+                  <View style={styles.section}>
+                    <View style={styles.sectionHeader}>
+                      <View>
+                        <Text style={styles.sectionTitle}>Society Finance</Text>
+                        <Text style={styles.sectionSubtitle}>
+                          Overall · all-time totals
+                        </Text>
+                      </View>
+                      <Pressable
+                        style={styles.seeAllButton}
+                        onPress={() => router.push("/(tabs)/finance")}
+                      >
+                        <Text style={styles.seeAllText}>View All</Text>
+                        <Ionicons
+                          name="chevron-forward"
+                          size={15}
+                          color="#2563EB"
+                        />
+                      </Pressable>
+                    </View>
+                    <View style={styles.financialGrid}>
+                      <FinancialCard
+                        title="Income"
+                        amount={overallIncome}
+                        icon="arrow-down-outline"
+                        color="#16A34A"
+                        background="#DCFCE7"
+                        period="Overall"
+                      />
+                      <FinancialCard
+                        title="Expenses"
+                        amount={overallExpense}
+                        icon="arrow-up-outline"
+                        color="#EA580C"
+                        background="#FFEDD5"
+                        period="Overall"
+                      />
+                      <FinancialCard
+                        title="Net"
+                        amount={overallNet}
+                        icon={
+                          isOverallPositive
+                            ? "wallet-outline"
+                            : "alert-circle-outline"
+                        }
+                        color={isOverallPositive ? "#2563EB" : "#DC2626"}
+                        background={isOverallPositive ? "#DBEAFE" : "#FEE2E2"}
+                        period="Incl. opening"
+                      />
+                    </View>
+                  </View>
+                ) : null}
+              </>
+            ) : null}
+
+            <View style={styles.footerMessage}>
+              <Ionicons
+                name={isMember ? "eye-outline" : "shield-checkmark-outline"}
+                size={18}
+                color="#94A3B8"
+              />
+              <Text style={styles.footerMessageText}>
+                {isMember
+                  ? isTenantAccount
+                    ? "Tenant access · Property finance is visible to owners only"
+                    : "View-only access · Contact admin for changes"
+                  : "You are viewing your personal staff dashboard"}
+              </Text>
+            </View>
+
+            <View style={styles.bottomSpace} />
+          </ScrollView>
+
+          <MonthYearPickerModal
+            visible={showSelfPicker}
+            year={selfYear}
+            month={selfMonth}
+            onClose={() => setShowSelfPicker(false)}
+            onSelect={(y, m) => {
+              setSelfYear(y);
+              setSelfMonth(m);
+            }}
+          />
+
+          {renderAttendanceModal()}
+          {renderWithdrawModal()}
+
+          <BillMissingModal
+            visible={billMissingVisible}
+            owner={billMissingOwner}
+            admins={billMissingAdmins}
+            onClose={() => {
+              setBillMissingVisible(false);
+              setBillMissingOwner(null);
+              setBillMissingAdmins([]);
+            }}
+          />
+        </View>
+      </DarkModeBoundary>
+    );
+  }
+
+  /* ============================================================
+     ADMIN VIEW
+     ============================================================ */
+
+  return (
+    <DarkModeBoundary>
+      <View style={styles.container}>
         <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
@@ -3783,11 +3965,11 @@ export default function HomeScreen() {
               <View style={styles.headerTextContainer}>
                 <Text style={styles.greeting}>{getGreeting()} 👋</Text>
                 <Text style={styles.accountName} numberOfLines={1}>
-                  {selectedAccount?.name || "My Property"}
+                  {selectedAccount.name || "My Property"}
                 </Text>
                 <View style={styles.accountTypeRow}>
                   <View style={styles.accountStatusDot} />
-                  <Text style={styles.accountTypeText}>{portalLabel}</Text>
+                  <Text style={styles.accountTypeText}>{accountTypeLabel}</Text>
                   <View style={styles.dotSeparator} />
                   <Text style={styles.monthText}>{getCurrentMonthLabel()}</Text>
                 </View>
@@ -3797,113 +3979,183 @@ export default function HomeScreen() {
 
           {renderProfileBlock()}
 
-          {isMember ? (
-            <>
-              <View style={styles.section}>
-                <View style={styles.sectionHeader}>
-                  <View>
-                    <Text style={styles.sectionTitle}>Society Overview</Text>
-                    <Text style={styles.sectionSubtitle}>
-                      Your community at a glance
-                    </Text>
-                  </View>
+          {showBalanceCard ? (
+            <View style={styles.balanceCard}>
+              <View style={styles.balanceTop}>
+                <View>
+                  <Text style={styles.balanceLabel}>Net Balance</Text>
+                  <Text style={styles.balancePeriod}>
+                    Monthly · incl. opening
+                  </Text>
                 </View>
-                <View style={styles.groupOverviewGrid}>
-                  <GroupOverviewCard
-                    title={isTenantAccount ? "Tenants" : "Members"}
-                    subtitle={
-                      isTenantAccount ? "Tenant accounts" : "Owner accounts"
+                <View
+                  style={[
+                    styles.balanceIcon,
+                    {
+                      backgroundColor: isMonthlyPositive
+                        ? "#DCFCE7"
+                        : "#FEE2E2",
+                    },
+                  ]}
+                >
+                  <Ionicons
+                    name={
+                      isMonthlyPositive
+                        ? "trending-up-outline"
+                        : "trending-down-outline"
                     }
-                    count={totalMemberRecords}
-                    countLabel={
-                      totalMemberRecords === 1 ? "account" : "accounts"
-                    }
-                    icon="people-outline"
-                    color="#2563EB"
-                    onPress={handleOpenMembersGroup}
-                  />
-                  <GroupOverviewCard
-                    title="Staff"
-                    subtitle="Working on site"
-                    count={staffMembers.length}
-                    countLabel={staffMembers.length === 1 ? "staff" : "staff"}
-                    icon="briefcase-outline"
-                    color="#16A34A"
-                    onPress={handleOpenStaffGroup}
+                    size={21}
+                    color={isMonthlyPositive ? "#16A34A" : "#DC2626"}
                   />
                 </View>
               </View>
-
-              {!isTenantAccount ? (
-                <View style={styles.section}>
-                  <View style={styles.sectionHeader}>
-                    <View>
-                      <Text style={styles.sectionTitle}>Society Finance</Text>
-                      <Text style={styles.sectionSubtitle}>
-                        Overall · all-time totals
-                      </Text>
-                    </View>
-                    <Pressable
-                      style={styles.seeAllButton}
-                      onPress={() => router.push("/(tabs)/finance")}
-                    >
-                      <Text style={styles.seeAllText}>View All</Text>
-                      <Ionicons
-                        name="chevron-forward"
-                        size={15}
-                        color="#2563EB"
-                      />
-                    </Pressable>
-                  </View>
-                  <View style={styles.financialGrid}>
-                    <FinancialCard
-                      title="Income"
-                      amount={overallIncome}
-                      icon="arrow-down-outline"
-                      color="#16A34A"
-                      background="#DCFCE7"
-                      period="Overall"
-                    />
-                    <FinancialCard
-                      title="Expenses"
-                      amount={overallExpense}
-                      icon="arrow-up-outline"
-                      color="#EA580C"
-                      background="#FFEDD5"
-                      period="Overall"
-                    />
-                    <FinancialCard
-                      title="Net"
-                      amount={overallNet}
-                      icon={
-                        isOverallPositive
-                          ? "wallet-outline"
-                          : "alert-circle-outline"
-                      }
-                      color={isOverallPositive ? "#2563EB" : "#DC2626"}
-                      background={isOverallPositive ? "#DBEAFE" : "#FEE2E2"}
-                      period="Incl. opening"
-                    />
+              <Text
+                style={[
+                  styles.balanceAmount,
+                  { color: isMonthlyPositive ? "#15803D" : "#DC2626" },
+                ]}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+              >
+                {isMonthlyPositive ? "" : "-"}
+                {formatCurrency(monthlyNet)}
+              </Text>
+              <View style={styles.balanceDivider} />
+              <View style={styles.balanceBottom}>
+                <View style={styles.balanceMiniItem}>
+                  <View
+                    style={[styles.miniDot, { backgroundColor: "#16A34A" }]}
+                  />
+                  <View>
+                    <Text style={styles.miniLabel}>Monthly Income</Text>
+                    <Text style={styles.miniValue}>
+                      {formatCurrency(stats.monthlyIncome)}
+                    </Text>
                   </View>
                 </View>
-              ) : null}
-            </>
+                <View style={styles.balanceMiniItem}>
+                  <View
+                    style={[styles.miniDot, { backgroundColor: "#EA580C" }]}
+                  />
+                  <View>
+                    <Text style={styles.miniLabel}>Monthly Expenses</Text>
+                    <Text style={styles.miniValue}>
+                      {formatCurrency(stats.monthlyExpense)}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            </View>
           ) : null}
 
-          <View style={styles.footerMessage}>
-            <Ionicons
-              name={isMember ? "eye-outline" : "shield-checkmark-outline"}
-              size={18}
-              color="#94A3B8"
-            />
-            <Text style={styles.footerMessageText}>
-              {isMember
-                ? isTenantAccount
-                  ? "Tenant access · Property finance is visible to owners only"
-                  : "View-only access · Contact admin for changes"
-                : "You are viewing your personal staff dashboard"}
-            </Text>
+          {showFinance ? (
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <View>
+                  <Text style={styles.sectionTitle}>Financial Overview</Text>
+                  <Text style={styles.sectionSubtitle}>
+                    Overall · all-time totals
+                  </Text>
+                </View>
+                <Pressable
+                  style={styles.seeAllButton}
+                  onPress={() => router.push("/(tabs)/finance")}
+                >
+                  <Text style={styles.seeAllText}>View All</Text>
+                  <Ionicons name="chevron-forward" size={15} color="#2563EB" />
+                </Pressable>
+              </View>
+              <View style={styles.financialGrid}>
+                <FinancialCard
+                  title="Total Income"
+                  amount={overallIncome}
+                  icon="arrow-down-outline"
+                  color="#16A34A"
+                  background="#DCFCE7"
+                  period="Overall"
+                />
+                <FinancialCard
+                  title="Total Expenses"
+                  amount={overallExpense}
+                  icon="arrow-up-outline"
+                  color="#EA580C"
+                  background="#FFEDD5"
+                  period="Overall"
+                />
+                <FinancialCard
+                  title="Net Balance"
+                  amount={overallNet}
+                  icon={
+                    isOverallPositive
+                      ? "wallet-outline"
+                      : "alert-circle-outline"
+                  }
+                  color={isOverallPositive ? "#2563EB" : "#DC2626"}
+                  background={isOverallPositive ? "#DBEAFE" : "#FEE2E2"}
+                  period="Incl. opening"
+                />
+              </View>
+            </View>
+          ) : null}
+
+          <View style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <View>
+                <Text style={styles.sectionTitle}>Overview</Text>
+                <Text style={styles.sectionSubtitle}>
+                  Tap a card to open the group
+                </Text>
+              </View>
+            </View>
+            <View style={styles.groupOverviewGrid}>
+              <GroupOverviewCard
+                title={isTenantAccount ? "Tenants" : "Members"}
+                subtitle={
+                  isTenantAccount ? "Tenant accounts" : "Owner accounts"
+                }
+                count={totalMemberRecords}
+                countLabel={totalMemberRecords === 1 ? "account" : "accounts"}
+                icon={
+                  selectedAccount.type === "apartment"
+                    ? "people-outline"
+                    : "home-outline"
+                }
+                color="#2563EB"
+                onPress={handleOpenMembersGroup}
+              />
+              <GroupOverviewCard
+                title="Staff"
+                subtitle="Working on site"
+                count={staffMembers.length}
+                countLabel={staffMembers.length === 1 ? "staff" : "staff"}
+                icon="briefcase-outline"
+                color="#16A34A"
+                onPress={handleOpenStaffGroup}
+              />
+            </View>
           </View>
+
+          {showQuickActions ? (
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <View>
+                  <Text style={styles.sectionTitle}>Quick Actions</Text>
+                  <Text style={styles.sectionSubtitle}>
+                    Manage your property faster
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.quickActions}>
+                {ADMIN_QUICK_ACTIONS.map((action) => (
+                  <QuickActionCard
+                    key={action.id}
+                    action={action}
+                    onPress={() => handleQuickAction(action)}
+                  />
+                ))}
+              </View>
+            </View>
+          ) : null}
 
           <View style={styles.bottomSpace} />
         </ScrollView>
@@ -3919,7 +4171,6 @@ export default function HomeScreen() {
           }}
         />
 
-        {renderAttendanceModal()}
         {renderWithdrawModal()}
 
         <BillMissingModal
@@ -3932,249 +4183,6 @@ export default function HomeScreen() {
             setBillMissingAdmins([]);
           }}
         />
-        </View>
-      </DarkModeBoundary>
-    );
-  }
-
-  /* ============================================================
-     ADMIN VIEW
-     ============================================================ */
-
-  return (
-    <DarkModeBoundary>
-      <View style={styles.container}>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor="#2563EB"
-            colors={["#2563EB"]}
-          />
-        }
-      >
-        {renderPendingOffers()}
-
-        <View style={styles.header}>
-          <View style={styles.headerTop}>
-            <View style={styles.headerTextContainer}>
-              <Text style={styles.greeting}>{getGreeting()} 👋</Text>
-              <Text style={styles.accountName} numberOfLines={1}>
-                {selectedAccount.name || "My Property"}
-              </Text>
-              <View style={styles.accountTypeRow}>
-                <View style={styles.accountStatusDot} />
-                <Text style={styles.accountTypeText}>{accountTypeLabel}</Text>
-                <View style={styles.dotSeparator} />
-                <Text style={styles.monthText}>{getCurrentMonthLabel()}</Text>
-              </View>
-            </View>
-          </View>
-        </View>
-
-        {renderProfileBlock()}
-
-        {showBalanceCard ? (
-          <View style={styles.balanceCard}>
-            <View style={styles.balanceTop}>
-              <View>
-                <Text style={styles.balanceLabel}>Net Balance</Text>
-                <Text style={styles.balancePeriod}>
-                  Monthly · incl. opening
-                </Text>
-              </View>
-              <View
-                style={[
-                  styles.balanceIcon,
-                  {
-                    backgroundColor: isMonthlyPositive ? "#DCFCE7" : "#FEE2E2",
-                  },
-                ]}
-              >
-                <Ionicons
-                  name={
-                    isMonthlyPositive
-                      ? "trending-up-outline"
-                      : "trending-down-outline"
-                  }
-                  size={21}
-                  color={isMonthlyPositive ? "#16A34A" : "#DC2626"}
-                />
-              </View>
-            </View>
-            <Text
-              style={[
-                styles.balanceAmount,
-                { color: isMonthlyPositive ? "#15803D" : "#DC2626" },
-              ]}
-              numberOfLines={1}
-              adjustsFontSizeToFit
-            >
-              {isMonthlyPositive ? "" : "-"}
-              {formatCurrency(monthlyNet)}
-            </Text>
-            <View style={styles.balanceDivider} />
-            <View style={styles.balanceBottom}>
-              <View style={styles.balanceMiniItem}>
-                <View
-                  style={[styles.miniDot, { backgroundColor: "#16A34A" }]}
-                />
-                <View>
-                  <Text style={styles.miniLabel}>Monthly Income</Text>
-                  <Text style={styles.miniValue}>
-                    {formatCurrency(stats.monthlyIncome)}
-                  </Text>
-                </View>
-              </View>
-              <View style={styles.balanceMiniItem}>
-                <View
-                  style={[styles.miniDot, { backgroundColor: "#EA580C" }]}
-                />
-                <View>
-                  <Text style={styles.miniLabel}>Monthly Expenses</Text>
-                  <Text style={styles.miniValue}>
-                    {formatCurrency(stats.monthlyExpense)}
-                  </Text>
-                </View>
-              </View>
-            </View>
-          </View>
-        ) : null}
-
-        {showFinance ? (
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <View>
-                <Text style={styles.sectionTitle}>Financial Overview</Text>
-                <Text style={styles.sectionSubtitle}>
-                  Overall · all-time totals
-                </Text>
-              </View>
-              <Pressable
-                style={styles.seeAllButton}
-                onPress={() => router.push("/(tabs)/finance")}
-              >
-                <Text style={styles.seeAllText}>View All</Text>
-                <Ionicons name="chevron-forward" size={15} color="#2563EB" />
-              </Pressable>
-            </View>
-            <View style={styles.financialGrid}>
-              <FinancialCard
-                title="Total Income"
-                amount={overallIncome}
-                icon="arrow-down-outline"
-                color="#16A34A"
-                background="#DCFCE7"
-                period="Overall"
-              />
-              <FinancialCard
-                title="Total Expenses"
-                amount={overallExpense}
-                icon="arrow-up-outline"
-                color="#EA580C"
-                background="#FFEDD5"
-                period="Overall"
-              />
-              <FinancialCard
-                title="Net Balance"
-                amount={overallNet}
-                icon={
-                  isOverallPositive ? "wallet-outline" : "alert-circle-outline"
-                }
-                color={isOverallPositive ? "#2563EB" : "#DC2626"}
-                background={isOverallPositive ? "#DBEAFE" : "#FEE2E2"}
-                period="Incl. opening"
-              />
-            </View>
-          </View>
-        ) : null}
-
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <View>
-              <Text style={styles.sectionTitle}>Overview</Text>
-              <Text style={styles.sectionSubtitle}>
-                Tap a card to open the group
-              </Text>
-            </View>
-          </View>
-          <View style={styles.groupOverviewGrid}>
-            <GroupOverviewCard
-              title={isTenantAccount ? "Tenants" : "Members"}
-              subtitle={isTenantAccount ? "Tenant accounts" : "Owner accounts"}
-              count={totalMemberRecords}
-              countLabel={totalMemberRecords === 1 ? "account" : "accounts"}
-              icon={
-                selectedAccount.type === "apartment"
-                  ? "people-outline"
-                  : "home-outline"
-              }
-              color="#2563EB"
-              onPress={handleOpenMembersGroup}
-            />
-            <GroupOverviewCard
-              title="Staff"
-              subtitle="Working on site"
-              count={staffMembers.length}
-              countLabel={staffMembers.length === 1 ? "staff" : "staff"}
-              icon="briefcase-outline"
-              color="#16A34A"
-              onPress={handleOpenStaffGroup}
-            />
-          </View>
-        </View>
-
-        {showQuickActions ? (
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <View>
-                <Text style={styles.sectionTitle}>Quick Actions</Text>
-                <Text style={styles.sectionSubtitle}>
-                  Manage your property faster
-                </Text>
-              </View>
-            </View>
-            <View style={styles.quickActions}>
-              {ADMIN_QUICK_ACTIONS.map((action) => (
-                <QuickActionCard
-                  key={action.id}
-                  action={action}
-                  onPress={() => handleQuickAction(action)}
-                />
-              ))}
-            </View>
-          </View>
-        ) : null}
-
-        <View style={styles.bottomSpace} />
-      </ScrollView>
-
-      <MonthYearPickerModal
-        visible={showSelfPicker}
-        year={selfYear}
-        month={selfMonth}
-        onClose={() => setShowSelfPicker(false)}
-        onSelect={(y, m) => {
-          setSelfYear(y);
-          setSelfMonth(m);
-        }}
-      />
-
-      {renderWithdrawModal()}
-
-      <BillMissingModal
-        visible={billMissingVisible}
-        owner={billMissingOwner}
-        admins={billMissingAdmins}
-        onClose={() => {
-          setBillMissingVisible(false);
-          setBillMissingOwner(null);
-          setBillMissingAdmins([]);
-        }}
-      />
       </View>
     </DarkModeBoundary>
   );

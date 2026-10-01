@@ -2,12 +2,12 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useCallback, useRef, useState } from "react";
 import {
-  ActivityIndicator,
-  Modal,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Modal,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { DarkModeBoundary } from "./DarkModeBoundary";
 
@@ -123,88 +123,88 @@ export default function NameConflictAlert() {
   return (
     <DarkModeBoundary>
       <Modal
-      key={modalKeyRef.current}
-      visible={visible}
-      transparent
-      animationType="fade"
-      onRequestClose={() => {
-        if (presentBusy) return;
-        settle(false);
-      }}
-    >
-      <View style={styles.backdrop}>
-        <View style={styles.card}>
-          <View style={styles.iconWrap}>
-            <Ionicons name="warning" size={30} color="#D97706" />
-          </View>
-
-          <Text style={styles.title}>This number is already in use</Text>
-
-          <View style={styles.numberRow}>
-            <View style={styles.numberPill}>
-              <Ionicons name="call-outline" size={13} color="#B45309" />
-              <Text style={styles.numberPillText}>{phoneDisplay}</Text>
+        key={modalKeyRef.current}
+        visible={visible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (presentBusy) return;
+          settle(false);
+        }}
+      >
+        <View style={styles.backdrop}>
+          <View style={styles.card}>
+            <View style={styles.iconWrap}>
+              <Ionicons name="warning" size={30} color="#D97706" />
             </View>
-            <Text style={styles.numberRowText}>already belongs to</Text>
-          </View>
 
-          <View style={styles.nameRow}>
-            <Text style={styles.nameText} numberOfLines={1}>
-              {existing}
+            <Text style={styles.title}>This number is already in use</Text>
+
+            <View style={styles.numberRow}>
+              <View style={styles.numberPill}>
+                <Ionicons name="call-outline" size={13} color="#B45309" />
+                <Text style={styles.numberPillText}>{phoneDisplay}</Text>
+              </View>
+              <Text style={styles.numberRowText}>already belongs to</Text>
+            </View>
+
+            <View style={styles.nameRow}>
+              <Text style={styles.nameText} numberOfLines={1}>
+                {existing}
+              </Text>
+              <Text style={styles.nameSuffixText}>on this account</Text>
+            </View>
+
+            <View style={styles.ruleBox}>
+              <Ionicons
+                name="information-circle-outline"
+                size={16}
+                color="#1D4ED8"
+              />
+              <Text style={styles.ruleText}>
+                One number, one name. If you continue, the name will be updated
+                everywhere this number appears on this account — member, staff,
+                and any pending invitations.
+              </Text>
+            </View>
+
+            <View style={styles.actions}>
+              <TouchableOpacity
+                style={[styles.btn, styles.cancelBtn]}
+                onPress={() => settle(false)}
+                activeOpacity={0.8}
+                disabled={presentBusy}
+              >
+                <Text style={styles.cancelText}>Keep name</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.btn, styles.confirmBtn]}
+                onPress={() => settle(true)}
+                activeOpacity={0.85}
+                disabled={presentBusy}
+              >
+                {presentBusy ? (
+                  <ActivityIndicator color="#FFFFFF" size="small" />
+                ) : (
+                  <>
+                    <Ionicons
+                      name="swap-horizontal-outline"
+                      size={17}
+                      color="#FFFFFF"
+                    />
+                    <Text style={styles.confirmText}>Rename</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.footnote}>
+              Keep name leaves it unchanged. Rename updates this number
+              everywhere.
             </Text>
-            <Text style={styles.nameSuffixText}>on this account</Text>
           </View>
-
-          <View style={styles.ruleBox}>
-            <Ionicons
-              name="information-circle-outline"
-              size={16}
-              color="#1D4ED8"
-            />
-            <Text style={styles.ruleText}>
-              One number, one name. If you continue, the name will be updated
-              everywhere this number appears on this account — member, staff,
-              and any pending invitations.
-            </Text>
-          </View>
-
-          <View style={styles.actions}>
-            <TouchableOpacity
-              style={[styles.btn, styles.cancelBtn]}
-              onPress={() => settle(false)}
-              activeOpacity={0.8}
-              disabled={presentBusy}
-            >
-              <Text style={styles.cancelText}>Keep name</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.btn, styles.confirmBtn]}
-              onPress={() => settle(true)}
-              activeOpacity={0.85}
-              disabled={presentBusy}
-            >
-              {presentBusy ? (
-                <ActivityIndicator color="#FFFFFF" size="small" />
-              ) : (
-                <>
-                  <Ionicons
-                    name="swap-horizontal-outline"
-                    size={17}
-                    color="#FFFFFF"
-                  />
-                  <Text style={styles.confirmText}>Rename</Text>
-                </>
-              )}
-            </TouchableOpacity>
-          </View>
-
-          <Text style={styles.footnote}>
-            Keep name leaves it unchanged. Rename updates this number
-            everywhere.
-          </Text>
         </View>
-      </View>
       </Modal>
     </DarkModeBoundary>
   );

@@ -23,12 +23,12 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { DarkModeBoundary } from "./DarkModeBoundary";
 import { useAccounts } from "../hooks/useAccounts";
 import { useAccountStore } from "../store/accountStore";
 import { useAuthStore } from "../store/useAuthStore";
 import { Account } from "../types";
 import { getSecureItem } from "../utils/tokenStorage";
+import { DarkModeBoundary } from "./DarkModeBoundary";
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000";
 
@@ -518,44 +518,48 @@ export function AccountSwitcherTrigger() {
   return (
     <DarkModeBoundary>
       <Pressable
-      onPress={() => setAccountSwitcherOpen(true)}
-      android_disableSound
-      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-      style={({ pressed }) => [
-        styles.trigger,
-        pressed && styles.triggerPressed,
-      ]}
-    >
-      {selectedAccount?.photoUri ? (
-        <Image
-          source={{ uri: selectedAccount.photoUri }}
-          style={styles.triggerAvatar}
-        />
-      ) : (
-        <View style={styles.triggerAvatarPlaceholder}>
-          <Ionicons
-            name={isHome ? "home" : "business"}
-            size={17}
-            color={COLORS.primary}
+        onPress={() => setAccountSwitcherOpen(true)}
+        android_disableSound
+        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+        style={({ pressed }) => [
+          styles.trigger,
+          pressed && styles.triggerPressed,
+        ]}
+      >
+        {selectedAccount?.photoUri ? (
+          <Image
+            source={{ uri: selectedAccount.photoUri }}
+            style={styles.triggerAvatar}
           />
-        </View>
-      )}
+        ) : (
+          <View style={styles.triggerAvatarPlaceholder}>
+            <Ionicons
+              name={isHome ? "home" : "business"}
+              size={17}
+              color={COLORS.primary}
+            />
+          </View>
+        )}
 
-      <View style={styles.triggerInfo}>
-        <Text style={styles.triggerName} numberOfLines={1} ellipsizeMode="tail">
-          {selectedName}
-        </Text>
-        <View style={styles.triggerTypeRow}>
-          <Ionicons name={selectedIcon} size={11} color={COLORS.secondary} />
-          <Text style={styles.triggerType} numberOfLines={1}>
-            {selectedType}
+        <View style={styles.triggerInfo}>
+          <Text
+            style={styles.triggerName}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
+            {selectedName}
           </Text>
+          <View style={styles.triggerTypeRow}>
+            <Ionicons name={selectedIcon} size={11} color={COLORS.secondary} />
+            <Text style={styles.triggerType} numberOfLines={1}>
+              {selectedType}
+            </Text>
+          </View>
         </View>
-      </View>
 
-      <View style={styles.triggerChevron}>
-        <Ionicons name="chevron-down" size={15} color={COLORS.secondary} />
-      </View>
+        <View style={styles.triggerChevron}>
+          <Ionicons name="chevron-down" size={15} color={COLORS.secondary} />
+        </View>
       </Pressable>
     </DarkModeBoundary>
   );
@@ -796,386 +800,400 @@ export function AccountSwitcherHost() {
   return (
     <DarkModeBoundary>
       <>
-      {visible && (
-        <View style={styles.modalContainer} pointerEvents="box-none">
-          <Pressable style={styles.overlay} onPress={closeSwitcher} />
+        {visible && (
+          <View style={styles.modalContainer} pointerEvents="box-none">
+            <Pressable style={styles.overlay} onPress={closeSwitcher} />
 
-          <Pressable
-            style={[
-              styles.sheet,
-              {
-                marginBottom: keyboardHeight,
-                paddingBottom: 20 + insets.bottom,
-                maxHeight:
-                  keyboardHeight > 0
-                    ? Math.max(
-                        240,
-                        Dimensions.get("window").height -
-                          keyboardHeight -
-                          insets.top -
-                          16,
-                      )
-                    : "78%",
-              },
-            ]}
-            onPress={() => {}}
-          >
-            <View style={styles.handle} />
+            <Pressable
+              style={[
+                styles.sheet,
+                {
+                  marginBottom: keyboardHeight,
+                  paddingBottom: 20 + insets.bottom,
+                  maxHeight:
+                    keyboardHeight > 0
+                      ? Math.max(
+                          240,
+                          Dimensions.get("window").height -
+                            keyboardHeight -
+                            insets.top -
+                            16,
+                        )
+                      : "78%",
+                },
+              ]}
+              onPress={() => {}}
+            >
+              <View style={styles.handle} />
 
-            <View style={styles.sheetHeader}>
-              <View style={styles.sheetHeaderText}>
-                <Text style={styles.sheetTitle}>Switch Account</Text>
-                <Text style={styles.sheetSubtitle}>
-                  Select a property to manage
-                </Text>
-              </View>
-              <Pressable
-                onPress={closeSwitcher}
-                style={({ pressed }) => [
-                  styles.closeButton,
-                  pressed && styles.closeButtonPressed,
-                ]}
-              >
-                <Ionicons name="close" size={21} color={COLORS.text} />
-              </Pressable>
-            </View>
-
-            {accounts.length > 0 && (
-              <View style={styles.accountCountRow}>
-                <Text style={styles.accountCountLabel}>Your accounts</Text>
-                <View style={styles.countBadge}>
-                  <Text style={styles.countText}>{accounts.length}</Text>
+              <View style={styles.sheetHeader}>
+                <View style={styles.sheetHeaderText}>
+                  <Text style={styles.sheetTitle}>Switch Account</Text>
+                  <Text style={styles.sheetSubtitle}>
+                    Select a property to manage
+                  </Text>
                 </View>
+                <Pressable
+                  onPress={closeSwitcher}
+                  style={({ pressed }) => [
+                    styles.closeButton,
+                    pressed && styles.closeButtonPressed,
+                  ]}
+                >
+                  <Ionicons name="close" size={21} color={COLORS.text} />
+                </Pressable>
               </View>
-            )}
 
-            <FlatList
-              data={accounts}
-              keyExtractor={(item) => item.id}
-              style={styles.accountList}
-              showsVerticalScrollIndicator={false}
-              keyboardShouldPersistTaps="handled"
-              contentContainerStyle={
-                accounts.length === 0
-                  ? styles.emptyListContent
-                  : styles.listContent
-              }
-              renderItem={({ item }) => {
-                const isSelected = item.id === selectedAccount?.id;
-                const isEditingName = editingNameId === item.id;
-                const isOwnerOfThisAccount =
-                  !!currentUserId && item.ownerId === currentUserId;
-                const isHome = item.type === "home";
-                const roleText = roleLabelForAccount(
-                  (item as any).role,
-                  isHome,
-                );
+              {accounts.length > 0 && (
+                <View style={styles.accountCountRow}>
+                  <Text style={styles.accountCountLabel}>Your accounts</Text>
+                  <View style={styles.countBadge}>
+                    <Text style={styles.countText}>{accounts.length}</Text>
+                  </View>
+                </View>
+              )}
 
-                return (
-                  <Pressable
-                    onPress={() => {
-                      if (isEditingName) return;
-                      handleSelect(item);
-                    }}
-                    android_disableSound
-                    style={({ pressed }) => [
-                      styles.accountCard,
-                      isSelected && styles.accountCardSelected,
-                      pressed && !isEditingName && styles.accountCardPressed,
-                    ]}
-                  >
-                    <View style={styles.avatarWrapper}>
-                      {item.photoUri ? (
-                        <Image
-                          source={{ uri: item.photoUri }}
-                          style={styles.itemAvatar}
-                        />
-                      ) : (
-                        <View style={styles.itemAvatarPlaceholder}>
-                          <Ionicons
-                            name={
-                              item.type === "apartment" ? "business" : "home"
-                            }
-                            size={21}
-                            color={COLORS.primary}
+              <FlatList
+                data={accounts}
+                keyExtractor={(item) => item.id}
+                style={styles.accountList}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={
+                  accounts.length === 0
+                    ? styles.emptyListContent
+                    : styles.listContent
+                }
+                renderItem={({ item }) => {
+                  const isSelected = item.id === selectedAccount?.id;
+                  const isEditingName = editingNameId === item.id;
+                  const isOwnerOfThisAccount =
+                    !!currentUserId && item.ownerId === currentUserId;
+                  const isHome = item.type === "home";
+                  const roleText = roleLabelForAccount(
+                    (item as any).role,
+                    isHome,
+                  );
+
+                  return (
+                    <Pressable
+                      onPress={() => {
+                        if (isEditingName) return;
+                        handleSelect(item);
+                      }}
+                      android_disableSound
+                      style={({ pressed }) => [
+                        styles.accountCard,
+                        isSelected && styles.accountCardSelected,
+                        pressed && !isEditingName && styles.accountCardPressed,
+                      ]}
+                    >
+                      <View style={styles.avatarWrapper}>
+                        {item.photoUri ? (
+                          <Image
+                            source={{ uri: item.photoUri }}
+                            style={styles.itemAvatar}
                           />
-                        </View>
-                      )}
+                        ) : (
+                          <View style={styles.itemAvatarPlaceholder}>
+                            <Ionicons
+                              name={
+                                item.type === "apartment" ? "business" : "home"
+                              }
+                              size={21}
+                              color={COLORS.primary}
+                            />
+                          </View>
+                        )}
 
-                      {isOwnerOfThisAccount ? (
-                        <Pressable
-                          onPress={(e) => {
-                            e?.stopPropagation?.();
-                            showPhotoSelectionOptions(item.id);
-                          }}
-                          android_disableSound
-                          hitSlop={6}
-                          style={({ pressed }) => [
-                            styles.cameraBadge,
-                            pressed && styles.cameraBadgePressed,
-                          ]}
-                        >
-                          <Ionicons
-                            name="camera"
-                            size={11}
-                            color={COLORS.white}
-                          />
-                        </Pressable>
-                      ) : null}
-                    </View>
-
-                    <View style={styles.accountDetails}>
-                      {isEditingName ? (
-                        <View style={styles.editContainer}>
-                          <TextInput
-                            style={styles.nameInput}
-                            value={tempName}
-                            onChangeText={setTempName}
-                            autoFocus
-                            selectTextOnFocus
-                            returnKeyType="done"
-                            onSubmitEditing={() => saveEditName(item.id)}
-                            {...(Platform.OS === "web"
-                              ? ({ outlineStyle: "none" } as any)
-                              : {})}
-                          />
+                        {isOwnerOfThisAccount ? (
                           <Pressable
                             onPress={(e) => {
                               e?.stopPropagation?.();
-                              saveEditName(item.id);
+                              showPhotoSelectionOptions(item.id);
                             }}
                             android_disableSound
+                            hitSlop={6}
                             style={({ pressed }) => [
-                              styles.saveButton,
-                              pressed && styles.saveButtonPressed,
+                              styles.cameraBadge,
+                              pressed && styles.cameraBadgePressed,
                             ]}
                           >
                             <Ionicons
-                              name="checkmark"
-                              size={17}
+                              name="camera"
+                              size={11}
                               color={COLORS.white}
                             />
                           </Pressable>
-                          <Pressable
-                            onPress={(e) => {
-                              e?.stopPropagation?.();
-                              cancelEditName();
-                            }}
-                            android_disableSound
-                            style={({ pressed }) => [
-                              styles.cancelButton,
-                              pressed && styles.cancelButtonPressed,
+                        ) : null}
+                      </View>
+
+                      <View style={styles.accountDetails}>
+                        {isEditingName ? (
+                          <View style={styles.editContainer}>
+                            <TextInput
+                              style={styles.nameInput}
+                              value={tempName}
+                              onChangeText={setTempName}
+                              autoFocus
+                              selectTextOnFocus
+                              returnKeyType="done"
+                              onSubmitEditing={() => saveEditName(item.id)}
+                              {...(Platform.OS === "web"
+                                ? ({ outlineStyle: "none" } as any)
+                                : {})}
+                            />
+                            <Pressable
+                              onPress={(e) => {
+                                e?.stopPropagation?.();
+                                saveEditName(item.id);
+                              }}
+                              android_disableSound
+                              style={({ pressed }) => [
+                                styles.saveButton,
+                                pressed && styles.saveButtonPressed,
+                              ]}
+                            >
+                              <Ionicons
+                                name="checkmark"
+                                size={17}
+                                color={COLORS.white}
+                              />
+                            </Pressable>
+                            <Pressable
+                              onPress={(e) => {
+                                e?.stopPropagation?.();
+                                cancelEditName();
+                              }}
+                              android_disableSound
+                              style={({ pressed }) => [
+                                styles.cancelButton,
+                                pressed && styles.cancelButtonPressed,
+                              ]}
+                            >
+                              <Ionicons
+                                name="close"
+                                size={16}
+                                color={COLORS.secondary}
+                              />
+                            </Pressable>
+                          </View>
+                        ) : (
+                          <>
+                            <View style={styles.nameRow}>
+                              <Text style={styles.itemName} numberOfLines={1}>
+                                {item.name}
+                              </Text>
+                              {isOwnerOfThisAccount ? (
+                                <Pressable
+                                  onPress={(e) => {
+                                    e?.stopPropagation?.();
+                                    startEditName(item);
+                                  }}
+                                  android_disableSound
+                                  hitSlop={6}
+                                  style={({ pressed }) => [
+                                    styles.editButton,
+                                    pressed && styles.editButtonPressed,
+                                  ]}
+                                >
+                                  <Ionicons
+                                    name="pencil-outline"
+                                    size={14}
+                                    color={COLORS.secondary}
+                                  />
+                                </Pressable>
+                              ) : null}
+                            </View>
+
+                            <View style={styles.typeRow}>
+                              <Ionicons
+                                name={
+                                  item.type === "apartment"
+                                    ? "business-outline"
+                                    : "home-outline"
+                                }
+                                size={13}
+                                color={COLORS.secondary}
+                              />
+                              <Text style={styles.itemType}>
+                                {item.type === "apartment"
+                                  ? "Apartment"
+                                  : "Home"}
+                              </Text>
+                              {roleText ? (
+                                <View style={styles.roleChip}>
+                                  <Text style={styles.roleChipText}>
+                                    {roleText}
+                                  </Text>
+                                </View>
+                              ) : null}
+                              {isSelected && (
+                                <View style={styles.currentBadge}>
+                                  <Text style={styles.currentBadgeText}>
+                                    Current
+                                  </Text>
+                                </View>
+                              )}
+                            </View>
+                          </>
+                        )}
+                      </View>
+
+                      {!isEditingName && (
+                        <View
+                          style={styles.selectionButton}
+                          pointerEvents="none"
+                        >
+                          <View
+                            style={[
+                              styles.radioOuter,
+                              isSelected && styles.radioOuterSelected,
                             ]}
                           >
-                            <Ionicons
-                              name="close"
-                              size={16}
-                              color={COLORS.secondary}
-                            />
-                          </Pressable>
+                            {isSelected && <View style={styles.radioInner} />}
+                          </View>
                         </View>
-                      ) : (
-                        <>
-                          <View style={styles.nameRow}>
-                            <Text style={styles.itemName} numberOfLines={1}>
-                              {item.name}
-                            </Text>
-                            {isOwnerOfThisAccount ? (
-                              <Pressable
-                                onPress={(e) => {
-                                  e?.stopPropagation?.();
-                                  startEditName(item);
-                                }}
-                                android_disableSound
-                                hitSlop={6}
-                                style={({ pressed }) => [
-                                  styles.editButton,
-                                  pressed && styles.editButtonPressed,
-                                ]}
-                              >
-                                <Ionicons
-                                  name="pencil-outline"
-                                  size={14}
-                                  color={COLORS.secondary}
-                                />
-                              </Pressable>
-                            ) : null}
-                          </View>
-
-                          <View style={styles.typeRow}>
-                            <Ionicons
-                              name={
-                                item.type === "apartment"
-                                  ? "business-outline"
-                                  : "home-outline"
-                              }
-                              size={13}
-                              color={COLORS.secondary}
-                            />
-                            <Text style={styles.itemType}>
-                              {item.type === "apartment" ? "Apartment" : "Home"}
-                            </Text>
-                            {roleText ? (
-                              <View style={styles.roleChip}>
-                                <Text style={styles.roleChipText}>
-                                  {roleText}
-                                </Text>
-                              </View>
-                            ) : null}
-                            {isSelected && (
-                              <View style={styles.currentBadge}>
-                                <Text style={styles.currentBadgeText}>
-                                  Current
-                                </Text>
-                              </View>
-                            )}
-                          </View>
-                        </>
                       )}
+                    </Pressable>
+                  );
+                }}
+                ListEmptyComponent={
+                  <View style={styles.emptyState}>
+                    <View style={styles.emptyIcon}>
+                      <Ionicons
+                        name="business-outline"
+                        size={36}
+                        color={COLORS.primary}
+                      />
                     </View>
-
-                    {!isEditingName && (
-                      <View style={styles.selectionButton} pointerEvents="none">
-                        <View
-                          style={[
-                            styles.radioOuter,
-                            isSelected && styles.radioOuterSelected,
-                          ]}
-                        >
-                          {isSelected && <View style={styles.radioInner} />}
-                        </View>
-                      </View>
-                    )}
-                  </Pressable>
-                );
-              }}
-              ListEmptyComponent={
-                <View style={styles.emptyState}>
-                  <View style={styles.emptyIcon}>
-                    <Ionicons
-                      name="business-outline"
-                      size={36}
-                      color={COLORS.primary}
-                    />
+                    <Text style={styles.emptyTitle}>No accounts yet</Text>
+                    <Text style={styles.emptySubtitle}>
+                      Add your first apartment or home property to get started.
+                    </Text>
                   </View>
-                  <Text style={styles.emptyTitle}>No accounts yet</Text>
-                  <Text style={styles.emptySubtitle}>
-                    Add your first apartment or home property to get started.
+                }
+              />
+
+              <Pressable
+                onPress={handleAddNew}
+                android_disableSound
+                style={({ pressed }) => [
+                  styles.addButton,
+                  pressed && styles.addButtonPressed,
+                ]}
+              >
+                <View style={styles.addIconContainer}>
+                  <Ionicons name="add" size={21} color={COLORS.primary} />
+                </View>
+                <View style={styles.addTextContainer}>
+                  <Text style={styles.addButtonTitle}>
+                    Join With New Property
+                  </Text>
+                  <Text style={styles.addButtonSubtitle}>
+                    Create or join another property
                   </Text>
                 </View>
-              }
-            />
-
-            <Pressable
-              onPress={handleAddNew}
-              android_disableSound
-              style={({ pressed }) => [
-                styles.addButton,
-                pressed && styles.addButtonPressed,
-              ]}
-            >
-              <View style={styles.addIconContainer}>
-                <Ionicons name="add" size={21} color={COLORS.primary} />
-              </View>
-              <View style={styles.addTextContainer}>
-                <Text style={styles.addButtonTitle}>
-                  Join With New Property
-                </Text>
-                <Text style={styles.addButtonSubtitle}>
-                  Create or join another property
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={19} color={COLORS.muted} />
+                <Ionicons
+                  name="chevron-forward"
+                  size={19}
+                  color={COLORS.muted}
+                />
+              </Pressable>
             </Pressable>
-          </Pressable>
-        </View>
-      )}
+          </View>
+        )}
 
-      <Modal
-        visible={showPhotoOptions}
-        transparent
-        animationType="fade"
-        onRequestClose={() => {
-          setShowPhotoOptions(false);
-          setEditingPhotoAccountId(null);
-        }}
-      >
-        <Pressable
-          style={styles.modalBackdrop}
-          onPress={() => {
+        <Modal
+          visible={showPhotoOptions}
+          transparent
+          animationType="fade"
+          onRequestClose={() => {
             setShowPhotoOptions(false);
             setEditingPhotoAccountId(null);
           }}
         >
           <Pressable
-            style={[
-              styles.photoOptionsModal,
-              { paddingBottom: 32 + insets.bottom },
-            ]}
-            onPress={() => {}}
+            style={styles.modalBackdrop}
+            onPress={() => {
+              setShowPhotoOptions(false);
+              setEditingPhotoAccountId(null);
+            }}
           >
-            <View style={styles.modalHandle} />
-            <Text style={styles.photoOptionsTitle}>Upload Photo</Text>
-            <Text style={styles.photoOptionsSubtitle}>
-              Choose how you want to add a photo
-            </Text>
-
-            <TouchableOpacity
-              style={styles.photoOptionButton}
-              onPress={takePhoto}
-              activeOpacity={0.7}
+            <Pressable
+              style={[
+                styles.photoOptionsModal,
+                { paddingBottom: 32 + insets.bottom },
+              ]}
+              onPress={() => {}}
             >
-              <View style={styles.photoOptionIcon}>
-                <Ionicons name="camera" size={24} color="#1a73e8" />
-              </View>
-              <View style={styles.photoOptionTextContainer}>
-                <Text style={styles.photoOptionTitle}>Take Photo</Text>
-                <Text style={styles.photoOptionDescription}>
-                  Capture a photo using your camera
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color="#ccc" />
-            </TouchableOpacity>
+              <View style={styles.modalHandle} />
+              <Text style={styles.photoOptionsTitle}>Upload Photo</Text>
+              <Text style={styles.photoOptionsSubtitle}>
+                Choose how you want to add a photo
+              </Text>
 
-            <TouchableOpacity
-              style={styles.photoOptionButton}
-              onPress={choosePhoto}
-              activeOpacity={0.7}
-            >
-              <View
-                style={[styles.photoOptionIcon, { backgroundColor: "#ecfdf5" }]}
+              <TouchableOpacity
+                style={styles.photoOptionButton}
+                onPress={takePhoto}
+                activeOpacity={0.7}
               >
-                <Ionicons name="images" size={24} color="#059669" />
-              </View>
-              <View style={styles.photoOptionTextContainer}>
-                <Text style={styles.photoOptionTitle}>Choose from Gallery</Text>
-                <Text style={styles.photoOptionDescription}>
-                  Select a photo from your device
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color="#ccc" />
-            </TouchableOpacity>
+                <View style={styles.photoOptionIcon}>
+                  <Ionicons name="camera" size={24} color="#1a73e8" />
+                </View>
+                <View style={styles.photoOptionTextContainer}>
+                  <Text style={styles.photoOptionTitle}>Take Photo</Text>
+                  <Text style={styles.photoOptionDescription}>
+                    Capture a photo using your camera
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color="#ccc" />
+              </TouchableOpacity>
 
-            <TouchableOpacity
-              style={styles.photoOptionsCancel}
-              onPress={() => {
-                setShowPhotoOptions(false);
-                setEditingPhotoAccountId(null);
-              }}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.photoOptionsCancelText}>Cancel</Text>
-            </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.photoOptionButton}
+                onPress={choosePhoto}
+                activeOpacity={0.7}
+              >
+                <View
+                  style={[
+                    styles.photoOptionIcon,
+                    { backgroundColor: "#ecfdf5" },
+                  ]}
+                >
+                  <Ionicons name="images" size={24} color="#059669" />
+                </View>
+                <View style={styles.photoOptionTextContainer}>
+                  <Text style={styles.photoOptionTitle}>
+                    Choose from Gallery
+                  </Text>
+                  <Text style={styles.photoOptionDescription}>
+                    Select a photo from your device
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color="#ccc" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.photoOptionsCancel}
+                onPress={() => {
+                  setShowPhotoOptions(false);
+                  setEditingPhotoAccountId(null);
+                }}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.photoOptionsCancelText}>Cancel</Text>
+              </TouchableOpacity>
+            </Pressable>
           </Pressable>
-        </Pressable>
-      </Modal>
+        </Modal>
 
-      <PhotoAdjustModal
-        visible={showAdjustModal}
-        image={rawImage}
-        onCancel={handleAdjustCancel}
-        onConfirm={handleAdjustConfirm}
-      />
+        <PhotoAdjustModal
+          visible={showAdjustModal}
+          image={rawImage}
+          onCancel={handleAdjustCancel}
+          onConfirm={handleAdjustConfirm}
+        />
       </>
     </DarkModeBoundary>
   );

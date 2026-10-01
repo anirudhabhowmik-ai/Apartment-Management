@@ -34,8 +34,8 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getSecureItem } from "../../utils/tokenStorage";
 
-import DatePickerModal from "../../components/DatePickerModal";
 import { DarkModeBoundary } from "../../components/DarkModeBoundary";
+import DatePickerModal from "../../components/DatePickerModal";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useExpenses, useMembers, useStaff } from "../../hooks/useManagement";
 import type { BillAttachment, ManagementType, MemberRole } from "../../types";
@@ -1736,323 +1736,682 @@ export default function AddMemberScreen() {
   return (
     <DarkModeBoundary>
       <KeyboardAvoidingView
-      style={[styles.container, { paddingBottom: insets.bottom }]}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      keyboardVerticalOffset={0}
-    >
-      <Stack.Screen
-        options={{ title: getHeaderTitle(), headerBackTitle: "Back" }}
-      />
-
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={[
-          styles.scrollContent,
-          { paddingBottom: Math.max(insets.bottom, 24) },
-        ]}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="none"
-        bounces={false}
+        style={[styles.container, { paddingBottom: insets.bottom }]}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={0}
       >
-        {isPersonTab ? (
-          <View style={styles.card}>
-            {renderSectionHeader(
-              "people-outline",
-              "Who are you adding?",
-              "Add a new person, or pick someone already on this property",
-            )}
+        <Stack.Screen
+          options={{ title: getHeaderTitle(), headerBackTitle: "Back" }}
+        />
 
-            <View style={styles.modeRow}>
-              <TouchableOpacity
-                style={[
-                  styles.modeCard,
-                  mode === "new" && styles.modeCardSelected,
-                ]}
-                onPress={() => {
-                  setMode("new");
-                  setError("");
-                  setFieldErrors({});
-                }}
-                activeOpacity={0.85}
-              >
-                <View
-                  style={[
-                    styles.modeIcon,
-                    mode === "new" && styles.modeIconSelected,
-                  ]}
-                >
-                  <Ionicons
-                    name="person-add-outline"
-                    size={20}
-                    color={mode === "new" ? "#fff" : BLUE}
-                  />
-                </View>
-                <Text
-                  style={[
-                    styles.modeTitle,
-                    mode === "new" && styles.modeTitleSelected,
-                  ]}
-                >
-                  New Person
-                </Text>
-                <Text style={styles.modeSubtitle}>
-                  Create a new identity and their first{" "}
-                  {groupType === "staff" ? "role" : unitNoun}
-                </Text>
-              </TouchableOpacity>
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingBottom: Math.max(insets.bottom, 24) },
+          ]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="none"
+          bounces={false}
+        >
+          {isPersonTab ? (
+            <View style={styles.card}>
+              {renderSectionHeader(
+                "people-outline",
+                "Who are you adding?",
+                "Add a new person, or pick someone already on this property",
+              )}
 
-              <TouchableOpacity
-                style={[
-                  styles.modeCard,
-                  mode === "existing" && styles.modeCardSelected,
-                ]}
-                onPress={() => {
-                  setMode("existing");
-                  setError("");
-                  setFieldErrors({});
-                  setSelectedUserId(null);
-                }}
-                activeOpacity={0.85}
-              >
-                <View
-                  style={[
-                    styles.modeIcon,
-                    mode === "existing" && styles.modeIconSelected,
-                  ]}
-                >
-                  <Ionicons
-                    name="link-outline"
-                    size={20}
-                    color={mode === "existing" ? "#fff" : BLUE}
-                  />
-                </View>
-                <Text
-                  style={[
-                    styles.modeTitle,
-                    mode === "existing" && styles.modeTitleSelected,
-                  ]}
-                >
-                  Existing Person
-                </Text>
-                <Text style={styles.modeSubtitle}>
-                  Add another {groupType === "staff" ? "role" : unitNoun} for
-                  someone already here
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            {mode === "existing" ? (
-              <View style={styles.fieldContainer}>
-                <View style={styles.labelRow}>
-                  <Text
-                    style={[
-                      styles.inputLabel,
-                      fieldErrors.person ? styles.inputLabelError : undefined,
-                    ]}
-                  >
-                    Person
-                  </Text>
-                </View>
-
+              <View style={styles.modeRow}>
                 <TouchableOpacity
                   style={[
-                    styles.inputContainer,
-                    styles.personPickerTrigger,
-                    fieldErrors.person ? styles.inputContainerError : undefined,
+                    styles.modeCard,
+                    mode === "new" && styles.modeCardSelected,
                   ]}
                   onPress={() => {
-                    setPersonSearch("");
-                    setShowPersonPicker(true);
+                    setMode("new");
+                    setError("");
+                    setFieldErrors({});
                   }}
                   activeOpacity={0.85}
                 >
-                  {selectedExisting ? (
-                    <>
-                      <View style={styles.selectedPersonAvatar}>
-                        {selectedExisting.photo_url ? (
-                          <Image
-                            source={{ uri: selectedExisting.photo_url }}
-                            style={styles.selectedPersonAvatarImage}
-                          />
-                        ) : (
-                          <Text style={styles.selectedPersonAvatarText}>
-                            {selectedExisting.name
-                              ? selectedExisting.name.charAt(0).toUpperCase()
-                              : "?"}
-                          </Text>
-                        )}
-                      </View>
-                      <View style={styles.selectedPersonInfo}>
-                        <Text
-                          style={styles.selectedPersonName}
-                          numberOfLines={1}
-                        >
-                          {selectedExisting.name || "Unnamed"}
-                        </Text>
-                        <Text
-                          style={styles.selectedPersonPhone}
-                          numberOfLines={1}
-                        >
-                          {kindLabel(selectedExisting.kind)}
-                          {selectedExisting.phone
-                            ? ` • ${selectedExisting.phone}`
-                            : ""}
-                        </Text>
-                      </View>
-                      <Ionicons name="chevron-down" size={18} color="#94A3B8" />
-                    </>
-                  ) : (
-                    <>
-                      <Ionicons
-                        name="people-outline"
-                        size={20}
-                        color="#94A3B8"
-                      />
-                      <Text style={styles.personPlaceholder}>
-                        Select a person
-                      </Text>
-                      <Ionicons name="chevron-down" size={18} color="#94A3B8" />
-                    </>
-                  )}
+                  <View
+                    style={[
+                      styles.modeIcon,
+                      mode === "new" && styles.modeIconSelected,
+                    ]}
+                  >
+                    <Ionicons
+                      name="person-add-outline"
+                      size={20}
+                      color={mode === "new" ? "#fff" : BLUE}
+                    />
+                  </View>
+                  <Text
+                    style={[
+                      styles.modeTitle,
+                      mode === "new" && styles.modeTitleSelected,
+                    ]}
+                  >
+                    New Person
+                  </Text>
+                  <Text style={styles.modeSubtitle}>
+                    Create a new identity and their first{" "}
+                    {groupType === "staff" ? "role" : unitNoun}
+                  </Text>
                 </TouchableOpacity>
 
-                {fieldErrors.person ? (
-                  <Text style={styles.fieldError}>{fieldErrors.person}</Text>
-                ) : (
-                  <Text style={styles.helperText}>
-                    Their name, phone, and photo come from their profile.
-                  </Text>
-                )}
-              </View>
-            ) : (
-              <>
-                <View style={styles.photoCard}>
-                  <TouchableOpacity
-                    style={styles.photoButton}
-                    onPress={() => showPhotoSelectionOptions(false)}
-                    activeOpacity={0.8}
+                <TouchableOpacity
+                  style={[
+                    styles.modeCard,
+                    mode === "existing" && styles.modeCardSelected,
+                  ]}
+                  onPress={() => {
+                    setMode("existing");
+                    setError("");
+                    setFieldErrors({});
+                    setSelectedUserId(null);
+                  }}
+                  activeOpacity={0.85}
+                >
+                  <View
+                    style={[
+                      styles.modeIcon,
+                      mode === "existing" && styles.modeIconSelected,
+                    ]}
                   >
-                    {photoUri ? (
-                      <Image
-                        source={{ uri: photoUri }}
-                        style={styles.photoImage}
-                      />
-                    ) : (
-                      <>
-                        <Ionicons
-                          name="camera-outline"
-                          size={28}
-                          color={BLUE}
-                        />
-                        <View style={styles.photoPlus}>
-                          <Ionicons name="add" size={12} color="#fff" />
-                        </View>
-                      </>
-                    )}
-                  </TouchableOpacity>
-                  <View style={styles.photoTextContainer}>
-                    <Text style={styles.photoTitle}>
-                      {photoUri ? "Profile photo added" : "Add profile photo"}
-                    </Text>
-                    <Text style={styles.photoSubtitle}>
-                      {photoUri
-                        ? "Tap the photo to change it"
-                        : "Optional • Helps identify people"}
-                    </Text>
+                    <Ionicons
+                      name="link-outline"
+                      size={20}
+                      color={mode === "existing" ? "#fff" : BLUE}
+                    />
                   </View>
-                  {photoUri && (
-                    <TouchableOpacity
-                      onPress={() => setPhotoUri(null)}
-                      style={styles.removePhotoButton}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons name="trash-outline" size={19} color={RED} />
-                    </TouchableOpacity>
-                  )}
-                </View>
+                  <Text
+                    style={[
+                      styles.modeTitle,
+                      mode === "existing" && styles.modeTitleSelected,
+                    ]}
+                  >
+                    Existing Person
+                  </Text>
+                  <Text style={styles.modeSubtitle}>
+                    Add another {groupType === "staff" ? "role" : unitNoun} for
+                    someone already here
+                  </Text>
+                </TouchableOpacity>
+              </View>
 
-                {renderInput({
-                  label: "Full Name",
-                  value: name,
-                  onChangeText: (text) => {
-                    setName(text);
-                    clearFieldError("name");
-                  },
-                  placeholder: "e.g. Ramesh Kumar",
-                  icon: "person-outline",
-                  errorKey: "name",
-                })}
-
+              {mode === "existing" ? (
                 <View style={styles.fieldContainer}>
                   <View style={styles.labelRow}>
                     <Text
                       style={[
                         styles.inputLabel,
-                        fieldErrors.phone ? styles.inputLabelError : undefined,
+                        fieldErrors.person ? styles.inputLabelError : undefined,
                       ]}
                     >
-                      Phone Number
+                      Person
                     </Text>
                   </View>
-                  <View
+
+                  <TouchableOpacity
                     style={[
                       styles.inputContainer,
-                      fieldErrors.phone
+                      styles.personPickerTrigger,
+                      fieldErrors.person
                         ? styles.inputContainerError
                         : undefined,
                     ]}
+                    onPress={() => {
+                      setPersonSearch("");
+                      setShowPersonPicker(true);
+                    }}
+                    activeOpacity={0.85}
                   >
-                    <View style={styles.countryCode}>
-                      <Text style={styles.countryCodeText}>+91</Text>
-                    </View>
-                    <TextInput
-                      style={styles.textInput}
-                      placeholder="9876543210"
-                      placeholderTextColor="#A1AAB8"
-                      keyboardType="number-pad"
-                      maxLength={10}
-                      value={phone}
-                      onChangeText={(text) => {
-                        setPhone(text.replace(/[^0-9]/g, ""));
-                        clearFieldError("phone");
-                      }}
-                    />
-                    <TouchableOpacity
-                      onPress={pickContact}
-                      style={styles.contactButton}
-                      activeOpacity={0.8}
-                    >
-                      <Ionicons name="people-outline" size={20} color={BLUE} />
-                    </TouchableOpacity>
-                  </View>
-                  {fieldErrors.phone ? (
-                    <Text style={styles.fieldError}>{fieldErrors.phone}</Text>
-                  ) : phoneAlreadyBelongs ? (
-                    <View style={styles.phoneBelongsNotice}>
-                      <Ionicons name="alert-circle" size={16} color="#B45309" />
-                      <Text style={styles.phoneBelongsText}>
-                        This number belongs to{" "}
-                        <Text style={styles.phoneBelongsName}>
-                          {phoneAlreadyBelongs.name || "an existing person"}
+                    {selectedExisting ? (
+                      <>
+                        <View style={styles.selectedPersonAvatar}>
+                          {selectedExisting.photo_url ? (
+                            <Image
+                              source={{ uri: selectedExisting.photo_url }}
+                              style={styles.selectedPersonAvatarImage}
+                            />
+                          ) : (
+                            <Text style={styles.selectedPersonAvatarText}>
+                              {selectedExisting.name
+                                ? selectedExisting.name.charAt(0).toUpperCase()
+                                : "?"}
+                            </Text>
+                          )}
+                        </View>
+                        <View style={styles.selectedPersonInfo}>
+                          <Text
+                            style={styles.selectedPersonName}
+                            numberOfLines={1}
+                          >
+                            {selectedExisting.name || "Unnamed"}
+                          </Text>
+                          <Text
+                            style={styles.selectedPersonPhone}
+                            numberOfLines={1}
+                          >
+                            {kindLabel(selectedExisting.kind)}
+                            {selectedExisting.phone
+                              ? ` • ${selectedExisting.phone}`
+                              : ""}
+                          </Text>
+                        </View>
+                        <Ionicons
+                          name="chevron-down"
+                          size={18}
+                          color="#94A3B8"
+                        />
+                      </>
+                    ) : (
+                      <>
+                        <Ionicons
+                          name="people-outline"
+                          size={20}
+                          color="#94A3B8"
+                        />
+                        <Text style={styles.personPlaceholder}>
+                          Select a person
                         </Text>
-                        . Go to Existing Person and select them, then add{" "}
-                        {groupType === "staff"
-                          ? "a staff role"
-                          : `another ${unitNoun}`}
-                        .
-                      </Text>
-                    </View>
+                        <Ionicons
+                          name="chevron-down"
+                          size={18}
+                          color="#94A3B8"
+                        />
+                      </>
+                    )}
+                  </TouchableOpacity>
+
+                  {fieldErrors.person ? (
+                    <Text style={styles.fieldError}>{fieldErrors.person}</Text>
                   ) : (
                     <Text style={styles.helperText}>
-                      You can select a number from your contacts
+                      Their name, phone, and photo come from their profile.
                     </Text>
                   )}
                 </View>
-              </>
-            )}
+              ) : (
+                <>
+                  <View style={styles.photoCard}>
+                    <TouchableOpacity
+                      style={styles.photoButton}
+                      onPress={() => showPhotoSelectionOptions(false)}
+                      activeOpacity={0.8}
+                    >
+                      {photoUri ? (
+                        <Image
+                          source={{ uri: photoUri }}
+                          style={styles.photoImage}
+                        />
+                      ) : (
+                        <>
+                          <Ionicons
+                            name="camera-outline"
+                            size={28}
+                            color={BLUE}
+                          />
+                          <View style={styles.photoPlus}>
+                            <Ionicons name="add" size={12} color="#fff" />
+                          </View>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                    <View style={styles.photoTextContainer}>
+                      <Text style={styles.photoTitle}>
+                        {photoUri ? "Profile photo added" : "Add profile photo"}
+                      </Text>
+                      <Text style={styles.photoSubtitle}>
+                        {photoUri
+                          ? "Tap the photo to change it"
+                          : "Optional • Helps identify people"}
+                      </Text>
+                    </View>
+                    {photoUri && (
+                      <TouchableOpacity
+                        onPress={() => setPhotoUri(null)}
+                        style={styles.removePhotoButton}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="trash-outline" size={19} color={RED} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
 
-            {(groupType === "apartment" || groupType === "staff") && (
+                  {renderInput({
+                    label: "Full Name",
+                    value: name,
+                    onChangeText: (text) => {
+                      setName(text);
+                      clearFieldError("name");
+                    },
+                    placeholder: "e.g. Ramesh Kumar",
+                    icon: "person-outline",
+                    errorKey: "name",
+                  })}
+
+                  <View style={styles.fieldContainer}>
+                    <View style={styles.labelRow}>
+                      <Text
+                        style={[
+                          styles.inputLabel,
+                          fieldErrors.phone
+                            ? styles.inputLabelError
+                            : undefined,
+                        ]}
+                      >
+                        Phone Number
+                      </Text>
+                    </View>
+                    <View
+                      style={[
+                        styles.inputContainer,
+                        fieldErrors.phone
+                          ? styles.inputContainerError
+                          : undefined,
+                      ]}
+                    >
+                      <View style={styles.countryCode}>
+                        <Text style={styles.countryCodeText}>+91</Text>
+                      </View>
+                      <TextInput
+                        style={styles.textInput}
+                        placeholder="9876543210"
+                        placeholderTextColor="#A1AAB8"
+                        keyboardType="number-pad"
+                        maxLength={10}
+                        value={phone}
+                        onChangeText={(text) => {
+                          setPhone(text.replace(/[^0-9]/g, ""));
+                          clearFieldError("phone");
+                        }}
+                      />
+                      <TouchableOpacity
+                        onPress={pickContact}
+                        style={styles.contactButton}
+                        activeOpacity={0.8}
+                      >
+                        <Ionicons
+                          name="people-outline"
+                          size={20}
+                          color={BLUE}
+                        />
+                      </TouchableOpacity>
+                    </View>
+                    {fieldErrors.phone ? (
+                      <Text style={styles.fieldError}>{fieldErrors.phone}</Text>
+                    ) : phoneAlreadyBelongs ? (
+                      <View style={styles.phoneBelongsNotice}>
+                        <Ionicons
+                          name="alert-circle"
+                          size={16}
+                          color="#B45309"
+                        />
+                        <Text style={styles.phoneBelongsText}>
+                          This number belongs to{" "}
+                          <Text style={styles.phoneBelongsName}>
+                            {phoneAlreadyBelongs.name || "an existing person"}
+                          </Text>
+                          . Go to Existing Person and select them, then add{" "}
+                          {groupType === "staff"
+                            ? "a staff role"
+                            : `another ${unitNoun}`}
+                          .
+                        </Text>
+                      </View>
+                    ) : (
+                      <Text style={styles.helperText}>
+                        You can select a number from your contacts
+                      </Text>
+                    )}
+                  </View>
+                </>
+              )}
+
+              {(groupType === "apartment" || groupType === "staff") && (
+                <View style={styles.fieldContainer}>
+                  <View style={styles.labelRow}>
+                    <Text
+                      style={[
+                        styles.inputLabel,
+                        fieldErrors.role ? styles.inputLabelError : undefined,
+                      ]}
+                    >
+                      {groupType === "staff" ? "Staff Role" : "Role"}
+                    </Text>
+                  </View>
+
+                  <View style={styles.roleGrid}>
+                    {roleOptions.map((option) => {
+                      const selected = !isCustomRole && role === option.role;
+                      return (
+                        <TouchableOpacity
+                          key={option.role}
+                          style={[
+                            styles.roleCard,
+                            selected && styles.roleCardSelected,
+                          ]}
+                          onPress={() => {
+                            setRole(option.role);
+                            setIsCustomRole(false);
+                            setCustomRole("");
+                            clearFieldError("role");
+                          }}
+                          activeOpacity={0.8}
+                        >
+                          <View
+                            style={[
+                              styles.roleIcon,
+                              selected && styles.roleIconSelected,
+                            ]}
+                          >
+                            <Ionicons
+                              name={option.icon}
+                              size={19}
+                              color={selected ? "#fff" : BLUE}
+                            />
+                          </View>
+                          <Text
+                            style={[
+                              styles.roleText,
+                              selected && styles.roleTextSelected,
+                            ]}
+                          >
+                            {option.label}
+                          </Text>
+                          {selected && (
+                            <View style={styles.roleCheck}>
+                              <Ionicons
+                                name="checkmark"
+                                size={13}
+                                color="#fff"
+                              />
+                            </View>
+                          )}
+                        </TouchableOpacity>
+                      );
+                    })}
+
+                    <TouchableOpacity
+                      style={[
+                        styles.roleCard,
+                        isCustomRole && styles.roleCardSelected,
+                      ]}
+                      onPress={() => {
+                        setIsCustomRole(true);
+                        const normalized = normalizeRoleInput(customRole);
+                        setRole(normalized ? (normalized as MemberRole) : null);
+                        clearFieldError("role");
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      <View
+                        style={[
+                          styles.roleIcon,
+                          isCustomRole && styles.roleIconSelected,
+                        ]}
+                      >
+                        <Ionicons
+                          name="create-outline"
+                          size={19}
+                          color={isCustomRole ? "#fff" : BLUE}
+                        />
+                      </View>
+                      <Text
+                        style={[
+                          styles.roleText,
+                          isCustomRole && styles.roleTextSelected,
+                        ]}
+                      >
+                        Custom
+                      </Text>
+                      {isCustomRole && (
+                        <View style={styles.roleCheck}>
+                          <Ionicons name="checkmark" size={13} color="#fff" />
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+
+                  {isCustomRole && (
+                    <View style={styles.customRoleWrapper}>
+                      <TextInput
+                        style={styles.customRoleInput}
+                        placeholder="Enter custom role"
+                        placeholderTextColor="#A1AAB8"
+                        value={customRole}
+                        onChangeText={(text) => {
+                          setCustomRole(text);
+                          const normalized = normalizeRoleInput(text);
+                          setRole(
+                            normalized ? (normalized as MemberRole) : null,
+                          );
+                          clearFieldError("role");
+                        }}
+                      />
+                    </View>
+                  )}
+
+                  {fieldErrors.role ? (
+                    <Text style={styles.fieldError}>{fieldErrors.role}</Text>
+                  ) : null}
+                </View>
+              )}
+            </View>
+          ) : null}
+
+          {groupType === "apartment" && (
+            <View style={styles.card}>
+              {renderSectionHeader(
+                "home-outline",
+                isTenantAccount ? "Rental Details" : "Apartment Details",
+                isTenantAccount
+                  ? "Add room and rent information"
+                  : "Add unit and maintenance information",
+              )}
+
+              {renderInput({
+                label: "Wing / Section",
+                value: wing,
+                onChangeText: setWing,
+                placeholder: "e.g. A Wing or Tower 1",
+                icon: "business-outline",
+                optional: true,
+              })}
+
+              {renderInput({
+                label: flatNumberLabel,
+                value: flatNumber,
+                onChangeText: (text) => {
+                  setFlatNumber(text);
+                  clearFieldError("flatNumber");
+                },
+                placeholder: flatNumberPlaceholder,
+                icon: "keypad-outline",
+                errorKey: "flatNumber",
+                // Room number is optional on home (tenant) accounts.
+                optional: isTenantAccount,
+              })}
+
+              {renderInput({
+                label: "Area",
+                value: areaSqft,
+                onChangeText: (text) => {
+                  setAreaSqft(text.replace(/[^0-9]/g, ""));
+                  clearFieldError("areaSqft");
+                },
+                placeholder: "e.g. 1200",
+                icon: "resize-outline",
+                keyboardType: "numeric",
+                errorKey: "areaSqft",
+                // Area is required on both apartment and home accounts.
+                optional: false,
+              })}
+
+              <View style={styles.settingRow}>
+                <View style={styles.settingIcon}>
+                  <Ionicons name="car-outline" size={21} color={BLUE} />
+                </View>
+                <View style={styles.settingText}>
+                  <Text style={styles.settingTitle}>Parking Available</Text>
+                  <Text style={styles.settingSubtitle}>
+                    {isTenantAccount
+                      ? "Does this room have parking?"
+                      : "Does this apartment have parking?"}
+                  </Text>
+                </View>
+                <Switch
+                  value={parkingAvailable}
+                  onValueChange={setParkingAvailable}
+                  trackColor={{ false: "#CBD5E1", true: "#93C5FD" }}
+                  thumbColor={
+                    Platform.OS === "android"
+                      ? parkingAvailable
+                        ? BLUE
+                        : "#F8FAFC"
+                      : undefined
+                  }
+                />
+              </View>
+
+              {renderInput({
+                label: maintenanceLabel,
+                value: maintenanceAmount,
+                onChangeText: (text) => {
+                  setMaintenanceAmount(text.replace(/[^0-9]/g, ""));
+                  clearFieldError("maintenanceAmount");
+                },
+                placeholder: maintenancePlaceholder,
+                icon: "cash-outline",
+                keyboardType: "numeric",
+                errorKey: "maintenanceAmount",
+              })}
+            </View>
+          )}
+
+          {groupType === "staff" && (
+            <View style={styles.card}>
+              {renderSectionHeader(
+                "briefcase-outline",
+                "Staff Details",
+                "Set the monthly salary",
+              )}
+
+              {renderInput({
+                label: "Monthly Salary",
+                value: monthlySalary,
+                onChangeText: (text) => {
+                  setMonthlySalary(text.replace(/[^0-9]/g, ""));
+                  clearFieldError("monthlySalary");
+                },
+                placeholder: "e.g. 5000",
+                icon: "cash-outline",
+                keyboardType: "numeric",
+                errorKey: "monthlySalary",
+              })}
+            </View>
+          )}
+
+          {groupType === "expense" && (
+            <View style={styles.card}>
+              {renderSectionHeader(
+                isIncome ? "trending-up-outline" : "receipt-outline",
+                isIncome ? "Income Details" : "Expense Details",
+                isIncome
+                  ? "Record money received"
+                  : "Record the expense and payment information",
+              )}
+
+              <View style={styles.fieldContainer}>
+                <Text style={styles.inputLabel}>Type</Text>
+                <View style={styles.kindRadioRow}>
+                  <TouchableOpacity
+                    style={[
+                      styles.kindRadioOption,
+                      !isIncome && styles.kindRadioOptionExpense,
+                    ]}
+                    onPress={() => {
+                      setTransactionKind("expense");
+                      setRole(null);
+                      clearFieldError("role");
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <View
+                      style={[
+                        styles.radioOuter,
+                        !isIncome && styles.radioOuterExpense,
+                      ]}
+                    >
+                      {!isIncome && (
+                        <View
+                          style={[styles.radioInner, { backgroundColor: RED }]}
+                        />
+                      )}
+                    </View>
+                    <Ionicons
+                      name="arrow-down-circle-outline"
+                      size={17}
+                      color={!isIncome ? RED : "#94A3B8"}
+                    />
+                    <Text
+                      style={[
+                        styles.kindRadioText,
+                        !isIncome && { color: RED, fontWeight: "800" },
+                      ]}
+                    >
+                      Expense
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.kindRadioOption,
+                      isIncome && styles.kindRadioOptionIncome,
+                    ]}
+                    onPress={() => {
+                      setTransactionKind("income");
+                      setRole(null);
+                      clearFieldError("role");
+                    }}
+                    activeOpacity={0.8}
+                  >
+                    <View
+                      style={[
+                        styles.radioOuter,
+                        isIncome && styles.radioOuterIncome,
+                      ]}
+                    >
+                      {isIncome && (
+                        <View
+                          style={[
+                            styles.radioInner,
+                            { backgroundColor: GREEN },
+                          ]}
+                        />
+                      )}
+                    </View>
+                    <Ionicons
+                      name="arrow-up-circle-outline"
+                      size={17}
+                      color={isIncome ? GREEN : "#94A3B8"}
+                    />
+                    <Text
+                      style={[
+                        styles.kindRadioText,
+                        isIncome && { color: GREEN, fontWeight: "800" },
+                      ]}
+                    >
+                      Income
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
               <View style={styles.fieldContainer}>
                 <View style={styles.labelRow}>
                   <Text
@@ -2061,13 +2420,12 @@ export default function AddMemberScreen() {
                       fieldErrors.role ? styles.inputLabelError : undefined,
                     ]}
                   >
-                    {groupType === "staff" ? "Staff Role" : "Role"}
+                    Category
                   </Text>
                 </View>
-
                 <View style={styles.roleGrid}>
-                  {roleOptions.map((option) => {
-                    const selected = !isCustomRole && role === option.role;
+                  {activeCategoryOptions.map((option) => {
+                    const selected = role === option.role;
                     return (
                       <TouchableOpacity
                         key={option.role}
@@ -2077,8 +2435,6 @@ export default function AddMemberScreen() {
                         ]}
                         onPress={() => {
                           setRole(option.role);
-                          setIsCustomRole(false);
-                          setCustomRole("");
                           clearFieldError("role");
                         }}
                         activeOpacity={0.8}
@@ -2091,7 +2447,7 @@ export default function AddMemberScreen() {
                         >
                           <Ionicons
                             name={option.icon}
-                            size={19}
+                            size={18}
                             color={selected ? "#fff" : BLUE}
                           />
                         </View>
@@ -2103,879 +2459,569 @@ export default function AddMemberScreen() {
                         >
                           {option.label}
                         </Text>
-                        {selected && (
-                          <View style={styles.roleCheck}>
-                            <Ionicons name="checkmark" size={13} color="#fff" />
-                          </View>
-                        )}
                       </TouchableOpacity>
                     );
                   })}
+                </View>
+                {fieldErrors.role ? (
+                  <Text style={styles.fieldError}>{fieldErrors.role}</Text>
+                ) : null}
+              </View>
 
+              {renderInput({
+                label: isIncome ? "Income Name" : "Expense Name",
+                value: name,
+                onChangeText: (text) => {
+                  setName(text);
+                  clearFieldError("name");
+                },
+                placeholder: isIncome
+                  ? "e.g. Hall booking - Sharma wedding"
+                  : "e.g. Water bill, Lift repair",
+                icon: "document-text-outline",
+                errorKey: "name",
+              })}
+
+              {renderInput({
+                label: isIncome ? "Income Amount" : "Amount",
+                value: expenseAmount,
+                onChangeText: (text) => {
+                  setExpenseAmount(text.replace(/[^0-9]/g, ""));
+                  clearFieldError("expenseAmount");
+                },
+                placeholder: "e.g. 4200",
+                icon: "cash-outline",
+                keyboardType: "numeric",
+                errorKey: "expenseAmount",
+              })}
+
+              <View style={styles.fieldContainer}>
+                <Text style={styles.inputLabel}>Payment Status</Text>
+                <View style={styles.paymentStatusRow}>
                   <TouchableOpacity
                     style={[
-                      styles.roleCard,
-                      isCustomRole && styles.roleCardSelected,
+                      styles.paymentStatus,
+                      expenseStatus === "paid" && styles.paymentStatusPaid,
                     ]}
                     onPress={() => {
-                      setIsCustomRole(true);
-                      const normalized = normalizeRoleInput(customRole);
-                      setRole(normalized ? (normalized as MemberRole) : null);
-                      clearFieldError("role");
+                      setExpenseStatus("paid");
+                      setReminderEnabled(false);
                     }}
                     activeOpacity={0.8}
                   >
                     <View
                       style={[
-                        styles.roleIcon,
-                        isCustomRole && styles.roleIconSelected,
+                        styles.paymentStatusIcon,
+                        expenseStatus === "paid" &&
+                          styles.paymentStatusIconPaid,
                       ]}
                     >
                       <Ionicons
-                        name="create-outline"
-                        size={19}
-                        color={isCustomRole ? "#fff" : BLUE}
+                        name="checkmark"
+                        size={17}
+                        color={expenseStatus === "paid" ? "#fff" : "#64748B"}
                       />
                     </View>
-                    <Text
+                    <View>
+                      <Text
+                        style={[
+                          styles.paymentStatusTitle,
+                          expenseStatus === "paid" &&
+                            styles.paymentStatusTitlePaid,
+                        ]}
+                      >
+                        {isIncome ? "Received" : "Paid"}
+                      </Text>
+                      <Text style={styles.paymentStatusSubtitle}>
+                        {isIncome ? "Payment collected" : "Already paid"}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.paymentStatus,
+                      expenseStatus === "due" && styles.paymentStatusDue,
+                    ]}
+                    onPress={() => setExpenseStatus("due")}
+                    activeOpacity={0.8}
+                  >
+                    <View
                       style={[
-                        styles.roleText,
-                        isCustomRole && styles.roleTextSelected,
+                        styles.paymentStatusIcon,
+                        expenseStatus === "due" && styles.paymentStatusIconDue,
                       ]}
                     >
-                      Custom
-                    </Text>
-                    {isCustomRole && (
-                      <View style={styles.roleCheck}>
-                        <Ionicons name="checkmark" size={13} color="#fff" />
-                      </View>
-                    )}
+                      <Ionicons
+                        name="time-outline"
+                        size={17}
+                        color={expenseStatus === "due" ? "#fff" : "#64748B"}
+                      />
+                    </View>
+                    <View>
+                      <Text
+                        style={[
+                          styles.paymentStatusTitle,
+                          expenseStatus === "due" &&
+                            styles.paymentStatusTitleDue,
+                        ]}
+                      >
+                        {isIncome ? "Pending" : "Due"}
+                      </Text>
+                      <Text style={styles.paymentStatusSubtitle}>
+                        {isIncome ? "Payment awaited" : "Payment pending"}
+                      </Text>
+                    </View>
                   </TouchableOpacity>
                 </View>
+              </View>
 
-                {isCustomRole && (
-                  <View style={styles.customRoleWrapper}>
-                    <TextInput
-                      style={styles.customRoleInput}
-                      placeholder="Enter custom role"
-                      placeholderTextColor="#A1AAB8"
-                      value={customRole}
-                      onChangeText={(text) => {
-                        setCustomRole(text);
-                        const normalized = normalizeRoleInput(text);
-                        setRole(normalized ? (normalized as MemberRole) : null);
-                        clearFieldError("role");
-                      }}
+              {expenseStatus === "due" && (
+                <View style={styles.reminderCard}>
+                  <View style={styles.reminderIcon}>
+                    <Ionicons
+                      name="notifications-outline"
+                      size={20}
+                      color="#D97706"
                     />
+                  </View>
+                  <View style={styles.reminderText}>
+                    <Text style={styles.reminderTitle}>Set Reminder</Text>
+                    <Text style={styles.reminderSubtitle}>
+                      Get notified about this due expense
+                    </Text>
+                  </View>
+                  <View style={styles.reminderSwitchWrap}>
+                    <Switch
+                      value={reminderEnabled}
+                      onValueChange={setReminderEnabled}
+                      trackColor={{ false: "#CBD5E1", true: "#FCD34D" }}
+                      thumbColor={
+                        Platform.OS === "android"
+                          ? reminderEnabled
+                            ? "#D97706"
+                            : "#F8FAFC"
+                          : undefined
+                      }
+                    />
+                  </View>
+                </View>
+              )}
+
+              <View style={styles.fieldContainer}>
+                <View style={styles.labelRow}>
+                  <Text style={styles.inputLabel}>Transaction Date</Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.dateInput}
+                  onPress={() => setShowDatePicker(true)}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.dateLeft}>
+                    <View style={styles.dateIcon}>
+                      <Ionicons
+                        name="calendar-outline"
+                        size={19}
+                        color={BLUE}
+                      />
+                    </View>
+                    <Text style={styles.dateText}>
+                      {dueDate || "Select date"}
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.fieldContainer}>
+                <View style={styles.labelRow}>
+                  <Text style={styles.inputLabel}>Bill Attachment</Text>
+                  <Text style={styles.optionalText}>
+                    Optional • up to {MAX_BILL_ATTACHMENTS}
+                  </Text>
+                </View>
+
+                {billAttachments.length > 0 && (
+                  <View style={styles.attachmentList}>
+                    {billAttachments.map((attachment, index) => {
+                      const isPdf = isPdfAttachment(attachment);
+                      return (
+                        <View
+                          key={`${attachment.uri}-${index}`}
+                          style={styles.attachmentRow}
+                        >
+                          <View style={styles.attachmentIcon}>
+                            <Ionicons
+                              name={fileIconForBill(attachment)}
+                              size={20}
+                              color={isPdf ? RED : BLUE}
+                            />
+                          </View>
+                          <Text style={styles.attachmentName} numberOfLines={1}>
+                            {attachment.name}
+                          </Text>
+                          <TouchableOpacity
+                            style={styles.attachmentAction}
+                            onPress={() =>
+                              setBillAttachments((cur) =>
+                                cur.filter((_, i) => i !== index),
+                              )
+                            }
+                            activeOpacity={0.7}
+                          >
+                            <Ionicons
+                              name="trash-outline"
+                              size={19}
+                              color={RED}
+                            />
+                          </TouchableOpacity>
+                        </View>
+                      );
+                    })}
                   </View>
                 )}
 
-                {fieldErrors.role ? (
-                  <Text style={styles.fieldError}>{fieldErrors.role}</Text>
-                ) : null}
-              </View>
-            )}
-          </View>
-        ) : null}
-
-        {groupType === "apartment" && (
-          <View style={styles.card}>
-            {renderSectionHeader(
-              "home-outline",
-              isTenantAccount ? "Rental Details" : "Apartment Details",
-              isTenantAccount
-                ? "Add room and rent information"
-                : "Add unit and maintenance information",
-            )}
-
-            {renderInput({
-              label: "Wing / Section",
-              value: wing,
-              onChangeText: setWing,
-              placeholder: "e.g. A Wing or Tower 1",
-              icon: "business-outline",
-              optional: true,
-            })}
-
-            {renderInput({
-              label: flatNumberLabel,
-              value: flatNumber,
-              onChangeText: (text) => {
-                setFlatNumber(text);
-                clearFieldError("flatNumber");
-              },
-              placeholder: flatNumberPlaceholder,
-              icon: "keypad-outline",
-              errorKey: "flatNumber",
-              // Room number is optional on home (tenant) accounts.
-              optional: isTenantAccount,
-            })}
-
-            {renderInput({
-              label: "Area",
-              value: areaSqft,
-              onChangeText: (text) => {
-                setAreaSqft(text.replace(/[^0-9]/g, ""));
-                clearFieldError("areaSqft");
-              },
-              placeholder: "e.g. 1200",
-              icon: "resize-outline",
-              keyboardType: "numeric",
-              errorKey: "areaSqft",
-              // Area is required on both apartment and home accounts.
-              optional: false,
-            })}
-
-            <View style={styles.settingRow}>
-              <View style={styles.settingIcon}>
-                <Ionicons name="car-outline" size={21} color={BLUE} />
-              </View>
-              <View style={styles.settingText}>
-                <Text style={styles.settingTitle}>Parking Available</Text>
-                <Text style={styles.settingSubtitle}>
-                  {isTenantAccount
-                    ? "Does this room have parking?"
-                    : "Does this apartment have parking?"}
-                </Text>
-              </View>
-              <Switch
-                value={parkingAvailable}
-                onValueChange={setParkingAvailable}
-                trackColor={{ false: "#CBD5E1", true: "#93C5FD" }}
-                thumbColor={
-                  Platform.OS === "android"
-                    ? parkingAvailable
-                      ? BLUE
-                      : "#F8FAFC"
-                    : undefined
-                }
-              />
-            </View>
-
-            {renderInput({
-              label: maintenanceLabel,
-              value: maintenanceAmount,
-              onChangeText: (text) => {
-                setMaintenanceAmount(text.replace(/[^0-9]/g, ""));
-                clearFieldError("maintenanceAmount");
-              },
-              placeholder: maintenancePlaceholder,
-              icon: "cash-outline",
-              keyboardType: "numeric",
-              errorKey: "maintenanceAmount",
-            })}
-          </View>
-        )}
-
-        {groupType === "staff" && (
-          <View style={styles.card}>
-            {renderSectionHeader(
-              "briefcase-outline",
-              "Staff Details",
-              "Set the monthly salary",
-            )}
-
-            {renderInput({
-              label: "Monthly Salary",
-              value: monthlySalary,
-              onChangeText: (text) => {
-                setMonthlySalary(text.replace(/[^0-9]/g, ""));
-                clearFieldError("monthlySalary");
-              },
-              placeholder: "e.g. 5000",
-              icon: "cash-outline",
-              keyboardType: "numeric",
-              errorKey: "monthlySalary",
-            })}
-          </View>
-        )}
-
-        {groupType === "expense" && (
-          <View style={styles.card}>
-            {renderSectionHeader(
-              isIncome ? "trending-up-outline" : "receipt-outline",
-              isIncome ? "Income Details" : "Expense Details",
-              isIncome
-                ? "Record money received"
-                : "Record the expense and payment information",
-            )}
-
-            <View style={styles.fieldContainer}>
-              <Text style={styles.inputLabel}>Type</Text>
-              <View style={styles.kindRadioRow}>
-                <TouchableOpacity
-                  style={[
-                    styles.kindRadioOption,
-                    !isIncome && styles.kindRadioOptionExpense,
-                  ]}
-                  onPress={() => {
-                    setTransactionKind("expense");
-                    setRole(null);
-                    clearFieldError("role");
-                  }}
-                  activeOpacity={0.8}
-                >
-                  <View
-                    style={[
-                      styles.radioOuter,
-                      !isIncome && styles.radioOuterExpense,
-                    ]}
-                  >
-                    {!isIncome && (
-                      <View
-                        style={[styles.radioInner, { backgroundColor: RED }]}
-                      />
-                    )}
-                  </View>
-                  <Ionicons
-                    name="arrow-down-circle-outline"
-                    size={17}
-                    color={!isIncome ? RED : "#94A3B8"}
-                  />
-                  <Text
-                    style={[
-                      styles.kindRadioText,
-                      !isIncome && { color: RED, fontWeight: "800" },
-                    ]}
-                  >
-                    Expense
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    styles.kindRadioOption,
-                    isIncome && styles.kindRadioOptionIncome,
-                  ]}
-                  onPress={() => {
-                    setTransactionKind("income");
-                    setRole(null);
-                    clearFieldError("role");
-                  }}
-                  activeOpacity={0.8}
-                >
-                  <View
-                    style={[
-                      styles.radioOuter,
-                      isIncome && styles.radioOuterIncome,
-                    ]}
-                  >
-                    {isIncome && (
-                      <View
-                        style={[styles.radioInner, { backgroundColor: GREEN }]}
-                      />
-                    )}
-                  </View>
-                  <Ionicons
-                    name="arrow-up-circle-outline"
-                    size={17}
-                    color={isIncome ? GREEN : "#94A3B8"}
-                  />
-                  <Text
-                    style={[
-                      styles.kindRadioText,
-                      isIncome && { color: GREEN, fontWeight: "800" },
-                    ]}
-                  >
-                    Income
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            <View style={styles.fieldContainer}>
-              <View style={styles.labelRow}>
-                <Text
-                  style={[
-                    styles.inputLabel,
-                    fieldErrors.role ? styles.inputLabelError : undefined,
-                  ]}
-                >
-                  Category
-                </Text>
-              </View>
-              <View style={styles.roleGrid}>
-                {activeCategoryOptions.map((option) => {
-                  const selected = role === option.role;
+                {(() => {
+                  const limitReached =
+                    billAttachments.length >= MAX_BILL_ATTACHMENTS;
                   return (
                     <TouchableOpacity
-                      key={option.role}
                       style={[
-                        styles.roleCard,
-                        selected && styles.roleCardSelected,
+                        styles.attachButton,
+                        limitReached && styles.attachButtonDisabled,
                       ]}
                       onPress={() => {
-                        setRole(option.role);
-                        clearFieldError("role");
+                        if (limitReached) {
+                          Alert.alert(
+                            "Attachment limit reached",
+                            `You can attach at most ${MAX_BILL_ATTACHMENTS} files. Remove one to add more.`,
+                          );
+                          return;
+                        }
+                        showPhotoSelectionOptions(true);
                       }}
                       activeOpacity={0.8}
                     >
                       <View
                         style={[
-                          styles.roleIcon,
-                          selected && styles.roleIconSelected,
+                          styles.attachButtonIcon,
+                          limitReached && styles.attachButtonIconDisabled,
                         ]}
                       >
                         <Ionicons
-                          name={option.icon}
-                          size={18}
-                          color={selected ? "#fff" : BLUE}
+                          name={limitReached ? "lock-closed" : "attach"}
+                          size={20}
+                          color={limitReached ? "#94A3B8" : BLUE}
                         />
                       </View>
-                      <Text
-                        style={[
-                          styles.roleText,
-                          selected && styles.roleTextSelected,
-                        ]}
-                      >
-                        {option.label}
-                      </Text>
+                      <View style={styles.attachButtonTextContainer}>
+                        <Text
+                          style={[
+                            styles.attachButtonTitle,
+                            limitReached && styles.attachButtonTitleDisabled,
+                          ]}
+                        >
+                          {limitReached
+                            ? `Attachment limit reached (${MAX_BILL_ATTACHMENTS} files max)`
+                            : billAttachments.length > 0
+                              ? "Add another bill"
+                              : "Attach bill or receipt"}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.attachButtonSubtitle,
+                            limitReached && styles.attachButtonSubtitleDisabled,
+                          ]}
+                        >
+                          {limitReached
+                            ? "Remove one to add another"
+                            : "Photo, gallery, or PDF · up to 2"}
+                        </Text>
+                      </View>
+                      {!limitReached && (
+                        <Ionicons
+                          name="chevron-forward"
+                          size={18}
+                          color="#94A3B8"
+                        />
+                      )}
                     </TouchableOpacity>
                   );
-                })}
+                })()}
+
+                {fieldErrors.billAttachments ? (
+                  <Text style={styles.fieldError}>
+                    {fieldErrors.billAttachments}
+                  </Text>
+                ) : null}
               </View>
-              {fieldErrors.role ? (
-                <Text style={styles.fieldError}>{fieldErrors.role}</Text>
-              ) : null}
-            </View>
 
-            {renderInput({
-              label: isIncome ? "Income Name" : "Expense Name",
-              value: name,
-              onChangeText: (text) => {
-                setName(text);
-                clearFieldError("name");
-              },
-              placeholder: isIncome
-                ? "e.g. Hall booking - Sharma wedding"
-                : "e.g. Water bill, Lift repair",
-              icon: "document-text-outline",
-              errorKey: "name",
-            })}
-
-            {renderInput({
-              label: isIncome ? "Income Amount" : "Amount",
-              value: expenseAmount,
-              onChangeText: (text) => {
-                setExpenseAmount(text.replace(/[^0-9]/g, ""));
-                clearFieldError("expenseAmount");
-              },
-              placeholder: "e.g. 4200",
-              icon: "cash-outline",
-              keyboardType: "numeric",
-              errorKey: "expenseAmount",
-            })}
-
-            <View style={styles.fieldContainer}>
-              <Text style={styles.inputLabel}>Payment Status</Text>
-              <View style={styles.paymentStatusRow}>
-                <TouchableOpacity
-                  style={[
-                    styles.paymentStatus,
-                    expenseStatus === "paid" && styles.paymentStatusPaid,
-                  ]}
-                  onPress={() => {
-                    setExpenseStatus("paid");
-                    setReminderEnabled(false);
-                  }}
-                  activeOpacity={0.8}
-                >
-                  <View
-                    style={[
-                      styles.paymentStatusIcon,
-                      expenseStatus === "paid" && styles.paymentStatusIconPaid,
-                    ]}
-                  >
-                    <Ionicons
-                      name="checkmark"
-                      size={17}
-                      color={expenseStatus === "paid" ? "#fff" : "#64748B"}
-                    />
-                  </View>
-                  <View>
-                    <Text
-                      style={[
-                        styles.paymentStatusTitle,
-                        expenseStatus === "paid" &&
-                          styles.paymentStatusTitlePaid,
-                      ]}
-                    >
-                      {isIncome ? "Received" : "Paid"}
-                    </Text>
-                    <Text style={styles.paymentStatusSubtitle}>
-                      {isIncome ? "Payment collected" : "Already paid"}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    styles.paymentStatus,
-                    expenseStatus === "due" && styles.paymentStatusDue,
-                  ]}
-                  onPress={() => setExpenseStatus("due")}
-                  activeOpacity={0.8}
-                >
-                  <View
-                    style={[
-                      styles.paymentStatusIcon,
-                      expenseStatus === "due" && styles.paymentStatusIconDue,
-                    ]}
-                  >
-                    <Ionicons
-                      name="time-outline"
-                      size={17}
-                      color={expenseStatus === "due" ? "#fff" : "#64748B"}
-                    />
-                  </View>
-                  <View>
-                    <Text
-                      style={[
-                        styles.paymentStatusTitle,
-                        expenseStatus === "due" && styles.paymentStatusTitleDue,
-                      ]}
-                    >
-                      {isIncome ? "Pending" : "Due"}
-                    </Text>
-                    <Text style={styles.paymentStatusSubtitle}>
-                      {isIncome ? "Payment awaited" : "Payment pending"}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {expenseStatus === "due" && (
-              <View style={styles.reminderCard}>
-                <View style={styles.reminderIcon}>
+              <View style={styles.fieldContainer}>
+                <View style={styles.labelRow}>
+                  <Text style={styles.inputLabel}>Note</Text>
+                  <Text style={styles.optionalText}>Optional</Text>
+                </View>
+                <View style={styles.textAreaContainer}>
                   <Ionicons
-                    name="notifications-outline"
-                    size={20}
-                    color="#D97706"
+                    name="create-outline"
+                    size={19}
+                    color="#94A3B8"
+                    style={styles.textAreaIcon}
                   />
-                </View>
-                <View style={styles.reminderText}>
-                  <Text style={styles.reminderTitle}>Set Reminder</Text>
-                  <Text style={styles.reminderSubtitle}>
-                    Get notified about this due expense
-                  </Text>
-                </View>
-                <View style={styles.reminderSwitchWrap}>
-                  <Switch
-                    value={reminderEnabled}
-                    onValueChange={setReminderEnabled}
-                    trackColor={{ false: "#CBD5E1", true: "#FCD34D" }}
-                    thumbColor={
-                      Platform.OS === "android"
-                        ? reminderEnabled
-                          ? "#D97706"
-                          : "#F8FAFC"
-                        : undefined
-                    }
+                  <TextInput
+                    style={styles.textArea}
+                    placeholder="Add any additional information..."
+                    placeholderTextColor="#A1AAB8"
+                    value={expenseDescription}
+                    onChangeText={setExpenseDescription}
+                    multiline
+                    textAlignVertical="top"
                   />
                 </View>
               </View>
-            )}
-
-            <View style={styles.fieldContainer}>
-              <View style={styles.labelRow}>
-                <Text style={styles.inputLabel}>Transaction Date</Text>
-              </View>
-              <TouchableOpacity
-                style={styles.dateInput}
-                onPress={() => setShowDatePicker(true)}
-                activeOpacity={0.8}
-              >
-                <View style={styles.dateLeft}>
-                  <View style={styles.dateIcon}>
-                    <Ionicons name="calendar-outline" size={19} color={BLUE} />
-                  </View>
-                  <Text style={styles.dateText}>
-                    {dueDate || "Select date"}
-                  </Text>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
-              </TouchableOpacity>
             </View>
-
-            <View style={styles.fieldContainer}>
-              <View style={styles.labelRow}>
-                <Text style={styles.inputLabel}>Bill Attachment</Text>
-                <Text style={styles.optionalText}>
-                  Optional • up to {MAX_BILL_ATTACHMENTS}
-                </Text>
-              </View>
-
-              {billAttachments.length > 0 && (
-                <View style={styles.attachmentList}>
-                  {billAttachments.map((attachment, index) => {
-                    const isPdf = isPdfAttachment(attachment);
-                    return (
-                      <View
-                        key={`${attachment.uri}-${index}`}
-                        style={styles.attachmentRow}
-                      >
-                        <View style={styles.attachmentIcon}>
-                          <Ionicons
-                            name={fileIconForBill(attachment)}
-                            size={20}
-                            color={isPdf ? RED : BLUE}
-                          />
-                        </View>
-                        <Text style={styles.attachmentName} numberOfLines={1}>
-                          {attachment.name}
-                        </Text>
-                        <TouchableOpacity
-                          style={styles.attachmentAction}
-                          onPress={() =>
-                            setBillAttachments((cur) =>
-                              cur.filter((_, i) => i !== index),
-                            )
-                          }
-                          activeOpacity={0.7}
-                        >
-                          <Ionicons
-                            name="trash-outline"
-                            size={19}
-                            color={RED}
-                          />
-                        </TouchableOpacity>
-                      </View>
-                    );
-                  })}
-                </View>
-              )}
-
-              {(() => {
-                const limitReached =
-                  billAttachments.length >= MAX_BILL_ATTACHMENTS;
-                return (
-                  <TouchableOpacity
-                    style={[
-                      styles.attachButton,
-                      limitReached && styles.attachButtonDisabled,
-                    ]}
-                    onPress={() => {
-                      if (limitReached) {
-                        Alert.alert(
-                          "Attachment limit reached",
-                          `You can attach at most ${MAX_BILL_ATTACHMENTS} files. Remove one to add more.`,
-                        );
-                        return;
-                      }
-                      showPhotoSelectionOptions(true);
-                    }}
-                    activeOpacity={0.8}
-                  >
-                    <View
-                      style={[
-                        styles.attachButtonIcon,
-                        limitReached && styles.attachButtonIconDisabled,
-                      ]}
-                    >
-                      <Ionicons
-                        name={limitReached ? "lock-closed" : "attach"}
-                        size={20}
-                        color={limitReached ? "#94A3B8" : BLUE}
-                      />
-                    </View>
-                    <View style={styles.attachButtonTextContainer}>
-                      <Text
-                        style={[
-                          styles.attachButtonTitle,
-                          limitReached && styles.attachButtonTitleDisabled,
-                        ]}
-                      >
-                        {limitReached
-                          ? `Attachment limit reached (${MAX_BILL_ATTACHMENTS} files max)`
-                          : billAttachments.length > 0
-                            ? "Add another bill"
-                            : "Attach bill or receipt"}
-                      </Text>
-                      <Text
-                        style={[
-                          styles.attachButtonSubtitle,
-                          limitReached && styles.attachButtonSubtitleDisabled,
-                        ]}
-                      >
-                        {limitReached
-                          ? "Remove one to add another"
-                          : "Photo, gallery, or PDF · up to 2"}
-                      </Text>
-                    </View>
-                    {!limitReached && (
-                      <Ionicons
-                        name="chevron-forward"
-                        size={18}
-                        color="#94A3B8"
-                      />
-                    )}
-                  </TouchableOpacity>
-                );
-              })()}
-
-              {fieldErrors.billAttachments ? (
-                <Text style={styles.fieldError}>
-                  {fieldErrors.billAttachments}
-                </Text>
-              ) : null}
-            </View>
-
-            <View style={styles.fieldContainer}>
-              <View style={styles.labelRow}>
-                <Text style={styles.inputLabel}>Note</Text>
-                <Text style={styles.optionalText}>Optional</Text>
-              </View>
-              <View style={styles.textAreaContainer}>
-                <Ionicons
-                  name="create-outline"
-                  size={19}
-                  color="#94A3B8"
-                  style={styles.textAreaIcon}
-                />
-                <TextInput
-                  style={styles.textArea}
-                  placeholder="Add any additional information..."
-                  placeholderTextColor="#A1AAB8"
-                  value={expenseDescription}
-                  onChangeText={setExpenseDescription}
-                  multiline
-                  textAlignVertical="top"
-                />
-              </View>
-            </View>
-          </View>
-        )}
-
-        {error ? (
-          <View style={styles.errorCard}>
-            <View style={styles.errorIcon}>
-              <Ionicons name="alert-circle" size={19} color={RED} />
-            </View>
-            <Text style={styles.errorText}>{error}</Text>
-          </View>
-        ) : null}
-
-        <TouchableOpacity
-          style={[styles.button, loading && styles.buttonDisabled]}
-          onPress={handleAdd}
-          disabled={loading}
-          activeOpacity={0.85}
-        >
-          {loading ? (
-            <Text style={styles.buttonText}>Saving...</Text>
-          ) : (
-            <>
-              <Ionicons
-                name={
-                  groupType === "expense"
-                    ? isIncome
-                      ? "trending-up-outline"
-                      : "receipt-outline"
-                    : "checkmark-circle-outline"
-                }
-                size={21}
-                color="#fff"
-              />
-              <Text style={styles.buttonText}>{getButtonText()}</Text>
-            </>
           )}
-        </TouchableOpacity>
 
-        <Text style={styles.bottomHint}>
-          Your information will be saved securely in your society records.
-        </Text>
-      </ScrollView>
+          {error ? (
+            <View style={styles.errorCard}>
+              <View style={styles.errorIcon}>
+                <Ionicons name="alert-circle" size={19} color={RED} />
+              </View>
+              <Text style={styles.errorText}>{error}</Text>
+            </View>
+          ) : null}
 
-      <DatePickerModal
-        visible={showDatePicker}
-        value={dueDate}
-        onClose={() => setShowDatePicker(false)}
-        onSelect={setDueDate}
-      />
+          <TouchableOpacity
+            style={[styles.button, loading && styles.buttonDisabled]}
+            onPress={handleAdd}
+            disabled={loading}
+            activeOpacity={0.85}
+          >
+            {loading ? (
+              <Text style={styles.buttonText}>Saving...</Text>
+            ) : (
+              <>
+                <Ionicons
+                  name={
+                    groupType === "expense"
+                      ? isIncome
+                        ? "trending-up-outline"
+                        : "receipt-outline"
+                      : "checkmark-circle-outline"
+                  }
+                  size={21}
+                  color="#fff"
+                />
+                <Text style={styles.buttonText}>{getButtonText()}</Text>
+              </>
+            )}
+          </TouchableOpacity>
 
-      {renderContactPickerModal()}
-      {renderPersonPickerModal()}
+          <Text style={styles.bottomHint}>
+            Your information will be saved securely in your society records.
+          </Text>
+        </ScrollView>
 
-      <Modal
-        visible={showPhotoOptions}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowPhotoOptions(false)}
-      >
-        <Pressable
-          style={styles.modalBackdrop}
-          onPress={() => setShowPhotoOptions(false)}
+        <DatePickerModal
+          visible={showDatePicker}
+          value={dueDate}
+          onClose={() => setShowDatePicker(false)}
+          onSelect={setDueDate}
+        />
+
+        {renderContactPickerModal()}
+        {renderPersonPickerModal()}
+
+        <Modal
+          visible={showPhotoOptions}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowPhotoOptions(false)}
         >
-          <Pressable style={styles.photoOptionsModal} onPress={() => {}}>
-            <View style={styles.modalHandle} />
-            <Text style={styles.photoOptionsTitle}>
-              {isBillPhotoMode ? "Add Bill / Receipt" : "Upload Photo"}
-            </Text>
-            <Text style={styles.photoOptionsSubtitle}>
-              {isBillPhotoMode
-                ? "Choose how you want to add a bill or receipt"
-                : "Choose how you want to add a photo"}
-            </Text>
+          <Pressable
+            style={styles.modalBackdrop}
+            onPress={() => setShowPhotoOptions(false)}
+          >
+            <Pressable style={styles.photoOptionsModal} onPress={() => {}}>
+              <View style={styles.modalHandle} />
+              <Text style={styles.photoOptionsTitle}>
+                {isBillPhotoMode ? "Add Bill / Receipt" : "Upload Photo"}
+              </Text>
+              <Text style={styles.photoOptionsSubtitle}>
+                {isBillPhotoMode
+                  ? "Choose how you want to add a bill or receipt"
+                  : "Choose how you want to add a photo"}
+              </Text>
 
-            <TouchableOpacity
-              style={styles.photoOptionButton}
-              onPress={takePhoto}
-              activeOpacity={0.7}
-            >
-              <View style={styles.photoOptionIcon}>
-                <Ionicons name="camera" size={24} color="#1a73e8" />
-              </View>
-              <View style={styles.photoOptionTextContainer}>
-                <Text style={styles.photoOptionTitle}>Take Photo</Text>
-                <Text style={styles.photoOptionDescription}>
-                  {isBillPhotoMode
-                    ? "Capture a photo of the bill or receipt"
-                    : "Capture a photo using your camera"}
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color="#ccc" />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.photoOptionButton}
-              onPress={choosePhoto}
-              activeOpacity={0.7}
-            >
-              <View
-                style={[styles.photoOptionIcon, { backgroundColor: "#ecfdf5" }]}
-              >
-                <Ionicons name="images" size={24} color="#059669" />
-              </View>
-              <View style={styles.photoOptionTextContainer}>
-                <Text style={styles.photoOptionTitle}>Choose from Gallery</Text>
-                <Text style={styles.photoOptionDescription}>
-                  {isBillPhotoMode
-                    ? "Select a bill or receipt from your device"
-                    : "Select a photo from your device"}
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color="#ccc" />
-            </TouchableOpacity>
-
-            {isBillPhotoMode && (
               <TouchableOpacity
                 style={styles.photoOptionButton}
-                onPress={chooseBillPdf}
+                onPress={takePhoto}
+                activeOpacity={0.7}
+              >
+                <View style={styles.photoOptionIcon}>
+                  <Ionicons name="camera" size={24} color="#1a73e8" />
+                </View>
+                <View style={styles.photoOptionTextContainer}>
+                  <Text style={styles.photoOptionTitle}>Take Photo</Text>
+                  <Text style={styles.photoOptionDescription}>
+                    {isBillPhotoMode
+                      ? "Capture a photo of the bill or receipt"
+                      : "Capture a photo using your camera"}
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color="#ccc" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.photoOptionButton}
+                onPress={choosePhoto}
                 activeOpacity={0.7}
               >
                 <View
                   style={[
                     styles.photoOptionIcon,
-                    { backgroundColor: "#FEF2F2" },
+                    { backgroundColor: "#ecfdf5" },
                   ]}
                 >
-                  <Ionicons name="document-text" size={24} color="#DC2626" />
+                  <Ionicons name="images" size={24} color="#059669" />
                 </View>
                 <View style={styles.photoOptionTextContainer}>
-                  <Text style={styles.photoOptionTitle}>Upload PDF</Text>
+                  <Text style={styles.photoOptionTitle}>
+                    Choose from Gallery
+                  </Text>
                   <Text style={styles.photoOptionDescription}>
-                    Bills, invoices, receipts (PDF only)
+                    {isBillPhotoMode
+                      ? "Select a bill or receipt from your device"
+                      : "Select a photo from your device"}
                   </Text>
                 </View>
                 <Ionicons name="chevron-forward" size={20} color="#ccc" />
               </TouchableOpacity>
-            )}
 
-            <TouchableOpacity
-              style={styles.photoOptionsCancel}
-              onPress={() => setShowPhotoOptions(false)}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.photoOptionsCancelText}>Cancel</Text>
-            </TouchableOpacity>
+              {isBillPhotoMode && (
+                <TouchableOpacity
+                  style={styles.photoOptionButton}
+                  onPress={chooseBillPdf}
+                  activeOpacity={0.7}
+                >
+                  <View
+                    style={[
+                      styles.photoOptionIcon,
+                      { backgroundColor: "#FEF2F2" },
+                    ]}
+                  >
+                    <Ionicons name="document-text" size={24} color="#DC2626" />
+                  </View>
+                  <View style={styles.photoOptionTextContainer}>
+                    <Text style={styles.photoOptionTitle}>Upload PDF</Text>
+                    <Text style={styles.photoOptionDescription}>
+                      Bills, invoices, receipts (PDF only)
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={20} color="#ccc" />
+                </TouchableOpacity>
+              )}
+
+              <TouchableOpacity
+                style={styles.photoOptionsCancel}
+                onPress={() => setShowPhotoOptions(false)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.photoOptionsCancelText}>Cancel</Text>
+              </TouchableOpacity>
+            </Pressable>
           </Pressable>
-        </Pressable>
-      </Modal>
+        </Modal>
 
-      <PhotoAdjustModal
-        visible={showAdjustModal}
-        image={rawImage}
-        onCancel={handleAdjustCancel}
-        onConfirm={handleAdjustConfirm}
-      />
+        <PhotoAdjustModal
+          visible={showAdjustModal}
+          image={rawImage}
+          onCancel={handleAdjustCancel}
+          onConfirm={handleAdjustConfirm}
+        />
 
-      <Modal
-        transparent
-        animationType="fade"
-        visible={!!upgradePrompt}
-        onRequestClose={() => setUpgradePrompt(null)}
-        statusBarTranslucent
-      >
-        <Pressable
-          style={styles.upgradeBackdrop}
-          onPress={() => setUpgradePrompt(null)}
+        <Modal
+          transparent
+          animationType="fade"
+          visible={!!upgradePrompt}
+          onRequestClose={() => setUpgradePrompt(null)}
+          statusBarTranslucent
         >
           <Pressable
-            style={styles.upgradeCard}
-            onPress={(e) => e.stopPropagation()}
+            style={styles.upgradeBackdrop}
+            onPress={() => setUpgradePrompt(null)}
           >
-            <View style={styles.upgradeIconCircle}>
-              <Ionicons
-                name={
-                  upgradePrompt?.reason === "plan_limit_reached"
-                    ? "trending-up"
-                    : "lock-closed"
-                }
-                size={28}
-                color="#7C3AED"
-              />
-            </View>
-
-            <Text style={styles.upgradeTitle}>
-              {upgradePrompt?.reason === "plan_limit_reached"
-                ? "Plan limit reached"
-                : "This property is read-only"}
-            </Text>
-
-            <Text style={styles.upgradeMessage}>{upgradePrompt?.message}</Text>
-
-            {upgradePrompt?.reason === "plan_limit_reached" &&
-            typeof upgradePrompt.limit === "number" &&
-            typeof upgradePrompt.current === "number" ? (
-              <View style={styles.upgradeUsagePill}>
-                <Ionicons name="information-circle" size={14} color="#64748B" />
-                <Text style={styles.upgradeUsageText}>
-                  {upgradePrompt.current} of {upgradePrompt.limit} used
-                </Text>
+            <Pressable
+              style={styles.upgradeCard}
+              onPress={(e) => e.stopPropagation()}
+            >
+              <View style={styles.upgradeIconCircle}>
+                <Ionicons
+                  name={
+                    upgradePrompt?.reason === "plan_limit_reached"
+                      ? "trending-up"
+                      : "lock-closed"
+                  }
+                  size={28}
+                  color="#7C3AED"
+                />
               </View>
-            ) : null}
 
-            <View style={styles.upgradeActions}>
-              <Pressable
-                onPress={() => setUpgradePrompt(null)}
-                style={({ pressed }) => [
-                  styles.upgradeButton,
-                  styles.upgradeButtonGhost,
-                  pressed && { opacity: 0.85 },
-                ]}
-              >
-                <Text style={styles.upgradeButtonGhostText}>Not now</Text>
-              </Pressable>
+              <Text style={styles.upgradeTitle}>
+                {upgradePrompt?.reason === "plan_limit_reached"
+                  ? "Plan limit reached"
+                  : "This property is read-only"}
+              </Text>
 
-              <Pressable
-                onPress={() => {
-                  setUpgradePrompt(null);
-                  router.replace("/(tabs)/profile?openPlans=1");
-                }}
-                style={({ pressed }) => [
-                  styles.upgradeButton,
-                  styles.upgradeButtonPrimary,
-                  pressed && { opacity: 0.9 },
-                ]}
-              >
-                <Ionicons name="arrow-up-circle" size={17} color="#FFFFFF" />
-                <Text style={styles.upgradeButtonPrimaryText}>See plans</Text>
-              </Pressable>
-            </View>
+              <Text style={styles.upgradeMessage}>
+                {upgradePrompt?.message}
+              </Text>
+
+              {upgradePrompt?.reason === "plan_limit_reached" &&
+              typeof upgradePrompt.limit === "number" &&
+              typeof upgradePrompt.current === "number" ? (
+                <View style={styles.upgradeUsagePill}>
+                  <Ionicons
+                    name="information-circle"
+                    size={14}
+                    color="#64748B"
+                  />
+                  <Text style={styles.upgradeUsageText}>
+                    {upgradePrompt.current} of {upgradePrompt.limit} used
+                  </Text>
+                </View>
+              ) : null}
+
+              <View style={styles.upgradeActions}>
+                <Pressable
+                  onPress={() => setUpgradePrompt(null)}
+                  style={({ pressed }) => [
+                    styles.upgradeButton,
+                    styles.upgradeButtonGhost,
+                    pressed && { opacity: 0.85 },
+                  ]}
+                >
+                  <Text style={styles.upgradeButtonGhostText}>Not now</Text>
+                </Pressable>
+
+                <Pressable
+                  onPress={() => {
+                    setUpgradePrompt(null);
+                    router.replace("/(tabs)/profile?openPlans=1");
+                  }}
+                  style={({ pressed }) => [
+                    styles.upgradeButton,
+                    styles.upgradeButtonPrimary,
+                    pressed && { opacity: 0.9 },
+                  ]}
+                >
+                  <Ionicons name="arrow-up-circle" size={17} color="#FFFFFF" />
+                  <Text style={styles.upgradeButtonPrimaryText}>See plans</Text>
+                </Pressable>
+              </View>
+            </Pressable>
           </Pressable>
-        </Pressable>
-      </Modal>
+        </Modal>
       </KeyboardAvoidingView>
     </DarkModeBoundary>
   );

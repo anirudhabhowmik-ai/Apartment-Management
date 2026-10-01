@@ -937,642 +937,662 @@ export default function EditProfileScreen() {
   return (
     <DarkModeBoundary>
       <View style={styles.container}>
-      <Stack.Screen options={{ title: "Edit Profile" }} />
+        <Stack.Screen options={{ title: "Edit Profile" }} />
 
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={Platform.OS === "ios" ? insets.top + 44 : 0}
-      >
-        <ScrollView
-          contentContainerStyle={[
-            styles.scrollContent,
-            { paddingBottom: Math.max(insets.bottom, 24) + 80 },
-          ]}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="none"
-          showsVerticalScrollIndicator={false}
-          bounces={false}
-          automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
-        >
-          <View style={styles.photoCard}>
-            <TouchableOpacity
-              style={styles.photoButton}
-              onPress={() => setShowPhotoOptions(true)}
-              activeOpacity={0.8}
-            >
-              {photoUri ? (
-                <Image source={{ uri: photoUri }} style={styles.photoImage} />
-              ) : (
-                <>
-                  <Ionicons name="camera-outline" size={28} color={BLUE} />
-                  <View style={styles.photoPlus}>
-                    <Ionicons name="add" size={12} color="#fff" />
-                  </View>
-                </>
-              )}
-            </TouchableOpacity>
-            <View style={styles.photoTextContainer}>
-              <Text style={styles.photoTitle}>
-                {photoUri ? "Profile photo" : "Add profile photo"}
-              </Text>
-              <Text style={styles.photoSubtitle}>
-                {photoUri
-                  ? "Tap the photo to change it"
-                  : "Optional • Shows on your profile card"}
-              </Text>
-            </View>
-            {photoUri && (
-              <TouchableOpacity
-                onPress={handleRemovePhoto}
-                style={styles.removePhotoButton}
-                activeOpacity={0.7}
-              >
-                <Ionicons name="trash-outline" size={19} color={RED} />
-              </TouchableOpacity>
-            )}
-          </View>
-
-          <View style={styles.card}>
-            <Text style={styles.fieldLabel}>Name</Text>
-            <View style={styles.inputContainer}>
-              <Ionicons name="person-outline" size={20} color="#94A3B8" />
-              <TextInput
-                style={styles.textInput}
-                placeholder="e.g. Ramesh Kumar"
-                placeholderTextColor="#A1AAB8"
-                value={name}
-                onChangeText={setName}
-                returnKeyType="done"
-              />
-            </View>
-
-            <Text style={[styles.fieldLabel, { marginTop: 20 }]}>
-              Phone Number
-            </Text>
-
-            <View style={styles.phoneRow}>
-              <View style={styles.phoneLeft}>
-                <View style={styles.phoneIconWrap}>
-                  <Ionicons name="call-outline" size={18} color={BLUE} />
-                </View>
-                <Text style={styles.phoneValue} numberOfLines={1}>
-                  {currentPhoneDisplay}
-                </Text>
-              </View>
-
-              <TouchableOpacity
-                onPress={openPhoneModal}
-                style={styles.changePhoneButton}
-                activeOpacity={0.85}
-              >
-                <Ionicons name="swap-horizontal" size={14} color="#fff" />
-                <Text style={styles.changePhoneText}>Change</Text>
-              </TouchableOpacity>
-            </View>
-
-            <Text style={styles.helperText}>
-              Changing your number signs you out. Sign back in with the new
-              number.
-            </Text>
-          </View>
-
-          {error ? (
-            <View style={styles.errorCard}>
-              <Ionicons name="alert-circle" size={19} color={RED} />
-              <Text style={styles.errorText}>{error}</Text>
-            </View>
-          ) : null}
-
-          <TouchableOpacity
-            style={[styles.saveButton, loading && styles.saveButtonDisabled]}
-            onPress={handleSave}
-            disabled={loading}
-            activeOpacity={0.85}
-          >
-            {loading ? (
-              <ActivityIndicator color="#fff" size="small" />
-            ) : (
-              <>
-                <Ionicons
-                  name="checkmark-circle-outline"
-                  size={20}
-                  color="#fff"
-                />
-                <Text style={styles.saveButtonText}>Save Changes</Text>
-              </>
-            )}
-          </TouchableOpacity>
-        </ScrollView>
-      </KeyboardAvoidingView>
-
-      {/* ============================ PHOTO OPTIONS ============================ */}
-      <Modal
-        visible={showPhotoOptions}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowPhotoOptions(false)}
-      >
-        <Pressable
-          style={styles.modalBackdrop}
-          onPress={() => setShowPhotoOptions(false)}
-        >
-          <Pressable style={styles.photoOptionsModal} onPress={() => {}}>
-            <View style={styles.modalHandle} />
-            <Text style={styles.photoOptionsTitle}>Upload Photo</Text>
-            <Text style={styles.photoOptionsSubtitle}>
-              Choose how you want to add a photo
-            </Text>
-
-            <TouchableOpacity
-              style={styles.photoOptionButton}
-              onPress={takePhoto}
-              activeOpacity={0.7}
-            >
-              <View style={styles.photoOptionIcon}>
-                <Ionicons name="camera" size={24} color={BLUE} />
-              </View>
-              <View style={styles.photoOptionTextContainer}>
-                <Text style={styles.photoOptionTitle}>Take Photo</Text>
-                <Text style={styles.photoOptionDescription}>
-                  Capture a photo using your camera
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color="#ccc" />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.photoOptionButton}
-              onPress={choosePhoto}
-              activeOpacity={0.7}
-            >
-              <View
-                style={[styles.photoOptionIcon, { backgroundColor: "#ecfdf5" }]}
-              >
-                <Ionicons name="images" size={24} color="#059669" />
-              </View>
-              <View style={styles.photoOptionTextContainer}>
-                <Text style={styles.photoOptionTitle}>Choose from Gallery</Text>
-                <Text style={styles.photoOptionDescription}>
-                  Select a photo from your device
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color="#ccc" />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.photoOptionsCancel}
-              onPress={() => setShowPhotoOptions(false)}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.photoOptionsCancelText}>Cancel</Text>
-            </TouchableOpacity>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      {/* ============================ PHONE CHANGE MODAL ============================ */}
-      <Modal
-        visible={showPhoneModal}
-        transparent
-        animationType="fade"
-        onRequestClose={closePhoneModal}
-        statusBarTranslucent
-      >
         <KeyboardAvoidingView
-          style={styles.phoneModalBackdrop}
+          style={styles.flex}
           behavior={Platform.OS === "ios" ? "padding" : "height"}
-          keyboardVerticalOffset={0}
+          keyboardVerticalOffset={Platform.OS === "ios" ? insets.top + 44 : 0}
         >
-          <View style={styles.phoneModal}>
-            <View style={styles.phoneModalHeader}>
-              <View style={styles.phoneModalIcon}>
-                <Ionicons
-                  name={
-                    phoneStep === "enter" ? "call-outline" : "keypad-outline"
-                  }
-                  size={22}
-                  color={BLUE}
-                />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.phoneModalTitle}>
-                  {phoneStep === "enter" ? "Change Phone Number" : "Verify OTP"}
-                </Text>
-                <Text style={styles.phoneModalSubtitle}>
-                  {phoneStep === "enter"
-                    ? "We'll send an OTP to the new number."
-                    : `Enter the code sent to +91 ${newPhone}`}
-                </Text>
-              </View>
+          <ScrollView
+            contentContainerStyle={[
+              styles.scrollContent,
+              { paddingBottom: Math.max(insets.bottom, 24) + 80 },
+            ]}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="none"
+            showsVerticalScrollIndicator={false}
+            bounces={false}
+            automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
+          >
+            <View style={styles.photoCard}>
               <TouchableOpacity
-                onPress={closePhoneModal}
-                style={styles.closeModalButton}
-                activeOpacity={0.7}
-                disabled={phoneLoading}
+                style={styles.photoButton}
+                onPress={() => setShowPhotoOptions(true)}
+                activeOpacity={0.8}
               >
-                <Ionicons name="close" size={20} color={TEXT} />
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView
-              keyboardShouldPersistTaps="handled"
-              showsVerticalScrollIndicator={false}
-              bounces={false}
-              contentContainerStyle={styles.phoneModalScrollContent}
-            >
-              {phoneStep === "enter" ? (
-                <>
-                  <View style={styles.noteBox}>
-                    <Ionicons
-                      name="warning-outline"
-                      size={18}
-                      color="#B45309"
-                    />
-                    <Text style={styles.noteText}>
-                      Changing your phone signs you out of every account on this
-                      device. The new number becomes your login. If you're
-                      selling or transferring your account, enter the buyer's
-                      number and let them verify the OTP.
-                    </Text>
-                  </View>
-
-                  <Text style={styles.modalFieldLabel}>New Phone Number</Text>
-                  <View
-                    style={[
-                      styles.phoneInputRow,
-                      phoneError && styles.inputError,
-                    ]}
-                  >
-                    <View style={styles.countryCode}>
-                      <Text style={styles.countryCodeText}>+91</Text>
-                    </View>
-                    <TextInput
-                      style={styles.phoneInput}
-                      placeholder="9876543210"
-                      placeholderTextColor="#A1AAB8"
-                      keyboardType="number-pad"
-                      maxLength={10}
-                      value={newPhone}
-                      onChangeText={(text) => {
-                        setNewPhone(text.replace(/[^0-9]/g, ""));
-                        setPhoneError("");
-                      }}
-                    />
-                    <TouchableOpacity
-                      onPress={openContactPicker}
-                      style={styles.contactButton}
-                      activeOpacity={0.8}
-                      disabled={loadingContacts}
-                    >
-                      {loadingContacts ? (
-                        <ActivityIndicator size="small" color={BLUE} />
-                      ) : (
-                        <Ionicons
-                          name="people-outline"
-                          size={20}
-                          color={BLUE}
-                        />
-                      )}
-                    </TouchableOpacity>
-                  </View>
-
-                  {phoneError ? (
-                    <View style={styles.inlineError}>
-                      <Ionicons name="alert-circle" size={14} color={RED} />
-                      <Text style={styles.inlineErrorText}>{phoneError}</Text>
-                    </View>
-                  ) : null}
-
-                  <View style={styles.phoneModalActions}>
-                    <TouchableOpacity
-                      style={styles.phoneCancelBtn}
-                      onPress={closePhoneModal}
-                      activeOpacity={0.85}
-                      disabled={phoneLoading}
-                    >
-                      <Text style={styles.phoneCancelText}>Cancel</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[
-                        styles.phonePrimaryBtn,
-                        phoneLoading && { opacity: 0.6 },
-                      ]}
-                      onPress={handleSendOtp}
-                      activeOpacity={0.85}
-                      disabled={phoneLoading}
-                    >
-                      {phoneLoading ? (
-                        <ActivityIndicator color="#fff" size="small" />
-                      ) : (
-                        <>
-                          <Ionicons
-                            name="send-outline"
-                            size={16}
-                            color="#fff"
-                          />
-                          <Text style={styles.phonePrimaryText}>Send OTP</Text>
-                        </>
-                      )}
-                    </TouchableOpacity>
-                  </View>
-                </>
-              ) : (
-                <>
-                  <Text style={styles.modalFieldLabel}>Enter 6-digit OTP</Text>
-                  <TextInput
-                    style={styles.otpInput}
-                    placeholder="● ● ● ● ● ●"
-                    placeholderTextColor="#C7CDD6"
-                    keyboardType="number-pad"
-                    maxLength={6}
-                    value={otp}
-                    onChangeText={(text) => {
-                      setOtp(text.replace(/[^0-9]/g, ""));
-                      setPhoneError("");
-                    }}
-                    autoFocus
-                  />
-
-                  {phoneError ? (
-                    <View style={styles.inlineError}>
-                      <Ionicons name="alert-circle" size={14} color={RED} />
-                      <Text style={styles.inlineErrorText}>{phoneError}</Text>
-                    </View>
-                  ) : null}
-
-                  <TouchableOpacity
-                    onPress={() => setPhoneStep("enter")}
-                    style={styles.resendRow}
-                    disabled={phoneLoading}
-                  >
-                    <Text style={styles.resendText}>
-                      Wrong number? Go back and edit
-                    </Text>
-                  </TouchableOpacity>
-
-                  <View style={styles.phoneModalActions}>
-                    <TouchableOpacity
-                      style={styles.phoneCancelBtn}
-                      onPress={closePhoneModal}
-                      activeOpacity={0.85}
-                      disabled={phoneLoading}
-                    >
-                      <Text style={styles.phoneCancelText}>Cancel</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[
-                        styles.phonePrimaryBtn,
-                        phoneLoading && { opacity: 0.6 },
-                      ]}
-                      onPress={handleConfirmOtp}
-                      activeOpacity={0.85}
-                      disabled={phoneLoading}
-                    >
-                      {phoneLoading ? (
-                        <ActivityIndicator color="#fff" size="small" />
-                      ) : (
-                        <>
-                          <Ionicons name="checkmark" size={16} color="#fff" />
-                          <Text style={styles.phonePrimaryText}>Verify</Text>
-                        </>
-                      )}
-                    </TouchableOpacity>
-                  </View>
-                </>
-              )}
-            </ScrollView>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
-
-      {/* ============================ MERGE CONFIRM MODAL ============================ */}
-      <Modal
-        visible={showMergeAlert}
-        transparent
-        animationType="fade"
-        onRequestClose={handleCancelMerge}
-        statusBarTranslucent
-      >
-        <View style={styles.mergeBackdrop}>
-          <View style={styles.mergeCard}>
-            <View style={styles.mergeIconWrap}>
-              <Ionicons name="git-merge-outline" size={30} color="#7C3AED" />
-            </View>
-
-            <Text style={styles.mergeTitle}>Number already linked</Text>
-
-            <Text style={styles.mergeDescription}>
-              The number you entered is already linked with another login. Do
-              you want to merge your current account into this number?
-            </Text>
-
-            <View style={styles.mergeNumberBox}>
-              <Ionicons name="call" size={16} color="#7C3AED" />
-              <Text style={styles.mergeNumberText}>
-                +91 {mergeTarget?.phone ?? newPhone}
-              </Text>
-            </View>
-
-            <View style={styles.mergeUserRow}>
-              <View style={styles.mergeAvatar}>
-                <Text style={styles.mergeAvatarText}>
-                  {(mergeTarget?.name || "?").trim().charAt(0).toUpperCase() ||
-                    "?"}
-                </Text>
-              </View>
-              <View style={styles.mergeUserInfo}>
-                <Text style={styles.mergeUserName} numberOfLines={1}>
-                  {mergeTarget?.name?.trim()
-                    ? mergeTarget.name
-                    : "Existing user"}
-                </Text>
-                <Text style={styles.mergeUserMeta}>
-                  Linked with {mergeTarget?.accountCount ?? 0}{" "}
-                  {(mergeTarget?.accountCount ?? 0) === 1
-                    ? "account"
-                    : "accounts"}
-                </Text>
-                {(mergeTarget?.accountNames?.length ?? 0) > 0 ? (
-                  <Text style={styles.mergeAccountList} numberOfLines={2}>
-                    {mergeTarget!.accountNames.join("  •  ")}
-                  </Text>
-                ) : null}
-              </View>
-            </View>
-
-            <View style={styles.mergeHint}>
-              <Ionicons
-                name="information-circle-outline"
-                size={14}
-                color="#92400E"
-              />
-              <Text style={styles.mergeHintText}>
-                After merging you'll sign in with this number and see all linked
-                accounts in one place.
-              </Text>
-            </View>
-
-            <View style={styles.mergeActions}>
-              <TouchableOpacity
-                style={styles.mergeCancelBtn}
-                onPress={handleCancelMerge}
-                activeOpacity={0.85}
-                disabled={phoneLoading}
-              >
-                <Text style={styles.mergeCancelText}>Cancel</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  styles.mergeConfirmBtn,
-                  phoneLoading && { opacity: 0.6 },
-                ]}
-                onPress={handleConfirmMerge}
-                activeOpacity={0.85}
-                disabled={phoneLoading}
-              >
-                {phoneLoading ? (
-                  <ActivityIndicator color="#fff" size="small" />
+                {photoUri ? (
+                  <Image source={{ uri: photoUri }} style={styles.photoImage} />
                 ) : (
                   <>
-                    <Ionicons
-                      name="checkmark-circle-outline"
-                      size={17}
-                      color="#fff"
-                    />
-                    <Text style={styles.mergeConfirmText}>Yes, merge</Text>
+                    <Ionicons name="camera-outline" size={28} color={BLUE} />
+                    <View style={styles.photoPlus}>
+                      <Ionicons name="add" size={12} color="#fff" />
+                    </View>
                   </>
                 )}
               </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* ============================ CONTACT PICKER ============================ */}
-      <Modal
-        visible={showContactPicker}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowContactPicker(false)}
-      >
-        <TouchableWithoutFeedback onPress={() => setShowContactPicker(false)}>
-          <View style={styles.contactModalOverlay}>
-            <TouchableWithoutFeedback>
-              <View
-                style={[
-                  styles.contactModal,
-                  { paddingBottom: Math.max(insets.bottom, 8) },
-                ]}
-              >
-                <View style={styles.contactModalHandle} />
-                <View style={styles.contactModalHeader}>
-                  <Text style={styles.contactModalTitle}>Select Contact</Text>
-                  <TouchableOpacity
-                    onPress={() => setShowContactPicker(false)}
-                    style={styles.contactCloseButton}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name="close" size={22} color="#374151" />
-                  </TouchableOpacity>
-                </View>
-
-                <View style={styles.contactSearchContainer}>
-                  <Ionicons name="search-outline" size={20} color="#9ca3af" />
-                  <TextInput
-                    style={styles.contactSearchInput}
-                    placeholder="Search contacts"
-                    placeholderTextColor="#9ca3af"
-                    value={contactSearch}
-                    onChangeText={setContactSearch}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                  />
-                  {contactSearch.length > 0 ? (
-                    <TouchableOpacity onPress={() => setContactSearch("")}>
-                      <Ionicons name="close-circle" size={20} color="#9ca3af" />
-                    </TouchableOpacity>
-                  ) : null}
-                </View>
-
-                <ScrollView
-                  style={{ flex: 1 }}
-                  contentContainerStyle={{ paddingBottom: 4 }}
-                  keyboardShouldPersistTaps="handled"
-                  nestedScrollEnabled
+              <View style={styles.photoTextContainer}>
+                <Text style={styles.photoTitle}>
+                  {photoUri ? "Profile photo" : "Add profile photo"}
+                </Text>
+                <Text style={styles.photoSubtitle}>
+                  {photoUri
+                    ? "Tap the photo to change it"
+                    : "Optional • Shows on your profile card"}
+                </Text>
+              </View>
+              {photoUri && (
+                <TouchableOpacity
+                  onPress={handleRemovePhoto}
+                  style={styles.removePhotoButton}
+                  activeOpacity={0.7}
                 >
-                  {filteredContacts.length === 0 ? (
-                    <View style={styles.noContacts}>
+                  <Ionicons name="trash-outline" size={19} color={RED} />
+                </TouchableOpacity>
+              )}
+            </View>
+
+            <View style={styles.card}>
+              <Text style={styles.fieldLabel}>Name</Text>
+              <View style={styles.inputContainer}>
+                <Ionicons name="person-outline" size={20} color="#94A3B8" />
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="e.g. Ramesh Kumar"
+                  placeholderTextColor="#A1AAB8"
+                  value={name}
+                  onChangeText={setName}
+                  returnKeyType="done"
+                />
+              </View>
+
+              <Text style={[styles.fieldLabel, { marginTop: 20 }]}>
+                Phone Number
+              </Text>
+
+              <View style={styles.phoneRow}>
+                <View style={styles.phoneLeft}>
+                  <View style={styles.phoneIconWrap}>
+                    <Ionicons name="call-outline" size={18} color={BLUE} />
+                  </View>
+                  <Text style={styles.phoneValue} numberOfLines={1}>
+                    {currentPhoneDisplay}
+                  </Text>
+                </View>
+
+                <TouchableOpacity
+                  onPress={openPhoneModal}
+                  style={styles.changePhoneButton}
+                  activeOpacity={0.85}
+                >
+                  <Ionicons name="swap-horizontal" size={14} color="#fff" />
+                  <Text style={styles.changePhoneText}>Change</Text>
+                </TouchableOpacity>
+              </View>
+
+              <Text style={styles.helperText}>
+                Changing your number signs you out. Sign back in with the new
+                number.
+              </Text>
+            </View>
+
+            {error ? (
+              <View style={styles.errorCard}>
+                <Ionicons name="alert-circle" size={19} color={RED} />
+                <Text style={styles.errorText}>{error}</Text>
+              </View>
+            ) : null}
+
+            <TouchableOpacity
+              style={[styles.saveButton, loading && styles.saveButtonDisabled]}
+              onPress={handleSave}
+              disabled={loading}
+              activeOpacity={0.85}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <>
+                  <Ionicons
+                    name="checkmark-circle-outline"
+                    size={20}
+                    color="#fff"
+                  />
+                  <Text style={styles.saveButtonText}>Save Changes</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </ScrollView>
+        </KeyboardAvoidingView>
+
+        {/* ============================ PHOTO OPTIONS ============================ */}
+        <Modal
+          visible={showPhotoOptions}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowPhotoOptions(false)}
+        >
+          <Pressable
+            style={styles.modalBackdrop}
+            onPress={() => setShowPhotoOptions(false)}
+          >
+            <Pressable style={styles.photoOptionsModal} onPress={() => {}}>
+              <View style={styles.modalHandle} />
+              <Text style={styles.photoOptionsTitle}>Upload Photo</Text>
+              <Text style={styles.photoOptionsSubtitle}>
+                Choose how you want to add a photo
+              </Text>
+
+              <TouchableOpacity
+                style={styles.photoOptionButton}
+                onPress={takePhoto}
+                activeOpacity={0.7}
+              >
+                <View style={styles.photoOptionIcon}>
+                  <Ionicons name="camera" size={24} color={BLUE} />
+                </View>
+                <View style={styles.photoOptionTextContainer}>
+                  <Text style={styles.photoOptionTitle}>Take Photo</Text>
+                  <Text style={styles.photoOptionDescription}>
+                    Capture a photo using your camera
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color="#ccc" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.photoOptionButton}
+                onPress={choosePhoto}
+                activeOpacity={0.7}
+              >
+                <View
+                  style={[
+                    styles.photoOptionIcon,
+                    { backgroundColor: "#ecfdf5" },
+                  ]}
+                >
+                  <Ionicons name="images" size={24} color="#059669" />
+                </View>
+                <View style={styles.photoOptionTextContainer}>
+                  <Text style={styles.photoOptionTitle}>
+                    Choose from Gallery
+                  </Text>
+                  <Text style={styles.photoOptionDescription}>
+                    Select a photo from your device
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color="#ccc" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.photoOptionsCancel}
+                onPress={() => setShowPhotoOptions(false)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.photoOptionsCancelText}>Cancel</Text>
+              </TouchableOpacity>
+            </Pressable>
+          </Pressable>
+        </Modal>
+
+        {/* ============================ PHONE CHANGE MODAL ============================ */}
+        <Modal
+          visible={showPhoneModal}
+          transparent
+          animationType="fade"
+          onRequestClose={closePhoneModal}
+          statusBarTranslucent
+        >
+          <KeyboardAvoidingView
+            style={styles.phoneModalBackdrop}
+            behavior={Platform.OS === "ios" ? "padding" : "height"}
+            keyboardVerticalOffset={0}
+          >
+            <View style={styles.phoneModal}>
+              <View style={styles.phoneModalHeader}>
+                <View style={styles.phoneModalIcon}>
+                  <Ionicons
+                    name={
+                      phoneStep === "enter" ? "call-outline" : "keypad-outline"
+                    }
+                    size={22}
+                    color={BLUE}
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.phoneModalTitle}>
+                    {phoneStep === "enter"
+                      ? "Change Phone Number"
+                      : "Verify OTP"}
+                  </Text>
+                  <Text style={styles.phoneModalSubtitle}>
+                    {phoneStep === "enter"
+                      ? "We'll send an OTP to the new number."
+                      : `Enter the code sent to +91 ${newPhone}`}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  onPress={closePhoneModal}
+                  style={styles.closeModalButton}
+                  activeOpacity={0.7}
+                  disabled={phoneLoading}
+                >
+                  <Ionicons name="close" size={20} color={TEXT} />
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+                bounces={false}
+                contentContainerStyle={styles.phoneModalScrollContent}
+              >
+                {phoneStep === "enter" ? (
+                  <>
+                    <View style={styles.noteBox}>
                       <Ionicons
-                        name="people-outline"
-                        size={34}
-                        color="#9ca3af"
+                        name="warning-outline"
+                        size={18}
+                        color="#B45309"
                       />
-                      <Text style={styles.noContactsText}>
-                        No contacts found.
+                      <Text style={styles.noteText}>
+                        Changing your phone signs you out of every account on
+                        this device. The new number becomes your login. If
+                        you're selling or transferring your account, enter the
+                        buyer's number and let them verify the OTP.
                       </Text>
                     </View>
-                  ) : (
-                    filteredContacts.map((contact) => (
+
+                    <Text style={styles.modalFieldLabel}>New Phone Number</Text>
+                    <View
+                      style={[
+                        styles.phoneInputRow,
+                        phoneError && styles.inputError,
+                      ]}
+                    >
+                      <View style={styles.countryCode}>
+                        <Text style={styles.countryCodeText}>+91</Text>
+                      </View>
+                      <TextInput
+                        style={styles.phoneInput}
+                        placeholder="9876543210"
+                        placeholderTextColor="#A1AAB8"
+                        keyboardType="number-pad"
+                        maxLength={10}
+                        value={newPhone}
+                        onChangeText={(text) => {
+                          setNewPhone(text.replace(/[^0-9]/g, ""));
+                          setPhoneError("");
+                        }}
+                      />
                       <TouchableOpacity
-                        key={contact.id}
-                        style={styles.contactRow}
-                        onPress={() => selectContact(contact)}
-                        activeOpacity={0.7}
+                        onPress={openContactPicker}
+                        style={styles.contactButton}
+                        activeOpacity={0.8}
+                        disabled={loadingContacts}
                       >
-                        <View style={styles.contactAvatar}>
-                          <Text style={styles.contactAvatarText}>
-                            {contact.name
-                              ? contact.name.charAt(0).toUpperCase()
-                              : "?"}
-                          </Text>
-                        </View>
-                        <View style={{ flex: 1, minWidth: 0 }}>
-                          <Text style={styles.contactName} numberOfLines={1}>
-                            {contact.name || "Unknown"}
-                          </Text>
-                          {contact.phoneNumbers[0] ? (
-                            <Text style={styles.contactPhone} numberOfLines={1}>
-                              {contact.phoneNumbers[0].number}
+                        {loadingContacts ? (
+                          <ActivityIndicator size="small" color={BLUE} />
+                        ) : (
+                          <Ionicons
+                            name="people-outline"
+                            size={20}
+                            color={BLUE}
+                          />
+                        )}
+                      </TouchableOpacity>
+                    </View>
+
+                    {phoneError ? (
+                      <View style={styles.inlineError}>
+                        <Ionicons name="alert-circle" size={14} color={RED} />
+                        <Text style={styles.inlineErrorText}>{phoneError}</Text>
+                      </View>
+                    ) : null}
+
+                    <View style={styles.phoneModalActions}>
+                      <TouchableOpacity
+                        style={styles.phoneCancelBtn}
+                        onPress={closePhoneModal}
+                        activeOpacity={0.85}
+                        disabled={phoneLoading}
+                      >
+                        <Text style={styles.phoneCancelText}>Cancel</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[
+                          styles.phonePrimaryBtn,
+                          phoneLoading && { opacity: 0.6 },
+                        ]}
+                        onPress={handleSendOtp}
+                        activeOpacity={0.85}
+                        disabled={phoneLoading}
+                      >
+                        {phoneLoading ? (
+                          <ActivityIndicator color="#fff" size="small" />
+                        ) : (
+                          <>
+                            <Ionicons
+                              name="send-outline"
+                              size={16}
+                              color="#fff"
+                            />
+                            <Text style={styles.phonePrimaryText}>
+                              Send OTP
                             </Text>
-                          ) : null}
-                        </View>
+                          </>
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  </>
+                ) : (
+                  <>
+                    <Text style={styles.modalFieldLabel}>
+                      Enter 6-digit OTP
+                    </Text>
+                    <TextInput
+                      style={styles.otpInput}
+                      placeholder="● ● ● ● ● ●"
+                      placeholderTextColor="#C7CDD6"
+                      keyboardType="number-pad"
+                      maxLength={6}
+                      value={otp}
+                      onChangeText={(text) => {
+                        setOtp(text.replace(/[^0-9]/g, ""));
+                        setPhoneError("");
+                      }}
+                      autoFocus
+                    />
+
+                    {phoneError ? (
+                      <View style={styles.inlineError}>
+                        <Ionicons name="alert-circle" size={14} color={RED} />
+                        <Text style={styles.inlineErrorText}>{phoneError}</Text>
+                      </View>
+                    ) : null}
+
+                    <TouchableOpacity
+                      onPress={() => setPhoneStep("enter")}
+                      style={styles.resendRow}
+                      disabled={phoneLoading}
+                    >
+                      <Text style={styles.resendText}>
+                        Wrong number? Go back and edit
+                      </Text>
+                    </TouchableOpacity>
+
+                    <View style={styles.phoneModalActions}>
+                      <TouchableOpacity
+                        style={styles.phoneCancelBtn}
+                        onPress={closePhoneModal}
+                        activeOpacity={0.85}
+                        disabled={phoneLoading}
+                      >
+                        <Text style={styles.phoneCancelText}>Cancel</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[
+                          styles.phonePrimaryBtn,
+                          phoneLoading && { opacity: 0.6 },
+                        ]}
+                        onPress={handleConfirmOtp}
+                        activeOpacity={0.85}
+                        disabled={phoneLoading}
+                      >
+                        {phoneLoading ? (
+                          <ActivityIndicator color="#fff" size="small" />
+                        ) : (
+                          <>
+                            <Ionicons name="checkmark" size={16} color="#fff" />
+                            <Text style={styles.phonePrimaryText}>Verify</Text>
+                          </>
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  </>
+                )}
+              </ScrollView>
+            </View>
+          </KeyboardAvoidingView>
+        </Modal>
+
+        {/* ============================ MERGE CONFIRM MODAL ============================ */}
+        <Modal
+          visible={showMergeAlert}
+          transparent
+          animationType="fade"
+          onRequestClose={handleCancelMerge}
+          statusBarTranslucent
+        >
+          <View style={styles.mergeBackdrop}>
+            <View style={styles.mergeCard}>
+              <View style={styles.mergeIconWrap}>
+                <Ionicons name="git-merge-outline" size={30} color="#7C3AED" />
+              </View>
+
+              <Text style={styles.mergeTitle}>Number already linked</Text>
+
+              <Text style={styles.mergeDescription}>
+                The number you entered is already linked with another login. Do
+                you want to merge your current account into this number?
+              </Text>
+
+              <View style={styles.mergeNumberBox}>
+                <Ionicons name="call" size={16} color="#7C3AED" />
+                <Text style={styles.mergeNumberText}>
+                  +91 {mergeTarget?.phone ?? newPhone}
+                </Text>
+              </View>
+
+              <View style={styles.mergeUserRow}>
+                <View style={styles.mergeAvatar}>
+                  <Text style={styles.mergeAvatarText}>
+                    {(mergeTarget?.name || "?")
+                      .trim()
+                      .charAt(0)
+                      .toUpperCase() || "?"}
+                  </Text>
+                </View>
+                <View style={styles.mergeUserInfo}>
+                  <Text style={styles.mergeUserName} numberOfLines={1}>
+                    {mergeTarget?.name?.trim()
+                      ? mergeTarget.name
+                      : "Existing user"}
+                  </Text>
+                  <Text style={styles.mergeUserMeta}>
+                    Linked with {mergeTarget?.accountCount ?? 0}{" "}
+                    {(mergeTarget?.accountCount ?? 0) === 1
+                      ? "account"
+                      : "accounts"}
+                  </Text>
+                  {(mergeTarget?.accountNames?.length ?? 0) > 0 ? (
+                    <Text style={styles.mergeAccountList} numberOfLines={2}>
+                      {mergeTarget!.accountNames.join("  •  ")}
+                    </Text>
+                  ) : null}
+                </View>
+              </View>
+
+              <View style={styles.mergeHint}>
+                <Ionicons
+                  name="information-circle-outline"
+                  size={14}
+                  color="#92400E"
+                />
+                <Text style={styles.mergeHintText}>
+                  After merging you'll sign in with this number and see all
+                  linked accounts in one place.
+                </Text>
+              </View>
+
+              <View style={styles.mergeActions}>
+                <TouchableOpacity
+                  style={styles.mergeCancelBtn}
+                  onPress={handleCancelMerge}
+                  activeOpacity={0.85}
+                  disabled={phoneLoading}
+                >
+                  <Text style={styles.mergeCancelText}>Cancel</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[
+                    styles.mergeConfirmBtn,
+                    phoneLoading && { opacity: 0.6 },
+                  ]}
+                  onPress={handleConfirmMerge}
+                  activeOpacity={0.85}
+                  disabled={phoneLoading}
+                >
+                  {phoneLoading ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <>
+                      <Ionicons
+                        name="checkmark-circle-outline"
+                        size={17}
+                        color="#fff"
+                      />
+                      <Text style={styles.mergeConfirmText}>Yes, merge</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* ============================ CONTACT PICKER ============================ */}
+        <Modal
+          visible={showContactPicker}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setShowContactPicker(false)}
+        >
+          <TouchableWithoutFeedback onPress={() => setShowContactPicker(false)}>
+            <View style={styles.contactModalOverlay}>
+              <TouchableWithoutFeedback>
+                <View
+                  style={[
+                    styles.contactModal,
+                    { paddingBottom: Math.max(insets.bottom, 8) },
+                  ]}
+                >
+                  <View style={styles.contactModalHandle} />
+                  <View style={styles.contactModalHeader}>
+                    <Text style={styles.contactModalTitle}>Select Contact</Text>
+                    <TouchableOpacity
+                      onPress={() => setShowContactPicker(false)}
+                      style={styles.contactCloseButton}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="close" size={22} color="#374151" />
+                    </TouchableOpacity>
+                  </View>
+
+                  <View style={styles.contactSearchContainer}>
+                    <Ionicons name="search-outline" size={20} color="#9ca3af" />
+                    <TextInput
+                      style={styles.contactSearchInput}
+                      placeholder="Search contacts"
+                      placeholderTextColor="#9ca3af"
+                      value={contactSearch}
+                      onChangeText={setContactSearch}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                    />
+                    {contactSearch.length > 0 ? (
+                      <TouchableOpacity onPress={() => setContactSearch("")}>
                         <Ionicons
-                          name="chevron-forward"
-                          size={18}
+                          name="close-circle"
+                          size={20}
                           color="#9ca3af"
                         />
                       </TouchableOpacity>
-                    ))
-                  )}
-                </ScrollView>
+                    ) : null}
+                  </View>
 
-                <TouchableOpacity
-                  style={styles.contactCancelBtn}
-                  onPress={() => setShowContactPicker(false)}
-                  activeOpacity={0.7}
-                >
-                  <Text style={styles.contactCancelText}>Cancel</Text>
-                </TouchableOpacity>
-              </View>
-            </TouchableWithoutFeedback>
-          </View>
-        </TouchableWithoutFeedback>
-      </Modal>
+                  <ScrollView
+                    style={{ flex: 1 }}
+                    contentContainerStyle={{ paddingBottom: 4 }}
+                    keyboardShouldPersistTaps="handled"
+                    nestedScrollEnabled
+                  >
+                    {filteredContacts.length === 0 ? (
+                      <View style={styles.noContacts}>
+                        <Ionicons
+                          name="people-outline"
+                          size={34}
+                          color="#9ca3af"
+                        />
+                        <Text style={styles.noContactsText}>
+                          No contacts found.
+                        </Text>
+                      </View>
+                    ) : (
+                      filteredContacts.map((contact) => (
+                        <TouchableOpacity
+                          key={contact.id}
+                          style={styles.contactRow}
+                          onPress={() => selectContact(contact)}
+                          activeOpacity={0.7}
+                        >
+                          <View style={styles.contactAvatar}>
+                            <Text style={styles.contactAvatarText}>
+                              {contact.name
+                                ? contact.name.charAt(0).toUpperCase()
+                                : "?"}
+                            </Text>
+                          </View>
+                          <View style={{ flex: 1, minWidth: 0 }}>
+                            <Text style={styles.contactName} numberOfLines={1}>
+                              {contact.name || "Unknown"}
+                            </Text>
+                            {contact.phoneNumbers[0] ? (
+                              <Text
+                                style={styles.contactPhone}
+                                numberOfLines={1}
+                              >
+                                {contact.phoneNumbers[0].number}
+                              </Text>
+                            ) : null}
+                          </View>
+                          <Ionicons
+                            name="chevron-forward"
+                            size={18}
+                            color="#9ca3af"
+                          />
+                        </TouchableOpacity>
+                      ))
+                    )}
+                  </ScrollView>
 
-      <PhotoAdjustModal
-        visible={showAdjustModal}
-        image={rawImage}
-        onCancel={() => {
-          setShowAdjustModal(false);
-          setRawImage(null);
-        }}
-        onConfirm={(uri) => {
-          setPhotoUri(uri);
-          setShowAdjustModal(false);
-          setRawImage(null);
-        }}
-      />
+                  <TouchableOpacity
+                    style={styles.contactCancelBtn}
+                    onPress={() => setShowContactPicker(false)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={styles.contactCancelText}>Cancel</Text>
+                  </TouchableOpacity>
+                </View>
+              </TouchableWithoutFeedback>
+            </View>
+          </TouchableWithoutFeedback>
+        </Modal>
+
+        <PhotoAdjustModal
+          visible={showAdjustModal}
+          image={rawImage}
+          onCancel={() => {
+            setShowAdjustModal(false);
+            setRawImage(null);
+          }}
+          onConfirm={(uri) => {
+            setPhotoUri(uri);
+            setShowAdjustModal(false);
+            setRawImage(null);
+          }}
+        />
       </View>
     </DarkModeBoundary>
   );

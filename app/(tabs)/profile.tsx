@@ -32,6 +32,7 @@ import {
   setSecureItem,
 } from "../../utils/tokenStorage";
 
+import { DarkModeBoundary } from "../../components/DarkModeBoundary";
 import GenerateBillModal from "../../components/GenerateBillModal";
 import SubscriptionPlanModal, {
   BillingPeriod,
@@ -43,9 +44,8 @@ import { useUserRole } from "../../hooks/useUserRole";
 import { startRazorpayPayment } from "../../services/paymentService";
 import { useAccountStore } from "../../store/accountStore";
 import { BillMemberType } from "../../store/billStore";
-import { useAuthStore } from "../../store/useAuthStore";
 import { useThemeStore } from "../../store/themeStore";
-import { DarkModeBoundary } from "../../components/DarkModeBoundary";
+import { useAuthStore } from "../../store/useAuthStore";
 
 // ============================================================================
 // Inline custom alert
@@ -117,95 +117,96 @@ function AppAlert({
   return (
     <DarkModeBoundary>
       <Modal
-      transparent
-      visible={state.visible}
-      animationType="fade"
-      onRequestClose={onDismiss}
-      statusBarTranslucent
-    >
-      <Pressable style={inlineAlertStyles.backdrop} onPress={onDismiss}>
-        <Pressable
-          style={inlineAlertStyles.card}
-          onPress={(e) => e.stopPropagation()}
-        >
-          <View
-            style={[inlineAlertStyles.iconCircle, { backgroundColor: m.bg }]}
+        transparent
+        visible={state.visible}
+        animationType="fade"
+        onRequestClose={onDismiss}
+        statusBarTranslucent
+      >
+        <Pressable style={inlineAlertStyles.backdrop} onPress={onDismiss}>
+          <Pressable
+            style={inlineAlertStyles.card}
+            onPress={(e) => e.stopPropagation()}
           >
-            <Ionicons name={m.icon} size={30} color={m.color} />
-          </View>
-
-          <Text style={inlineAlertStyles.title}>{title}</Text>
-
-          {message ? (
-            <Text style={inlineAlertStyles.message}>{message}</Text>
-          ) : null}
-
-          {checkboxLabel ? (
-            <Pressable
-              style={inlineAlertStyles.checkboxRow}
-              onPress={() => state.onCheckboxChange?.(!state.checkboxChecked)}
+            <View
+              style={[inlineAlertStyles.iconCircle, { backgroundColor: m.bg }]}
             >
-              <View
-                style={[
-                  inlineAlertStyles.checkbox,
-                  state.checkboxChecked && inlineAlertStyles.checkboxChecked,
-                ]}
+              <Ionicons name={m.icon} size={30} color={m.color} />
+            </View>
+
+            <Text style={inlineAlertStyles.title}>{title}</Text>
+
+            {message ? (
+              <Text style={inlineAlertStyles.message}>{message}</Text>
+            ) : null}
+
+            {checkboxLabel ? (
+              <Pressable
+                style={inlineAlertStyles.checkboxRow}
+                onPress={() => state.onCheckboxChange?.(!state.checkboxChecked)}
               >
-                {state.checkboxChecked ? (
-                  <Ionicons name="checkmark" size={16} color="#FFFFFF" />
-                ) : null}
-              </View>
-              <Text style={inlineAlertStyles.checkboxLabel}>
-                {checkboxLabel}
-              </Text>
-            </Pressable>
-          ) : null}
-
-          <View
-            style={[
-              inlineAlertStyles.actions,
-              isStacked && inlineAlertStyles.actionsStacked,
-            ]}
-          >
-            {buttons.map((btn, idx) => {
-              const isDestructive = btn.style === "destructive";
-              const isCancel = btn.style === "cancel";
-              const isPrimary = !isDestructive && !isCancel;
-              const isDisabled =
-                isDestructive && !!checkboxLabel && !state.checkboxChecked;
-
-              return (
-                <Pressable
-                  key={`${btn.text}-${idx}`}
-                  onPress={() => handlePress(btn)}
-                  disabled={isDisabled}
-                  style={({ pressed }) => [
-                    inlineAlertStyles.button,
-                    hasTwo && inlineAlertStyles.buttonHalf,
-                    isStacked && inlineAlertStyles.buttonFull,
-                    isCancel && inlineAlertStyles.buttonCancel,
-                    isDestructive && inlineAlertStyles.buttonDestructive,
-                    isPrimary && inlineAlertStyles.buttonPrimary,
-                    isDisabled && { opacity: 0.4 },
-                    pressed && !isDisabled && { opacity: 0.85 },
+                <View
+                  style={[
+                    inlineAlertStyles.checkbox,
+                    state.checkboxChecked && inlineAlertStyles.checkboxChecked,
                   ]}
                 >
-                  <Text
-                    style={[
-                      inlineAlertStyles.buttonText,
-                      isCancel && inlineAlertStyles.buttonTextCancel,
-                      isDestructive && inlineAlertStyles.buttonTextDestructive,
-                      isPrimary && inlineAlertStyles.buttonTextPrimary,
+                  {state.checkboxChecked ? (
+                    <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+                  ) : null}
+                </View>
+                <Text style={inlineAlertStyles.checkboxLabel}>
+                  {checkboxLabel}
+                </Text>
+              </Pressable>
+            ) : null}
+
+            <View
+              style={[
+                inlineAlertStyles.actions,
+                isStacked && inlineAlertStyles.actionsStacked,
+              ]}
+            >
+              {buttons.map((btn, idx) => {
+                const isDestructive = btn.style === "destructive";
+                const isCancel = btn.style === "cancel";
+                const isPrimary = !isDestructive && !isCancel;
+                const isDisabled =
+                  isDestructive && !!checkboxLabel && !state.checkboxChecked;
+
+                return (
+                  <Pressable
+                    key={`${btn.text}-${idx}`}
+                    onPress={() => handlePress(btn)}
+                    disabled={isDisabled}
+                    style={({ pressed }) => [
+                      inlineAlertStyles.button,
+                      hasTwo && inlineAlertStyles.buttonHalf,
+                      isStacked && inlineAlertStyles.buttonFull,
+                      isCancel && inlineAlertStyles.buttonCancel,
+                      isDestructive && inlineAlertStyles.buttonDestructive,
+                      isPrimary && inlineAlertStyles.buttonPrimary,
+                      isDisabled && { opacity: 0.4 },
+                      pressed && !isDisabled && { opacity: 0.85 },
                     ]}
                   >
-                    {btn.text}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
+                    <Text
+                      style={[
+                        inlineAlertStyles.buttonText,
+                        isCancel && inlineAlertStyles.buttonTextCancel,
+                        isDestructive &&
+                          inlineAlertStyles.buttonTextDestructive,
+                        isPrimary && inlineAlertStyles.buttonTextPrimary,
+                      ]}
+                    >
+                      {btn.text}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </Pressable>
         </Pressable>
-      </Pressable>
       </Modal>
     </DarkModeBoundary>
   );
@@ -3166,569 +3167,581 @@ export default function ProfileTabScreen(): React.ReactElement {
   return (
     <DarkModeBoundary>
       <View style={styles.container}>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-      >
-        <View style={styles.heroCard}>
-          <View style={styles.heroTopRow}>
-            <View style={styles.avatarWrap}>
-              <View style={styles.avatarInner}>
-                {accountPhotoUri ? (
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scrollContent}
+        >
+          <View style={styles.heroCard}>
+            <View style={styles.heroTopRow}>
+              <View style={styles.avatarWrap}>
+                <View style={styles.avatarInner}>
+                  {accountPhotoUri ? (
+                    <Image
+                      source={{ uri: accountPhotoUri }}
+                      style={styles.avatarImage}
+                      contentFit="cover"
+                      cachePolicy="memory-disk"
+                      transition={120}
+                    />
+                  ) : (
+                    <Text style={styles.avatarInitials}>
+                      {getInitials(accountName) || "A"}
+                    </Text>
+                  )}
+                </View>
+              </View>
+
+              <View style={styles.heroHeaderText}>
+                <Text style={styles.accountName} numberOfLines={1}>
+                  {accountName}
+                </Text>
+                <View style={styles.pillRow}>
+                  <View style={styles.societyPill}>
+                    <View style={styles.societyPillDot} />
+                    <Text style={styles.societyPillText}>
+                      {isTenantAccount ? "HOME" : "SOCIETY"}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+
+            <View style={styles.ownerMiniCard}>
+              <View style={styles.ownerMiniAvatar}>
+                {ownerPhotoUri ? (
                   <Image
-                    source={{ uri: accountPhotoUri }}
-                    style={styles.avatarImage}
+                    source={{ uri: ownerPhotoUri }}
+                    style={styles.ownerMiniAvatarImage}
                     contentFit="cover"
                     cachePolicy="memory-disk"
                     transition={120}
                   />
                 ) : (
-                  <Text style={styles.avatarInitials}>
-                    {getInitials(accountName) || "A"}
+                  <Text style={styles.ownerMiniAvatarText}>
+                    {getInitials(ownerName) || "O"}
                   </Text>
                 )}
               </View>
+              <View style={styles.ownerMiniContent}>
+                <Text style={styles.ownerMiniLabel}>Account Owner</Text>
+                <Text style={styles.ownerMiniValue} numberOfLines={1}>
+                  {ownerName}
+                  {isOwner ? " (You)" : ""}
+                </Text>
+                <TouchableOpacity
+                  onPress={handlePhoneRowPress}
+                  activeOpacity={0.7}
+                  hitSlop={6}
+                >
+                  <Text style={styles.ownerMiniPhone} numberOfLines={1}>
+                    {ownerPhone}
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
 
-            <View style={styles.heroHeaderText}>
-              <Text style={styles.accountName} numberOfLines={1}>
-                {accountName}
-              </Text>
-              <View style={styles.pillRow}>
-                <View style={styles.societyPill}>
-                  <View style={styles.societyPillDot} />
-                  <Text style={styles.societyPillText}>
-                    {isTenantAccount ? "HOME" : "SOCIETY"}
+            {isOwner && (
+              <TouchableOpacity
+                style={styles.manageCta}
+                onPress={goToAccountProfile}
+                activeOpacity={0.85}
+              >
+                <View style={styles.manageCtaIconWrap}>
+                  <Ionicons name="settings" size={20} color="#FFFFFF" />
+                </View>
+                <View style={styles.manageCtaContent}>
+                  <Text style={styles.manageCtaTitle}>
+                    Manage Account Profile
+                  </Text>
+                  <Text style={styles.manageCtaSubtitle} numberOfLines={1}>
+                    Photo, name, phone number, and access
+                  </Text>
+                </View>
+                <View style={styles.manageCtaChevron}>
+                  <Ionicons name="chevron-forward" size={16} color="#2563EB" />
+                </View>
+              </TouchableOpacity>
+            )}
+          </View>
+
+          {showAdminDirectory && (
+            <View style={styles.adminCard}>
+              <View style={styles.adminCardHeader}>
+                <View style={styles.adminHeaderIcon}>
+                  <Ionicons name="shield-checkmark" size={20} color="#2563EB" />
+                </View>
+                <View style={styles.adminHeaderContent}>
+                  <Text style={styles.adminHeaderTitle}>Admin</Text>
+                  <Text style={styles.adminHeaderSubtitle}>
+                    Contact the{" "}
+                    {isTenantAccount ? "home owner" : "society admin"} for any
+                    help
                   </Text>
                 </View>
               </View>
-            </View>
-          </View>
 
-          <View style={styles.ownerMiniCard}>
-            <View style={styles.ownerMiniAvatar}>
-              {ownerPhotoUri ? (
-                <Image
-                  source={{ uri: ownerPhotoUri }}
-                  style={styles.ownerMiniAvatarImage}
-                  contentFit="cover"
-                  cachePolicy="memory-disk"
-                  transition={120}
-                />
+              {peopleLoading && adminDirectory.length === 0 ? (
+                <View style={[styles.adminRow, styles.adminRowLast]}>
+                  <ActivityIndicator size="small" color="#2563EB" />
+                  <Text
+                    style={[
+                      styles.adminRowPhone,
+                      { marginLeft: 10, marginTop: 0 },
+                    ]}
+                  >
+                    Loading admins…
+                  </Text>
+                </View>
+              ) : adminDirectory.length === 0 ? (
+                <View style={[styles.adminRow, styles.adminRowLast]}>
+                  <Text
+                    style={[
+                      styles.adminRowPhone,
+                      { marginLeft: 0, marginTop: 0 },
+                    ]}
+                  >
+                    No admins yet.
+                  </Text>
+                </View>
               ) : (
-                <Text style={styles.ownerMiniAvatarText}>
-                  {getInitials(ownerName) || "O"}
-                </Text>
+                adminDirectory.map((admin, index) => (
+                  <View
+                    key={admin.id}
+                    style={[
+                      styles.adminRow,
+                      index === adminDirectory.length - 1 &&
+                        styles.adminRowLast,
+                    ]}
+                  >
+                    <View
+                      style={[styles.adminRowAvatar, styles.adminRowAvatarBg]}
+                    >
+                      {admin.photoUrl ? (
+                        <Image
+                          source={{ uri: admin.photoUrl }}
+                          style={styles.adminRowAvatarImage}
+                          contentFit="cover"
+                          cachePolicy="memory-disk"
+                          transition={120}
+                        />
+                      ) : (
+                        <Text
+                          style={[
+                            styles.adminRowAvatarText,
+                            styles.adminRowAvatarTextAdmin,
+                          ]}
+                        >
+                          {getInitials(admin.name) || "A"}
+                        </Text>
+                      )}
+                    </View>
+                    <View style={styles.adminRowContent}>
+                      <View style={styles.adminRowNameRow}>
+                        <Text style={styles.adminRowName} numberOfLines={1}>
+                          {admin.name}
+                          {admin.isSelf ? " (You)" : ""}
+                        </Text>
+                      </View>
+                      <Text style={styles.adminRowPhone} numberOfLines={1}>
+                        {admin.phone ?? "—"}
+                      </Text>
+                    </View>
+
+                    {admin.isSelf ? (
+                      <TouchableOpacity
+                        style={styles.withdrawAdminButton}
+                        onPress={() => setShowWithdrawModal(true)}
+                        activeOpacity={0.75}
+                      >
+                        <Text style={styles.withdrawAdminButtonText}>
+                          Withdraw
+                        </Text>
+                      </TouchableOpacity>
+                    ) : (
+                      <View
+                        style={[styles.adminRowBadge, styles.adminRowBadgeBg]}
+                      >
+                        <Text style={styles.adminRowBadgeText}>ADMIN</Text>
+                      </View>
+                    )}
+                  </View>
+                ))
               )}
             </View>
-            <View style={styles.ownerMiniContent}>
-              <Text style={styles.ownerMiniLabel}>Account Owner</Text>
-              <Text style={styles.ownerMiniValue} numberOfLines={1}>
-                {ownerName}
-                {isOwner ? " (You)" : ""}
-              </Text>
-              <TouchableOpacity
-                onPress={handlePhoneRowPress}
-                activeOpacity={0.7}
-                hitSlop={6}
-              >
-                <Text style={styles.ownerMiniPhone} numberOfLines={1}>
-                  {ownerPhone}
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-
-          {isOwner && (
-            <TouchableOpacity
-              style={styles.manageCta}
-              onPress={goToAccountProfile}
-              activeOpacity={0.85}
-            >
-              <View style={styles.manageCtaIconWrap}>
-                <Ionicons name="settings" size={20} color="#FFFFFF" />
-              </View>
-              <View style={styles.manageCtaContent}>
-                <Text style={styles.manageCtaTitle}>
-                  Manage Account Profile
-                </Text>
-                <Text style={styles.manageCtaSubtitle} numberOfLines={1}>
-                  Photo, name, phone number, and access
-                </Text>
-              </View>
-              <View style={styles.manageCtaChevron}>
-                <Ionicons name="chevron-forward" size={16} color="#2563EB" />
-              </View>
-            </TouchableOpacity>
           )}
-        </View>
 
-        {showAdminDirectory && (
-          <View style={styles.adminCard}>
-            <View style={styles.adminCardHeader}>
-              <View style={styles.adminHeaderIcon}>
-                <Ionicons name="shield-checkmark" size={20} color="#2563EB" />
+          {/* Subscription card — visible on every platform */}
+          {canSeeSubscription &&
+            (() => {
+              const currentPlan = plans.find((p) => p.id === activePlan);
+              const isFree = activePlan === "free";
+              const isTrial = subscriptionStatus === "trialing";
+              const planName = currentPlan?.name ?? "Free";
+              const planFeatures = currentPlan?.features ?? ["Basic features"];
+              const price = currentPlan
+                ? getPlanPrice(currentPlan, activePlanPeriod)
+                : 0;
+              const periodLabel = currentPlan
+                ? getPlanPeriodLabel(currentPlan, activePlanPeriod)
+                : "";
+
+              return (
+                <View style={styles.subscriptionCard}>
+                  <View style={styles.subscriptionGlow} />
+                  <View style={styles.subscriptionHeader}>
+                    <View style={styles.subscriptionBadge}>
+                      <Ionicons
+                        name={isFree ? "people-outline" : "star"}
+                        size={12}
+                        color="#FFD700"
+                      />
+                      <Text style={styles.subscriptionBadgeText}>
+                        {isTrial ? "TRIAL" : isFree ? "FREE" : "ACTIVE"}
+                      </Text>
+                    </View>
+                    {canManageSubscription && (
+                      <TouchableOpacity
+                        onPress={() => setShowPlansModal(true)}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons
+                          name="ellipsis-vertical"
+                          size={18}
+                          color="rgba(255,255,255,0.6)"
+                        />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+
+                  <Text style={styles.subscriptionPlanName}>
+                    {isTrial ? "Free Trial" : `${planName} Plan`}
+                  </Text>
+
+                  {isTrial ? (
+                    <View style={styles.subscriptionPriceRow}>
+                      <Text style={styles.subscriptionPrice}>Free</Text>
+                      <Text style={styles.subscriptionPeriod}>
+                        for 3 months
+                      </Text>
+                    </View>
+                  ) : (
+                    <View style={styles.subscriptionPriceRow}>
+                      <Text style={styles.subscriptionPrice}>
+                        {price === 0 ? "Free" : `₹${price}`}
+                      </Text>
+                      {price > 0 && (
+                        <Text style={styles.subscriptionPeriod}>
+                          {periodLabel}
+                        </Text>
+                      )}
+                    </View>
+                  )}
+
+                  <View style={styles.subscriptionFeatures}>
+                    {planFeatures.slice(0, 3).map((feature, index) => (
+                      <View key={index} style={styles.subscriptionFeature}>
+                        <Ionicons
+                          name="checkmark-circle"
+                          size={12}
+                          color="#34D399"
+                        />
+                        <Text style={styles.subscriptionFeatureText}>
+                          {feature}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+
+                  {isTrial && trialEndsAt ? (
+                    <Text style={styles.subscriptionExpiry}>
+                      Trial ends:{" "}
+                      <Text style={styles.subscriptionExpiryStrong}>
+                        {new Date(trialEndsAt).toLocaleDateString("en-IN", {
+                          day: "2-digit",
+                          month: "short",
+                          year: "numeric",
+                        })}
+                      </Text>
+                    </Text>
+                  ) : null}
+
+                  {canManageSubscription ? (
+                    <View style={styles.subscriptionAction}>
+                      <TouchableOpacity
+                        style={styles.subscriptionActionButton}
+                        onPress={() => setShowPlansModal(true)}
+                        activeOpacity={0.8}
+                      >
+                        <Ionicons
+                          name={
+                            isFree ? "arrow-forward-outline" : "refresh-outline"
+                          }
+                          size={18}
+                          color="#2563EB"
+                        />
+                        <Text style={styles.subscriptionActionText}>
+                          {isFree ? "Upgrade Now" : "Manage Plan"}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <View
+                      style={[
+                        styles.subscriptionAction,
+                        { justifyContent: "center" },
+                      ]}
+                    >
+                      <Text style={styles.subscriptionExpiry}>
+                        Managed by the{" "}
+                        {isTenantAccount ? "home owner" : "society admin"}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              );
+            })()}
+
+          {settingsSections.map((section) => {
+            const items = menuItems.filter((item) =>
+              section.itemIds.includes(item.id),
+            );
+            if (items.length === 0) return null;
+            return (
+              <View key={section.title} style={styles.menuSection}>
+                <Text style={styles.menuSectionTitle}>{section.title}</Text>
+                <View style={styles.menuCard}>
+                  {items.map((item, index) =>
+                    renderMenuItem(item, index, items),
+                  )}
+                </View>
               </View>
-              <View style={styles.adminHeaderContent}>
-                <Text style={styles.adminHeaderTitle}>Admin</Text>
-                <Text style={styles.adminHeaderSubtitle}>
-                  Contact the {isTenantAccount ? "home owner" : "society admin"}{" "}
-                  for any help
+            );
+          })}
+
+          <View style={styles.historyCard}>
+            <View style={styles.historyHeader}>
+              <View>
+                <Text style={styles.historyTitle}>
+                  {historyScope === "full" ? "Account History" : "My History"}
                 </Text>
+                <Text style={styles.historySubtitle}>
+                  {historyScope === "full"
+                    ? "Track all activities in your property"
+                    : "Your activity on this account"}
+                </Text>
+              </View>
+              <View style={styles.historyTotalBadge}>
+                <Text style={styles.historyTotalText}>{history.length}</Text>
               </View>
             </View>
 
-            {peopleLoading && adminDirectory.length === 0 ? (
-              <View style={[styles.adminRow, styles.adminRowLast]}>
+            {historyLoading && !hasLoadedHistoryOnce.current ? (
+              <View style={styles.noHistoryContainer}>
                 <ActivityIndicator size="small" color="#2563EB" />
-                <Text
-                  style={[
-                    styles.adminRowPhone,
-                    { marginLeft: 10, marginTop: 0 },
-                  ]}
-                >
-                  Loading admins…
-                </Text>
               </View>
-            ) : adminDirectory.length === 0 ? (
-              <View style={[styles.adminRow, styles.adminRowLast]}>
-                <Text
-                  style={[
-                    styles.adminRowPhone,
-                    { marginLeft: 0, marginTop: 0 },
-                  ]}
-                >
-                  No admins yet.
+            ) : history.length === 0 ? (
+              <View style={styles.noHistoryContainer}>
+                <View style={styles.noHistoryIcon}>
+                  <Ionicons name="time-outline" size={28} color="#94A3B8" />
+                </View>
+                <Text style={styles.noHistoryTitle}>No history yet</Text>
+                <Text style={styles.noHistoryText}>
+                  Activity on this account will appear here.
                 </Text>
               </View>
             ) : (
-              adminDirectory.map((admin, index) => (
-                <View
-                  key={admin.id}
-                  style={[
-                    styles.adminRow,
-                    index === adminDirectory.length - 1 && styles.adminRowLast,
-                  ]}
-                >
-                  <View
-                    style={[styles.adminRowAvatar, styles.adminRowAvatarBg]}
-                  >
-                    {admin.photoUrl ? (
-                      <Image
-                        source={{ uri: admin.photoUrl }}
-                        style={styles.adminRowAvatarImage}
-                        contentFit="cover"
-                        cachePolicy="memory-disk"
-                        transition={120}
-                      />
-                    ) : (
-                      <Text
-                        style={[
-                          styles.adminRowAvatarText,
-                          styles.adminRowAvatarTextAdmin,
-                        ]}
-                      >
-                        {getInitials(admin.name) || "A"}
-                      </Text>
-                    )}
-                  </View>
-                  <View style={styles.adminRowContent}>
-                    <View style={styles.adminRowNameRow}>
-                      <Text style={styles.adminRowName} numberOfLines={1}>
-                        {admin.name}
-                        {admin.isSelf ? " (You)" : ""}
-                      </Text>
-                    </View>
-                    <Text style={styles.adminRowPhone} numberOfLines={1}>
-                      {admin.phone ?? "—"}
-                    </Text>
-                  </View>
-
-                  {admin.isSelf ? (
-                    <TouchableOpacity
-                      style={styles.withdrawAdminButton}
-                      onPress={() => setShowWithdrawModal(true)}
-                      activeOpacity={0.75}
-                    >
-                      <Text style={styles.withdrawAdminButtonText}>
-                        Withdraw
-                      </Text>
-                    </TouchableOpacity>
-                  ) : (
-                    <View
-                      style={[styles.adminRowBadge, styles.adminRowBadgeBg]}
-                    >
-                      <Text style={styles.adminRowBadgeText}>ADMIN</Text>
-                    </View>
-                  )}
-                </View>
-              ))
+              history
+                .slice(0, 3)
+                .map((item, index) =>
+                  renderHistoryRow(
+                    item,
+                    index === Math.min(history.length, 3) - 1,
+                    true,
+                  ),
+                )
             )}
+
+            <TouchableOpacity
+              style={styles.viewAllHistoryButton}
+              onPress={() => setShowHistoryModal(true)}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.viewAllHistoryText}>View All History</Text>
+              <Ionicons name="chevron-forward" size={16} color="#2563EB" />
+            </TouchableOpacity>
           </View>
-        )}
-
-        {/* Subscription card — visible on every platform */}
-        {canSeeSubscription &&
-          (() => {
-            const currentPlan = plans.find((p) => p.id === activePlan);
-            const isFree = activePlan === "free";
-            const isTrial = subscriptionStatus === "trialing";
-            const planName = currentPlan?.name ?? "Free";
-            const planFeatures = currentPlan?.features ?? ["Basic features"];
-            const price = currentPlan
-              ? getPlanPrice(currentPlan, activePlanPeriod)
-              : 0;
-            const periodLabel = currentPlan
-              ? getPlanPeriodLabel(currentPlan, activePlanPeriod)
-              : "";
-
-            return (
-              <View style={styles.subscriptionCard}>
-                <View style={styles.subscriptionGlow} />
-                <View style={styles.subscriptionHeader}>
-                  <View style={styles.subscriptionBadge}>
-                    <Ionicons
-                      name={isFree ? "people-outline" : "star"}
-                      size={12}
-                      color="#FFD700"
-                    />
-                    <Text style={styles.subscriptionBadgeText}>
-                      {isTrial ? "TRIAL" : isFree ? "FREE" : "ACTIVE"}
-                    </Text>
-                  </View>
-                  {canManageSubscription && (
-                    <TouchableOpacity
-                      onPress={() => setShowPlansModal(true)}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons
-                        name="ellipsis-vertical"
-                        size={18}
-                        color="rgba(255,255,255,0.6)"
-                      />
-                    </TouchableOpacity>
-                  )}
-                </View>
-
-                <Text style={styles.subscriptionPlanName}>
-                  {isTrial ? "Free Trial" : `${planName} Plan`}
-                </Text>
-
-                {isTrial ? (
-                  <View style={styles.subscriptionPriceRow}>
-                    <Text style={styles.subscriptionPrice}>Free</Text>
-                    <Text style={styles.subscriptionPeriod}>for 3 months</Text>
-                  </View>
-                ) : (
-                  <View style={styles.subscriptionPriceRow}>
-                    <Text style={styles.subscriptionPrice}>
-                      {price === 0 ? "Free" : `₹${price}`}
-                    </Text>
-                    {price > 0 && (
-                      <Text style={styles.subscriptionPeriod}>
-                        {periodLabel}
-                      </Text>
-                    )}
-                  </View>
-                )}
-
-                <View style={styles.subscriptionFeatures}>
-                  {planFeatures.slice(0, 3).map((feature, index) => (
-                    <View key={index} style={styles.subscriptionFeature}>
-                      <Ionicons
-                        name="checkmark-circle"
-                        size={12}
-                        color="#34D399"
-                      />
-                      <Text style={styles.subscriptionFeatureText}>
-                        {feature}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
-
-                {isTrial && trialEndsAt ? (
-                  <Text style={styles.subscriptionExpiry}>
-                    Trial ends:{" "}
-                    <Text style={styles.subscriptionExpiryStrong}>
-                      {new Date(trialEndsAt).toLocaleDateString("en-IN", {
-                        day: "2-digit",
-                        month: "short",
-                        year: "numeric",
-                      })}
-                    </Text>
-                  </Text>
-                ) : null}
-
-                {canManageSubscription ? (
-                  <View style={styles.subscriptionAction}>
-                    <TouchableOpacity
-                      style={styles.subscriptionActionButton}
-                      onPress={() => setShowPlansModal(true)}
-                      activeOpacity={0.8}
-                    >
-                      <Ionicons
-                        name={
-                          isFree ? "arrow-forward-outline" : "refresh-outline"
-                        }
-                        size={18}
-                        color="#2563EB"
-                      />
-                      <Text style={styles.subscriptionActionText}>
-                        {isFree ? "Upgrade Now" : "Manage Plan"}
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                ) : (
-                  <View
-                    style={[
-                      styles.subscriptionAction,
-                      { justifyContent: "center" },
-                    ]}
-                  >
-                    <Text style={styles.subscriptionExpiry}>
-                      Managed by the{" "}
-                      {isTenantAccount ? "home owner" : "society admin"}
-                    </Text>
-                  </View>
-                )}
-              </View>
-            );
-          })()}
-
-        {settingsSections.map((section) => {
-          const items = menuItems.filter((item) =>
-            section.itemIds.includes(item.id),
-          );
-          if (items.length === 0) return null;
-          return (
-            <View key={section.title} style={styles.menuSection}>
-              <Text style={styles.menuSectionTitle}>{section.title}</Text>
-              <View style={styles.menuCard}>
-                {items.map((item, index) => renderMenuItem(item, index, items))}
-              </View>
-            </View>
-          );
-        })}
-
-        <View style={styles.historyCard}>
-          <View style={styles.historyHeader}>
-            <View>
-              <Text style={styles.historyTitle}>
-                {historyScope === "full" ? "Account History" : "My History"}
-              </Text>
-              <Text style={styles.historySubtitle}>
-                {historyScope === "full"
-                  ? "Track all activities in your property"
-                  : "Your activity on this account"}
-              </Text>
-            </View>
-            <View style={styles.historyTotalBadge}>
-              <Text style={styles.historyTotalText}>{history.length}</Text>
-            </View>
-          </View>
-
-          {historyLoading && !hasLoadedHistoryOnce.current ? (
-            <View style={styles.noHistoryContainer}>
-              <ActivityIndicator size="small" color="#2563EB" />
-            </View>
-          ) : history.length === 0 ? (
-            <View style={styles.noHistoryContainer}>
-              <View style={styles.noHistoryIcon}>
-                <Ionicons name="time-outline" size={28} color="#94A3B8" />
-              </View>
-              <Text style={styles.noHistoryTitle}>No history yet</Text>
-              <Text style={styles.noHistoryText}>
-                Activity on this account will appear here.
-              </Text>
-            </View>
-          ) : (
-            history
-              .slice(0, 3)
-              .map((item, index) =>
-                renderHistoryRow(
-                  item,
-                  index === Math.min(history.length, 3) - 1,
-                  true,
-                ),
-              )
-          )}
 
           <TouchableOpacity
-            style={styles.viewAllHistoryButton}
-            onPress={() => setShowHistoryModal(true)}
-            activeOpacity={0.7}
+            style={styles.logoutButton}
+            onPress={handleLogout}
+            activeOpacity={0.85}
           >
-            <Text style={styles.viewAllHistoryText}>View All History</Text>
-            <Ionicons name="chevron-forward" size={16} color="#2563EB" />
+            <Ionicons name="log-out-outline" size={20} color="#FFFFFF" />
+            <Text style={styles.logoutButtonText}>Log Out</Text>
           </TouchableOpacity>
-        </View>
 
-        <TouchableOpacity
-          style={styles.logoutButton}
-          onPress={handleLogout}
-          activeOpacity={0.85}
-        >
-          <Ionicons name="log-out-outline" size={20} color="#FFFFFF" />
-          <Text style={styles.logoutButtonText}>Log Out</Text>
-        </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.deleteAccountButton,
+              deletingAccount && { opacity: 0.5 },
+            ]}
+            onPress={handleDeleteAccount}
+            disabled={deletingAccount}
+            activeOpacity={0.85}
+          >
+            {deletingAccount ? (
+              <ActivityIndicator size="small" color="#DC2626" />
+            ) : (
+              <Ionicons name="trash-outline" size={20} color="#DC2626" />
+            )}
+            <Text style={styles.deleteAccountButtonText}>
+              {deletingAccount ? "Deleting…" : "Delete Account"}
+            </Text>
+          </TouchableOpacity>
 
-        <TouchableOpacity
-          style={[
-            styles.deleteAccountButton,
-            deletingAccount && { opacity: 0.5 },
-          ]}
-          onPress={handleDeleteAccount}
-          disabled={deletingAccount}
-          activeOpacity={0.85}
-        >
-          {deletingAccount ? (
-            <ActivityIndicator size="small" color="#DC2626" />
-          ) : (
-            <Ionicons name="trash-outline" size={20} color="#DC2626" />
-          )}
-          <Text style={styles.deleteAccountButtonText}>
-            {deletingAccount ? "Deleting…" : "Delete Account"}
-          </Text>
-        </TouchableOpacity>
-
-        <View style={styles.footer}>
-          <View style={styles.footerLogo}>
-            <Ionicons name="business-outline" size={16} color="#2563EB" />
-          </View>
-          <Text style={styles.versionText}>Apartment Management</Text>
-          <Text style={styles.versionNumber}>Version 1.0.0</Text>
-        </View>
-      </ScrollView>
-
-      {renderHistoryModal()}
-
-      {showPhoneTooltip && (
-        <Modal
-          transparent
-          animationType="fade"
-          visible={showPhoneTooltip}
-          onRequestClose={() => setShowPhoneTooltip(false)}
-        >
-          <TouchableWithoutFeedback onPress={() => setShowPhoneTooltip(false)}>
-            <View style={styles.tooltipOverlay}>
-              <TouchableWithoutFeedback onPress={() => {}}>
-                <View style={styles.tooltipCard}>
-                  <View style={styles.tooltipIconCircle}>
-                    <Ionicons name="call-outline" size={26} color="#2563EB" />
-                  </View>
-                  <Text style={styles.tooltipTitle}>Phone Number</Text>
-                  <Text style={styles.tooltipSubtitle}>
-                    This phone number belongs to the account owner. Only the
-                    owner can change it from the Account Profile screen.
-                  </Text>
-                  <TouchableOpacity
-                    style={styles.tooltipActionButton}
-                    onPress={() => setShowPhoneTooltip(false)}
-                    activeOpacity={0.85}
-                  >
-                    <Text style={styles.tooltipActionText}>Got it</Text>
-                  </TouchableOpacity>
-                </View>
-              </TouchableWithoutFeedback>
+          <View style={styles.footer}>
+            <View style={styles.footerLogo}>
+              <Ionicons name="business-outline" size={16} color="#2563EB" />
             </View>
-          </TouchableWithoutFeedback>
-        </Modal>
-      )}
+            <Text style={styles.versionText}>Apartment Management</Text>
+            <Text style={styles.versionNumber}>Version 1.0.0</Text>
+          </View>
+        </ScrollView>
 
-      {showWithdrawModal && (
-        <Modal
-          transparent
-          animationType="fade"
-          visible={showWithdrawModal}
-          onRequestClose={() => {
-            if (!withdrawSubmitting) setShowWithdrawModal(false);
-          }}
-        >
-          <TouchableWithoutFeedback
-            onPress={() => {
+        {renderHistoryModal()}
+
+        {showPhoneTooltip && (
+          <Modal
+            transparent
+            animationType="fade"
+            visible={showPhoneTooltip}
+            onRequestClose={() => setShowPhoneTooltip(false)}
+          >
+            <TouchableWithoutFeedback
+              onPress={() => setShowPhoneTooltip(false)}
+            >
+              <View style={styles.tooltipOverlay}>
+                <TouchableWithoutFeedback onPress={() => {}}>
+                  <View style={styles.tooltipCard}>
+                    <View style={styles.tooltipIconCircle}>
+                      <Ionicons name="call-outline" size={26} color="#2563EB" />
+                    </View>
+                    <Text style={styles.tooltipTitle}>Phone Number</Text>
+                    <Text style={styles.tooltipSubtitle}>
+                      This phone number belongs to the account owner. Only the
+                      owner can change it from the Account Profile screen.
+                    </Text>
+                    <TouchableOpacity
+                      style={styles.tooltipActionButton}
+                      onPress={() => setShowPhoneTooltip(false)}
+                      activeOpacity={0.85}
+                    >
+                      <Text style={styles.tooltipActionText}>Got it</Text>
+                    </TouchableOpacity>
+                  </View>
+                </TouchableWithoutFeedback>
+              </View>
+            </TouchableWithoutFeedback>
+          </Modal>
+        )}
+
+        {showWithdrawModal && (
+          <Modal
+            transparent
+            animationType="fade"
+            visible={showWithdrawModal}
+            onRequestClose={() => {
               if (!withdrawSubmitting) setShowWithdrawModal(false);
             }}
           >
-            <View style={styles.tooltipOverlay}>
-              <TouchableWithoutFeedback onPress={() => {}}>
-                <View style={styles.withdrawModal}>
-                  <View style={styles.withdrawIcon}>
-                    <Ionicons name="shield-outline" size={26} color="#DC2626" />
+            <TouchableWithoutFeedback
+              onPress={() => {
+                if (!withdrawSubmitting) setShowWithdrawModal(false);
+              }}
+            >
+              <View style={styles.tooltipOverlay}>
+                <TouchableWithoutFeedback onPress={() => {}}>
+                  <View style={styles.withdrawModal}>
+                    <View style={styles.withdrawIcon}>
+                      <Ionicons
+                        name="shield-outline"
+                        size={26}
+                        color="#DC2626"
+                      />
+                    </View>
+                    <Text style={styles.withdrawModalTitle}>
+                      Withdraw Admin Access?
+                    </Text>
+                    <Text style={styles.withdrawModalDescription}>
+                      You will lose administrator privileges on this account. If
+                      you also have a member or staff profile here, that access
+                      will be kept.
+                    </Text>
+
+                    <View style={styles.withdrawModalActions}>
+                      <TouchableOpacity
+                        style={styles.withdrawCancelButton}
+                        onPress={() => setShowWithdrawModal(false)}
+                        activeOpacity={0.8}
+                        disabled={withdrawSubmitting}
+                      >
+                        <Text style={styles.withdrawCancelText}>Cancel</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.withdrawConfirmButton}
+                        onPress={confirmWithdrawAdmin}
+                        activeOpacity={0.85}
+                        disabled={withdrawSubmitting}
+                      >
+                        {withdrawSubmitting ? (
+                          <ActivityIndicator color="#FFFFFF" size="small" />
+                        ) : (
+                          <>
+                            <Ionicons
+                              name="shield-outline"
+                              size={17}
+                              color="#FFFFFF"
+                            />
+                            <Text style={styles.withdrawConfirmText}>
+                              Withdraw
+                            </Text>
+                          </>
+                        )}
+                      </TouchableOpacity>
+                    </View>
                   </View>
-                  <Text style={styles.withdrawModalTitle}>
-                    Withdraw Admin Access?
-                  </Text>
-                  <Text style={styles.withdrawModalDescription}>
-                    You will lose administrator privileges on this account. If
-                    you also have a member or staff profile here, that access
-                    will be kept.
-                  </Text>
+                </TouchableWithoutFeedback>
+              </View>
+            </TouchableWithoutFeedback>
+          </Modal>
+        )}
 
-                  <View style={styles.withdrawModalActions}>
-                    <TouchableOpacity
-                      style={styles.withdrawCancelButton}
-                      onPress={() => setShowWithdrawModal(false)}
-                      activeOpacity={0.8}
-                      disabled={withdrawSubmitting}
-                    >
-                      <Text style={styles.withdrawCancelText}>Cancel</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.withdrawConfirmButton}
-                      onPress={confirmWithdrawAdmin}
-                      activeOpacity={0.85}
-                      disabled={withdrawSubmitting}
-                    >
-                      {withdrawSubmitting ? (
-                        <ActivityIndicator color="#FFFFFF" size="small" />
-                      ) : (
-                        <>
-                          <Ionicons
-                            name="shield-outline"
-                            size={17}
-                            color="#FFFFFF"
-                          />
-                          <Text style={styles.withdrawConfirmText}>
-                            Withdraw
-                          </Text>
-                        </>
-                      )}
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              </TouchableWithoutFeedback>
-            </View>
-          </TouchableWithoutFeedback>
-        </Modal>
-      )}
+        {canManageBills && selectedAccount?.id && (
+          <GenerateBillModal
+            visible={showGenerateBill}
+            onClose={() => setShowGenerateBill(false)}
+            memberType={billMemberType}
+            onMemberTypeChange={setBillMemberType}
+            onSaved={handleBillSaved}
+          />
+        )}
 
-      {canManageBills && selectedAccount?.id && (
-        <GenerateBillModal
-          visible={showGenerateBill}
-          onClose={() => setShowGenerateBill(false)}
-          memberType={billMemberType}
-          onMemberTypeChange={setBillMemberType}
-          onSaved={handleBillSaved}
-        />
-      )}
+        {canSeeSubscription && (
+          <SubscriptionPlanModal
+            visible={showPlansModal}
+            onClose={() => setShowPlansModal(false)}
+            activePlanId={activePlan}
+            activePlanPeriod={activePlanPeriod}
+            canManage={canManageSubscription}
+            plans={plans}
+            user={{ phone: user?.phone }}
+            startPayment={handleStartPayment}
+            onPlanChanged={handlePlanChanged}
+            onCancelSubscription={handleCancelSubscription}
+          />
+        )}
 
-      {canSeeSubscription && (
-        <SubscriptionPlanModal
-          visible={showPlansModal}
-          onClose={() => setShowPlansModal(false)}
-          activePlanId={activePlan}
-          activePlanPeriod={activePlanPeriod}
-          canManage={canManageSubscription}
-          plans={plans}
-          user={{ phone: user?.phone }}
-          startPayment={handleStartPayment}
-          onPlanChanged={handlePlanChanged}
-          onCancelSubscription={handleCancelSubscription}
-        />
-      )}
-
-      <AppAlert state={alert.state} onDismiss={alert.dismiss} />
+        <AppAlert state={alert.state} onDismiss={alert.dismiss} />
       </View>
     </DarkModeBoundary>
   );

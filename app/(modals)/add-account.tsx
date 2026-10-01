@@ -283,89 +283,91 @@ function AppAlert({
   return (
     <DarkModeBoundary>
       <Modal
-      transparent
-      visible={state.visible}
-      animationType="fade"
-      onRequestClose={onDismiss}
-      statusBarTranslucent
-    >
-      <Pressable style={alertStyles.backdrop} onPress={onDismiss}>
-        <Pressable
-          style={alertStyles.card}
-          onPress={(e) => e.stopPropagation()}
-        >
-          <View style={[alertStyles.iconCircle, { backgroundColor: m.bg }]}>
-            <Ionicons name={m.icon} size={30} color={m.color} />
-          </View>
-
-          <Text style={alertStyles.title}>{title}</Text>
-
-          {message ? <Text style={alertStyles.message}>{message}</Text> : null}
-
-          {checkboxLabel ? (
-            <Pressable
-              style={alertStyles.checkboxRow}
-              onPress={() => state.onCheckboxChange?.(!state.checkboxChecked)}
-            >
-              <View
-                style={[
-                  alertStyles.checkbox,
-                  state.checkboxChecked && alertStyles.checkboxChecked,
-                ]}
-              >
-                {state.checkboxChecked ? (
-                  <Ionicons name="checkmark" size={16} color="#FFFFFF" />
-                ) : null}
-              </View>
-              <Text style={alertStyles.checkboxLabel}>{checkboxLabel}</Text>
-            </Pressable>
-          ) : null}
-
-          <View
-            style={[
-              alertStyles.actions,
-              isStacked && alertStyles.actionsStacked,
-            ]}
+        transparent
+        visible={state.visible}
+        animationType="fade"
+        onRequestClose={onDismiss}
+        statusBarTranslucent
+      >
+        <Pressable style={alertStyles.backdrop} onPress={onDismiss}>
+          <Pressable
+            style={alertStyles.card}
+            onPress={(e) => e.stopPropagation()}
           >
-            {buttons.map((btn, idx) => {
-              const isDestructive = btn.style === "destructive";
-              const isCancel = btn.style === "cancel";
-              const isPrimary = !isDestructive && !isCancel;
-              const isDisabled =
-                isDestructive && !!checkboxLabel && !state.checkboxChecked;
+            <View style={[alertStyles.iconCircle, { backgroundColor: m.bg }]}>
+              <Ionicons name={m.icon} size={30} color={m.color} />
+            </View>
 
-              return (
-                <Pressable
-                  key={`${btn.text}-${idx}`}
-                  onPress={() => handlePress(btn)}
-                  disabled={isDisabled}
-                  style={({ pressed }) => [
-                    alertStyles.button,
-                    hasTwo && alertStyles.buttonHalf,
-                    isStacked && alertStyles.buttonFull,
-                    isCancel && alertStyles.buttonCancel,
-                    isDestructive && alertStyles.buttonDestructive,
-                    isPrimary && alertStyles.buttonPrimary,
-                    isDisabled && { opacity: 0.4 },
-                    pressed && !isDisabled && { opacity: 0.85 },
+            <Text style={alertStyles.title}>{title}</Text>
+
+            {message ? (
+              <Text style={alertStyles.message}>{message}</Text>
+            ) : null}
+
+            {checkboxLabel ? (
+              <Pressable
+                style={alertStyles.checkboxRow}
+                onPress={() => state.onCheckboxChange?.(!state.checkboxChecked)}
+              >
+                <View
+                  style={[
+                    alertStyles.checkbox,
+                    state.checkboxChecked && alertStyles.checkboxChecked,
                   ]}
                 >
-                  <Text
-                    style={[
-                      alertStyles.buttonText,
-                      isCancel && alertStyles.buttonTextCancel,
-                      isDestructive && alertStyles.buttonTextDestructive,
-                      isPrimary && alertStyles.buttonTextPrimary,
+                  {state.checkboxChecked ? (
+                    <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+                  ) : null}
+                </View>
+                <Text style={alertStyles.checkboxLabel}>{checkboxLabel}</Text>
+              </Pressable>
+            ) : null}
+
+            <View
+              style={[
+                alertStyles.actions,
+                isStacked && alertStyles.actionsStacked,
+              ]}
+            >
+              {buttons.map((btn, idx) => {
+                const isDestructive = btn.style === "destructive";
+                const isCancel = btn.style === "cancel";
+                const isPrimary = !isDestructive && !isCancel;
+                const isDisabled =
+                  isDestructive && !!checkboxLabel && !state.checkboxChecked;
+
+                return (
+                  <Pressable
+                    key={`${btn.text}-${idx}`}
+                    onPress={() => handlePress(btn)}
+                    disabled={isDisabled}
+                    style={({ pressed }) => [
+                      alertStyles.button,
+                      hasTwo && alertStyles.buttonHalf,
+                      isStacked && alertStyles.buttonFull,
+                      isCancel && alertStyles.buttonCancel,
+                      isDestructive && alertStyles.buttonDestructive,
+                      isPrimary && alertStyles.buttonPrimary,
+                      isDisabled && { opacity: 0.4 },
+                      pressed && !isDisabled && { opacity: 0.85 },
                     ]}
                   >
-                    {btn.text}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
+                    <Text
+                      style={[
+                        alertStyles.buttonText,
+                        isCancel && alertStyles.buttonTextCancel,
+                        isDestructive && alertStyles.buttonTextDestructive,
+                        isPrimary && alertStyles.buttonTextPrimary,
+                      ]}
+                    >
+                      {btn.text}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </Pressable>
         </Pressable>
-      </Pressable>
       </Modal>
     </DarkModeBoundary>
   );
@@ -1619,783 +1621,802 @@ export default function AddAccountScreen() {
   return (
     <DarkModeBoundary>
       <KeyboardAvoidingView
-      style={[styles.container, { paddingBottom: insets.bottom }]}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      keyboardVerticalOffset={0}
-    >
-      <ScrollView
-        style={styles.screenScroll}
-        contentContainerStyle={[
-          styles.screenContent,
-          { paddingBottom: Math.max(insets.bottom, 24) },
-        ]}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="none"
-        showsVerticalScrollIndicator={false}
-        bounces={false}
+        style={[styles.container, { paddingBottom: insets.bottom }]}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={0}
       >
-        {loading && (
-          <View style={styles.loadingOverlay}>
-            <View style={styles.loadingCard}>
-              <ActivityIndicator size="large" color="#1a73e8" />
-              <Text style={styles.loadingText}>Setting up your account...</Text>
-            </View>
-          </View>
-        )}
-
-        {step === 1 && (
-          <View>
-            <View style={styles.progressTrack}>
-              <View style={[styles.progressFill, { width: "50%" }]} />
-            </View>
-
-            <View style={styles.header}>
-              <Text style={styles.stepBadge}>STEP 1 OF 2</Text>
-              <Text style={styles.title}>Choose Setup Type</Text>
-              <Text style={styles.subtitle}>
-                Select an option that best fits your role to get started
-              </Text>
-            </View>
-
-            <View style={styles.tabSwitcher}>
-              <TouchableOpacity
-                style={[
-                  styles.tabButton,
-                  activeTab === "create" && styles.tabButtonActiveBlue,
-                ]}
-                onPress={() => setActiveTab("create")}
-                activeOpacity={0.8}
-              >
-                <Ionicons
-                  name="add-circle"
-                  size={16}
-                  color={activeTab === "create" ? "#1a73e8" : "#94a3b8"}
-                />
-                <Text
-                  style={[
-                    styles.tabButtonText,
-                    activeTab === "create" && styles.tabButtonTextActiveBlue,
-                  ]}
-                >
-                  Create New
+        <ScrollView
+          style={styles.screenScroll}
+          contentContainerStyle={[
+            styles.screenContent,
+            { paddingBottom: Math.max(insets.bottom, 24) },
+          ]}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="none"
+          showsVerticalScrollIndicator={false}
+          bounces={false}
+        >
+          {loading && (
+            <View style={styles.loadingOverlay}>
+              <View style={styles.loadingCard}>
+                <ActivityIndicator size="large" color="#1a73e8" />
+                <Text style={styles.loadingText}>
+                  Setting up your account...
                 </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.tabButton,
-                  activeTab === "invitations" && styles.tabButtonActivePurple,
-                ]}
-                onPress={() => setActiveTab("invitations")}
-                activeOpacity={0.8}
-              >
-                <Ionicons
-                  name="mail-open"
-                  size={16}
-                  color={activeTab === "invitations" ? "#7c3aed" : "#94a3b8"}
-                />
-                <Text
-                  style={[
-                    styles.tabButtonText,
-                    activeTab === "invitations" &&
-                      styles.tabButtonTextActivePurple,
-                  ]}
-                >
-                  Invitations
-                  {groupedInvitations.length > 0 && (
-                    <View style={styles.invitationBadge}>
-                      <Text style={styles.invitationBadgeText}>
-                        {groupedInvitations.length}
-                      </Text>
-                    </View>
-                  )}
-                </Text>
-              </TouchableOpacity>
-            </View>
-
-            {activeTab === "create" && (
-              <View style={styles.section}>
-                <View style={styles.optionsList}>
-                  {SETUP_OPTIONS.filter((o) => o.category === "create").map(
-                    (option) => (
-                      <TouchableOpacity
-                        key={option.id}
-                        style={styles.card}
-                        onPress={() => handleSelectOption(option)}
-                        activeOpacity={0.8}
-                      >
-                        <View style={styles.cardHeader}>
-                          <View
-                            style={[
-                              styles.cardIconContainer,
-                              { backgroundColor: option.iconBg },
-                            ]}
-                          >
-                            <Ionicons
-                              name={option.icon}
-                              size={24}
-                              color={option.iconColor}
-                            />
-                          </View>
-                          <View style={styles.cardHeaderInfo}>
-                            <Text style={styles.cardTitle}>{option.title}</Text>
-                            <View style={styles.cardBadgeRow}>
-                              <View
-                                style={[
-                                  styles.cardBadge,
-                                  { backgroundColor: option.badgeBg },
-                                ]}
-                              >
-                                <Text
-                                  style={[
-                                    styles.cardBadgeText,
-                                    { color: option.badgeColor },
-                                  ]}
-                                >
-                                  {option.badge}
-                                </Text>
-                              </View>
-                              {option.accessLevel && (
-                                <View style={styles.accessBadge}>
-                                  <Text style={styles.accessBadgeText}>
-                                    {option.accessLevel.toUpperCase()}
-                                  </Text>
-                                </View>
-                              )}
-                            </View>
-                          </View>
-                          <View style={styles.arrowCircle}>
-                            <Ionicons
-                              name="chevron-forward"
-                              size={16}
-                              color="#1a73e8"
-                            />
-                          </View>
-                        </View>
-
-                        <Text style={styles.cardDescription}>
-                          {option.description}
-                        </Text>
-                      </TouchableOpacity>
-                    ),
-                  )}
-                </View>
               </View>
-            )}
+            </View>
+          )}
 
-            {activeTab === "invitations" && (
-              <View style={styles.section}>
-                {invitationsLoading ? (
-                  <View style={styles.emptyStateContainer}>
-                    <ActivityIndicator size="small" color="#1a73e8" />
-                    <Text
-                      style={[styles.emptyStateSubtitle, { marginTop: 12 }]}
-                    >
-                      Loading invitations...
-                    </Text>
-                  </View>
-                ) : groupedInvitations.length === 0 ? (
-                  <View style={styles.emptyStateContainer}>
-                    <View style={styles.emptyStateIcon}>
-                      <Ionicons
-                        name="mail-open-outline"
-                        size={48}
-                        color="#cbd5e1"
-                      />
-                    </View>
-                    <Text style={styles.emptyStateTitle}>No Invitations</Text>
-                    <Text style={styles.emptyStateSubtitle}>
-                      You haven't received any invitations yet. Ask your society
-                      admin to send you an invitation.
-                    </Text>
-                  </View>
-                ) : (
-                  <View style={styles.invitationsContainer}>
-                    {uniqueApartments.map((apartment) => (
-                      <View key={apartment.name} style={styles.apartmentGroup}>
-                        <View style={styles.apartmentHeader}>
-                          <View style={styles.apartmentIconContainer}>
-                            <Ionicons
-                              name="business"
-                              size={20}
-                              color="#1a73e8"
-                            />
-                          </View>
-                          <Text style={styles.apartmentName}>
-                            {apartment.name}
-                          </Text>
-                          <View style={styles.invitationCountBadge}>
-                            <Text style={styles.invitationCountText}>
-                              {apartment.groups.length}
-                            </Text>
-                          </View>
-                        </View>
+          {step === 1 && (
+            <View>
+              <View style={styles.progressTrack}>
+                <View style={[styles.progressFill, { width: "50%" }]} />
+              </View>
 
-                        {apartment.groups.map((group) => {
-                          const isHome = isGroupHomeAccount(group);
-                          const primary = getPrimaryRole(group.roles);
-                          const isOwnership = primary === "ownership_transfer";
-                          const isAdmin = primary === "admin";
-                          const isStaff = primary === "staff_visibility";
+              <View style={styles.header}>
+                <Text style={styles.stepBadge}>STEP 1 OF 2</Text>
+                <Text style={styles.title}>Choose Setup Type</Text>
+                <Text style={styles.subtitle}>
+                  Select an option that best fits your role to get started
+                </Text>
+              </View>
 
-                          const inviterPhone =
-                            group.invited_by_phone || "Secretary";
+              <View style={styles.tabSwitcher}>
+                <TouchableOpacity
+                  style={[
+                    styles.tabButton,
+                    activeTab === "create" && styles.tabButtonActiveBlue,
+                  ]}
+                  onPress={() => setActiveTab("create")}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons
+                    name="add-circle"
+                    size={16}
+                    color={activeTab === "create" ? "#1a73e8" : "#94a3b8"}
+                  />
+                  <Text
+                    style={[
+                      styles.tabButtonText,
+                      activeTab === "create" && styles.tabButtonTextActiveBlue,
+                    ]}
+                  >
+                    Create New
+                  </Text>
+                </TouchableOpacity>
 
-                          // Default card = MEMBER (apartment) or TENANT (home).
-                          // Only used when the primary role is member_visibility;
-                          // the branches below override it for admin / ownership / staff.
-                          let optionCard: SetupOption = {
-                            id: "join_owner",
-                            title: isHome ? "Join as Tenant" : "Join as Member",
-                            badge: isHome ? "Tenant Access" : "Member Access",
-                            badgeColor: isHome ? "#b45309" : "#7c3aed",
-                            badgeBg: isHome ? "#fef3c7" : "#f3e8ff",
-                            description: isHome
-                              ? "Connect with this home to view your rent, payment history and notices. Tenant access does not include property finance."
-                              : "Connect with this society to view monthly maintenance dues, payment receipts & society notices.",
-                            icon: "key",
-                            iconColor: isHome ? "#b45309" : "#7c3aed",
-                            iconBg: isHome ? "#fef3c7" : "#f3e8ff",
-                            category: "join",
-                            accessLevel: "member",
-                          };
+                <TouchableOpacity
+                  style={[
+                    styles.tabButton,
+                    activeTab === "invitations" && styles.tabButtonActivePurple,
+                  ]}
+                  onPress={() => setActiveTab("invitations")}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons
+                    name="mail-open"
+                    size={16}
+                    color={activeTab === "invitations" ? "#7c3aed" : "#94a3b8"}
+                  />
+                  <Text
+                    style={[
+                      styles.tabButtonText,
+                      activeTab === "invitations" &&
+                        styles.tabButtonTextActivePurple,
+                    ]}
+                  >
+                    Invitations
+                    {groupedInvitations.length > 0 && (
+                      <View style={styles.invitationBadge}>
+                        <Text style={styles.invitationBadgeText}>
+                          {groupedInvitations.length}
+                        </Text>
+                      </View>
+                    )}
+                  </Text>
+                </TouchableOpacity>
+              </View>
 
-                          if (isOwnership) {
-                            optionCard = {
-                              id: "join_admin",
-                              title: "Become Account Owner",
-                              badge: "Ownership Transfer",
-                              badgeColor: "#b45309",
-                              badgeBg: "#fef3c7",
-                              description:
-                                "You've been invited to become the new owner of this account. Accepting will transfer full ownership to you — including property finance and settings.",
-                              icon: "swap-horizontal-outline",
-                              iconColor: "#b45309",
-                              iconBg: "#fef3c7",
-                              category: "join",
-                              accessLevel: "admin",
-                            };
-                          } else if (isAdmin) {
-                            optionCard = {
-                              id: "join_admin",
-                              title: "Join as Admin",
-                              badge: "Admin Access",
-                              badgeColor: "#1a73e8",
-                              badgeBg: "#e8f0fe",
-                              description:
-                                "Full access to manage members, staff, finances and property settings.",
-                              icon: "shield-checkmark-outline",
-                              iconColor: "#1a73e8",
-                              iconBg: "#e8f0fe",
-                              category: "join",
-                              accessLevel: "admin",
-                            };
-                          } else if (isStaff) {
-                            optionCard = {
-                              id: "join_staff_sweeper",
-                              title: "Join as Staff",
-                              badge: "Staff Access",
-                              badgeColor: "#059669",
-                              badgeBg: "#ecfdf5",
-                              description:
-                                "Track your daily tasks, attendance, and monthly salary payouts.",
-                              icon: "briefcase-outline",
-                              iconColor: "#059669",
-                              iconBg: "#ecfdf5",
-                              category: "join",
-                              accessLevel: "staff",
-                            };
-                          }
-
-                          const isMultiRole = group.roles.length > 1;
-                          const displayTitle = isMultiRole
-                            ? `Join as ${group.roles
-                                .map((r) => roleLabel(r, isHome))
-                                .join(" + ")}`
-                            : optionCard.title;
-                          const displayDescription = isMultiRole
-                            ? `You'll be granted ${group.roles
-                                .map((r) => roleLabel(r, isHome))
-                                .join(
-                                  " and ",
-                                )} access on this property at the same time.`
-                            : optionCard.description;
-
-                          return (
+              {activeTab === "create" && (
+                <View style={styles.section}>
+                  <View style={styles.optionsList}>
+                    {SETUP_OPTIONS.filter((o) => o.category === "create").map(
+                      (option) => (
+                        <TouchableOpacity
+                          key={option.id}
+                          style={styles.card}
+                          onPress={() => handleSelectOption(option)}
+                          activeOpacity={0.8}
+                        >
+                          <View style={styles.cardHeader}>
                             <View
-                              key={group.key}
                               style={[
-                                styles.invitationCard,
-                                isOwnership && styles.invitationCardOwnership,
+                                styles.cardIconContainer,
+                                { backgroundColor: option.iconBg },
                               ]}
                             >
-                              <View style={styles.invitationCardHeader}>
+                              <Ionicons
+                                name={option.icon}
+                                size={24}
+                                color={option.iconColor}
+                              />
+                            </View>
+                            <View style={styles.cardHeaderInfo}>
+                              <Text style={styles.cardTitle}>
+                                {option.title}
+                              </Text>
+                              <View style={styles.cardBadgeRow}>
                                 <View
                                   style={[
-                                    styles.invitationCardIcon,
-                                    { backgroundColor: optionCard.iconBg },
+                                    styles.cardBadge,
+                                    { backgroundColor: option.badgeBg },
                                   ]}
                                 >
-                                  <Ionicons
-                                    name={optionCard.icon}
-                                    size={22}
-                                    color={optionCard.iconColor}
-                                  />
-                                </View>
-                                <View style={styles.invitationCardInfo}>
-                                  <Text style={styles.invitationCardTitle}>
-                                    {displayTitle}
+                                  <Text
+                                    style={[
+                                      styles.cardBadgeText,
+                                      { color: option.badgeColor },
+                                    ]}
+                                  >
+                                    {option.badge}
                                   </Text>
-                                  <View style={styles.invitationBadgeRow}>
-                                    {group.roles.map((r) => {
-                                      const meta =
-                                        r === "admin"
-                                          ? {
-                                              label: "Admin",
-                                              bg: "#e8f0fe",
-                                              color: "#1a73e8",
-                                            }
-                                          : r === "member_visibility"
-                                            ? isHome
-                                              ? {
-                                                  label: "Tenant",
-                                                  bg: "#fef3c7",
-                                                  color: "#b45309",
-                                                }
-                                              : {
-                                                  label: "Member",
-                                                  bg: "#f3e8ff",
-                                                  color: "#7c3aed",
-                                                }
-                                            : r === "staff_visibility"
-                                              ? {
-                                                  label: "Staff",
-                                                  bg: "#ecfdf5",
-                                                  color: "#059669",
-                                                }
-                                              : {
-                                                  label: "Ownership",
-                                                  bg: "#fef3c7",
-                                                  color: "#b45309",
-                                                };
-                                      return (
-                                        <View
-                                          key={r}
-                                          style={[
-                                            styles.invitationRoleBadge,
-                                            { backgroundColor: meta.bg },
-                                          ]}
-                                        >
-                                          <Text
+                                </View>
+                                {option.accessLevel && (
+                                  <View style={styles.accessBadge}>
+                                    <Text style={styles.accessBadgeText}>
+                                      {option.accessLevel.toUpperCase()}
+                                    </Text>
+                                  </View>
+                                )}
+                              </View>
+                            </View>
+                            <View style={styles.arrowCircle}>
+                              <Ionicons
+                                name="chevron-forward"
+                                size={16}
+                                color="#1a73e8"
+                              />
+                            </View>
+                          </View>
+
+                          <Text style={styles.cardDescription}>
+                            {option.description}
+                          </Text>
+                        </TouchableOpacity>
+                      ),
+                    )}
+                  </View>
+                </View>
+              )}
+
+              {activeTab === "invitations" && (
+                <View style={styles.section}>
+                  {invitationsLoading ? (
+                    <View style={styles.emptyStateContainer}>
+                      <ActivityIndicator size="small" color="#1a73e8" />
+                      <Text
+                        style={[styles.emptyStateSubtitle, { marginTop: 12 }]}
+                      >
+                        Loading invitations...
+                      </Text>
+                    </View>
+                  ) : groupedInvitations.length === 0 ? (
+                    <View style={styles.emptyStateContainer}>
+                      <View style={styles.emptyStateIcon}>
+                        <Ionicons
+                          name="mail-open-outline"
+                          size={48}
+                          color="#cbd5e1"
+                        />
+                      </View>
+                      <Text style={styles.emptyStateTitle}>No Invitations</Text>
+                      <Text style={styles.emptyStateSubtitle}>
+                        You haven't received any invitations yet. Ask your
+                        society admin to send you an invitation.
+                      </Text>
+                    </View>
+                  ) : (
+                    <View style={styles.invitationsContainer}>
+                      {uniqueApartments.map((apartment) => (
+                        <View
+                          key={apartment.name}
+                          style={styles.apartmentGroup}
+                        >
+                          <View style={styles.apartmentHeader}>
+                            <View style={styles.apartmentIconContainer}>
+                              <Ionicons
+                                name="business"
+                                size={20}
+                                color="#1a73e8"
+                              />
+                            </View>
+                            <Text style={styles.apartmentName}>
+                              {apartment.name}
+                            </Text>
+                            <View style={styles.invitationCountBadge}>
+                              <Text style={styles.invitationCountText}>
+                                {apartment.groups.length}
+                              </Text>
+                            </View>
+                          </View>
+
+                          {apartment.groups.map((group) => {
+                            const isHome = isGroupHomeAccount(group);
+                            const primary = getPrimaryRole(group.roles);
+                            const isOwnership =
+                              primary === "ownership_transfer";
+                            const isAdmin = primary === "admin";
+                            const isStaff = primary === "staff_visibility";
+
+                            const inviterPhone =
+                              group.invited_by_phone || "Secretary";
+
+                            // Default card = MEMBER (apartment) or TENANT (home).
+                            // Only used when the primary role is member_visibility;
+                            // the branches below override it for admin / ownership / staff.
+                            let optionCard: SetupOption = {
+                              id: "join_owner",
+                              title: isHome
+                                ? "Join as Tenant"
+                                : "Join as Member",
+                              badge: isHome ? "Tenant Access" : "Member Access",
+                              badgeColor: isHome ? "#b45309" : "#7c3aed",
+                              badgeBg: isHome ? "#fef3c7" : "#f3e8ff",
+                              description: isHome
+                                ? "Connect with this home to view your rent, payment history and notices. Tenant access does not include property finance."
+                                : "Connect with this society to view monthly maintenance dues, payment receipts & society notices.",
+                              icon: "key",
+                              iconColor: isHome ? "#b45309" : "#7c3aed",
+                              iconBg: isHome ? "#fef3c7" : "#f3e8ff",
+                              category: "join",
+                              accessLevel: "member",
+                            };
+
+                            if (isOwnership) {
+                              optionCard = {
+                                id: "join_admin",
+                                title: "Become Account Owner",
+                                badge: "Ownership Transfer",
+                                badgeColor: "#b45309",
+                                badgeBg: "#fef3c7",
+                                description:
+                                  "You've been invited to become the new owner of this account. Accepting will transfer full ownership to you — including property finance and settings.",
+                                icon: "swap-horizontal-outline",
+                                iconColor: "#b45309",
+                                iconBg: "#fef3c7",
+                                category: "join",
+                                accessLevel: "admin",
+                              };
+                            } else if (isAdmin) {
+                              optionCard = {
+                                id: "join_admin",
+                                title: "Join as Admin",
+                                badge: "Admin Access",
+                                badgeColor: "#1a73e8",
+                                badgeBg: "#e8f0fe",
+                                description:
+                                  "Full access to manage members, staff, finances and property settings.",
+                                icon: "shield-checkmark-outline",
+                                iconColor: "#1a73e8",
+                                iconBg: "#e8f0fe",
+                                category: "join",
+                                accessLevel: "admin",
+                              };
+                            } else if (isStaff) {
+                              optionCard = {
+                                id: "join_staff_sweeper",
+                                title: "Join as Staff",
+                                badge: "Staff Access",
+                                badgeColor: "#059669",
+                                badgeBg: "#ecfdf5",
+                                description:
+                                  "Track your daily tasks, attendance, and monthly salary payouts.",
+                                icon: "briefcase-outline",
+                                iconColor: "#059669",
+                                iconBg: "#ecfdf5",
+                                category: "join",
+                                accessLevel: "staff",
+                              };
+                            }
+
+                            const isMultiRole = group.roles.length > 1;
+                            const displayTitle = isMultiRole
+                              ? `Join as ${group.roles
+                                  .map((r) => roleLabel(r, isHome))
+                                  .join(" + ")}`
+                              : optionCard.title;
+                            const displayDescription = isMultiRole
+                              ? `You'll be granted ${group.roles
+                                  .map((r) => roleLabel(r, isHome))
+                                  .join(
+                                    " and ",
+                                  )} access on this property at the same time.`
+                              : optionCard.description;
+
+                            return (
+                              <View
+                                key={group.key}
+                                style={[
+                                  styles.invitationCard,
+                                  isOwnership && styles.invitationCardOwnership,
+                                ]}
+                              >
+                                <View style={styles.invitationCardHeader}>
+                                  <View
+                                    style={[
+                                      styles.invitationCardIcon,
+                                      { backgroundColor: optionCard.iconBg },
+                                    ]}
+                                  >
+                                    <Ionicons
+                                      name={optionCard.icon}
+                                      size={22}
+                                      color={optionCard.iconColor}
+                                    />
+                                  </View>
+                                  <View style={styles.invitationCardInfo}>
+                                    <Text style={styles.invitationCardTitle}>
+                                      {displayTitle}
+                                    </Text>
+                                    <View style={styles.invitationBadgeRow}>
+                                      {group.roles.map((r) => {
+                                        const meta =
+                                          r === "admin"
+                                            ? {
+                                                label: "Admin",
+                                                bg: "#e8f0fe",
+                                                color: "#1a73e8",
+                                              }
+                                            : r === "member_visibility"
+                                              ? isHome
+                                                ? {
+                                                    label: "Tenant",
+                                                    bg: "#fef3c7",
+                                                    color: "#b45309",
+                                                  }
+                                                : {
+                                                    label: "Member",
+                                                    bg: "#f3e8ff",
+                                                    color: "#7c3aed",
+                                                  }
+                                              : r === "staff_visibility"
+                                                ? {
+                                                    label: "Staff",
+                                                    bg: "#ecfdf5",
+                                                    color: "#059669",
+                                                  }
+                                                : {
+                                                    label: "Ownership",
+                                                    bg: "#fef3c7",
+                                                    color: "#b45309",
+                                                  };
+                                        return (
+                                          <View
+                                            key={r}
                                             style={[
-                                              styles.invitationRoleBadgeText,
-                                              { color: meta.color },
+                                              styles.invitationRoleBadge,
+                                              { backgroundColor: meta.bg },
                                             ]}
                                           >
-                                            {meta.label}
-                                          </Text>
-                                        </View>
-                                      );
-                                    })}
-                                    <View style={styles.inviterPillSmall}>
-                                      <Ionicons
-                                        name="call"
-                                        size={10}
-                                        color="#1a73e8"
-                                      />
-                                      <Text style={styles.inviterPillTextSmall}>
-                                        Invited by: {inviterPhone}
-                                      </Text>
+                                            <Text
+                                              style={[
+                                                styles.invitationRoleBadgeText,
+                                                { color: meta.color },
+                                              ]}
+                                            >
+                                              {meta.label}
+                                            </Text>
+                                          </View>
+                                        );
+                                      })}
+                                      <View style={styles.inviterPillSmall}>
+                                        <Ionicons
+                                          name="call"
+                                          size={10}
+                                          color="#1a73e8"
+                                        />
+                                        <Text
+                                          style={styles.inviterPillTextSmall}
+                                        >
+                                          Invited by: {inviterPhone}
+                                        </Text>
+                                      </View>
                                     </View>
                                   </View>
                                 </View>
+
+                                <Text style={styles.invitationCardDescription}>
+                                  {displayDescription}
+                                </Text>
+
+                                <View style={styles.invitationActions}>
+                                  <TouchableOpacity
+                                    style={styles.invitationRejectButton}
+                                    onPress={() =>
+                                      setRejectingGrantKey(group.key)
+                                    }
+                                    activeOpacity={0.7}
+                                  >
+                                    <Ionicons
+                                      name="close-outline"
+                                      size={16}
+                                      color="#dc2626"
+                                    />
+                                    <Text style={styles.invitationRejectText}>
+                                      Reject
+                                    </Text>
+                                  </TouchableOpacity>
+
+                                  <TouchableOpacity
+                                    style={[
+                                      styles.invitationAcceptButton,
+                                      { backgroundColor: optionCard.iconColor },
+                                    ]}
+                                    onPress={() => showInvitationDetails(group)}
+                                    activeOpacity={0.8}
+                                  >
+                                    <Text style={styles.invitationAcceptText}>
+                                      {isOwnership
+                                        ? "View & Accept"
+                                        : "View Access"}
+                                    </Text>
+                                    <Ionicons
+                                      name="arrow-forward"
+                                      size={14}
+                                      color="#ffffff"
+                                    />
+                                  </TouchableOpacity>
+                                </View>
                               </View>
-
-                              <Text style={styles.invitationCardDescription}>
-                                {displayDescription}
-                              </Text>
-
-                              <View style={styles.invitationActions}>
-                                <TouchableOpacity
-                                  style={styles.invitationRejectButton}
-                                  onPress={() =>
-                                    setRejectingGrantKey(group.key)
-                                  }
-                                  activeOpacity={0.7}
-                                >
-                                  <Ionicons
-                                    name="close-outline"
-                                    size={16}
-                                    color="#dc2626"
-                                  />
-                                  <Text style={styles.invitationRejectText}>
-                                    Reject
-                                  </Text>
-                                </TouchableOpacity>
-
-                                <TouchableOpacity
-                                  style={[
-                                    styles.invitationAcceptButton,
-                                    { backgroundColor: optionCard.iconColor },
-                                  ]}
-                                  onPress={() => showInvitationDetails(group)}
-                                  activeOpacity={0.8}
-                                >
-                                  <Text style={styles.invitationAcceptText}>
-                                    {isOwnership
-                                      ? "View & Accept"
-                                      : "View Access"}
-                                  </Text>
-                                  <Ionicons
-                                    name="arrow-forward"
-                                    size={14}
-                                    color="#ffffff"
-                                  />
-                                </TouchableOpacity>
-                              </View>
-                            </View>
-                          );
-                        })}
-                      </View>
-                    ))}
-                  </View>
-                )}
-              </View>
-            )}
-          </View>
-        )}
-
-        {step === 2 && (
-          <View>
-            <View style={styles.progressTrack}>
-              <View style={[styles.progressFill, { width: "100%" }]} />
-            </View>
-
-            <TouchableOpacity
-              style={styles.backButton}
-              onPress={() => {
-                setError("");
-                setStep(1);
-              }}
-            >
-              <Ionicons name="arrow-back" size={18} color="#1a73e8" />
-              <Text style={styles.backButtonText}>Change setup type</Text>
-            </TouchableOpacity>
-
-            <View style={styles.header}>
-              <Text style={styles.stepBadge}>STEP 2 OF 2</Text>
-              <Text style={styles.title}>
-                {selectedType === "apartment"
-                  ? "Set up Apartment Society"
-                  : "Set up Personal Home"}
-              </Text>
-              <Text style={styles.subtitle}>
-                Add a photo and name for your property to finish setup
-              </Text>
-            </View>
-
-            <View style={styles.formCard}>
-              <View style={styles.photoSection}>
-                <TouchableOpacity
-                  style={styles.photoCircle}
-                  onPress={handlePickPhoto}
-                  activeOpacity={0.8}
-                >
-                  {photoUri ? (
-                    <Image
-                      source={{ uri: photoUri }}
-                      style={styles.photoImage}
-                    />
-                  ) : (
-                    <View style={styles.photoPlaceholder}>
-                      <Ionicons
-                        name={
-                          selectedType === "apartment"
-                            ? "business-outline"
-                            : "home-outline"
-                        }
-                        size={36}
-                        color="#1a73e8"
-                      />
-                      <View style={styles.cameraIconBadge}>
-                        <Ionicons name="camera" size={14} color="#fff" />
-                      </View>
+                            );
+                          })}
+                        </View>
+                      ))}
                     </View>
                   )}
-                </TouchableOpacity>
-
-                <View style={styles.photoActionButtons}>
-                  <TouchableOpacity
-                    onPress={handlePickPhoto}
-                    style={styles.photoButton}
-                  >
-                    <Text style={styles.photoButtonText}>
-                      {photoUri ? "Change Photo" : "Add Photo (optional)"}
-                    </Text>
-                  </TouchableOpacity>
-                  {photoUri && (
-                    <TouchableOpacity
-                      onPress={() => setPhotoUri(null)}
-                      style={styles.removePhotoButton}
-                    >
-                      <Text style={styles.removePhotoText}>Remove</Text>
-                    </TouchableOpacity>
-                  )}
                 </View>
-              </View>
-
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>
-                  {selectedType === "apartment"
-                    ? "Apartment / Society Name"
-                    : "Home Name"}
-                </Text>
-                <View style={styles.inputWrapper}>
-                  <Ionicons
-                    name={
-                      selectedType === "apartment"
-                        ? "business-outline"
-                        : "home-outline"
-                    }
-                    size={20}
-                    color="#666"
-                    style={styles.inputIcon}
-                  />
-                  <TextInput
-                    style={styles.input}
-                    placeholder={
-                      selectedType === "apartment"
-                        ? "e.g. Green Valley Apartments"
-                        : "e.g. My Home - Rajarhat"
-                    }
-                    placeholderTextColor="#999"
-                    value={name}
-                    onChangeText={(val) => {
-                      setName(val);
-                      setError("");
-                    }}
-                    autoFocus
-                    returnKeyType="done"
-                    blurOnSubmit={false}
-                    onSubmitEditing={handleCreate}
-                  />
-                  {name.length > 0 && (
-                    <TouchableOpacity
-                      onPress={() => setName("")}
-                      style={styles.clearInput}
-                    >
-                      <Ionicons name="close-circle" size={18} color="#aaa" />
-                    </TouchableOpacity>
-                  )}
-                </View>
-              </View>
-
-              {error ? (
-                <View style={styles.errorContainer}>
-                  <Ionicons name="alert-circle" size={16} color="#e53935" />
-                  <Text style={styles.error}>{error}</Text>
-                </View>
-              ) : null}
-
-              <TouchableOpacity
-                style={[
-                  styles.submitButton,
-                  loading && styles.submitButtonDisabled,
-                ]}
-                onPress={handleCreate}
-                disabled={loading}
-                activeOpacity={0.85}
-              >
-                {loading ? (
-                  <ActivityIndicator color="#fff" size="small" />
-                ) : (
-                  <>
-                    <Text style={styles.submitButtonText}>Create Account</Text>
-                    <Ionicons name="arrow-forward" size={18} color="#fff" />
-                  </>
-                )}
-              </TouchableOpacity>
+              )}
             </View>
-          </View>
-        )}
+          )}
 
-        {error && step !== 2 ? (
-          <View style={styles.errorContainer}>
-            <Ionicons name="alert-circle" size={16} color="#e53935" />
-            <Text style={styles.error}>{error}</Text>
-          </View>
-        ) : null}
-
-        <View style={styles.logoutSection}>
-          <View style={styles.logoutDivider} />
-
-          <TouchableOpacity
-            style={styles.logoutButton}
-            onPress={handleLogout}
-            disabled={loading || deletingAccount}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="log-out-outline" size={18} color="#dc2626" />
-            <Text style={styles.logoutButtonText}>Log out</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[
-              styles.deleteAccountButton,
-              (deletingAccount || loading) && { opacity: 0.5 },
-            ]}
-            onPress={handleDeleteAccount}
-            disabled={deletingAccount || loading}
-            activeOpacity={0.8}
-          >
-            {deletingAccount ? (
-              <ActivityIndicator size="small" color="#dc2626" />
-            ) : (
-              <Ionicons name="trash-outline" size={18} color="#dc2626" />
-            )}
-            <Text style={styles.deleteAccountButtonText}>
-              {deletingAccount ? "Deleting…" : "Delete Account"}
-            </Text>
-          </TouchableOpacity>
-
-          <Text style={styles.logoutHint}>
-            You can log in again anytime with your phone number.
-          </Text>
-        </View>
-      </ScrollView>
-
-      <Modal
-        visible={showPhotoOptions}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowPhotoOptions(false)}
-      >
-        <Pressable
-          style={styles.modalBackdrop}
-          onPress={() => setShowPhotoOptions(false)}
-        >
-          <Pressable style={styles.photoOptionsModal} onPress={() => {}}>
-            <View style={styles.modalHandle} />
-            <Text style={styles.photoOptionsTitle}>Upload Photo</Text>
-            <Text style={styles.photoOptionsSubtitle}>
-              Choose how you want to add a photo
-            </Text>
-
-            <TouchableOpacity
-              style={styles.photoOptionButton}
-              onPress={takePhoto}
-              activeOpacity={0.7}
-            >
-              <View style={styles.photoOptionIcon}>
-                <Ionicons name="camera" size={24} color="#1a73e8" />
+          {step === 2 && (
+            <View>
+              <View style={styles.progressTrack}>
+                <View style={[styles.progressFill, { width: "100%" }]} />
               </View>
-              <View style={styles.photoOptionTextContainer}>
-                <Text style={styles.photoOptionTitle}>Take Photo</Text>
-                <Text style={styles.photoOptionDescription}>
-                  Capture a photo using your camera
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color="#ccc" />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.photoOptionButton}
-              onPress={choosePhoto}
-              activeOpacity={0.7}
-            >
-              <View
-                style={[styles.photoOptionIcon, { backgroundColor: "#ecfdf5" }]}
-              >
-                <Ionicons name="images" size={24} color="#059669" />
-              </View>
-              <View style={styles.photoOptionTextContainer}>
-                <Text style={styles.photoOptionTitle}>Choose from Gallery</Text>
-                <Text style={styles.photoOptionDescription}>
-                  Select a photo from your device
-                </Text>
-              </View>
-              <Ionicons name="chevron-forward" size={20} color="#ccc" />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.photoOptionsCancel}
-              onPress={() => setShowPhotoOptions(false)}
-              activeOpacity={0.7}
-            >
-              <Text style={styles.photoOptionsCancelText}>Cancel</Text>
-            </TouchableOpacity>
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      <PhotoAdjustModal
-        visible={showAdjustModal}
-        image={rawImage}
-        onCancel={handleAdjustCancel}
-        onConfirm={handleAdjustConfirm}
-      />
-
-      {renderAccessInfoModal()}
-
-      <Modal
-        visible={rejectingGrantKey !== null}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setRejectingGrantKey(null)}
-      >
-        <Pressable
-          style={styles.modalBackdropCenter}
-          onPress={() => setRejectingGrantKey(null)}
-        >
-          <Pressable style={styles.modalCardCenter} onPress={() => {}}>
-            <View style={styles.modalIconCircle}>
-              <Ionicons name="close-circle" size={36} color="#dc2626" />
-            </View>
-
-            <Text style={styles.modalTitle}>Reject Invitation?</Text>
-            <Text style={styles.modalMessage}>
-              {(() => {
-                const g = groupedInvitations.find(
-                  (x) => x.key === rejectingGrantKey,
-                );
-                if (g && g.roles.length > 1) {
-                  const isHome = isGroupHomeAccount(g);
-                  return `Are you sure you want to reject this invitation? You'll lose the ${g.roles
-                    .map((r) => roleLabel(r, isHome))
-                    .join(" and ")} access for this property.`;
-                }
-                return "Are you sure you want to reject this invitation? You will no longer be able to join this property using this invite.";
-              })()}
-            </Text>
-
-            <View style={styles.modalButtonRow}>
-              <TouchableOpacity
-                style={styles.modalCancelButton}
-                onPress={() => setRejectingGrantKey(null)}
-                activeOpacity={0.8}
-              >
-                <Text style={styles.modalCancelText}>Cancel</Text>
-              </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.modalConfirmButton}
+                style={styles.backButton}
                 onPress={() => {
+                  setError("");
+                  setStep(1);
+                }}
+              >
+                <Ionicons name="arrow-back" size={18} color="#1a73e8" />
+                <Text style={styles.backButtonText}>Change setup type</Text>
+              </TouchableOpacity>
+
+              <View style={styles.header}>
+                <Text style={styles.stepBadge}>STEP 2 OF 2</Text>
+                <Text style={styles.title}>
+                  {selectedType === "apartment"
+                    ? "Set up Apartment Society"
+                    : "Set up Personal Home"}
+                </Text>
+                <Text style={styles.subtitle}>
+                  Add a photo and name for your property to finish setup
+                </Text>
+              </View>
+
+              <View style={styles.formCard}>
+                <View style={styles.photoSection}>
+                  <TouchableOpacity
+                    style={styles.photoCircle}
+                    onPress={handlePickPhoto}
+                    activeOpacity={0.8}
+                  >
+                    {photoUri ? (
+                      <Image
+                        source={{ uri: photoUri }}
+                        style={styles.photoImage}
+                      />
+                    ) : (
+                      <View style={styles.photoPlaceholder}>
+                        <Ionicons
+                          name={
+                            selectedType === "apartment"
+                              ? "business-outline"
+                              : "home-outline"
+                          }
+                          size={36}
+                          color="#1a73e8"
+                        />
+                        <View style={styles.cameraIconBadge}>
+                          <Ionicons name="camera" size={14} color="#fff" />
+                        </View>
+                      </View>
+                    )}
+                  </TouchableOpacity>
+
+                  <View style={styles.photoActionButtons}>
+                    <TouchableOpacity
+                      onPress={handlePickPhoto}
+                      style={styles.photoButton}
+                    >
+                      <Text style={styles.photoButtonText}>
+                        {photoUri ? "Change Photo" : "Add Photo (optional)"}
+                      </Text>
+                    </TouchableOpacity>
+                    {photoUri && (
+                      <TouchableOpacity
+                        onPress={() => setPhotoUri(null)}
+                        style={styles.removePhotoButton}
+                      >
+                        <Text style={styles.removePhotoText}>Remove</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </View>
+
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>
+                    {selectedType === "apartment"
+                      ? "Apartment / Society Name"
+                      : "Home Name"}
+                  </Text>
+                  <View style={styles.inputWrapper}>
+                    <Ionicons
+                      name={
+                        selectedType === "apartment"
+                          ? "business-outline"
+                          : "home-outline"
+                      }
+                      size={20}
+                      color="#666"
+                      style={styles.inputIcon}
+                    />
+                    <TextInput
+                      style={styles.input}
+                      placeholder={
+                        selectedType === "apartment"
+                          ? "e.g. Green Valley Apartments"
+                          : "e.g. My Home - Rajarhat"
+                      }
+                      placeholderTextColor="#999"
+                      value={name}
+                      onChangeText={(val) => {
+                        setName(val);
+                        setError("");
+                      }}
+                      autoFocus
+                      returnKeyType="done"
+                      blurOnSubmit={false}
+                      onSubmitEditing={handleCreate}
+                    />
+                    {name.length > 0 && (
+                      <TouchableOpacity
+                        onPress={() => setName("")}
+                        style={styles.clearInput}
+                      >
+                        <Ionicons name="close-circle" size={18} color="#aaa" />
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                </View>
+
+                {error ? (
+                  <View style={styles.errorContainer}>
+                    <Ionicons name="alert-circle" size={16} color="#e53935" />
+                    <Text style={styles.error}>{error}</Text>
+                  </View>
+                ) : null}
+
+                <TouchableOpacity
+                  style={[
+                    styles.submitButton,
+                    loading && styles.submitButtonDisabled,
+                  ]}
+                  onPress={handleCreate}
+                  disabled={loading}
+                  activeOpacity={0.85}
+                >
+                  {loading ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <>
+                      <Text style={styles.submitButtonText}>
+                        Create Account
+                      </Text>
+                      <Ionicons name="arrow-forward" size={18} color="#fff" />
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
+          {error && step !== 2 ? (
+            <View style={styles.errorContainer}>
+              <Ionicons name="alert-circle" size={16} color="#e53935" />
+              <Text style={styles.error}>{error}</Text>
+            </View>
+          ) : null}
+
+          <View style={styles.logoutSection}>
+            <View style={styles.logoutDivider} />
+
+            <TouchableOpacity
+              style={styles.logoutButton}
+              onPress={handleLogout}
+              disabled={loading || deletingAccount}
+              activeOpacity={0.8}
+            >
+              <Ionicons name="log-out-outline" size={18} color="#dc2626" />
+              <Text style={styles.logoutButtonText}>Log out</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.deleteAccountButton,
+                (deletingAccount || loading) && { opacity: 0.5 },
+              ]}
+              onPress={handleDeleteAccount}
+              disabled={deletingAccount || loading}
+              activeOpacity={0.8}
+            >
+              {deletingAccount ? (
+                <ActivityIndicator size="small" color="#dc2626" />
+              ) : (
+                <Ionicons name="trash-outline" size={18} color="#dc2626" />
+              )}
+              <Text style={styles.deleteAccountButtonText}>
+                {deletingAccount ? "Deleting…" : "Delete Account"}
+              </Text>
+            </TouchableOpacity>
+
+            <Text style={styles.logoutHint}>
+              You can log in again anytime with your phone number.
+            </Text>
+          </View>
+        </ScrollView>
+
+        <Modal
+          visible={showPhotoOptions}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowPhotoOptions(false)}
+        >
+          <Pressable
+            style={styles.modalBackdrop}
+            onPress={() => setShowPhotoOptions(false)}
+          >
+            <Pressable style={styles.photoOptionsModal} onPress={() => {}}>
+              <View style={styles.modalHandle} />
+              <Text style={styles.photoOptionsTitle}>Upload Photo</Text>
+              <Text style={styles.photoOptionsSubtitle}>
+                Choose how you want to add a photo
+              </Text>
+
+              <TouchableOpacity
+                style={styles.photoOptionButton}
+                onPress={takePhoto}
+                activeOpacity={0.7}
+              >
+                <View style={styles.photoOptionIcon}>
+                  <Ionicons name="camera" size={24} color="#1a73e8" />
+                </View>
+                <View style={styles.photoOptionTextContainer}>
+                  <Text style={styles.photoOptionTitle}>Take Photo</Text>
+                  <Text style={styles.photoOptionDescription}>
+                    Capture a photo using your camera
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color="#ccc" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.photoOptionButton}
+                onPress={choosePhoto}
+                activeOpacity={0.7}
+              >
+                <View
+                  style={[
+                    styles.photoOptionIcon,
+                    { backgroundColor: "#ecfdf5" },
+                  ]}
+                >
+                  <Ionicons name="images" size={24} color="#059669" />
+                </View>
+                <View style={styles.photoOptionTextContainer}>
+                  <Text style={styles.photoOptionTitle}>
+                    Choose from Gallery
+                  </Text>
+                  <Text style={styles.photoOptionDescription}>
+                    Select a photo from your device
+                  </Text>
+                </View>
+                <Ionicons name="chevron-forward" size={20} color="#ccc" />
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.photoOptionsCancel}
+                onPress={() => setShowPhotoOptions(false)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.photoOptionsCancelText}>Cancel</Text>
+              </TouchableOpacity>
+            </Pressable>
+          </Pressable>
+        </Modal>
+
+        <PhotoAdjustModal
+          visible={showAdjustModal}
+          image={rawImage}
+          onCancel={handleAdjustCancel}
+          onConfirm={handleAdjustConfirm}
+        />
+
+        {renderAccessInfoModal()}
+
+        <Modal
+          visible={rejectingGrantKey !== null}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setRejectingGrantKey(null)}
+        >
+          <Pressable
+            style={styles.modalBackdropCenter}
+            onPress={() => setRejectingGrantKey(null)}
+          >
+            <Pressable style={styles.modalCardCenter} onPress={() => {}}>
+              <View style={styles.modalIconCircle}>
+                <Ionicons name="close-circle" size={36} color="#dc2626" />
+              </View>
+
+              <Text style={styles.modalTitle}>Reject Invitation?</Text>
+              <Text style={styles.modalMessage}>
+                {(() => {
                   const g = groupedInvitations.find(
                     (x) => x.key === rejectingGrantKey,
                   );
-                  if (g) handleRejectGroup(g);
-                }}
-                activeOpacity={0.8}
-              >
-                <Ionicons name="trash-outline" size={14} color="#ffffff" />
-                <Text style={styles.modalConfirmText}>Yes, Reject</Text>
-              </TouchableOpacity>
-            </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
+                  if (g && g.roles.length > 1) {
+                    const isHome = isGroupHomeAccount(g);
+                    return `Are you sure you want to reject this invitation? You'll lose the ${g.roles
+                      .map((r) => roleLabel(r, isHome))
+                      .join(" and ")} access for this property.`;
+                  }
+                  return "Are you sure you want to reject this invitation? You will no longer be able to join this property using this invite.";
+                })()}
+              </Text>
 
-      <AppAlert state={alertState} onDismiss={dismissAlert} />
+              <View style={styles.modalButtonRow}>
+                <TouchableOpacity
+                  style={styles.modalCancelButton}
+                  onPress={() => setRejectingGrantKey(null)}
+                  activeOpacity={0.8}
+                >
+                  <Text style={styles.modalCancelText}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.modalConfirmButton}
+                  onPress={() => {
+                    const g = groupedInvitations.find(
+                      (x) => x.key === rejectingGrantKey,
+                    );
+                    if (g) handleRejectGroup(g);
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="trash-outline" size={14} color="#ffffff" />
+                  <Text style={styles.modalConfirmText}>Yes, Reject</Text>
+                </TouchableOpacity>
+              </View>
+            </Pressable>
+          </Pressable>
+        </Modal>
+
+        <AppAlert state={alertState} onDismiss={dismissAlert} />
       </KeyboardAvoidingView>
     </DarkModeBoundary>
   );

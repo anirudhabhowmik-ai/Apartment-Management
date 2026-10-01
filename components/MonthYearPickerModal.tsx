@@ -40,93 +40,97 @@ export default function MonthYearPickerModal({
   return (
     <DarkModeBoundary>
       <Modal
-      transparent
-      animationType="fade"
-      visible={visible}
-      onRequestClose={onClose}
-    >
-      <View style={styles.overlay}>
-        <View style={styles.modal}>
-          <TouchableOpacity
-            onPress={() => {
-              setYearStart(Math.floor(selectedYear / 12) * 12);
-              setShowYears(!showYears);
-            }}
-          >
-            <Text style={styles.yearTitle}>{selectedYear}</Text>
-          </TouchableOpacity>
-          {showYears ? (
-            <>
-              <View style={styles.yearNavigation}>
-                <TouchableOpacity onPress={() => setYearStart(yearStart - 12)}>
-                  <Text style={styles.navigationText}>Earlier</Text>
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => setYearStart(yearStart + 12)}>
-                  <Text style={styles.navigationText}>Later</Text>
-                </TouchableOpacity>
-              </View>
+        transparent
+        animationType="fade"
+        visible={visible}
+        onRequestClose={onClose}
+      >
+        <View style={styles.overlay}>
+          <View style={styles.modal}>
+            <TouchableOpacity
+              onPress={() => {
+                setYearStart(Math.floor(selectedYear / 12) * 12);
+                setShowYears(!showYears);
+              }}
+            >
+              <Text style={styles.yearTitle}>{selectedYear}</Text>
+            </TouchableOpacity>
+            {showYears ? (
+              <>
+                <View style={styles.yearNavigation}>
+                  <TouchableOpacity
+                    onPress={() => setYearStart(yearStart - 12)}
+                  >
+                    <Text style={styles.navigationText}>Earlier</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    onPress={() => setYearStart(yearStart + 12)}
+                  >
+                    <Text style={styles.navigationText}>Later</Text>
+                  </TouchableOpacity>
+                </View>
+                <View style={styles.grid}>
+                  {Array.from(
+                    { length: 12 },
+                    (_, index) => yearStart + index,
+                  ).map((year) => (
+                    <TouchableOpacity
+                      key={year}
+                      style={[
+                        styles.year,
+                        year === selectedYear && styles.selected,
+                      ]}
+                      onPress={() => {
+                        setSelectedYear(year);
+                        setShowYears(false);
+                      }}
+                    >
+                      <Text
+                        style={[
+                          styles.itemText,
+                          year === selectedYear && styles.selectedText,
+                        ]}
+                      >
+                        {year}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </>
+            ) : (
               <View style={styles.grid}>
-                {Array.from(
-                  { length: 12 },
-                  (_, index) => yearStart + index,
-                ).map((year) => (
-                  <TouchableOpacity
-                    key={year}
-                    style={[
-                      styles.year,
-                      year === selectedYear && styles.selected,
-                    ]}
-                    onPress={() => {
-                      setSelectedYear(year);
-                      setShowYears(false);
-                    }}
-                  >
-                    <Text
+                {MONTHS.map((month, index) => {
+                  const monthValue = `${selectedYear}-${String(index + 1).padStart(2, "0")}`;
+                  return (
+                    <TouchableOpacity
+                      key={month}
                       style={[
-                        styles.itemText,
-                        year === selectedYear && styles.selectedText,
+                        styles.month,
+                        monthValue === value && styles.selected,
                       ]}
+                      onPress={() => {
+                        onSelect(monthValue);
+                        onClose();
+                      }}
                     >
-                      {year}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
+                      <Text
+                        style={[
+                          styles.itemText,
+                          monthValue === value && styles.selectedText,
+                        ]}
+                      >
+                        {month}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
-            </>
-          ) : (
-            <View style={styles.grid}>
-              {MONTHS.map((month, index) => {
-                const monthValue = `${selectedYear}-${String(index + 1).padStart(2, "0")}`;
-                return (
-                  <TouchableOpacity
-                    key={month}
-                    style={[
-                      styles.month,
-                      monthValue === value && styles.selected,
-                    ]}
-                    onPress={() => {
-                      onSelect(monthValue);
-                      onClose();
-                    }}
-                  >
-                    <Text
-                      style={[
-                        styles.itemText,
-                        monthValue === value && styles.selectedText,
-                      ]}
-                    >
-                      {month}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          )}
-          <TouchableOpacity style={styles.closeButton} onPress={onClose}>
-            <Text style={styles.closeText}>Cancel</Text>
-          </TouchableOpacity>
+            )}
+            <TouchableOpacity style={styles.closeButton} onPress={onClose}>
+              <Text style={styles.closeText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
       </Modal>
     </DarkModeBoundary>
   );

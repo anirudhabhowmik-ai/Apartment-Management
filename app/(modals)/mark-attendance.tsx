@@ -486,201 +486,201 @@ export default function MarkAttendanceScreen() {
   return (
     <DarkModeBoundary>
       <KeyboardAvoidingView
-      style={styles.flexOne}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
-    >
-      <Stack.Screen options={{ title: "Staff Attendance" }} />
-
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={[
-          styles.container,
-          { paddingBottom: Math.max(insets.bottom, 24) + 80 },
-        ]}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="none"
-        showsVerticalScrollIndicator={false}
+        style={styles.flexOne}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
       >
-        <Text style={styles.memberName}>{member.name}</Text>
-        <Text style={styles.monthTitle}>{formatMonth(attendanceMonth)}</Text>
+        <Stack.Screen options={{ title: "Staff Attendance" }} />
 
-        {!editing && (
-          <View style={styles.salaryTooltipRow} pointerEvents="none">
-            <View style={styles.salaryTooltip}>
-              <Text style={styles.salaryTooltipText}>
-                Edit calculated salary manually
-              </Text>
-              <View style={styles.salaryTooltipArrow} />
-            </View>
-          </View>
-        )}
-
-        <View style={styles.summaryRow}>
-          <View style={styles.summaryCol}>
-            <Text style={styles.summaryLabel}>Paid days</Text>
-            <Text style={styles.summaryValue}>
-              {paidDays} / {totalDays}
-            </Text>
-          </View>
-
-          <View style={styles.summaryDivider} />
-
-          <View style={styles.salaryCol}>
-            <Text style={styles.summaryLabel}>Calculated salary</Text>
-            <View style={styles.salaryEditRow}>
-              {editing ? (
-                <>
-                  <View style={styles.salaryInputWrap}>
-                    <Text style={styles.salaryCurrency}>₹</Text>
-                    <TextInput
-                      ref={inputRef}
-                      style={styles.summaryValueInput}
-                      keyboardType="numeric"
-                      value={calculatedSalaryText}
-                      onChangeText={handleSalaryTextChange}
-                      returnKeyType="done"
-                      onSubmitEditing={submitSalaryEdit}
-                      autoFocus
-                      selectTextOnFocus
-                      numberOfLines={1}
-                    />
-                  </View>
-                  <TouchableOpacity
-                    style={styles.salarySubmitButton}
-                    onPress={submitSalaryEdit}
-                    activeOpacity={0.75}
-                    accessibilityRole="button"
-                    accessibilityLabel="Submit salary edit"
-                  >
-                    <Ionicons name="checkmark" size={20} color="#fff" />
-                  </TouchableOpacity>
-                </>
-              ) : (
-                <>
-                  <View style={styles.salaryAmountWrap}>
-                    <Text
-                      style={styles.summaryValue}
-                      numberOfLines={1}
-                      adjustsFontSizeToFit
-                      minimumFontScale={0.65}
-                    >
-                      ₹{calculatedSalaryText || 0}
-                    </Text>
-                  </View>
-                  <TouchableOpacity
-                    style={styles.salaryEditButton}
-                    onPress={startEditingSalary}
-                    activeOpacity={0.75}
-                    accessibilityRole="button"
-                    accessibilityLabel="Edit calculated salary manually"
-                  >
-                    <Ionicons name="pencil" size={15} color="#1a73e8" />
-                    <Text style={styles.salaryEditButtonText}>Edit</Text>
-                  </TouchableOpacity>
-                </>
-              )}
-            </View>
-          </View>
-        </View>
-
-        <Text style={styles.calcHint}>
-          {manualOverride
-            ? "Custom amount set. Change a day status to revert to auto."
-            : "Salary is calculated automatically from attendance."}
-        </Text>
-
-        <Text style={styles.sectionLabel}>Select a day</Text>
-
-        <View style={styles.calendar}>
-          {Array.from({ length: totalDays }, (_, i) => i + 1).map((day) => {
-            const status = getStatus(day);
-            const selected = selectedDay === day;
-
-            return (
-              <TouchableOpacity
-                key={day}
-                style={[
-                  styles.day,
-                  styles[
-                    `day${status}` as
-                      | "daypresent"
-                      | "dayabsent"
-                      | "dayholiday"
-                      | "dayweekend"
-                  ],
-                  selected && styles.selectedDay,
-                ]}
-                onPress={() => setSelectedDay(day)}
-                activeOpacity={0.75}
-              >
-                <Text style={styles.dayNumber}>{day}</Text>
-                <Text style={styles.dayStatus}>
-                  {status === "present"
-                    ? "P"
-                    : status === "absent"
-                      ? "A"
-                      : status === "holiday"
-                        ? "H"
-                        : "W"}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-
-        <Text style={styles.sectionLabel}>
-          Day {selectedDay} — {getStatus(selectedDay)}
-        </Text>
-
-        <View style={styles.statusOptions}>
-          {STATUS_OPTIONS.map((status) => {
-            const isActive = getStatus(selectedDay) === status;
-            return (
-              <TouchableOpacity
-                key={status}
-                style={[
-                  styles.statusButton,
-                  isActive && styles.statusButtonSelected,
-                ]}
-                onPress={() => setDayStatus(status)}
-                activeOpacity={0.75}
-              >
-                <Text
-                  style={[
-                    styles.statusButtonText,
-                    isActive && styles.statusButtonTextSelected,
-                  ]}
-                >
-                  {status}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-        </View>
-
-        <TouchableOpacity
-          style={[styles.saveButton, saving && styles.saveButtonDisabled]}
-          onPress={handleSave}
-          disabled={saving}
-          activeOpacity={0.8}
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={[
+            styles.container,
+            { paddingBottom: Math.max(insets.bottom, 24) + 80 },
+          ]}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="none"
+          showsVerticalScrollIndicator={false}
         >
-          {saving ? (
-            <ActivityIndicator color="#fff" size="small" />
-          ) : (
-            <>
-              <Ionicons
-                name="checkmark-circle-outline"
-                size={19}
-                color="#fff"
-              />
-              <Text style={styles.saveButtonText}>Save Attendance</Text>
-            </>
-          )}
-        </TouchableOpacity>
+          <Text style={styles.memberName}>{member.name}</Text>
+          <Text style={styles.monthTitle}>{formatMonth(attendanceMonth)}</Text>
 
-        <View style={styles.bottomSpace} />
-      </ScrollView>
+          {!editing && (
+            <View style={styles.salaryTooltipRow} pointerEvents="none">
+              <View style={styles.salaryTooltip}>
+                <Text style={styles.salaryTooltipText}>
+                  Edit calculated salary manually
+                </Text>
+                <View style={styles.salaryTooltipArrow} />
+              </View>
+            </View>
+          )}
+
+          <View style={styles.summaryRow}>
+            <View style={styles.summaryCol}>
+              <Text style={styles.summaryLabel}>Paid days</Text>
+              <Text style={styles.summaryValue}>
+                {paidDays} / {totalDays}
+              </Text>
+            </View>
+
+            <View style={styles.summaryDivider} />
+
+            <View style={styles.salaryCol}>
+              <Text style={styles.summaryLabel}>Calculated salary</Text>
+              <View style={styles.salaryEditRow}>
+                {editing ? (
+                  <>
+                    <View style={styles.salaryInputWrap}>
+                      <Text style={styles.salaryCurrency}>₹</Text>
+                      <TextInput
+                        ref={inputRef}
+                        style={styles.summaryValueInput}
+                        keyboardType="numeric"
+                        value={calculatedSalaryText}
+                        onChangeText={handleSalaryTextChange}
+                        returnKeyType="done"
+                        onSubmitEditing={submitSalaryEdit}
+                        autoFocus
+                        selectTextOnFocus
+                        numberOfLines={1}
+                      />
+                    </View>
+                    <TouchableOpacity
+                      style={styles.salarySubmitButton}
+                      onPress={submitSalaryEdit}
+                      activeOpacity={0.75}
+                      accessibilityRole="button"
+                      accessibilityLabel="Submit salary edit"
+                    >
+                      <Ionicons name="checkmark" size={20} color="#fff" />
+                    </TouchableOpacity>
+                  </>
+                ) : (
+                  <>
+                    <View style={styles.salaryAmountWrap}>
+                      <Text
+                        style={styles.summaryValue}
+                        numberOfLines={1}
+                        adjustsFontSizeToFit
+                        minimumFontScale={0.65}
+                      >
+                        ₹{calculatedSalaryText || 0}
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      style={styles.salaryEditButton}
+                      onPress={startEditingSalary}
+                      activeOpacity={0.75}
+                      accessibilityRole="button"
+                      accessibilityLabel="Edit calculated salary manually"
+                    >
+                      <Ionicons name="pencil" size={15} color="#1a73e8" />
+                      <Text style={styles.salaryEditButtonText}>Edit</Text>
+                    </TouchableOpacity>
+                  </>
+                )}
+              </View>
+            </View>
+          </View>
+
+          <Text style={styles.calcHint}>
+            {manualOverride
+              ? "Custom amount set. Change a day status to revert to auto."
+              : "Salary is calculated automatically from attendance."}
+          </Text>
+
+          <Text style={styles.sectionLabel}>Select a day</Text>
+
+          <View style={styles.calendar}>
+            {Array.from({ length: totalDays }, (_, i) => i + 1).map((day) => {
+              const status = getStatus(day);
+              const selected = selectedDay === day;
+
+              return (
+                <TouchableOpacity
+                  key={day}
+                  style={[
+                    styles.day,
+                    styles[
+                      `day${status}` as
+                        | "daypresent"
+                        | "dayabsent"
+                        | "dayholiday"
+                        | "dayweekend"
+                    ],
+                    selected && styles.selectedDay,
+                  ]}
+                  onPress={() => setSelectedDay(day)}
+                  activeOpacity={0.75}
+                >
+                  <Text style={styles.dayNumber}>{day}</Text>
+                  <Text style={styles.dayStatus}>
+                    {status === "present"
+                      ? "P"
+                      : status === "absent"
+                        ? "A"
+                        : status === "holiday"
+                          ? "H"
+                          : "W"}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          <Text style={styles.sectionLabel}>
+            Day {selectedDay} — {getStatus(selectedDay)}
+          </Text>
+
+          <View style={styles.statusOptions}>
+            {STATUS_OPTIONS.map((status) => {
+              const isActive = getStatus(selectedDay) === status;
+              return (
+                <TouchableOpacity
+                  key={status}
+                  style={[
+                    styles.statusButton,
+                    isActive && styles.statusButtonSelected,
+                  ]}
+                  onPress={() => setDayStatus(status)}
+                  activeOpacity={0.75}
+                >
+                  <Text
+                    style={[
+                      styles.statusButtonText,
+                      isActive && styles.statusButtonTextSelected,
+                    ]}
+                  >
+                    {status}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
+          <TouchableOpacity
+            style={[styles.saveButton, saving && styles.saveButtonDisabled]}
+            onPress={handleSave}
+            disabled={saving}
+            activeOpacity={0.8}
+          >
+            {saving ? (
+              <ActivityIndicator color="#fff" size="small" />
+            ) : (
+              <>
+                <Ionicons
+                  name="checkmark-circle-outline"
+                  size={19}
+                  color="#fff"
+                />
+                <Text style={styles.saveButtonText}>Save Attendance</Text>
+              </>
+            )}
+          </TouchableOpacity>
+
+          <View style={styles.bottomSpace} />
+        </ScrollView>
       </KeyboardAvoidingView>
     </DarkModeBoundary>
   );

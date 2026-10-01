@@ -24,6 +24,7 @@ import {
   AccountSwitcherHost,
   AccountSwitcherTrigger,
 } from "../../components/AccountSwitcher";
+import { DarkModeBoundary } from "../../components/DarkModeBoundary";
 import { useAccounts } from "../../hooks/useAccounts";
 import {
   NotificationItem,
@@ -31,9 +32,8 @@ import {
 } from "../../hooks/useNotifications";
 import { useUserRole } from "../../hooks/useUserRole";
 import { useAccountStore } from "../../store/accountStore";
-import { useAuthStore } from "../../store/useAuthStore";
 import { useThemeStore } from "../../store/themeStore";
-import { DarkModeBoundary } from "../../components/DarkModeBoundary";
+import { useAuthStore } from "../../store/useAuthStore";
 
 const API_URL = (
   process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000"
@@ -501,150 +501,152 @@ export default function TabsLayout() {
                       style={[styles.notificationPopover, { top: popoverTop }]}
                       onPress={(event) => event.stopPropagation()}
                     >
-                    <View style={styles.notificationHeader}>
-                      <View style={styles.notificationHeaderTextContainer}>
-                        <Text style={styles.notificationHeaderTitle}>
-                          Notifications
-                        </Text>
-                        <Text style={styles.notificationHeaderSubtitle}>
-                          {notificationCount === 0
-                            ? "Everything is up to date"
-                            : `${notificationCount} unread`}
-                        </Text>
-                      </View>
-
-                      {notifications.length > 0 && unreadCount > 0 && (
-                        <TouchableOpacity
-                          onPress={() => {
-                            markAllRead().catch(() => {});
-                          }}
-                          activeOpacity={0.7}
-                          style={styles.markAllReadButton}
-                        >
-                          <Text style={styles.markAllReadText}>
-                            Mark all read
+                      <View style={styles.notificationHeader}>
+                        <View style={styles.notificationHeaderTextContainer}>
+                          <Text style={styles.notificationHeaderTitle}>
+                            Notifications
                           </Text>
-                        </TouchableOpacity>
-                      )}
+                          <Text style={styles.notificationHeaderSubtitle}>
+                            {notificationCount === 0
+                              ? "Everything is up to date"
+                              : `${notificationCount} unread`}
+                          </Text>
+                        </View>
 
-                      <TouchableOpacity
-                        style={styles.closeNotificationButton}
-                        onPress={() => setShowNotifications(false)}
-                        activeOpacity={0.7}
-                      >
-                        <Ionicons
-                          name="close"
-                          size={19}
-                          color={COLORS.secondary}
-                        />
-                      </TouchableOpacity>
-                    </View>
+                        {notifications.length > 0 && unreadCount > 0 && (
+                          <TouchableOpacity
+                            onPress={() => {
+                              markAllRead().catch(() => {});
+                            }}
+                            activeOpacity={0.7}
+                            style={styles.markAllReadButton}
+                          >
+                            <Text style={styles.markAllReadText}>
+                              Mark all read
+                            </Text>
+                          </TouchableOpacity>
+                        )}
 
-                    {notificationsLoading && notifications.length === 0 ? (
-                      <View style={styles.loadingNotifications}>
-                        <ActivityIndicator color={COLORS.primary} />
-                      </View>
-                    ) : notifications.length === 0 ? (
-                      <View style={styles.emptyNotifications}>
-                        <View style={styles.emptyNotificationIcon}>
+                        <TouchableOpacity
+                          style={styles.closeNotificationButton}
+                          onPress={() => setShowNotifications(false)}
+                          activeOpacity={0.7}
+                        >
                           <Ionicons
-                            name="notifications-off-outline"
-                            size={30}
+                            name="close"
+                            size={19}
                             color={COLORS.secondary}
                           />
-                        </View>
-                        <Text style={styles.emptyNotificationsTitle}>
-                          No notifications yet
-                        </Text>
-                        <Text style={styles.emptyNotificationsText}>
-                          You'll see updates here when payments, events,
-                          notices, or role changes happen in this account.
-                        </Text>
+                        </TouchableOpacity>
                       </View>
-                    ) : (
-                      <ScrollView
-                        showsVerticalScrollIndicator={false}
-                        contentContainerStyle={styles.notificationScrollContent}
-                      >
-                        {notifications.map((n) => {
-                          const icon = iconForNotification(n);
-                          const isUnread = !n.read_at;
-                          return (
-                            <Pressable
-                              key={n.id}
-                              onPress={() => {
-                                if (isUnread) {
-                                  markRead(n.id).catch(() => {});
-                                }
-                              }}
-                              style={({ pressed }) => [
-                                styles.notificationItem,
-                                isUnread && styles.notificationItemUnread,
-                                pressed && styles.notificationItemPressed,
-                              ]}
-                            >
-                              <View
-                                style={[
-                                  styles.notificationItemIcon,
-                                  { backgroundColor: icon.bg },
+
+                      {notificationsLoading && notifications.length === 0 ? (
+                        <View style={styles.loadingNotifications}>
+                          <ActivityIndicator color={COLORS.primary} />
+                        </View>
+                      ) : notifications.length === 0 ? (
+                        <View style={styles.emptyNotifications}>
+                          <View style={styles.emptyNotificationIcon}>
+                            <Ionicons
+                              name="notifications-off-outline"
+                              size={30}
+                              color={COLORS.secondary}
+                            />
+                          </View>
+                          <Text style={styles.emptyNotificationsTitle}>
+                            No notifications yet
+                          </Text>
+                          <Text style={styles.emptyNotificationsText}>
+                            You'll see updates here when payments, events,
+                            notices, or role changes happen in this account.
+                          </Text>
+                        </View>
+                      ) : (
+                        <ScrollView
+                          showsVerticalScrollIndicator={false}
+                          contentContainerStyle={
+                            styles.notificationScrollContent
+                          }
+                        >
+                          {notifications.map((n) => {
+                            const icon = iconForNotification(n);
+                            const isUnread = !n.read_at;
+                            return (
+                              <Pressable
+                                key={n.id}
+                                onPress={() => {
+                                  if (isUnread) {
+                                    markRead(n.id).catch(() => {});
+                                  }
+                                }}
+                                style={({ pressed }) => [
+                                  styles.notificationItem,
+                                  isUnread && styles.notificationItemUnread,
+                                  pressed && styles.notificationItemPressed,
                                 ]}
                               >
-                                <Ionicons
-                                  name={icon.name}
-                                  size={18}
-                                  color={icon.color}
-                                />
-                              </View>
-
-                              <View style={styles.notificationContent}>
-                                <Text
-                                  style={styles.notificationTitle}
-                                  numberOfLines={1}
+                                <View
+                                  style={[
+                                    styles.notificationItemIcon,
+                                    { backgroundColor: icon.bg },
+                                  ]}
                                 >
-                                  {n.title}
-                                </Text>
-                                {!!n.body && (
-                                  <Text
-                                    style={styles.notificationBody}
-                                    numberOfLines={2}
-                                  >
-                                    {n.body}
-                                  </Text>
-                                )}
-                                <View style={styles.notificationMeta}>
                                   <Ionicons
-                                    name="time-outline"
-                                    size={11}
+                                    name={icon.name}
+                                    size={18}
+                                    color={icon.color}
+                                  />
+                                </View>
+
+                                <View style={styles.notificationContent}>
+                                  <Text
+                                    style={styles.notificationTitle}
+                                    numberOfLines={1}
+                                  >
+                                    {n.title}
+                                  </Text>
+                                  {!!n.body && (
+                                    <Text
+                                      style={styles.notificationBody}
+                                      numberOfLines={2}
+                                    >
+                                      {n.body}
+                                    </Text>
+                                  )}
+                                  <View style={styles.notificationMeta}>
+                                    <Ionicons
+                                      name="time-outline"
+                                      size={11}
+                                      color={COLORS.secondary}
+                                    />
+                                    <Text style={styles.notificationDetail}>
+                                      {timeAgo(n.created_at)}
+                                    </Text>
+                                  </View>
+                                </View>
+
+                                {isUnread && <View style={styles.unreadDot} />}
+
+                                <TouchableOpacity
+                                  style={styles.dismissButton}
+                                  onPress={(e) => {
+                                    e.stopPropagation?.();
+                                    dismiss(n.id).catch(() => {});
+                                  }}
+                                  activeOpacity={0.7}
+                                  hitSlop={6}
+                                >
+                                  <Ionicons
+                                    name="close"
+                                    size={16}
                                     color={COLORS.secondary}
                                   />
-                                  <Text style={styles.notificationDetail}>
-                                    {timeAgo(n.created_at)}
-                                  </Text>
-                                </View>
-                              </View>
-
-                              {isUnread && <View style={styles.unreadDot} />}
-
-                              <TouchableOpacity
-                                style={styles.dismissButton}
-                                onPress={(e) => {
-                                  e.stopPropagation?.();
-                                  dismiss(n.id).catch(() => {});
-                                }}
-                                activeOpacity={0.7}
-                                hitSlop={6}
-                              >
-                                <Ionicons
-                                  name="close"
-                                  size={16}
-                                  color={COLORS.secondary}
-                                />
-                              </TouchableOpacity>
-                            </Pressable>
-                          );
-                        })}
-                      </ScrollView>
-                    )}
+                                </TouchableOpacity>
+                              </Pressable>
+                            );
+                          })}
+                        </ScrollView>
+                      )}
                     </Pressable>
                   </DarkModeBoundary>
                 </Pressable>
@@ -663,7 +665,9 @@ export default function TabsLayout() {
             borderTopColor: isDarkMode ? "#354154" : COLORS.border,
             ...(Platform.OS === "android" ? { elevation: 0 } : {}),
           },
-          sceneStyle: { backgroundColor: isDarkMode ? "#101720" : COLORS.background },
+          sceneStyle: {
+            backgroundColor: isDarkMode ? "#101720" : COLORS.background,
+          },
           tabBarLabelStyle: {
             fontSize: 10,
             fontWeight: "600",

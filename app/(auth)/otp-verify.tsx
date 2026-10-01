@@ -105,88 +105,90 @@ function AppAlert({
   return (
     <DarkModeBoundary>
       <Modal
-      transparent
-      visible={state.visible}
-      animationType="fade"
-      onRequestClose={onDismiss}
-      statusBarTranslucent
-    >
-      <Pressable style={alertStyles.backdrop} onPress={onDismiss}>
-        <Pressable
-          style={alertStyles.card}
-          onPress={(e) => e.stopPropagation()}
-        >
-          <View style={[alertStyles.iconCircle, { backgroundColor: m.bg }]}>
-            <Ionicons name={m.icon} size={30} color={m.color} />
-          </View>
-
-          <Text style={alertStyles.title}>{title}</Text>
-
-          {message ? <Text style={alertStyles.message}>{message}</Text> : null}
-
-          {bullets && bullets.length > 0 ? (
-            <View style={alertStyles.bulletsContainer}>
-              {bullets.map((b, idx) => (
-                <View key={idx} style={alertStyles.bulletRow}>
-                  <Ionicons
-                    name={
-                      b.icon === "checkmark"
-                        ? "checkmark-circle"
-                        : "close-circle"
-                    }
-                    size={16}
-                    color={b.icon === "checkmark" ? "#16A34A" : "#DC2626"}
-                  />
-                  <Text style={alertStyles.bulletText}>{b.text}</Text>
-                </View>
-              ))}
-            </View>
-          ) : null}
-
-          <View
-            style={[
-              alertStyles.actions,
-              isStacked && alertStyles.actionsStacked,
-            ]}
+        transparent
+        visible={state.visible}
+        animationType="fade"
+        onRequestClose={onDismiss}
+        statusBarTranslucent
+      >
+        <Pressable style={alertStyles.backdrop} onPress={onDismiss}>
+          <Pressable
+            style={alertStyles.card}
+            onPress={(e) => e.stopPropagation()}
           >
-            {buttons.map((btn, idx) => {
-              const isDestructive = btn.style === "destructive";
-              const isCancel = btn.style === "cancel";
-              const isPrimary = !isDestructive && !isCancel;
+            <View style={[alertStyles.iconCircle, { backgroundColor: m.bg }]}>
+              <Ionicons name={m.icon} size={30} color={m.color} />
+            </View>
 
-              return (
-                <Pressable
-                  key={`${btn.text}-${idx}`}
-                  onPress={() => handlePress(btn)}
-                  style={({ pressed }) => [
-                    alertStyles.button,
-                    hasTwo && alertStyles.buttonHalf,
-                    isStacked && alertStyles.buttonFull,
-                    isCancel && alertStyles.buttonCancel,
-                    isDestructive && alertStyles.buttonDestructive,
-                    isPrimary && alertStyles.buttonPrimary,
-                    pressed && { opacity: 0.85 },
-                  ]}
-                >
-                  <Text
-                    numberOfLines={1}
-                    adjustsFontSizeToFit
-                    minimumFontScale={0.85}
-                    style={[
-                      alertStyles.buttonText,
-                      isCancel && alertStyles.buttonTextCancel,
-                      isDestructive && alertStyles.buttonTextDestructive,
-                      isPrimary && alertStyles.buttonTextPrimary,
+            <Text style={alertStyles.title}>{title}</Text>
+
+            {message ? (
+              <Text style={alertStyles.message}>{message}</Text>
+            ) : null}
+
+            {bullets && bullets.length > 0 ? (
+              <View style={alertStyles.bulletsContainer}>
+                {bullets.map((b, idx) => (
+                  <View key={idx} style={alertStyles.bulletRow}>
+                    <Ionicons
+                      name={
+                        b.icon === "checkmark"
+                          ? "checkmark-circle"
+                          : "close-circle"
+                      }
+                      size={16}
+                      color={b.icon === "checkmark" ? "#16A34A" : "#DC2626"}
+                    />
+                    <Text style={alertStyles.bulletText}>{b.text}</Text>
+                  </View>
+                ))}
+              </View>
+            ) : null}
+
+            <View
+              style={[
+                alertStyles.actions,
+                isStacked && alertStyles.actionsStacked,
+              ]}
+            >
+              {buttons.map((btn, idx) => {
+                const isDestructive = btn.style === "destructive";
+                const isCancel = btn.style === "cancel";
+                const isPrimary = !isDestructive && !isCancel;
+
+                return (
+                  <Pressable
+                    key={`${btn.text}-${idx}`}
+                    onPress={() => handlePress(btn)}
+                    style={({ pressed }) => [
+                      alertStyles.button,
+                      hasTwo && alertStyles.buttonHalf,
+                      isStacked && alertStyles.buttonFull,
+                      isCancel && alertStyles.buttonCancel,
+                      isDestructive && alertStyles.buttonDestructive,
+                      isPrimary && alertStyles.buttonPrimary,
+                      pressed && { opacity: 0.85 },
                     ]}
                   >
-                    {btn.text}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
+                    <Text
+                      numberOfLines={1}
+                      adjustsFontSizeToFit
+                      minimumFontScale={0.85}
+                      style={[
+                        alertStyles.buttonText,
+                        isCancel && alertStyles.buttonTextCancel,
+                        isDestructive && alertStyles.buttonTextDestructive,
+                        isPrimary && alertStyles.buttonTextPrimary,
+                      ]}
+                    >
+                      {btn.text}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </Pressable>
         </Pressable>
-      </Pressable>
       </Modal>
     </DarkModeBoundary>
   );
@@ -619,168 +621,172 @@ export default function OtpVerifyScreen() {
   return (
     <DarkModeBoundary>
       <KeyboardAvoidingView
-      style={[
-        styles.container,
-        {
-          paddingBottom: insets.bottom,
-        },
-      ]}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      keyboardVerticalOffset={0}
-    >
-      <ScrollView
-        style={styles.screenScroll}
-        contentContainerStyle={[
-          styles.screenContent,
+        style={[
+          styles.container,
           {
-            paddingBottom: Math.max(insets.bottom, 24),
+            paddingBottom: insets.bottom,
           },
         ]}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="none"
-        showsVerticalScrollIndicator={false}
-        bounces={false}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
+        keyboardVerticalOffset={0}
       >
-        <View style={styles.header}>
-          <TouchableOpacity
-            style={styles.backButton}
-            onPress={() => router.back()}
-            activeOpacity={0.7}
-            disabled={loading}
-          >
-            <Ionicons name="arrow-back" size={24} color="#333" />
-          </TouchableOpacity>
+        <ScrollView
+          style={styles.screenScroll}
+          contentContainerStyle={[
+            styles.screenContent,
+            {
+              paddingBottom: Math.max(insets.bottom, 24),
+            },
+          ]}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="none"
+          showsVerticalScrollIndicator={false}
+          bounces={false}
+        >
+          <View style={styles.header}>
+            <TouchableOpacity
+              style={styles.backButton}
+              onPress={() => router.back()}
+              activeOpacity={0.7}
+              disabled={loading}
+            >
+              <Ionicons name="arrow-back" size={24} color="#333" />
+            </TouchableOpacity>
 
-          <View style={styles.headerContent}>
-            <View style={styles.logoCircle}>
-              <Ionicons
-                name="shield-checkmark-outline"
-                size={32}
-                color="#1a73e8"
-              />
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.card}>
-          <Text style={styles.cardTitle}>Verify OTP</Text>
-
-          <Text style={styles.cardSubtitle}>
-            Enter the 6-digit code sent to
-          </Text>
-
-          <View style={styles.phoneContainer}>
-            <Ionicons name="call-outline" size={18} color="#1a73e8" />
-
-            <Text style={styles.phoneText}>+91 {pendingPhone}</Text>
-          </View>
-
-          <View style={styles.otpContainer}>
-            <View style={styles.otpRow}>
-              {otp.map((digit, index) => (
-                <TextInput
-                  key={index}
-                  ref={(ref) => {
-                    inputRefs.current[index] = ref;
-                  }}
-                  style={[
-                    styles.otpBox,
-                    {
-                      width: otpBoxSize.width,
-                      height: otpBoxSize.height,
-                      fontSize: Math.min(22, otpBoxSize.width * 0.5),
-                    },
-                    focusedIndex === index && styles.otpBoxFocused,
-                    digit && styles.otpBoxFilled,
-                    error && styles.otpBoxError,
-                  ]}
-                  keyboardType="number-pad"
-                  maxLength={1}
-                  value={digit}
-                  onChangeText={(text) => handleChange(text, index)}
-                  onKeyPress={(e) => handleKeyPress(e, index)}
-                  onFocus={() => setFocusedIndex(index)}
-                  onBlur={() => setFocusedIndex(null)}
-                  selectionColor="#1a73e8"
-                  editable={!loading}
+            <View style={styles.headerContent}>
+              <View style={styles.logoCircle}>
+                <Ionicons
+                  name="shield-checkmark-outline"
+                  size={32}
+                  color="#1a73e8"
                 />
-              ))}
+              </View>
             </View>
           </View>
 
-          {error ? (
-            <View style={styles.errorContainer}>
-              <Ionicons name="alert-circle-outline" size={18} color="#e53935" />
+          <View style={styles.card}>
+            <Text style={styles.cardTitle}>Verify OTP</Text>
 
-              <Text style={styles.error}>{error}</Text>
-            </View>
-          ) : null}
-
-          <TouchableOpacity
-            style={[styles.button, loading && styles.buttonDisabled]}
-            onPress={handleVerify}
-            disabled={loading}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.buttonText}>
-              {loading ? "Verifying..." : "Verify & Continue"}
+            <Text style={styles.cardSubtitle}>
+              Enter the 6-digit code sent to
             </Text>
 
-            {!loading && (
-              <Ionicons
-                name="arrow-forward"
-                size={20}
-                color="#fff"
-                style={styles.buttonIcon}
-              />
-            )}
-          </TouchableOpacity>
+            <View style={styles.phoneContainer}>
+              <Ionicons name="call-outline" size={18} color="#1a73e8" />
 
-          <View style={styles.resendContainer}>
-            <Text style={styles.resendLabel}>Didn't receive the code?</Text>
+              <Text style={styles.phoneText}>+91 {pendingPhone}</Text>
+            </View>
+
+            <View style={styles.otpContainer}>
+              <View style={styles.otpRow}>
+                {otp.map((digit, index) => (
+                  <TextInput
+                    key={index}
+                    ref={(ref) => {
+                      inputRefs.current[index] = ref;
+                    }}
+                    style={[
+                      styles.otpBox,
+                      {
+                        width: otpBoxSize.width,
+                        height: otpBoxSize.height,
+                        fontSize: Math.min(22, otpBoxSize.width * 0.5),
+                      },
+                      focusedIndex === index && styles.otpBoxFocused,
+                      digit && styles.otpBoxFilled,
+                      error && styles.otpBoxError,
+                    ]}
+                    keyboardType="number-pad"
+                    maxLength={1}
+                    value={digit}
+                    onChangeText={(text) => handleChange(text, index)}
+                    onKeyPress={(e) => handleKeyPress(e, index)}
+                    onFocus={() => setFocusedIndex(index)}
+                    onBlur={() => setFocusedIndex(null)}
+                    selectionColor="#1a73e8"
+                    editable={!loading}
+                  />
+                ))}
+              </View>
+            </View>
+
+            {error ? (
+              <View style={styles.errorContainer}>
+                <Ionicons
+                  name="alert-circle-outline"
+                  size={18}
+                  color="#e53935"
+                />
+
+                <Text style={styles.error}>{error}</Text>
+              </View>
+            ) : null}
 
             <TouchableOpacity
-              onPress={handleResend}
-              disabled={resendTimer > 0 || loading}
-              style={styles.resendButton}
-              activeOpacity={0.7}
+              style={[styles.button, loading && styles.buttonDisabled]}
+              onPress={handleVerify}
+              disabled={loading}
+              activeOpacity={0.8}
             >
-              <Text
-                style={[
-                  styles.resendText,
-                  resendTimer > 0 && styles.resendTextDisabled,
-                ]}
-              >
-                {resendTimer > 0 ? `Resend in ${resendTimer}s` : "Resend OTP"}
+              <Text style={styles.buttonText}>
+                {loading ? "Verifying..." : "Verify & Continue"}
               </Text>
+
+              {!loading && (
+                <Ionicons
+                  name="arrow-forward"
+                  size={20}
+                  color="#fff"
+                  style={styles.buttonIcon}
+                />
+              )}
             </TouchableOpacity>
-          </View>
-        </View>
 
-        <View style={styles.footer}>
-          <View style={styles.footerRow}>
-            <View style={styles.footerItem}>
-              <View style={styles.footerIcon}>
-                <Ionicons name="lock-closed-outline" size={16} color="#888" />
-              </View>
+            <View style={styles.resendContainer}>
+              <Text style={styles.resendLabel}>Didn't receive the code?</Text>
 
-              <Text style={styles.footerText}>Secure & Encrypted</Text>
-            </View>
-
-            <View style={styles.footerDivider} />
-
-            <View style={styles.footerItem}>
-              <View style={styles.footerIcon}>
-                <Ionicons name="time-outline" size={16} color="#888" />
-              </View>
-
-              <Text style={styles.footerText}>OTP expires in 5 min</Text>
+              <TouchableOpacity
+                onPress={handleResend}
+                disabled={resendTimer > 0 || loading}
+                style={styles.resendButton}
+                activeOpacity={0.7}
+              >
+                <Text
+                  style={[
+                    styles.resendText,
+                    resendTimer > 0 && styles.resendTextDisabled,
+                  ]}
+                >
+                  {resendTimer > 0 ? `Resend in ${resendTimer}s` : "Resend OTP"}
+                </Text>
+              </TouchableOpacity>
             </View>
           </View>
-        </View>
-      </ScrollView>
 
-      <AppAlert state={alertState} onDismiss={dismissAlert} />
+          <View style={styles.footer}>
+            <View style={styles.footerRow}>
+              <View style={styles.footerItem}>
+                <View style={styles.footerIcon}>
+                  <Ionicons name="lock-closed-outline" size={16} color="#888" />
+                </View>
+
+                <Text style={styles.footerText}>Secure & Encrypted</Text>
+              </View>
+
+              <View style={styles.footerDivider} />
+
+              <View style={styles.footerItem}>
+                <View style={styles.footerIcon}>
+                  <Ionicons name="time-outline" size={16} color="#888" />
+                </View>
+
+                <Text style={styles.footerText}>OTP expires in 5 min</Text>
+              </View>
+            </View>
+          </View>
+        </ScrollView>
+
+        <AppAlert state={alertState} onDismiss={dismissAlert} />
       </KeyboardAvoidingView>
     </DarkModeBoundary>
   );

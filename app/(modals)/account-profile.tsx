@@ -241,70 +241,71 @@ function AppAlert({
   return (
     <DarkModeBoundary>
       <Modal
-      transparent
-      visible={state.visible}
-      animationType="fade"
-      onRequestClose={onDismiss}
-      statusBarTranslucent
-    >
-      <Pressable style={inlineAlertStyles.backdrop} onPress={onDismiss}>
-        <Pressable
-          style={inlineAlertStyles.card}
-          onPress={(e) => e.stopPropagation()}
-        >
-          <View
-            style={[inlineAlertStyles.iconCircle, { backgroundColor: m.bg }]}
+        transparent
+        visible={state.visible}
+        animationType="fade"
+        onRequestClose={onDismiss}
+        statusBarTranslucent
+      >
+        <Pressable style={inlineAlertStyles.backdrop} onPress={onDismiss}>
+          <Pressable
+            style={inlineAlertStyles.card}
+            onPress={(e) => e.stopPropagation()}
           >
-            <Ionicons name={m.icon} size={30} color={m.color} />
-          </View>
+            <View
+              style={[inlineAlertStyles.iconCircle, { backgroundColor: m.bg }]}
+            >
+              <Ionicons name={m.icon} size={30} color={m.color} />
+            </View>
 
-          <Text style={inlineAlertStyles.title}>{title}</Text>
+            <Text style={inlineAlertStyles.title}>{title}</Text>
 
-          {message ? (
-            <Text style={inlineAlertStyles.message}>{message}</Text>
-          ) : null}
+            {message ? (
+              <Text style={inlineAlertStyles.message}>{message}</Text>
+            ) : null}
 
-          <View
-            style={[
-              inlineAlertStyles.actions,
-              isStacked && inlineAlertStyles.actionsStacked,
-            ]}
-          >
-            {buttons.map((btn, idx) => {
-              const isDestructive = btn.style === "destructive";
-              const isCancel = btn.style === "cancel";
-              const isPrimary = !isDestructive && !isCancel;
+            <View
+              style={[
+                inlineAlertStyles.actions,
+                isStacked && inlineAlertStyles.actionsStacked,
+              ]}
+            >
+              {buttons.map((btn, idx) => {
+                const isDestructive = btn.style === "destructive";
+                const isCancel = btn.style === "cancel";
+                const isPrimary = !isDestructive && !isCancel;
 
-              return (
-                <Pressable
-                  key={`${btn.text}-${idx}`}
-                  onPress={() => handlePress(btn)}
-                  style={({ pressed }) => [
-                    inlineAlertStyles.button,
-                    hasTwo && inlineAlertStyles.buttonHalf,
-                    isStacked && inlineAlertStyles.buttonFull,
-                    isCancel && inlineAlertStyles.buttonCancel,
-                    isDestructive && inlineAlertStyles.buttonDestructive,
-                    isPrimary && inlineAlertStyles.buttonPrimary,
-                    pressed && { opacity: 0.85 },
-                  ]}
-                >
-                  <Text
-                    style={[
-                      inlineAlertStyles.buttonText,
-                      isCancel && inlineAlertStyles.buttonTextCancel,
-                      isDestructive && inlineAlertStyles.buttonTextDestructive,
-                      isPrimary && inlineAlertStyles.buttonTextPrimary,
+                return (
+                  <Pressable
+                    key={`${btn.text}-${idx}`}
+                    onPress={() => handlePress(btn)}
+                    style={({ pressed }) => [
+                      inlineAlertStyles.button,
+                      hasTwo && inlineAlertStyles.buttonHalf,
+                      isStacked && inlineAlertStyles.buttonFull,
+                      isCancel && inlineAlertStyles.buttonCancel,
+                      isDestructive && inlineAlertStyles.buttonDestructive,
+                      isPrimary && inlineAlertStyles.buttonPrimary,
+                      pressed && { opacity: 0.85 },
                     ]}
                   >
-                    {btn.text}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
+                    <Text
+                      style={[
+                        inlineAlertStyles.buttonText,
+                        isCancel && inlineAlertStyles.buttonTextCancel,
+                        isDestructive &&
+                          inlineAlertStyles.buttonTextDestructive,
+                        isPrimary && inlineAlertStyles.buttonTextPrimary,
+                      ]}
+                    >
+                      {btn.text}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          </Pressable>
         </Pressable>
-      </Pressable>
       </Modal>
     </DarkModeBoundary>
   );
@@ -3058,680 +3059,699 @@ export default function AccountProfileScreen() {
   return (
     <DarkModeBoundary>
       <View style={styles.screen}>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor="#2563EB"
-            colors={["#2563EB"]}
-          />
-        }
-        contentContainerStyle={[
-          styles.scrollContent,
-          { paddingBottom: Math.max(insets.bottom, 24) },
-        ]}
-      >
-        {/* ACCOUNT CARD */}
-        <View style={styles.profileCard}>
-          <View style={styles.profileAccent} />
-          <View style={styles.profileCardContent}>
-            <View style={styles.avatarContainer}>
-              {selectedAccount?.photoUri ? (
-                <Image
-                  source={{ uri: selectedAccount.photoUri }}
-                  style={styles.avatar}
-                />
-              ) : (
-                <View style={[styles.avatar, styles.avatarPlaceholder]}>
-                  <Text style={styles.avatarText}>
-                    {selectedAccount?.name
-                      ? getInitials(selectedAccount.name)
-                      : "A"}
-                  </Text>
-                </View>
-              )}
-              {canEdit && (
-                <TouchableOpacity
-                  style={styles.cameraButton}
-                  onPress={() => setShowPhotoOptions(true)}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons name="camera-outline" size={16} color="#FFFFFF" />
-                </TouchableOpacity>
-              )}
-            </View>
-
-            <View style={styles.profileDetails}>
-              {editingName ? (
-                <View style={styles.nameEditContainer}>
-                  <TextInput
-                    style={styles.inlineNameInput}
-                    value={propertyName}
-                    onChangeText={setPropertyName}
-                    autoFocus
-                    editable={!savingName}
-                    onSubmitEditing={savePropertyName}
-                    returnKeyType="done"
-                    selectTextOnFocus
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor="#2563EB"
+              colors={["#2563EB"]}
+            />
+          }
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingBottom: Math.max(insets.bottom, 24) },
+          ]}
+        >
+          {/* ACCOUNT CARD */}
+          <View style={styles.profileCard}>
+            <View style={styles.profileAccent} />
+            <View style={styles.profileCardContent}>
+              <View style={styles.avatarContainer}>
+                {selectedAccount?.photoUri ? (
+                  <Image
+                    source={{ uri: selectedAccount.photoUri }}
+                    style={styles.avatar}
                   />
+                ) : (
+                  <View style={[styles.avatar, styles.avatarPlaceholder]}>
+                    <Text style={styles.avatarText}>
+                      {selectedAccount?.name
+                        ? getInitials(selectedAccount.name)
+                        : "A"}
+                    </Text>
+                  </View>
+                )}
+                {canEdit && (
                   <TouchableOpacity
-                    style={styles.cancelNameButton}
-                    onPress={cancelEditingName}
+                    style={styles.cameraButton}
+                    onPress={() => setShowPhotoOptions(true)}
                     activeOpacity={0.8}
-                    disabled={savingName}
                   >
-                    <Ionicons name="close" size={17} color="#475569" />
+                    <Ionicons name="camera-outline" size={16} color="#FFFFFF" />
                   </TouchableOpacity>
-                  <TouchableOpacity
-                    style={styles.saveNameButton}
-                    onPress={savePropertyName}
-                    activeOpacity={0.8}
-                    disabled={savingName}
-                  >
-                    {savingName ? (
-                      <ActivityIndicator size="small" color="#FFFFFF" />
-                    ) : (
-                      <Ionicons name="checkmark" size={17} color="#FFFFFF" />
-                    )}
-                  </TouchableOpacity>
-                </View>
-              ) : (
-                <View style={styles.nameDisplayContainer}>
-                  <Text style={styles.userName} numberOfLines={1}>
-                    {selectedAccount?.name || "Apartment"}
-                  </Text>
-                  {canEdit && (
-                    <TouchableOpacity
-                      style={styles.editButton}
-                      onPress={startEditingName}
-                      activeOpacity={0.8}
-                    >
-                      <Ionicons name="pencil" size={13} color="#FFFFFF" />
-                      <Text style={styles.editButtonText}>Edit</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              )}
-
-              <View style={styles.phoneDisplayRow}>
-                <Ionicons name="call-outline" size={14} color="#64748B" />
-                <Text style={styles.userPhone} numberOfLines={1}>
-                  {user?.phone}
-                </Text>
+                )}
               </View>
 
-              <View style={styles.accountTypeBadge}>
-                <View style={styles.accountTypeDot} />
-                <Text style={styles.accountTypeText}>
-                  {isTenantAccount ? "Home Account" : "Society Account"}
-                </Text>
+              <View style={styles.profileDetails}>
+                {editingName ? (
+                  <View style={styles.nameEditContainer}>
+                    <TextInput
+                      style={styles.inlineNameInput}
+                      value={propertyName}
+                      onChangeText={setPropertyName}
+                      autoFocus
+                      editable={!savingName}
+                      onSubmitEditing={savePropertyName}
+                      returnKeyType="done"
+                      selectTextOnFocus
+                    />
+                    <TouchableOpacity
+                      style={styles.cancelNameButton}
+                      onPress={cancelEditingName}
+                      activeOpacity={0.8}
+                      disabled={savingName}
+                    >
+                      <Ionicons name="close" size={17} color="#475569" />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.saveNameButton}
+                      onPress={savePropertyName}
+                      activeOpacity={0.8}
+                      disabled={savingName}
+                    >
+                      {savingName ? (
+                        <ActivityIndicator size="small" color="#FFFFFF" />
+                      ) : (
+                        <Ionicons name="checkmark" size={17} color="#FFFFFF" />
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <View style={styles.nameDisplayContainer}>
+                    <Text style={styles.userName} numberOfLines={1}>
+                      {selectedAccount?.name || "Apartment"}
+                    </Text>
+                    {canEdit && (
+                      <TouchableOpacity
+                        style={styles.editButton}
+                        onPress={startEditingName}
+                        activeOpacity={0.8}
+                      >
+                        <Ionicons name="pencil" size={13} color="#FFFFFF" />
+                        <Text style={styles.editButtonText}>Edit</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                )}
+
+                <View style={styles.phoneDisplayRow}>
+                  <Ionicons name="call-outline" size={14} color="#64748B" />
+                  <Text style={styles.userPhone} numberOfLines={1}>
+                    {user?.phone}
+                  </Text>
+                </View>
+
+                <View style={styles.accountTypeBadge}>
+                  <View style={styles.accountTypeDot} />
+                  <Text style={styles.accountTypeText}>
+                    {isTenantAccount ? "Home Account" : "Society Account"}
+                  </Text>
+                </View>
               </View>
             </View>
           </View>
-        </View>
 
-        {/* ACCESS & ROLES */}
-        {canEdit && (
-          <>
-            <Text style={styles.sectionTitle}>ACCESS & ROLES</Text>
-            <View style={styles.menuCard}>
-              <MenuRow
-                icon="shield-outline"
-                color="#7C3AED"
-                title="Add Admin"
-                description="Give another person administrator access"
-                onPress={() =>
-                  router.push({
-                    pathname: "/(modals)/grant-access",
-                    params: {
-                      accountId: selectedAccount?.id || "",
-                      role: "admin",
-                    },
-                  })
-                }
-              />
+          {/* ACCESS & ROLES */}
+          {canEdit && (
+            <>
+              <Text style={styles.sectionTitle}>ACCESS & ROLES</Text>
+              <View style={styles.menuCard}>
+                <MenuRow
+                  icon="shield-outline"
+                  color="#7C3AED"
+                  title="Add Admin"
+                  description="Give another person administrator access"
+                  onPress={() =>
+                    router.push({
+                      pathname: "/(modals)/grant-access",
+                      params: {
+                        accountId: selectedAccount?.id || "",
+                        role: "admin",
+                      },
+                    })
+                  }
+                />
 
-              <MenuRow
-                icon="eye-outline"
-                color="#16A34A"
-                title="Manage Visibility"
-                description={`Manage ${memberRoleWordLower} and staff visibility access`}
-                onPress={() =>
-                  router.push({
-                    pathname: "/(modals)/grant-access",
-                    params: {
-                      accountId: selectedAccount?.id || "",
-                      role: "member_visibility",
-                      visibilityTabs: "true",
-                    },
-                  })
-                }
-              />
+                <MenuRow
+                  icon="eye-outline"
+                  color="#16A34A"
+                  title="Manage Visibility"
+                  description={`Manage ${memberRoleWordLower} and staff visibility access`}
+                  onPress={() =>
+                    router.push({
+                      pathname: "/(modals)/grant-access",
+                      params: {
+                        accountId: selectedAccount?.id || "",
+                        role: "member_visibility",
+                        visibilityTabs: "true",
+                      },
+                    })
+                  }
+                />
 
-              <MenuRow
-                icon="swap-horizontal-outline"
-                color="#D97706"
-                title="Transfer account ownership"
-                description="Transfer full ownership of this account to another person"
-                onPress={() =>
-                  router.push({
-                    pathname: "/(modals)/grant-access",
-                    params: {
-                      accountId: selectedAccount?.id || "",
-                      role: "ownership_transfer",
-                      memberType: "ownership",
-                    },
-                  })
-                }
-                isLast
-              />
+                <MenuRow
+                  icon="swap-horizontal-outline"
+                  color="#D97706"
+                  title="Transfer account ownership"
+                  description="Transfer full ownership of this account to another person"
+                  onPress={() =>
+                    router.push({
+                      pathname: "/(modals)/grant-access",
+                      params: {
+                        accountId: selectedAccount?.id || "",
+                        role: "ownership_transfer",
+                        memberType: "ownership",
+                      },
+                    })
+                  }
+                  isLast
+                />
+              </View>
+
+              {isOwner && (
+                <>
+                  <Text style={styles.sectionTitle}>REVOKE ACCESS</Text>
+                  <View style={styles.menuCard}>
+                    <TouchableOpacity
+                      style={[styles.menuItem, styles.menuItemLast]}
+                      onPress={() => setShowRevokeAccessModal(true)}
+                      activeOpacity={0.75}
+                    >
+                      <View style={styles.menuItemLeft}>
+                        <View
+                          style={[
+                            styles.menuIcon,
+                            { backgroundColor: "#FEF2F214" },
+                          ]}
+                        >
+                          <Ionicons
+                            name="remove-circle-outline"
+                            size={20}
+                            color="#DC2626"
+                          />
+                        </View>
+                        <View style={styles.menuItemContent}>
+                          <Text style={styles.menuItemTitle}>
+                            Revoke Admin, {memberRoleWord}, Staff & Ownership
+                            Access
+                          </Text>
+                          <Text
+                            style={styles.menuItemDescription}
+                            numberOfLines={1}
+                          >
+                            {totalRevocable > 0
+                              ? `${totalRevocable} ${
+                                  totalRevocable === 1
+                                    ? "person has"
+                                    : "people have"
+                                } access — tap to manage`
+                              : "No one has additional access"}
+                          </Text>
+                        </View>
+                      </View>
+                      <View style={styles.revokeAccessCountBadge}>
+                        <Text style={styles.revokeAccessCountText}>
+                          {totalRevocable}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
+            </>
+          )}
+
+          {/* PEOPLE WITH ACCESS */}
+          <View style={styles.accessOverview}>
+            <View style={styles.accessHeader}>
+              <View>
+                <Text style={styles.accessTitle}>People With Access</Text>
+                <Text style={styles.accessSubtitle}>
+                  Users who can access this account
+                </Text>
+              </View>
+              <View style={styles.accessTotalBadge}>
+                {invitationsLoading || peopleLoading ? (
+                  <ActivityIndicator size="small" color="#2563EB" />
+                ) : (
+                  <Text style={styles.accessTotalText}>
+                    {totalPeopleWithAccess}
+                  </Text>
+                )}
+              </View>
             </View>
 
-            {isOwner && (
-              <>
-                <Text style={styles.sectionTitle}>REVOKE ACCESS</Text>
-                <View style={styles.menuCard}>
-                  <TouchableOpacity
-                    style={[styles.menuItem, styles.menuItemLast]}
-                    onPress={() => setShowRevokeAccessModal(true)}
-                    activeOpacity={0.75}
-                  >
-                    <View style={styles.menuItemLeft}>
-                      <View
-                        style={[
-                          styles.menuIcon,
-                          { backgroundColor: "#FEF2F214" },
-                        ]}
+            {selectedAccount?.ownerId === user?.id && (
+              <View style={styles.accessGroup}>
+                <Text style={styles.accessHeading}>Account Owner</Text>
+                <View
+                  style={[
+                    styles.accessRow,
+                    acceptedAdmins.length === 0 &&
+                      acceptedMembers.length === 0 &&
+                      acceptedStaff.length === 0 &&
+                      pendingGroups.length === 0 &&
+                      rejectedInvitations.length === 0 &&
+                      styles.lastAccessRow,
+                  ]}
+                >
+                  <GrantAvatar
+                    photoUrl={user?.photoUrl ?? null}
+                    name={user?.name ?? user?.phone ?? "You"}
+                    style={styles.ownerAvatar}
+                  />
+                  <View style={styles.accessInfo}>
+                    <View style={styles.accessNameRow}>
+                      <Text style={styles.accessName}>
+                        {user?.name?.trim() ? user.name : "You"}
+                      </Text>
+                      <View style={styles.youBadge}>
+                        <Text style={styles.youBadgeText}>YOU</Text>
+                      </View>
+                    </View>
+                    <Text style={styles.accessPhone}>{user?.phone || ""}</Text>
+                  </View>
+                  <View style={[styles.accessBadge, styles.ownerBadge]}>
+                    <Text style={styles.ownerBadgeText}>Owner</Text>
+                  </View>
+                </View>
+              </View>
+            )}
+
+            {acceptedAdmins.length > 0 && (
+              <View style={styles.accessGroup}>
+                <Text style={styles.accessHeading}>Admins</Text>
+                {acceptedAdmins.map((person, index) =>
+                  renderPersonRow(
+                    person,
+                    index === acceptedAdmins.length - 1 &&
+                      acceptedMembers.length === 0 &&
+                      acceptedStaff.length === 0 &&
+                      pendingGroups.length === 0 &&
+                      rejectedInvitations.length === 0,
+                    "admin",
+                  ),
+                )}
+              </View>
+            )}
+
+            {acceptedMembers.length > 0 && (
+              <View style={styles.accessGroup}>
+                <Text style={styles.accessHeading}>
+                  {isTenantAccount ? "Tenants" : "Members"}
+                </Text>
+                {acceptedMembers.map((person, index) =>
+                  renderPersonRow(
+                    person,
+                    index === acceptedMembers.length - 1 &&
+                      acceptedStaff.length === 0 &&
+                      pendingGroups.length === 0 &&
+                      rejectedInvitations.length === 0,
+                    "member",
+                  ),
+                )}
+              </View>
+            )}
+
+            {acceptedStaff.length > 0 && (
+              <View style={styles.accessGroup}>
+                <Text style={styles.accessHeading}>Staff</Text>
+                {acceptedStaff.map((person, index) =>
+                  renderPersonRow(
+                    person,
+                    index === acceptedStaff.length - 1 &&
+                      pendingGroups.length === 0 &&
+                      rejectedInvitations.length === 0,
+                    "staff",
+                  ),
+                )}
+              </View>
+            )}
+
+            {pendingNonOwnershipGroups.length > 0 && (
+              <View style={styles.accessGroup}>
+                <View style={styles.pendingHeader}>
+                  <Text style={styles.accessHeading}>Pending Invitations</Text>
+                  <View style={styles.pendingCountBadge}>
+                    <Text style={styles.pendingCountText}>
+                      {pendingNonOwnershipGroups.length}
+                    </Text>
+                  </View>
+                </View>
+                {pendingNonOwnershipGroups.map((group, index) =>
+                  renderPendingGroupRow(
+                    group,
+                    index === pendingNonOwnershipGroups.length - 1 &&
+                      rejectedInvitations.length === 0,
+                    "other",
+                  ),
+                )}
+              </View>
+            )}
+
+            {rejectedInvitations.length > 0 && (
+              <View style={styles.accessGroup}>
+                <Text style={styles.accessHeading}>Rejected</Text>
+                {rejectedInvitations.map((inv, index) => {
+                  const badge = roleBadge(inv.role);
+                  const isResending = resendingInvitationId === inv.id;
+                  const displayName =
+                    inv.invitee_user_name ?? inv.invited_name ?? "Invitee";
+                  const ten = normalizePhone(inv.invited_phone);
+                  const photoUrl =
+                    resolveUrl(inv.invitee_user_photo_url) ??
+                    resolveUrl(inv.accepted_user_photo_url) ??
+                    photoByPhone.get(ten) ??
+                    null;
+                  return (
+                    <View
+                      key={inv.id}
+                      style={[
+                        styles.accessRow,
+                        index === rejectedInvitations.length - 1 &&
+                          styles.lastAccessRow,
+                      ]}
+                    >
+                      <GrantAvatar
+                        photoUrl={photoUrl}
+                        name={displayName}
+                        style={styles.rejectedAvatar}
+                        textStyle={styles.rejectedAvatarText}
+                      />
+                      <View style={styles.accessInfo}>
+                        <Text style={styles.accessName}>{displayName}</Text>
+                        <Text style={styles.accessPhone}>
+                          +91{inv.invited_phone}
+                        </Text>
+                      </View>
+                      <View style={[styles.accessBadge, badge.style]}>
+                        <Text style={badge.text}>{badge.label}</Text>
+                      </View>
+                      <TouchableOpacity
+                        style={styles.resendButton}
+                        onPress={() => handleResendInvite(inv)}
+                        activeOpacity={0.75}
+                        disabled={isResending}
+                      >
+                        {isResending ? (
+                          <ActivityIndicator size="small" color="#2563EB" />
+                        ) : (
+                          <>
+                            <Ionicons
+                              name="refresh"
+                              size={14}
+                              color="#2563EB"
+                            />
+                            <Text style={styles.resendButtonText}>Resend</Text>
+                          </>
+                        )}
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.deleteInvitationButton}
+                        onPress={() => setInvitationToDelete(inv.id)}
+                        activeOpacity={0.7}
+                        disabled={isResending}
                       >
                         <Ionicons
-                          name="remove-circle-outline"
+                          name="trash-outline"
+                          size={18}
+                          color="#DC2626"
+                        />
+                      </TouchableOpacity>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
+
+            {!invitationsLoading &&
+              !peopleLoading &&
+              acceptedAdmins.length === 0 &&
+              acceptedMembers.length === 0 &&
+              acceptedStaff.length === 0 &&
+              pendingGroups.length === 0 &&
+              rejectedInvitations.length === 0 &&
+              selectedAccount?.ownerId !== user?.id && (
+                <View style={styles.noAccessContainer}>
+                  <View style={styles.noAccessIcon}>
+                    <Ionicons name="people-outline" size={26} color="#64748B" />
+                  </View>
+                  <Text style={styles.noAccessTitle}>No additional access</Text>
+                  <Text style={styles.noAccessText}>
+                    No other people currently have access to this account.
+                  </Text>
+                </View>
+              )}
+          </View>
+
+          {/* DANGER ZONE */}
+          {isOwner && (
+            <>
+              <Text
+                style={[
+                  styles.sectionTitle,
+                  { color: "#DC2626", marginTop: 12 },
+                ]}
+              >
+                DANGER ZONE
+              </Text>
+              <View style={styles.menuCard}>
+                <TouchableOpacity
+                  style={[styles.menuItem, styles.menuItemLast]}
+                  onPress={openDeleteProperty}
+                  activeOpacity={0.75}
+                  disabled={deletingProperty}
+                >
+                  <View style={styles.menuItemLeft}>
+                    <View
+                      style={[
+                        styles.menuIcon,
+                        { backgroundColor: "#DC262614" },
+                      ]}
+                    >
+                      {deletingProperty ? (
+                        <ActivityIndicator size="small" color="#DC2626" />
+                      ) : (
+                        <Ionicons
+                          name="trash-outline"
                           size={20}
                           color="#DC2626"
                         />
-                      </View>
-                      <View style={styles.menuItemContent}>
-                        <Text style={styles.menuItemTitle}>
-                          Revoke Admin, {memberRoleWord}, Staff & Ownership
-                          Access
-                        </Text>
-                        <Text
-                          style={styles.menuItemDescription}
-                          numberOfLines={1}
-                        >
-                          {totalRevocable > 0
-                            ? `${totalRevocable} ${
-                                totalRevocable === 1
-                                  ? "person has"
-                                  : "people have"
-                              } access — tap to manage`
-                            : "No one has additional access"}
-                        </Text>
-                      </View>
+                      )}
                     </View>
-                    <View style={styles.revokeAccessCountBadge}>
-                      <Text style={styles.revokeAccessCountText}>
-                        {totalRevocable}
+                    <View style={styles.menuItemContent}>
+                      <Text style={styles.menuItemTitle}>
+                        {deletingProperty ? "Deleting…" : "Delete Property"}
+                      </Text>
+                      <Text
+                        style={styles.menuItemDescription}
+                        numberOfLines={1}
+                      >
+                        Permanently remove this property and its data
                       </Text>
                     </View>
-                  </TouchableOpacity>
-                </View>
-              </>
-            )}
-          </>
-        )}
-
-        {/* PEOPLE WITH ACCESS */}
-        <View style={styles.accessOverview}>
-          <View style={styles.accessHeader}>
-            <View>
-              <Text style={styles.accessTitle}>People With Access</Text>
-              <Text style={styles.accessSubtitle}>
-                Users who can access this account
-              </Text>
-            </View>
-            <View style={styles.accessTotalBadge}>
-              {invitationsLoading || peopleLoading ? (
-                <ActivityIndicator size="small" color="#2563EB" />
-              ) : (
-                <Text style={styles.accessTotalText}>
-                  {totalPeopleWithAccess}
-                </Text>
-              )}
-            </View>
-          </View>
-
-          {selectedAccount?.ownerId === user?.id && (
-            <View style={styles.accessGroup}>
-              <Text style={styles.accessHeading}>Account Owner</Text>
-              <View
-                style={[
-                  styles.accessRow,
-                  acceptedAdmins.length === 0 &&
-                    acceptedMembers.length === 0 &&
-                    acceptedStaff.length === 0 &&
-                    pendingGroups.length === 0 &&
-                    rejectedInvitations.length === 0 &&
-                    styles.lastAccessRow,
-                ]}
-              >
-                <GrantAvatar
-                  photoUrl={user?.photoUrl ?? null}
-                  name={user?.name ?? user?.phone ?? "You"}
-                  style={styles.ownerAvatar}
-                />
-                <View style={styles.accessInfo}>
-                  <View style={styles.accessNameRow}>
-                    <Text style={styles.accessName}>
-                      {user?.name?.trim() ? user.name : "You"}
-                    </Text>
-                    <View style={styles.youBadge}>
-                      <Text style={styles.youBadgeText}>YOU</Text>
-                    </View>
                   </View>
-                  <Text style={styles.accessPhone}>{user?.phone || ""}</Text>
-                </View>
-                <View style={[styles.accessBadge, styles.ownerBadge]}>
-                  <Text style={styles.ownerBadgeText}>Owner</Text>
-                </View>
+                  <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
+                </TouchableOpacity>
               </View>
-            </View>
+            </>
           )}
+        </ScrollView>
 
-          {acceptedAdmins.length > 0 && (
-            <View style={styles.accessGroup}>
-              <Text style={styles.accessHeading}>Admins</Text>
-              {acceptedAdmins.map((person, index) =>
-                renderPersonRow(
-                  person,
-                  index === acceptedAdmins.length - 1 &&
-                    acceptedMembers.length === 0 &&
-                    acceptedStaff.length === 0 &&
-                    pendingGroups.length === 0 &&
-                    rejectedInvitations.length === 0,
-                  "admin",
-                ),
-              )}
-            </View>
-          )}
+        {/* PHOTO OPTIONS */}
+        {canEdit && (
+          <Modal
+            visible={showPhotoOptions}
+            transparent
+            animationType="fade"
+            onRequestClose={() => setShowPhotoOptions(false)}
+          >
+            <Pressable
+              style={styles.modalBackdrop}
+              onPress={() => setShowPhotoOptions(false)}
+            >
+              <Pressable style={styles.photoOptionsModal} onPress={() => {}}>
+                <View style={styles.modalHandle} />
+                <Text style={styles.photoOptionsTitle}>Upload Photo</Text>
+                <Text style={styles.photoOptionsSubtitle}>
+                  Choose how you want to add a photo
+                </Text>
 
-          {acceptedMembers.length > 0 && (
-            <View style={styles.accessGroup}>
-              <Text style={styles.accessHeading}>
-                {isTenantAccount ? "Tenants" : "Members"}
-              </Text>
-              {acceptedMembers.map((person, index) =>
-                renderPersonRow(
-                  person,
-                  index === acceptedMembers.length - 1 &&
-                    acceptedStaff.length === 0 &&
-                    pendingGroups.length === 0 &&
-                    rejectedInvitations.length === 0,
-                  "member",
-                ),
-              )}
-            </View>
-          )}
+                <TouchableOpacity
+                  style={styles.photoOptionButton}
+                  onPress={takePhoto}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.photoOptionIcon}>
+                    <Ionicons name="camera" size={24} color="#1a73e8" />
+                  </View>
+                  <View style={styles.photoOptionTextContainer}>
+                    <Text style={styles.photoOptionTitle}>Take Photo</Text>
+                    <Text style={styles.photoOptionDescription}>
+                      Capture a photo using your camera
+                    </Text>
+                  </View>
+                  <Ionicons name="chevron-forward" size={20} color="#ccc" />
+                </TouchableOpacity>
 
-          {acceptedStaff.length > 0 && (
-            <View style={styles.accessGroup}>
-              <Text style={styles.accessHeading}>Staff</Text>
-              {acceptedStaff.map((person, index) =>
-                renderPersonRow(
-                  person,
-                  index === acceptedStaff.length - 1 &&
-                    pendingGroups.length === 0 &&
-                    rejectedInvitations.length === 0,
-                  "staff",
-                ),
-              )}
-            </View>
-          )}
-
-          {pendingNonOwnershipGroups.length > 0 && (
-            <View style={styles.accessGroup}>
-              <View style={styles.pendingHeader}>
-                <Text style={styles.accessHeading}>Pending Invitations</Text>
-                <View style={styles.pendingCountBadge}>
-                  <Text style={styles.pendingCountText}>
-                    {pendingNonOwnershipGroups.length}
-                  </Text>
-                </View>
-              </View>
-              {pendingNonOwnershipGroups.map((group, index) =>
-                renderPendingGroupRow(
-                  group,
-                  index === pendingNonOwnershipGroups.length - 1 &&
-                    rejectedInvitations.length === 0,
-                  "other",
-                ),
-              )}
-            </View>
-          )}
-
-          {rejectedInvitations.length > 0 && (
-            <View style={styles.accessGroup}>
-              <Text style={styles.accessHeading}>Rejected</Text>
-              {rejectedInvitations.map((inv, index) => {
-                const badge = roleBadge(inv.role);
-                const isResending = resendingInvitationId === inv.id;
-                const displayName =
-                  inv.invitee_user_name ?? inv.invited_name ?? "Invitee";
-                const ten = normalizePhone(inv.invited_phone);
-                const photoUrl =
-                  resolveUrl(inv.invitee_user_photo_url) ??
-                  resolveUrl(inv.accepted_user_photo_url) ??
-                  photoByPhone.get(ten) ??
-                  null;
-                return (
+                <TouchableOpacity
+                  style={styles.photoOptionButton}
+                  onPress={choosePhoto}
+                  activeOpacity={0.7}
+                >
                   <View
-                    key={inv.id}
                     style={[
-                      styles.accessRow,
-                      index === rejectedInvitations.length - 1 &&
-                        styles.lastAccessRow,
+                      styles.photoOptionIcon,
+                      { backgroundColor: "#ecfdf5" },
                     ]}
                   >
-                    <GrantAvatar
-                      photoUrl={photoUrl}
-                      name={displayName}
-                      style={styles.rejectedAvatar}
-                      textStyle={styles.rejectedAvatarText}
-                    />
-                    <View style={styles.accessInfo}>
-                      <Text style={styles.accessName}>{displayName}</Text>
-                      <Text style={styles.accessPhone}>
-                        +91{inv.invited_phone}
-                      </Text>
-                    </View>
-                    <View style={[styles.accessBadge, badge.style]}>
-                      <Text style={badge.text}>{badge.label}</Text>
-                    </View>
-                    <TouchableOpacity
-                      style={styles.resendButton}
-                      onPress={() => handleResendInvite(inv)}
-                      activeOpacity={0.75}
-                      disabled={isResending}
-                    >
-                      {isResending ? (
-                        <ActivityIndicator size="small" color="#2563EB" />
-                      ) : (
-                        <>
-                          <Ionicons name="refresh" size={14} color="#2563EB" />
-                          <Text style={styles.resendButtonText}>Resend</Text>
-                        </>
-                      )}
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.deleteInvitationButton}
-                      onPress={() => setInvitationToDelete(inv.id)}
-                      activeOpacity={0.7}
-                      disabled={isResending}
-                    >
-                      <Ionicons
-                        name="trash-outline"
-                        size={18}
-                        color="#DC2626"
-                      />
-                    </TouchableOpacity>
+                    <Ionicons name="images" size={24} color="#059669" />
                   </View>
-                );
-              })}
-            </View>
-          )}
-
-          {!invitationsLoading &&
-            !peopleLoading &&
-            acceptedAdmins.length === 0 &&
-            acceptedMembers.length === 0 &&
-            acceptedStaff.length === 0 &&
-            pendingGroups.length === 0 &&
-            rejectedInvitations.length === 0 &&
-            selectedAccount?.ownerId !== user?.id && (
-              <View style={styles.noAccessContainer}>
-                <View style={styles.noAccessIcon}>
-                  <Ionicons name="people-outline" size={26} color="#64748B" />
-                </View>
-                <Text style={styles.noAccessTitle}>No additional access</Text>
-                <Text style={styles.noAccessText}>
-                  No other people currently have access to this account.
-                </Text>
-              </View>
-            )}
-        </View>
-
-        {/* DANGER ZONE */}
-        {isOwner && (
-          <>
-            <Text
-              style={[styles.sectionTitle, { color: "#DC2626", marginTop: 12 }]}
-            >
-              DANGER ZONE
-            </Text>
-            <View style={styles.menuCard}>
-              <TouchableOpacity
-                style={[styles.menuItem, styles.menuItemLast]}
-                onPress={openDeleteProperty}
-                activeOpacity={0.75}
-                disabled={deletingProperty}
-              >
-                <View style={styles.menuItemLeft}>
-                  <View
-                    style={[styles.menuIcon, { backgroundColor: "#DC262614" }]}
-                  >
-                    {deletingProperty ? (
-                      <ActivityIndicator size="small" color="#DC2626" />
-                    ) : (
-                      <Ionicons
-                        name="trash-outline"
-                        size={20}
-                        color="#DC2626"
-                      />
-                    )}
-                  </View>
-                  <View style={styles.menuItemContent}>
-                    <Text style={styles.menuItemTitle}>
-                      {deletingProperty ? "Deleting…" : "Delete Property"}
+                  <View style={styles.photoOptionTextContainer}>
+                    <Text style={styles.photoOptionTitle}>
+                      Choose from Gallery
                     </Text>
-                    <Text style={styles.menuItemDescription} numberOfLines={1}>
-                      Permanently remove this property and its data
+                    <Text style={styles.photoOptionDescription}>
+                      Select a photo from your device
                     </Text>
                   </View>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color="#94A3B8" />
-              </TouchableOpacity>
-            </View>
-          </>
-        )}
-      </ScrollView>
+                  <Ionicons name="chevron-forward" size={20} color="#ccc" />
+                </TouchableOpacity>
 
-      {/* PHOTO OPTIONS */}
-      {canEdit && (
-        <Modal
-          visible={showPhotoOptions}
-          transparent
-          animationType="fade"
-          onRequestClose={() => setShowPhotoOptions(false)}
-        >
-          <Pressable
-            style={styles.modalBackdrop}
-            onPress={() => setShowPhotoOptions(false)}
-          >
-            <Pressable style={styles.photoOptionsModal} onPress={() => {}}>
-              <View style={styles.modalHandle} />
-              <Text style={styles.photoOptionsTitle}>Upload Photo</Text>
-              <Text style={styles.photoOptionsSubtitle}>
-                Choose how you want to add a photo
-              </Text>
-
-              <TouchableOpacity
-                style={styles.photoOptionButton}
-                onPress={takePhoto}
-                activeOpacity={0.7}
-              >
-                <View style={styles.photoOptionIcon}>
-                  <Ionicons name="camera" size={24} color="#1a73e8" />
-                </View>
-                <View style={styles.photoOptionTextContainer}>
-                  <Text style={styles.photoOptionTitle}>Take Photo</Text>
-                  <Text style={styles.photoOptionDescription}>
-                    Capture a photo using your camera
-                  </Text>
-                </View>
-                <Ionicons name="chevron-forward" size={20} color="#ccc" />
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.photoOptionButton}
-                onPress={choosePhoto}
-                activeOpacity={0.7}
-              >
-                <View
-                  style={[
-                    styles.photoOptionIcon,
-                    { backgroundColor: "#ecfdf5" },
-                  ]}
+                <TouchableOpacity
+                  style={styles.photoOptionsCancel}
+                  onPress={() => setShowPhotoOptions(false)}
+                  activeOpacity={0.7}
                 >
-                  <Ionicons name="images" size={24} color="#059669" />
-                </View>
-                <View style={styles.photoOptionTextContainer}>
-                  <Text style={styles.photoOptionTitle}>
-                    Choose from Gallery
-                  </Text>
-                  <Text style={styles.photoOptionDescription}>
-                    Select a photo from your device
-                  </Text>
-                </View>
-                <Ionicons name="chevron-forward" size={20} color="#ccc" />
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.photoOptionsCancel}
-                onPress={() => setShowPhotoOptions(false)}
-                activeOpacity={0.7}
-              >
-                <Text style={styles.photoOptionsCancelText}>Cancel</Text>
-              </TouchableOpacity>
+                  <Text style={styles.photoOptionsCancelText}>Cancel</Text>
+                </TouchableOpacity>
+              </Pressable>
             </Pressable>
-          </Pressable>
-        </Modal>
-      )}
+          </Modal>
+        )}
 
-      {/* PHOTO ADJUST */}
-      {canEdit && (
-        <PhotoAdjustModal
-          visible={showAdjustModal}
-          image={rawImage}
-          onCancel={handleAdjustCancel}
-          onConfirm={handleAdjustConfirm}
+        {/* PHOTO ADJUST */}
+        {canEdit && (
+          <PhotoAdjustModal
+            visible={showAdjustModal}
+            image={rawImage}
+            onCancel={handleAdjustCancel}
+            onConfirm={handleAdjustConfirm}
+          />
+        )}
+
+        {/* DELETE SINGLE INVITATION */}
+        {invitationToDelete && (
+          <Modal
+            transparent
+            animationType="fade"
+            visible={Boolean(invitationToDelete)}
+            onRequestClose={() => setInvitationToDelete(null)}
+          >
+            <TouchableWithoutFeedback
+              onPress={() => setInvitationToDelete(null)}
+            >
+              <View style={styles.modalOverlay}>
+                <TouchableWithoutFeedback
+                  onPress={(event) => event.stopPropagation()}
+                >
+                  <View style={styles.deleteModal}>
+                    <View style={styles.deleteIcon}>
+                      <Ionicons
+                        name="trash-outline"
+                        size={25}
+                        color="#DC2626"
+                      />
+                    </View>
+                    <Text style={styles.deleteModalTitle}>
+                      Delete Invitation?
+                    </Text>
+                    <Text style={styles.deleteModalDescription}>
+                      This person will no longer be able to accept this
+                      invitation.
+                    </Text>
+                    <View style={styles.deleteModalActions}>
+                      <TouchableOpacity
+                        style={styles.cancelModalButton}
+                        onPress={() => setInvitationToDelete(null)}
+                        activeOpacity={0.8}
+                        disabled={deletingInvitation}
+                      >
+                        <Text style={styles.cancelButtonText}>Cancel</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={styles.deleteConfirmButton}
+                        onPress={confirmDeleteInvitation}
+                        activeOpacity={0.8}
+                        disabled={deletingInvitation}
+                      >
+                        {deletingInvitation ? (
+                          <ActivityIndicator color="#FFFFFF" size="small" />
+                        ) : (
+                          <>
+                            <Ionicons
+                              name="trash-outline"
+                              size={17}
+                              color="#FFFFFF"
+                            />
+                            <Text style={styles.deleteConfirmText}>Delete</Text>
+                          </>
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </TouchableWithoutFeedback>
+              </View>
+            </TouchableWithoutFeedback>
+          </Modal>
+        )}
+
+        {/* DELETE GROUPED PENDING INVITATIONS */}
+        <DeletePendingModal
+          group={pendingGroupToDelete}
+          isTenantAccount={isTenantAccount}
+          submitting={deletingInvitation}
+          onCancel={() => {
+            if (deletingInvitation) return;
+            setPendingGroupToDelete(null);
+          }}
+          onConfirm={(ids) => {
+            void confirmDeletePendingGroup(ids);
+          }}
         />
-      )}
 
-      {/* DELETE SINGLE INVITATION */}
-      {invitationToDelete && (
-        <Modal
-          transparent
-          animationType="fade"
-          visible={Boolean(invitationToDelete)}
-          onRequestClose={() => setInvitationToDelete(null)}
-        >
-          <TouchableWithoutFeedback onPress={() => setInvitationToDelete(null)}>
-            <View style={styles.modalOverlay}>
-              <TouchableWithoutFeedback
-                onPress={(event) => event.stopPropagation()}
-              >
-                <View style={styles.deleteModal}>
-                  <View style={styles.deleteIcon}>
-                    <Ionicons name="trash-outline" size={25} color="#DC2626" />
-                  </View>
-                  <Text style={styles.deleteModalTitle}>
-                    Delete Invitation?
-                  </Text>
-                  <Text style={styles.deleteModalDescription}>
-                    This person will no longer be able to accept this
-                    invitation.
-                  </Text>
-                  <View style={styles.deleteModalActions}>
-                    <TouchableOpacity
-                      style={styles.cancelModalButton}
-                      onPress={() => setInvitationToDelete(null)}
-                      activeOpacity={0.8}
-                      disabled={deletingInvitation}
-                    >
-                      <Text style={styles.cancelButtonText}>Cancel</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.deleteConfirmButton}
-                      onPress={confirmDeleteInvitation}
-                      activeOpacity={0.8}
-                      disabled={deletingInvitation}
-                    >
-                      {deletingInvitation ? (
-                        <ActivityIndicator color="#FFFFFF" size="small" />
-                      ) : (
-                        <>
-                          <Ionicons
-                            name="trash-outline"
-                            size={17}
-                            color="#FFFFFF"
-                          />
-                          <Text style={styles.deleteConfirmText}>Delete</Text>
-                        </>
-                      )}
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              </TouchableWithoutFeedback>
-            </View>
-          </TouchableWithoutFeedback>
-        </Modal>
-      )}
+        {/* REVOKE ACCESS MODAL */}
+        <RevokeAccessModal
+          visible={showRevokeAccessModal}
+          onClose={() => setShowRevokeAccessModal(false)}
+          accountId={selectedAccount?.id ?? null}
+          isTenantAccount={isTenantAccount}
+          acceptedAdmins={revokeAdmins}
+          acceptedMembers={revokeMembers}
+          acceptedStaff={revokeStaff}
+          acceptedOwnership={revokeOwnership}
+          getAuthToken={getAuthToken}
+          onRevoked={async () => {
+            refreshNow();
+          }}
+          onNotify={(opts) => showAlert(opts)}
+        />
 
-      {/* DELETE GROUPED PENDING INVITATIONS */}
-      <DeletePendingModal
-        group={pendingGroupToDelete}
-        isTenantAccount={isTenantAccount}
-        submitting={deletingInvitation}
-        onCancel={() => {
-          if (deletingInvitation) return;
-          setPendingGroupToDelete(null);
-        }}
-        onConfirm={(ids) => {
-          void confirmDeletePendingGroup(ids);
-        }}
-      />
+        {/* DELETE PROPERTY MODAL */}
+        <DeletePropertyModal
+          visible={showDeletePropertyModal}
+          propertyName={selectedAccount?.name || "this property"}
+          submitting={deletingProperty}
+          onCancel={() => {
+            if (deletingProperty) return;
+            setShowDeletePropertyModal(false);
+          }}
+          onConfirm={performDeleteProperty}
+        />
 
-      {/* REVOKE ACCESS MODAL */}
-      <RevokeAccessModal
-        visible={showRevokeAccessModal}
-        onClose={() => setShowRevokeAccessModal(false)}
-        accountId={selectedAccount?.id ?? null}
-        isTenantAccount={isTenantAccount}
-        acceptedAdmins={revokeAdmins}
-        acceptedMembers={revokeMembers}
-        acceptedStaff={revokeStaff}
-        acceptedOwnership={revokeOwnership}
-        getAuthToken={getAuthToken}
-        onRevoked={async () => {
-          refreshNow();
-        }}
-        onNotify={(opts) => showAlert(opts)}
-      />
-
-      {/* DELETE PROPERTY MODAL */}
-      <DeletePropertyModal
-        visible={showDeletePropertyModal}
-        propertyName={selectedAccount?.name || "this property"}
-        submitting={deletingProperty}
-        onCancel={() => {
-          if (deletingProperty) return;
-          setShowDeletePropertyModal(false);
-        }}
-        onConfirm={performDeleteProperty}
-      />
-
-      <AppAlert state={alert.state} onDismiss={alert.dismiss} />
+        <AppAlert state={alert.state} onDismiss={alert.dismiss} />
       </View>
     </DarkModeBoundary>
   );
