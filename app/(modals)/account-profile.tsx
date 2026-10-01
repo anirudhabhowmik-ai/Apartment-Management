@@ -28,6 +28,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getSecureItem } from "../../utils/tokenStorage";
 
 import { useAccounts } from "../../hooks/useAccounts";
+import { useMembers, useStaff } from "../../hooks/useManagement";
 import { useUserRole } from "../../hooks/useUserRole";
 import { useAuthStore } from "../../store/useAuthStore";
 
@@ -148,6 +149,34 @@ const normalizePhone = (raw?: string | null): string => {
   if (!raw) return "";
   const digits = String(raw).replace(/\D/g, "");
   return digits.length > 10 ? digits.slice(-10) : digits;
+};
+
+const resolveUrl = (raw?: string | null): string | null => {
+  if (!raw) return null;
+  const s = String(raw).trim();
+  if (!s) return null;
+  if (/^https?:\/\//i.test(s) || s.startsWith("data:")) return s;
+  return `${API_URL}${s.startsWith("/") ? "" : "/"}${s}`;
+};
+
+const pickPhotoFromRow = (row: any): string | null => {
+  if (!row) return null;
+  const candidates = [
+    row.photoUrl,
+    row.photoUri,
+    row.photo_url,
+    row.user_photo_url,
+    row.userPhotoUrl,
+    row.user?.photoUrl,
+    row.user?.photoUri,
+    row.user?.photo_url,
+  ];
+  for (const c of candidates) {
+    if (typeof c === "string" && c.trim().length > 0) {
+      return resolveUrl(c);
+    }
+  }
+  return null;
 };
 
 // ============================================================================
@@ -841,7 +870,7 @@ function MenuRow({
 }
 
 // ============================================================================
-// GRANT AVATAR
+// GRANT AVATAR (self-healing fallback on broken image URLs)
 // ============================================================================
 
 function GrantAvatar({
@@ -860,13 +889,21 @@ function GrantAvatar({
   textStyle?: any;
 }) {
   const initial = (name || "?").trim().charAt(0).toUpperCase() || "?";
+  const [failed, setFailed] = useState(false);
 
-  if (photoUrl) {
+  useEffect(() => {
+    setFailed(false);
+  }, [photoUrl]);
+
+  const shouldShowImage = !!photoUrl && !failed;
+
+  if (shouldShowImage) {
     return (
       <Image
-        source={{ uri: photoUrl }}
+        source={{ uri: photoUrl! }}
         style={[{ width: size, height: size, borderRadius: radius }, style]}
         resizeMode="cover"
+        onError={() => setFailed(true)}
       />
     );
   }
@@ -894,6 +931,7 @@ interface RevokeAccessModalProps {
   visible: boolean;
   onClose: () => void;
   accountId: string | null;
+  isTenantAccount: boolean;
   acceptedAdmins: ApiInvitation[];
   acceptedMembers: ApiInvitation[];
   acceptedStaff: ApiInvitation[];
@@ -911,6 +949,7 @@ function RevokeAccessModal({
   visible,
   onClose,
   accountId,
+  isTenantAccount,
   acceptedAdmins,
   acceptedMembers,
   acceptedStaff,
@@ -967,7 +1006,8 @@ function RevokeAccessModal({
 
   const roleLabel = (role: InvitationRole) => {
     if (role === "admin") return "Admin";
-    if (role === "member_visibility") return "Member";
+    if (role === "member_visibility")
+      return isTenantAccount ? "Tenant" : "Member";
     if (role === "staff_visibility") return "Staff";
     return "Ownership";
   };
@@ -1105,7 +1145,8 @@ function RevokeAccessModal({
     const { wing, flatNumber, role } = preview.memberProfile;
     const parts: string[] = [];
     if (wing) parts.push(`Wing ${wing}`);
-    if (flatNumber) parts.push(`Flat ${flatNumber}`);
+    if (flatNumber)
+      parts.push(`${isTenantAccount ? "Room" : "Flat"} ${flatNumber}`);
     if (role) parts.push(role.charAt(0).toUpperCase() + role.slice(1));
     return parts.join(" • ");
   };
@@ -1117,9 +1158,15 @@ function RevokeAccessModal({
     return role.charAt(0).toUpperCase() + role.slice(1);
   };
 
+  const memberRoleWord = isTenantAccount ? "Tenant" : "Member";
+
   const tabs: { key: RevokeTab; label: string; count: number }[] = [
     { key: "admin", label: "Admin", count: acceptedAdmins.length },
-    { key: "member", label: "Member", count: acceptedMembers.length },
+    {
+      key: "member",
+      label: memberRoleWord,
+      count: acceptedMembers.length,
+    },
     { key: "staff", label: "Staff", count: acceptedStaff.length },
     { key: "ownership", label: "Ownership", count: acceptedOwnership.length },
   ];
@@ -1137,8 +1184,8 @@ function RevokeAccessModal({
             <View style={{ flex: 1 }}>
               <Text style={styles.revokeAccessTitle}>Revoke Access</Text>
               <Text style={styles.revokeAccessSubtitle}>
-                Remove admin, member, staff, or ownership access from this
-                account
+                Remove admin, {memberRoleWord.toLowerCase()}, staff, or
+                ownership access from this account
               </Text>
             </View>
             <TouchableOpacity
@@ -1240,7 +1287,9 @@ function RevokeAccessModal({
                               : tab === "staff"
                                 ? "staff_visibility"
                                 : "ownership_transfer",
-                        ).toLowerCase()}s yet.`}
+                        ).toLowerCase()}${
+                          tab === "member" && isTenantAccount ? "" : "s"
+                        } yet.`}
                   </Text>
                 </View>
               ) : (
@@ -1365,7 +1414,7 @@ function RevokeAccessModal({
                         {displayName(target)} will lose{" "}
                         {roleLabel(target.role).toLowerCase()} access.
                         {hasRevokeToggles
-                          ? " They still have another profile on this property — choose which access to keep below."
+                          ? ` They still have another profile on this property — choose which access to keep below.`
                           : ""}
                       </Text>
 
@@ -1385,7 +1434,7 @@ function RevokeAccessModal({
                           </View>
                           <View style={styles.revokeToggleContent}>
                             <Text style={styles.revokeToggleTitle}>
-                              Keep Member visibility
+                              Keep {memberRoleWord} visibility
                             </Text>
                             <Text
                               style={styles.revokeToggleSubtitle}
@@ -1521,6 +1570,7 @@ function RevokeAccessModal({
 
 interface DeletePendingModalProps {
   group: PendingGroup | null;
+  isTenantAccount: boolean;
   submitting: boolean;
   onCancel: () => void;
   onConfirm: (ids: string[]) => void;
@@ -1528,6 +1578,7 @@ interface DeletePendingModalProps {
 
 function DeletePendingModal({
   group,
+  isTenantAccount,
   submitting,
   onCancel,
   onConfirm,
@@ -1585,12 +1636,13 @@ function DeletePendingModal({
                 <View style={{ width: "100%", marginTop: 8 }}>
                   {group.invitations.map((inv) => {
                     const checked = selectedIds.has(inv.id);
+                    const memberLabel = isTenantAccount ? "Tenant" : "Member";
                     const badge =
                       inv.role === "member_visibility"
                         ? {
                             bg: "#DCFCE7",
                             text: "#16A34A",
-                            label: "Member",
+                            label: memberLabel,
                             icon: "person",
                           }
                         : inv.role === "staff_visibility"
@@ -1898,6 +1950,27 @@ export default function AccountProfileScreen() {
   const { isAdmin } = useUserRole();
   const canEdit = isAdmin;
 
+  // ── Photo source: same hooks used by Grant Access ──
+  const { items: rawMembersForPhotos } = useMembers(
+    selectedAccount?.id ?? null,
+  );
+  const { items: rawStaffForPhotos } = useStaff(selectedAccount?.id ?? null);
+
+  const photoByPhone = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const m of rawMembersForPhotos ?? []) {
+      const phone = normalizePhone((m as any)?.phone);
+      const photo = pickPhotoFromRow(m);
+      if (phone && photo && !map.has(phone)) map.set(phone, photo);
+    }
+    for (const s of rawStaffForPhotos ?? []) {
+      const phone = normalizePhone((s as any)?.phone);
+      const photo = pickPhotoFromRow(s);
+      if (phone && photo && !map.has(phone)) map.set(phone, photo);
+    }
+    return map;
+  }, [rawMembersForPhotos, rawStaffForPhotos]);
+
   const alert = useAppAlert();
   const showAlert = alert.show;
 
@@ -1944,6 +2017,14 @@ export default function AccountProfileScreen() {
   // DERIVED
   // ============================================================
 
+  const isTenantAccount = useMemo(() => {
+    if (!selectedAccount) return false;
+    return String((selectedAccount as any).type ?? "").toLowerCase() === "home";
+  }, [selectedAccount]);
+
+  const memberRoleWord = isTenantAccount ? "Tenant" : "Member";
+  const memberRoleWordLower = memberRoleWord.toLowerCase();
+
   const pendingInvitations = useMemo(
     () => invitations.filter((i) => i.status === "pending"),
     [invitations],
@@ -1961,9 +2042,19 @@ export default function AccountProfileScreen() {
       const key = `${inv.account_id}:${ten}`;
       const existing = byKey.get(key);
 
+      const fallbackPhoto = photoByPhone.get(ten) ?? null;
+      const resolvedPhoto =
+        resolveUrl(inv.invitee_user_photo_url) ??
+        resolveUrl(inv.accepted_user_photo_url) ??
+        fallbackPhoto ??
+        null;
+
       if (existing) {
         if (!existing.roles.includes(inv.role)) existing.roles.push(inv.role);
         existing.invitations.push(inv);
+        if (!existing.photoUrl && resolvedPhoto) {
+          existing.photoUrl = resolvedPhoto;
+        }
         continue;
       }
 
@@ -1971,15 +2062,14 @@ export default function AccountProfileScreen() {
         key,
         phone: ten,
         name: inv.invitee_user_name ?? inv.invited_name ?? "Invitee",
-        photoUrl:
-          inv.invitee_user_photo_url ?? inv.accepted_user_photo_url ?? null,
+        photoUrl: resolvedPhoto,
         roles: [inv.role],
         invitations: [inv],
       });
     }
 
     return Array.from(byKey.values());
-  }, [pendingInvitations]);
+  }, [pendingInvitations, photoByPhone]);
 
   const pendingOwnershipGroups = useMemo(
     () => pendingGroups.filter((g) => g.roles.includes("ownership_transfer")),
@@ -1995,107 +2085,122 @@ export default function AccountProfileScreen() {
   const acceptedOwnership = useMemo<AccessPerson[]>(() => [], []);
 
   const acceptedAdmins = useMemo<AccessPerson[]>(() => {
-    return people.admins.map((p) => ({
-      key: `u:${p.user_id}`,
-      userId: p.user_id,
-      phone: p.phone ?? "",
-      name: p.name ?? "",
-      photoUrl: p.photo_url ?? null,
-      roles: ["admin"] as InvitationRole[],
-      primaryInvitation: {
-        id: p.user_id,
-        account_id: selectedAccount?.id ?? "",
-        invited_phone: p.phone ?? "",
-        invited_name: p.name ?? null,
-        role: "admin",
-        status: "accepted",
-        target_member_id: null,
-        target_staff_id: null,
-        created_at: "",
-        responded_at: null,
-        dismissed_at: null,
-        accepted_by: p.user_id,
-        invited_by_phone: "",
-        account_name: "",
-        account_photo_url: null,
-        accepted_user_name: p.name ?? null,
-        accepted_user_photo_url: p.photo_url ?? null,
-        invitee_user_name: p.name ?? null,
-        invitee_user_photo_url: p.photo_url ?? null,
-      },
-      invitations: [],
-    }));
-  }, [people.admins, selectedAccount?.id]);
+    return people.admins.map((p) => {
+      const phone = normalizePhone(p.phone);
+      const resolvedPhoto =
+        resolveUrl(p.photo_url) ?? photoByPhone.get(phone) ?? null;
+      return {
+        key: `u:${p.user_id}`,
+        userId: p.user_id,
+        phone: p.phone ?? "",
+        name: p.name ?? "",
+        photoUrl: resolvedPhoto,
+        roles: ["admin"] as InvitationRole[],
+        primaryInvitation: {
+          id: p.user_id,
+          account_id: selectedAccount?.id ?? "",
+          invited_phone: p.phone ?? "",
+          invited_name: p.name ?? null,
+          role: "admin",
+          status: "accepted",
+          target_member_id: null,
+          target_staff_id: null,
+          created_at: "",
+          responded_at: null,
+          dismissed_at: null,
+          accepted_by: p.user_id,
+          invited_by_phone: "",
+          account_name: "",
+          account_photo_url: null,
+          accepted_user_name: p.name ?? null,
+          accepted_user_photo_url: resolvedPhoto,
+          invitee_user_name: p.name ?? null,
+          invitee_user_photo_url: resolvedPhoto,
+        },
+        invitations: [],
+      };
+    });
+  }, [people.admins, selectedAccount?.id, photoByPhone]);
 
   const acceptedMembers = useMemo<AccessPerson[]>(() => {
-    return people.members.map((p) => ({
-      key: `u:${p.user_id}`,
-      userId: p.user_id,
-      phone: p.phone ?? "",
-      name: p.name ?? "",
-      photoUrl: p.photo_url ?? null,
-      roles: ["member_visibility"] as InvitationRole[],
-      primaryInvitation: {
-        id: p.user_id,
-        account_id: selectedAccount?.id ?? "",
-        invited_phone: p.phone ?? "",
-        invited_name: p.name ?? null,
-        role: "member_visibility",
-        status: "accepted",
-        target_member_id: null,
-        target_staff_id: null,
-        created_at: "",
-        responded_at: null,
-        dismissed_at: null,
-        accepted_by: p.user_id,
-        invited_by_phone: "",
-        account_name: "",
-        account_photo_url: null,
-        accepted_user_name: p.name ?? null,
-        accepted_user_photo_url: p.photo_url ?? null,
-        invitee_user_name: p.name ?? null,
-        invitee_user_photo_url: p.photo_url ?? null,
-      },
-      invitations: [],
-      invitationId: p.invitation_id ?? null,
-      canDismiss: p.can_dismiss === true,
-    }));
-  }, [people.members, selectedAccount?.id]);
+    return people.members.map((p) => {
+      const phone = normalizePhone(p.phone);
+      const resolvedPhoto =
+        resolveUrl(p.photo_url) ?? photoByPhone.get(phone) ?? null;
+      return {
+        key: `u:${p.user_id}`,
+        userId: p.user_id,
+        phone: p.phone ?? "",
+        name: p.name ?? "",
+        photoUrl: resolvedPhoto,
+        roles: ["member_visibility"] as InvitationRole[],
+        primaryInvitation: {
+          id: p.user_id,
+          account_id: selectedAccount?.id ?? "",
+          invited_phone: p.phone ?? "",
+          invited_name: p.name ?? null,
+          role: "member_visibility",
+          status: "accepted",
+          target_member_id: null,
+          target_staff_id: null,
+          created_at: "",
+          responded_at: null,
+          dismissed_at: null,
+          accepted_by: p.user_id,
+          invited_by_phone: "",
+          account_name: "",
+          account_photo_url: null,
+          accepted_user_name: p.name ?? null,
+          accepted_user_photo_url: resolvedPhoto,
+          invitee_user_name: p.name ?? null,
+          invitee_user_photo_url: resolvedPhoto,
+        },
+        invitations: [],
+        invitationId: p.invitation_id ?? null,
+        canDismiss: p.can_dismiss === true,
+      };
+    });
+  }, [people.members, selectedAccount?.id, photoByPhone]);
 
   const acceptedStaff = useMemo<AccessPerson[]>(() => {
-    return people.staff.map((p) => ({
-      key: `u:${p.user_id}`,
-      userId: p.user_id,
-      phone: p.phone ?? "",
-      name: p.name ?? "",
-      photoUrl: p.photo_url ?? null,
-      roles: ["staff_visibility"] as InvitationRole[],
-      primaryInvitation: {
-        id: p.user_id,
-        account_id: selectedAccount?.id ?? "",
-        invited_phone: p.phone ?? "",
-        invited_name: p.name ?? null,
-        role: "staff_visibility",
-        status: "accepted",
-        target_member_id: null,
-        target_staff_id: null,
-        created_at: "",
-        responded_at: null,
-        dismissed_at: null,
-        accepted_by: p.user_id,
-        invited_by_phone: "",
-        account_name: "",
-        account_photo_url: null,
-        accepted_user_name: p.name ?? null,
-        accepted_user_photo_url: p.photo_url ?? null,
-        invitee_user_name: p.name ?? null,
-        invitee_user_photo_url: p.photo_url ?? null,
-      },
-      invitations: [],
-      invitationId: p.invitation_id ?? null,
-      canDismiss: p.can_dismiss === true,
-    }));
-  }, [people.staff, selectedAccount?.id]);
+    return people.staff.map((p) => {
+      const phone = normalizePhone(p.phone);
+      const resolvedPhoto =
+        resolveUrl(p.photo_url) ?? photoByPhone.get(phone) ?? null;
+      return {
+        key: `u:${p.user_id}`,
+        userId: p.user_id,
+        phone: p.phone ?? "",
+        name: p.name ?? "",
+        photoUrl: resolvedPhoto,
+        roles: ["staff_visibility"] as InvitationRole[],
+        primaryInvitation: {
+          id: p.user_id,
+          account_id: selectedAccount?.id ?? "",
+          invited_phone: p.phone ?? "",
+          invited_name: p.name ?? null,
+          role: "staff_visibility",
+          status: "accepted",
+          target_member_id: null,
+          target_staff_id: null,
+          created_at: "",
+          responded_at: null,
+          dismissed_at: null,
+          accepted_by: p.user_id,
+          invited_by_phone: "",
+          account_name: "",
+          account_photo_url: null,
+          accepted_user_name: p.name ?? null,
+          accepted_user_photo_url: resolvedPhoto,
+          invitee_user_name: p.name ?? null,
+          invitee_user_photo_url: resolvedPhoto,
+        },
+        invitations: [],
+        invitationId: p.invitation_id ?? null,
+        canDismiss: p.can_dismiss === true,
+      };
+    });
+  }, [people.staff, selectedAccount?.id, photoByPhone]);
 
   const acceptedPeople = useMemo<AccessPerson[]>(
     () => [...acceptedAdmins, ...acceptedMembers, ...acceptedStaff],
@@ -2117,49 +2222,59 @@ export default function AccountProfileScreen() {
 
   const revokeAdmins = acceptedAdmins.map((p) => p.primaryInvitation);
 
-  const revokeMembers = people.revokeMembers.map((p) => ({
-    id: p.user_id,
-    account_id: selectedAccount?.id ?? "",
-    invited_phone: p.phone ?? "",
-    invited_name: p.name ?? null,
-    role: "member_visibility" as InvitationRole,
-    status: "accepted" as InvitationStatus,
-    target_member_id: null,
-    target_staff_id: null,
-    created_at: "",
-    responded_at: null,
-    dismissed_at: null,
-    accepted_by: p.user_id,
-    invited_by_phone: "",
-    account_name: "",
-    account_photo_url: null,
-    accepted_user_name: p.name ?? null,
-    accepted_user_photo_url: p.photo_url ?? null,
-    invitee_user_name: p.name ?? null,
-    invitee_user_photo_url: p.photo_url ?? null,
-  }));
+  const revokeMembers = people.revokeMembers.map((p) => {
+    const phone = normalizePhone(p.phone);
+    const resolvedPhoto =
+      resolveUrl(p.photo_url) ?? photoByPhone.get(phone) ?? null;
+    return {
+      id: p.user_id,
+      account_id: selectedAccount?.id ?? "",
+      invited_phone: p.phone ?? "",
+      invited_name: p.name ?? null,
+      role: "member_visibility" as InvitationRole,
+      status: "accepted" as InvitationStatus,
+      target_member_id: null,
+      target_staff_id: null,
+      created_at: "",
+      responded_at: null,
+      dismissed_at: null,
+      accepted_by: p.user_id,
+      invited_by_phone: "",
+      account_name: "",
+      account_photo_url: null,
+      accepted_user_name: p.name ?? null,
+      accepted_user_photo_url: resolvedPhoto,
+      invitee_user_name: p.name ?? null,
+      invitee_user_photo_url: resolvedPhoto,
+    };
+  });
 
-  const revokeStaff = people.revokeStaff.map((p) => ({
-    id: p.user_id,
-    account_id: selectedAccount?.id ?? "",
-    invited_phone: p.phone ?? "",
-    invited_name: p.name ?? null,
-    role: "staff_visibility" as InvitationRole,
-    status: "accepted" as InvitationStatus,
-    target_member_id: null,
-    target_staff_id: null,
-    created_at: "",
-    responded_at: null,
-    dismissed_at: null,
-    accepted_by: p.user_id,
-    invited_by_phone: "",
-    account_name: "",
-    account_photo_url: null,
-    accepted_user_name: p.name ?? null,
-    accepted_user_photo_url: p.photo_url ?? null,
-    invitee_user_name: p.name ?? null,
-    invitee_user_photo_url: p.photo_url ?? null,
-  }));
+  const revokeStaff = people.revokeStaff.map((p) => {
+    const phone = normalizePhone(p.phone);
+    const resolvedPhoto =
+      resolveUrl(p.photo_url) ?? photoByPhone.get(phone) ?? null;
+    return {
+      id: p.user_id,
+      account_id: selectedAccount?.id ?? "",
+      invited_phone: p.phone ?? "",
+      invited_name: p.name ?? null,
+      role: "staff_visibility" as InvitationRole,
+      status: "accepted" as InvitationStatus,
+      target_member_id: null,
+      target_staff_id: null,
+      created_at: "",
+      responded_at: null,
+      dismissed_at: null,
+      accepted_by: p.user_id,
+      invited_by_phone: "",
+      account_name: "",
+      account_photo_url: null,
+      accepted_user_name: p.name ?? null,
+      accepted_user_photo_url: resolvedPhoto,
+      invitee_user_name: p.name ?? null,
+      invitee_user_photo_url: resolvedPhoto,
+    };
+  });
 
   const revokeOwnership = acceptedOwnership.map((p) => p.primaryInvitation);
 
@@ -2762,7 +2877,7 @@ export default function AccountProfileScreen() {
         };
       case "member_visibility":
         return {
-          label: "Member",
+          label: memberRoleWord,
           style: styles.memberBadge,
           text: styles.memberBadgeText,
         };
@@ -2813,7 +2928,7 @@ export default function AccountProfileScreen() {
           }
         : kind === "member"
           ? {
-              label: "MEMBER",
+              label: memberRoleWord.toUpperCase(),
               style: styles.memberBadge,
               text: styles.memberBadgeText,
             }
@@ -3045,7 +3160,9 @@ export default function AccountProfileScreen() {
 
               <View style={styles.accountTypeBadge}>
                 <View style={styles.accountTypeDot} />
-                <Text style={styles.accountTypeText}>Society Account</Text>
+                <Text style={styles.accountTypeText}>
+                  {isTenantAccount ? "Home Account" : "Society Account"}
+                </Text>
               </View>
             </View>
           </View>
@@ -3076,7 +3193,7 @@ export default function AccountProfileScreen() {
                 icon="eye-outline"
                 color="#16A34A"
                 title="Manage Visibility"
-                description="Manage apartment owner and staff visibility access"
+                description={`Manage ${memberRoleWordLower} and staff visibility access`}
                 onPress={() =>
                   router.push({
                     pathname: "/(modals)/grant-access",
@@ -3132,7 +3249,8 @@ export default function AccountProfileScreen() {
                       </View>
                       <View style={styles.menuItemContent}>
                         <Text style={styles.menuItemTitle}>
-                          Revoke Admin, Member, Staff & Ownership Access
+                          Revoke Admin, {memberRoleWord}, Staff & Ownership
+                          Access
                         </Text>
                         <Text
                           style={styles.menuItemDescription}
@@ -3236,7 +3354,9 @@ export default function AccountProfileScreen() {
 
           {acceptedMembers.length > 0 && (
             <View style={styles.accessGroup}>
-              <Text style={styles.accessHeading}>Members</Text>
+              <Text style={styles.accessHeading}>
+                {isTenantAccount ? "Tenants" : "Members"}
+              </Text>
               {acceptedMembers.map((person, index) =>
                 renderPersonRow(
                   person,
@@ -3292,12 +3412,14 @@ export default function AccountProfileScreen() {
               {rejectedInvitations.map((inv, index) => {
                 const badge = roleBadge(inv.role);
                 const isResending = resendingInvitationId === inv.id;
-                const photoUrl =
-                  inv.invitee_user_photo_url ??
-                  inv.accepted_user_photo_url ??
-                  null;
                 const displayName =
                   inv.invitee_user_name ?? inv.invited_name ?? "Invitee";
+                const ten = normalizePhone(inv.invited_phone);
+                const photoUrl =
+                  resolveUrl(inv.invitee_user_photo_url) ??
+                  resolveUrl(inv.accepted_user_photo_url) ??
+                  photoByPhone.get(ten) ??
+                  null;
                 return (
                   <View
                     key={inv.id}
@@ -3565,6 +3687,7 @@ export default function AccountProfileScreen() {
       {/* DELETE GROUPED PENDING INVITATIONS */}
       <DeletePendingModal
         group={pendingGroupToDelete}
+        isTenantAccount={isTenantAccount}
         submitting={deletingInvitation}
         onCancel={() => {
           if (deletingInvitation) return;
@@ -3580,6 +3703,7 @@ export default function AccountProfileScreen() {
         visible={showRevokeAccessModal}
         onClose={() => setShowRevokeAccessModal(false)}
         accountId={selectedAccount?.id ?? null}
+        isTenantAccount={isTenantAccount}
         acceptedAdmins={revokeAdmins}
         acceptedMembers={revokeMembers}
         acceptedStaff={revokeStaff}

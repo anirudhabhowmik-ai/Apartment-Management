@@ -118,14 +118,6 @@ const ROLE_RANK: Record<InvitationRole, number> = {
   ownership_transfer: 3,
 };
 
-const roleLabelLower = (r: InvitationRole | null): string => {
-  if (r === "ownership_transfer") return "ownership transfer";
-  if (r === "admin") return "admin invitation";
-  if (r === "staff_visibility") return "staff invitation";
-  if (r === "member_visibility") return "member invitation";
-  return "invitation";
-};
-
 const normalizePhone = (raw?: string | null): string => {
   if (!raw) return "";
   const digits = String(raw).replace(/\D/g, "");
@@ -218,14 +210,15 @@ interface GroupedPerson {
   staffSummary: string;
 }
 
-function summarizeMemberUnits(rows: any[]): string {
+function summarizeMemberUnits(rows: any[], isTenantAccount: boolean): string {
   const units: string[] = [];
+  const roomLabel = isTenantAccount ? "Room" : "";
   for (const r of rows) {
     const wing = (r?.wing ?? "").toString().trim();
     const apt = (r?.apartmentNumber ?? r?.flatNumber ?? "").toString().trim();
     const parts: string[] = [];
     if (wing) parts.push(`Wing ${wing}`);
-    if (apt) parts.push(`${apt}`);
+    if (apt) parts.push(roomLabel ? `${roomLabel} ${apt}` : `${apt}`);
     const unit = parts.join(" ");
     if (unit && !units.includes(unit)) units.push(unit);
   }
@@ -243,7 +236,10 @@ function summarizeStaffRoles(rows: any[]): string {
   return roles.join("  •  ");
 }
 
-function groupMembersByPerson(rows: any[]): GroupedPerson[] {
+function groupMembersByPerson(
+  rows: any[],
+  isTenantAccount: boolean,
+): GroupedPerson[] {
   const byKey = new Map<string, GroupedPerson>();
 
   for (const r of rows) {
@@ -279,7 +275,7 @@ function groupMembersByPerson(rows: any[]): GroupedPerson[] {
       if (person.userId) return r?.userId === person.userId;
       return !r?.userId;
     });
-    person.memberSummary = summarizeMemberUnits(rowsForPerson);
+    person.memberSummary = summarizeMemberUnits(rowsForPerson, isTenantAccount);
   }
   return grouped;
 }
@@ -399,6 +395,26 @@ export default function GrantAccessScreen() {
   const accounts = useAccountStore((state) => state.accounts);
   const account = accounts.find((a) => a.id === accountId);
 
+  // ─── Tenant account detection (matches home page behaviour) ───
+  const isTenantAccount = useMemo(() => {
+    if (!account) return false;
+    return String((account as any).type ?? "").toLowerCase() === "home";
+  }, [account]);
+
+  const memberRoleWord = isTenantAccount ? "Tenant" : "Member";
+  const memberRoleWordLower = memberRoleWord.toLowerCase();
+
+  const roleLabelLower = useCallback(
+    (r: InvitationRole | null): string => {
+      if (r === "ownership_transfer") return "ownership transfer";
+      if (r === "admin") return "admin invitation";
+      if (r === "staff_visibility") return "staff invitation";
+      if (r === "member_visibility") return `${memberRoleWordLower} invitation`;
+      return "invitation";
+    },
+    [memberRoleWordLower],
+  );
+
   const {
     items: rawApartmentMembers,
     renameByPhone: renameMemberByPhone,
@@ -502,7 +518,9 @@ export default function GrantAccessScreen() {
 
   const visibilityTitle = isStaffFlow
     ? "Manage Staff Visibility"
-    : "Manage Apartment Owner Visibility";
+    : isTenantAccount
+      ? "Manage Tenant Visibility"
+      : "Manage Apartment Owner Visibility";
 
   const title = isOwnershipFlow
     ? "Ownership"
@@ -521,11 +539,11 @@ export default function GrantAccessScreen() {
           : `Grant ${title} access`;
 
   const introDescription = isTabbedVisibility
-    ? "Grant apartment owners and staff visibility access to this property. Switch tabs to choose who can see what."
+    ? `Grant apartment ${memberRoleWordLower}s and staff visibility access to this property. Switch tabs to choose who can see what.`
     : isStaffFlow
       ? "Select one or more staff members to grant visibility access."
       : isVisibilityFlow
-        ? "Select one or more apartment owners to grant visibility access."
+        ? `Select one or more apartment ${memberRoleWordLower}s to grant visibility access.`
         : isOwnershipFlow
           ? "Transfer full ownership of this account to another person. They will become the new owner after accepting."
           : "Choose who should receive access to this account.";
@@ -542,7 +560,7 @@ export default function GrantAccessScreen() {
 
   const saveLabel = isTabbedVisibility
     ? visibilityTab === "member"
-      ? "Grant Member Visibility"
+      ? `Grant ${memberRoleWord} Visibility`
       : "Grant Staff Visibility"
     : isStaffFlow
       ? `Grant ${visibilityTitle.replace("Manage ", "")}`
@@ -563,8 +581,8 @@ export default function GrantAccessScreen() {
   );
 
   const apartmentPeople = useMemo(
-    () => groupMembersByPerson(apartmentRowsActive),
-    [apartmentRowsActive],
+    () => groupMembersByPerson(apartmentRowsActive, isTenantAccount),
+    [apartmentRowsActive, isTenantAccount],
   );
 
   const staffPeople = useMemo(
@@ -1339,8 +1357,8 @@ export default function GrantAccessScreen() {
       case "already_member":
         showFeedback({
           tone: "warning",
-          title: "This number is already a member",
-          message: `+91${opts.phone} already has member visibility access to this account. No invitation is needed.`,
+          title: `This number is already a ${memberRoleWordLower}`,
+          message: `+91${opts.phone} already has ${memberRoleWordLower} visibility access to this account. No invitation is needed.`,
           primaryLabel: "OK",
         });
         return false;
@@ -1371,7 +1389,7 @@ export default function GrantAccessScreen() {
             title: "Existing access found",
             message: isOwnership
               ? `${displayName} (+91${opts.phone}) already has access to this account. Transferring ownership will make them the new owner of the account once they accept. Continue?`
-              : `${displayName} (+91${opts.phone}) already has member or staff access on this account. Granting admin access will add admin alongside their existing roles. Continue?`,
+              : `${displayName} (+91${opts.phone}) already has ${memberRoleWordLower} or staff access on this account. Granting admin access will add admin alongside their existing roles. Continue?`,
             primaryLabel: isOwnership ? "Transfer ownership" : "Grant Admin",
             primaryTone: "primary",
             onPrimaryPress: () => {
@@ -1507,7 +1525,9 @@ export default function GrantAccessScreen() {
     if (isTabbedVisibility) {
       if (visibilityTab === "member") {
         if (selectedMemberIds.length === 0) {
-          setError("Please select at least one apartment owner.");
+          setError(
+            `Please select at least one apartment ${memberRoleWordLower}.`,
+          );
           return;
         }
         let allOk = true;
@@ -1531,8 +1551,8 @@ export default function GrantAccessScreen() {
             title: "Invitations sent",
             message:
               selectedMemberIds.length === 1
-                ? "The apartment owner has been invited to view this account."
-                : `${selectedMemberIds.length} apartment owners have been invited.`,
+                ? `The apartment ${memberRoleWordLower} has been invited to view this account.`
+                : `${selectedMemberIds.length} apartment ${memberRoleWordLower}s have been invited.`,
             primaryLabel: "Done",
             primaryTone: "primary",
             onPrimaryPress: () => router.back(),
@@ -1821,7 +1841,9 @@ export default function GrantAccessScreen() {
 
     if (isVisibilityFlow) {
       if (selectedMemberIds.length === 0) {
-        setError("Please select at least one apartment owner.");
+        setError(
+          `Please select at least one apartment ${memberRoleWordLower}.`,
+        );
         return;
       }
       let allOk = true;
@@ -1845,8 +1867,8 @@ export default function GrantAccessScreen() {
           title: "Invitations sent",
           message:
             selectedMemberIds.length === 1
-              ? "The apartment owner has been invited to view this account."
-              : `${selectedMemberIds.length} apartment owners have been invited.`,
+              ? `The apartment ${memberRoleWordLower} has been invited to view this account.`
+              : `${selectedMemberIds.length} apartment ${memberRoleWordLower}s have been invited.`,
           primaryLabel: "Done",
           primaryTone: "primary",
           onPrimaryPress: () => router.back(),
@@ -1903,7 +1925,7 @@ export default function GrantAccessScreen() {
     }
 
     if (selectedMemberIds.length === 0) {
-      setError("Please select at least one member.");
+      setError(`Please select at least one ${memberRoleWordLower}.`);
       return;
     }
     let allOk = true;
@@ -1962,6 +1984,7 @@ export default function GrantAccessScreen() {
     const meta = person.memberSummary;
     const selected = selectedMemberIds.includes(person.id);
     const photoUrl = person.photoUri;
+    const unitIcon = isTenantAccount ? "key-outline" : "home-outline";
 
     return (
       <TouchableOpacity
@@ -2002,7 +2025,7 @@ export default function GrantAccessScreen() {
           </View>
           {meta ? (
             <View style={styles.memberMetaRow}>
-              <Ionicons name="home-outline" size={13} color="#2563EB" />
+              <Ionicons name={unitIcon} size={13} color="#2563EB" />
               <Text style={styles.memberMeta} numberOfLines={1}>
                 {meta}
               </Text>
@@ -2334,7 +2357,9 @@ export default function GrantAccessScreen() {
                 <Ionicons name="person" size={18} color="#16A34A" />
               </View>
               <View style={styles.toggleContent}>
-                <Text style={styles.toggleTitle}>Continue as Member</Text>
+                <Text style={styles.toggleTitle}>
+                  Continue as {memberRoleWord}
+                </Text>
                 <Text style={styles.toggleSubtitle} numberOfLines={1}>
                   {currentUserMember.name}
                   {currentUserMember.memberSummary
@@ -2384,10 +2409,10 @@ export default function GrantAccessScreen() {
   const getEmptyStateText = () => {
     if (isStaffFlow) return "No staff available to select.";
     if (isVisibilityFlow)
-      return "All apartment owners already have a pending or active invitation.";
+      return `All apartment ${memberRoleWordLower}s already have a pending or active invitation.`;
     if (isOwnershipFlow)
       return "No other members are available to transfer ownership to.";
-    return "No members are available.";
+    return `No ${memberRoleWordLower}s are available.`;
   };
 
   const saveButtonDisabled = (() => {
@@ -2456,8 +2481,10 @@ export default function GrantAccessScreen() {
                 {[
                   {
                     key: "member" as const,
-                    label: "Member",
-                    icon: "home-outline" as const,
+                    label: memberRoleWord,
+                    icon: isTenantAccount
+                      ? ("key-outline" as const)
+                      : ("home-outline" as const),
                     color: "#2563EB",
                     bg: "#EFF6FF",
                   },
@@ -2591,7 +2618,7 @@ export default function GrantAccessScreen() {
                       style={styles.sourceTileDescription}
                       numberOfLines={2}
                     >
-                      Pick from members
+                      Pick from {memberRoleWordLower}s
                     </Text>
                     {source === "existing" ? (
                       <View style={styles.sourceTileCheck}>
@@ -2746,11 +2773,15 @@ export default function GrantAccessScreen() {
                     <View style={styles.groupHeader}>
                       <View style={styles.groupTitleRow}>
                         <Ionicons
-                          name="home-outline"
+                          name={
+                            isTenantAccount ? "key-outline" : "home-outline"
+                          }
                           size={17}
                           color="#2563EB"
                         />
-                        <Text style={styles.groupTitle}>Members</Text>
+                        <Text style={styles.groupTitle}>
+                          {isTenantAccount ? "Tenants" : "Members"}
+                        </Text>
                       </View>
                       <Text style={styles.groupCount}>
                         {filteredActiveMembers.length}
@@ -2767,7 +2798,7 @@ export default function GrantAccessScreen() {
                           />
                         </View>
                         <Text style={styles.emptyTitle}>
-                          No matching members
+                          No matching {memberRoleWordLower}s
                         </Text>
                         <Text style={styles.emptyDescription}>
                           Try searching with another name, phone number, or
@@ -2870,12 +2901,12 @@ export default function GrantAccessScreen() {
                         </View>
                         <Text style={styles.emptyTitle}>
                           {visibilityCandidates.length === 0
-                            ? "No apartment owners available"
-                            : "No matching apartment owners"}
+                            ? `No apartment ${memberRoleWordLower}s available`
+                            : `No matching apartment ${memberRoleWordLower}s`}
                         </Text>
                         <Text style={styles.emptyDescription}>
                           {visibilityCandidates.length === 0
-                            ? "Every apartment owner already has a pending or active visibility invitation."
+                            ? `Every apartment ${memberRoleWordLower} already has a pending or active visibility invitation.`
                             : "Try searching with another name, phone number, apartment or wing."}
                         </Text>
                       </View>
