@@ -23,6 +23,7 @@ import {
 import * as XLSX from "xlsx";
 import { getSecureItem } from "../../utils/tokenStorage";
 
+import { DarkModeBoundary } from "../../components/DarkModeBoundary";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useExpenses, useMembers, useStaff } from "../../hooks/useManagement";
 import { useUserRole } from "../../hooks/useUserRole";
@@ -102,7 +103,8 @@ function AppAlert({
   const isStacked = buttons.length > 2;
 
   return (
-    <Modal
+    <DarkModeBoundary>
+      <Modal
       transparent
       visible={state.visible}
       animationType="fade"
@@ -167,7 +169,8 @@ function AppAlert({
           </View>
         </Pressable>
       </Pressable>
-    </Modal>
+      </Modal>
+    </DarkModeBoundary>
   );
 }
 
@@ -2147,7 +2150,8 @@ export default function FinanceScreen() {
 
   if (accountsLoading) {
     return (
-      <View style={styles.container}>
+      <DarkModeBoundary>
+        <View style={styles.container}>
         <View style={styles.loadingContainer}>
           <View style={styles.loadingIcon}>
             <Ionicons name="wallet-outline" size={28} color="#2563EB" />
@@ -2155,13 +2159,15 @@ export default function FinanceScreen() {
           <ActivityIndicator size="small" color="#2563EB" />
           <Text style={styles.loadingText}>Loading finances...</Text>
         </View>
-      </View>
+        </View>
+      </DarkModeBoundary>
     );
   }
 
   if (!selectedAccount) {
     return (
-      <View style={styles.container}>
+      <DarkModeBoundary>
+        <View style={styles.container}>
         <View style={styles.emptyState}>
           <View style={styles.emptyIcon}>
             <Ionicons name="wallet-outline" size={38} color="#2563EB" />
@@ -2195,7 +2201,8 @@ export default function FinanceScreen() {
             </Text>
           </TouchableOpacity>
         </View>
-      </View>
+        </View>
+      </DarkModeBoundary>
     );
   }
 
@@ -2208,7 +2215,8 @@ export default function FinanceScreen() {
   const netBalance = carriedForwardBalance + summary.net;
 
   return (
-    <View style={styles.container}>
+    <DarkModeBoundary>
+      <View style={styles.container}>
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         refreshControl={
@@ -2702,7 +2710,8 @@ export default function FinanceScreen() {
       )}
 
       <AppAlert state={alert.state} onDismiss={alert.dismiss} />
-    </View>
+      </View>
+    </DarkModeBoundary>
   );
 }
 

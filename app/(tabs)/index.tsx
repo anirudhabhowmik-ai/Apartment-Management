@@ -20,6 +20,7 @@ import {
 } from "react-native";
 import { getSecureItem } from "../../utils/tokenStorage";
 
+import { DarkModeBoundary } from "../../components/DarkModeBoundary";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useExpenses, useMembers, useStaff } from "../../hooks/useManagement";
 import { useUserRole } from "../../hooks/useUserRole";
@@ -3761,7 +3762,8 @@ export default function HomeScreen() {
 
   if (!isAdmin && (isMember || isStaff)) {
     return (
-      <View style={styles.container}>
+      <DarkModeBoundary>
+        <View style={styles.container}>
         <ScrollView
           showsVerticalScrollIndicator={false}
           contentContainerStyle={styles.scrollContent}
@@ -3930,7 +3932,8 @@ export default function HomeScreen() {
             setBillMissingAdmins([]);
           }}
         />
-      </View>
+        </View>
+      </DarkModeBoundary>
     );
   }
 
@@ -3939,7 +3942,8 @@ export default function HomeScreen() {
      ============================================================ */
 
   return (
-    <View style={styles.container}>
+    <DarkModeBoundary>
+      <View style={styles.container}>
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
@@ -4171,7 +4175,8 @@ export default function HomeScreen() {
           setBillMissingAdmins([]);
         }}
       />
-    </View>
+      </View>
+    </DarkModeBoundary>
   );
 }
 

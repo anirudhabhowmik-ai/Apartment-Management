@@ -32,6 +32,8 @@ import {
 import { useUserRole } from "../../hooks/useUserRole";
 import { useAccountStore } from "../../store/accountStore";
 import { useAuthStore } from "../../store/useAuthStore";
+import { useThemeStore } from "../../store/themeStore";
+import { DarkModeBoundary } from "../../components/DarkModeBoundary";
 
 const API_URL = (
   process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000"
@@ -161,6 +163,7 @@ function iconForNotification(n: NotificationItem): {
 // ---------------------------------------------------------------------------
 
 export default function TabsLayout() {
+  const isDarkMode = useThemeStore((state) => state.isDarkMode);
   const insets = useSafeAreaInsets();
   const router = useRouter();
 
@@ -435,11 +438,13 @@ export default function TabsLayout() {
           ),
           headerTitleAlign: "left",
           headerStyle: {
-            backgroundColor: COLORS.white,
+            backgroundColor: isDarkMode ? "#151C27" : COLORS.white,
             elevation: 0,
             borderBottomWidth: 1,
-            borderBottomColor: COLORS.border,
+            borderBottomColor: isDarkMode ? "#354154" : COLORS.border,
           },
+          headerTintColor: isDarkMode ? "#E7EDF5" : COLORS.text,
+          headerTitleStyle: { color: isDarkMode ? "#E7EDF5" : COLORS.text },
           headerShadowVisible: false,
           headerRight: () => (
             <View style={styles.notificationMenu} ref={bellRef}>
@@ -462,7 +467,7 @@ export default function TabsLayout() {
                     <Ionicons
                       name="notifications-outline"
                       size={23}
-                      color={COLORS.text}
+                      color={isDarkMode ? "#E7EDF5" : COLORS.text}
                     />
                   </Animated.View>
                   {notificationCount > 0 && (
@@ -491,10 +496,11 @@ export default function TabsLayout() {
                   style={styles.notificationBackdrop}
                   onPress={() => setShowNotifications(false)}
                 >
-                  <Pressable
-                    style={[styles.notificationPopover, { top: popoverTop }]}
-                    onPress={(event) => event.stopPropagation()}
-                  >
+                  <DarkModeBoundary>
+                    <Pressable
+                      style={[styles.notificationPopover, { top: popoverTop }]}
+                      onPress={(event) => event.stopPropagation()}
+                    >
                     <View style={styles.notificationHeader}>
                       <View style={styles.notificationHeaderTextContainer}>
                         <Text style={styles.notificationHeaderTitle}>
@@ -639,23 +645,25 @@ export default function TabsLayout() {
                         })}
                       </ScrollView>
                     )}
-                  </Pressable>
+                    </Pressable>
+                  </DarkModeBoundary>
                 </Pressable>
               </Modal>
             </View>
           ),
-          tabBarActiveTintColor: COLORS.primary,
-          tabBarInactiveTintColor: COLORS.muted,
+          tabBarActiveTintColor: isDarkMode ? "#60A5FA" : COLORS.primary,
+          tabBarInactiveTintColor: isDarkMode ? "#94A3B8" : COLORS.muted,
           tabBarStyle: {
             height: 64 + bottomInset,
             paddingTop: 5,
             paddingBottom: bottomInset + 5,
             paddingHorizontal: 8,
-            backgroundColor: COLORS.white,
+            backgroundColor: isDarkMode ? "#151C27" : COLORS.white,
             borderTopWidth: 1,
-            borderTopColor: COLORS.border,
+            borderTopColor: isDarkMode ? "#354154" : COLORS.border,
             ...(Platform.OS === "android" ? { elevation: 0 } : {}),
           },
+          sceneStyle: { backgroundColor: isDarkMode ? "#101720" : COLORS.background },
           tabBarLabelStyle: {
             fontSize: 10,
             fontWeight: "600",

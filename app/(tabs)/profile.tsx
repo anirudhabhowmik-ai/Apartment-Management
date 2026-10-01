@@ -44,6 +44,8 @@ import { startRazorpayPayment } from "../../services/paymentService";
 import { useAccountStore } from "../../store/accountStore";
 import { BillMemberType } from "../../store/billStore";
 import { useAuthStore } from "../../store/useAuthStore";
+import { useThemeStore } from "../../store/themeStore";
+import { DarkModeBoundary } from "../../components/DarkModeBoundary";
 
 // ============================================================================
 // Inline custom alert
@@ -113,7 +115,8 @@ function AppAlert({
   const isStacked = buttons.length > 2;
 
   return (
-    <Modal
+    <DarkModeBoundary>
+      <Modal
       transparent
       visible={state.visible}
       animationType="fade"
@@ -203,7 +206,8 @@ function AppAlert({
           </View>
         </Pressable>
       </Pressable>
-    </Modal>
+      </Modal>
+    </DarkModeBoundary>
   );
 }
 
@@ -1949,7 +1953,8 @@ export default function ProfileTabScreen(): React.ReactElement {
   const bottomInset = Math.max(insets.bottom, Platform.OS === "ios" ? 34 : 0);
 
   const [notifications, setNotifications] = useState(true);
-  const [darkMode, setDarkMode] = useState(false);
+  const darkMode = useThemeStore((state) => state.isDarkMode);
+  const setDarkMode = useThemeStore((state) => state.setDarkMode);
   const [showPhoneTooltip, setShowPhoneTooltip] = useState(false);
   const [showGenerateBill, setShowGenerateBill] = useState(false);
   const [billMemberType, setBillMemberType] = useState<BillMemberType>("owner");
@@ -2680,7 +2685,7 @@ export default function ProfileTabScreen(): React.ReactElement {
       description: "Use a darker appearance",
       icon: "moon-outline",
       color: "#64748B",
-      onPress: () => setDarkMode((e) => !e),
+      onPress: () => setDarkMode(!darkMode),
       showArrow: false,
     },
     {
@@ -3159,7 +3164,8 @@ export default function ProfileTabScreen(): React.ReactElement {
   const accountPhotoUri: string | null = selectedAccount?.photoUri ?? null;
 
   return (
-    <View style={styles.container}>
+    <DarkModeBoundary>
+      <View style={styles.container}>
       <ScrollView
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
@@ -3723,6 +3729,7 @@ export default function ProfileTabScreen(): React.ReactElement {
       )}
 
       <AppAlert state={alert.state} onDismiss={alert.dismiss} />
-    </View>
+      </View>
+    </DarkModeBoundary>
   );
 }

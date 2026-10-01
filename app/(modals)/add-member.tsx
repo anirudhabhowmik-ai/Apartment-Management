@@ -35,6 +35,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getSecureItem } from "../../utils/tokenStorage";
 
 import DatePickerModal from "../../components/DatePickerModal";
+import { DarkModeBoundary } from "../../components/DarkModeBoundary";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useExpenses, useMembers, useStaff } from "../../hooks/useManagement";
 import type { BillAttachment, ManagementType, MemberRole } from "../../types";
@@ -1733,7 +1734,8 @@ export default function AddMemberScreen() {
   };
 
   return (
-    <KeyboardAvoidingView
+    <DarkModeBoundary>
+      <KeyboardAvoidingView
       style={[styles.container, { paddingBottom: insets.bottom }]}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={0}
@@ -2974,7 +2976,8 @@ export default function AddMemberScreen() {
           </Pressable>
         </Pressable>
       </Modal>
-    </KeyboardAvoidingView>
+      </KeyboardAvoidingView>
+    </DarkModeBoundary>
   );
 }
 

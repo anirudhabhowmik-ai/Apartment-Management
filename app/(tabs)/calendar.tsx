@@ -32,6 +32,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getSecureItem } from "../../utils/tokenStorage";
 
+import { DarkModeBoundary } from "../../components/DarkModeBoundary";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useUserRole } from "../../hooks/useUserRole";
 import { useAccountStore } from "../../store/accountStore";
@@ -2160,7 +2161,8 @@ function CalendarScreenImpl() {
   /* ------------------------------------------------------------------------ */
 
   return (
-    <View style={styles.container}>
+    <DarkModeBoundary>
+      <View style={styles.container}>
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
@@ -4515,7 +4517,8 @@ function CalendarScreenImpl() {
           </View>
         </Pressable>
       </Modal>
-    </View>
+      </View>
+    </DarkModeBoundary>
   );
 }
 

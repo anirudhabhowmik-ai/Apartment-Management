@@ -23,6 +23,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { DarkModeBoundary } from "./DarkModeBoundary";
 import { useAccounts } from "../hooks/useAccounts";
 import { useAccountStore } from "../store/accountStore";
 import { useAuthStore } from "../store/useAuthStore";
@@ -515,7 +516,8 @@ export function AccountSwitcherTrigger() {
   const selectedIcon = isHome ? "home-outline" : "business-outline";
 
   return (
-    <Pressable
+    <DarkModeBoundary>
+      <Pressable
       onPress={() => setAccountSwitcherOpen(true)}
       android_disableSound
       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
@@ -554,7 +556,8 @@ export function AccountSwitcherTrigger() {
       <View style={styles.triggerChevron}>
         <Ionicons name="chevron-down" size={15} color={COLORS.secondary} />
       </View>
-    </Pressable>
+      </Pressable>
+    </DarkModeBoundary>
   );
 }
 
@@ -791,7 +794,8 @@ export function AccountSwitcherHost() {
   };
 
   return (
-    <>
+    <DarkModeBoundary>
+      <>
       {visible && (
         <View style={styles.modalContainer} pointerEvents="box-none">
           <Pressable style={styles.overlay} onPress={closeSwitcher} />
@@ -1172,7 +1176,8 @@ export function AccountSwitcherHost() {
         onCancel={handleAdjustCancel}
         onConfirm={handleAdjustConfirm}
       />
-    </>
+      </>
+    </DarkModeBoundary>
   );
 }
 

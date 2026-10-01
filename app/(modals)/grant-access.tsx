@@ -26,6 +26,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getSecureItem } from "../../utils/tokenStorage";
 
+import { DarkModeBoundary } from "../../components/DarkModeBoundary";
 import {
   closeNameConflict,
   confirmNameConflict,
@@ -2442,7 +2443,8 @@ export default function GrantAccessScreen() {
   })();
 
   return (
-    <KeyboardAvoidingView
+    <DarkModeBoundary>
+      <KeyboardAvoidingView
       style={[styles.screen, { paddingBottom: insets.bottom }]}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={0}
@@ -3115,7 +3117,8 @@ export default function GrantAccessScreen() {
 
       {renderContactPickerModal()}
       {renderFeedbackModal()}
-    </KeyboardAvoidingView>
+      </KeyboardAvoidingView>
+    </DarkModeBoundary>
   );
 }
 

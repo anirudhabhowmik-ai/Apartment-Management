@@ -1,5 +1,6 @@
 // app/(modals)/_layout.tsx
 import { Stack } from "expo-router";
+import { useThemeStore } from "../../store/themeStore";
 
 // Local type documenting what each modal route expects as params —
 // helps when navigating with router.push({ pathname, params })
@@ -32,9 +33,18 @@ export type ModalRouteParams = {
 };
 
 export default function ModalsLayout() {
+  const isDarkMode = useThemeStore((state) => state.isDarkMode);
+
   return (
     <Stack
-      screenOptions={{ presentation: "modal", headerTitleAlign: "center" }}
+      screenOptions={{
+        presentation: "modal",
+        headerTitleAlign: "center",
+        headerStyle: { backgroundColor: isDarkMode ? "#151C27" : "#FFFFFF" },
+        headerTintColor: isDarkMode ? "#E7EDF5" : "#0F172A",
+        headerTitleStyle: { color: isDarkMode ? "#E7EDF5" : "#0F172A" },
+        contentStyle: { backgroundColor: isDarkMode ? "#101720" : "#FFFFFF" },
+      }}
     >
       <Stack.Screen name="add-account" options={{ title: "New Account" }} />
       <Stack.Screen name="add-member" options={{ title: "Add Member" }} />

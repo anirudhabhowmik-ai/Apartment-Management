@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { DarkModeBoundary } from "./DarkModeBoundary";
 
 interface DatePickerModalProps {
   visible: boolean;
@@ -131,7 +132,8 @@ export default function DatePickerModal({
   };
 
   return (
-    <Modal
+    <DarkModeBoundary>
+      <Modal
       visible={visible}
       transparent
       animationType="fade"
@@ -219,7 +221,8 @@ export default function DatePickerModal({
           </View>
         </View>
       </View>
-    </Modal>
+      </Modal>
+    </DarkModeBoundary>
   );
 }
 

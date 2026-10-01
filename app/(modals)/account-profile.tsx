@@ -27,6 +27,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getSecureItem } from "../../utils/tokenStorage";
 
+import { DarkModeBoundary } from "../../components/DarkModeBoundary";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useMembers, useStaff } from "../../hooks/useManagement";
 import { useUserRole } from "../../hooks/useUserRole";
@@ -238,7 +239,8 @@ function AppAlert({
   const isStacked = buttons.length > 2;
 
   return (
-    <Modal
+    <DarkModeBoundary>
+      <Modal
       transparent
       visible={state.visible}
       animationType="fade"
@@ -303,7 +305,8 @@ function AppAlert({
           </View>
         </Pressable>
       </Pressable>
-    </Modal>
+      </Modal>
+    </DarkModeBoundary>
   );
 }
 
@@ -3053,7 +3056,8 @@ export default function AccountProfileScreen() {
   };
 
   return (
-    <View style={styles.screen}>
+    <DarkModeBoundary>
+      <View style={styles.screen}>
       <ScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={
@@ -3728,7 +3732,8 @@ export default function AccountProfileScreen() {
       />
 
       <AppAlert state={alert.state} onDismiss={alert.dismiss} />
-    </View>
+      </View>
+    </DarkModeBoundary>
   );
 }
 

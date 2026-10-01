@@ -30,6 +30,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+import { DarkModeBoundary } from "../../components/DarkModeBoundary";
 import { sendOtp, verifyOtpOnly } from "../../services/otpService";
 import { useAuthStore } from "../../store/useAuthStore";
 import { getSecureItem } from "../../utils/tokenStorage";
@@ -934,7 +935,8 @@ export default function EditProfileScreen() {
     : "No phone on file";
 
   return (
-    <View style={styles.container}>
+    <DarkModeBoundary>
+      <View style={styles.container}>
       <Stack.Screen options={{ title: "Edit Profile" }} />
 
       <KeyboardAvoidingView
@@ -1571,7 +1573,8 @@ export default function EditProfileScreen() {
           setRawImage(null);
         }}
       />
-    </View>
+      </View>
+    </DarkModeBoundary>
   );
 }
 

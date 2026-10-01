@@ -14,6 +14,7 @@ import {
   View,
 } from "react-native";
 
+import { DarkModeBoundary } from "./DarkModeBoundary";
 import { useAccounts } from "../hooks/useAccounts";
 import {
   BillMemberType,
@@ -85,7 +86,8 @@ function AppAlert({
   const isStacked = buttons.length > 2;
 
   return (
-    <Modal
+    <DarkModeBoundary>
+      <Modal
       transparent
       visible={state.visible}
       animationType="fade"
@@ -150,7 +152,8 @@ function AppAlert({
           </View>
         </Pressable>
       </Pressable>
-    </Modal>
+      </Modal>
+    </DarkModeBoundary>
   );
 }
 

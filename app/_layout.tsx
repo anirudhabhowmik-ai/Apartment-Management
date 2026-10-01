@@ -1,7 +1,8 @@
 // app/_layout.tsx
 import { Stack } from "expo-router";
+import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
-import { LogBox, Platform } from "react-native";
+import { Appearance, LogBox, Platform } from "react-native";
 
 import NameConflictAlert from "../components/NameConflictAlert";
 import { registerForPushNotificationsAsync } from "../services/notificationService";
@@ -11,6 +12,7 @@ import {
 } from "../services/revenueCatService";
 import { useAuthStore } from "../store/useAuthStore";
 import { getSecureItem } from "../utils/tokenStorage";
+import { useThemeStore } from "../store/themeStore";
 
 LogBox.ignoreLogs([
   "Can't perform a React state update on a component that hasn't mounted yet",
@@ -20,10 +22,17 @@ const API_URL = process.env.EXPO_PUBLIC_API_URL;
 const AUTH_TOKEN_KEY = "auth_token";
 
 export default function RootLayout() {
+  const isDarkMode = useThemeStore((state) => state.isDarkMode);
   const user = useAuthStore((s) => s.user);
   const isAuthenticated = !!user;
 
   // ── RevenueCat: init on login, reset on logout ─────────────────────────
+  useEffect(() => {
+    if (Platform.OS !== "web") {
+      Appearance.setColorScheme(isDarkMode ? "dark" : "light");
+    }
+  }, [isDarkMode]);
+
   useEffect(() => {
     if (isAuthenticated && user?.id) {
       initializeRevenueCat(user.id).catch((err) =>
@@ -76,7 +85,15 @@ export default function RootLayout() {
 
   return (
     <>
-      <Stack screenOptions={{ headerShown: false }}>
+      <StatusBar style={isDarkMode ? "light" : "dark"} />
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          contentStyle: {
+            backgroundColor: isDarkMode ? "#101720" : "#FFFFFF",
+          },
+        }}
+      >
         <Stack.Screen name="index" />
         <Stack.Screen name="(auth)" />
         <Stack.Screen name="(tabs)" />

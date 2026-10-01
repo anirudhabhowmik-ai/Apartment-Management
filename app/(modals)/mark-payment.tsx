@@ -13,6 +13,7 @@ import {
 } from "react-native";
 import { getSecureItem } from "../../utils/tokenStorage";
 
+import { DarkModeBoundary } from "../../components/DarkModeBoundary";
 import DatePickerModal from "../../components/DatePickerModal";
 import {
   useManagementStore,
@@ -526,7 +527,8 @@ export default function MarkPaymentScreen() {
   const selectedStatusInfo = getStatusInfo(selectedStatus);
 
   return (
-    <View style={styles.screen}>
+    <DarkModeBoundary>
+      <View style={styles.screen}>
       <Stack.Screen
         options={{
           title: isEditing ? "Edit Payment Details" : "Payment Details",
@@ -908,7 +910,8 @@ export default function MarkPaymentScreen() {
         value={paidDate}
         onSelect={setPaidDate}
       />
-    </View>
+      </View>
+    </DarkModeBoundary>
   );
 }
 

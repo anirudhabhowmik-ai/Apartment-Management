@@ -22,6 +22,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { DarkModeBoundary } from "../../components/DarkModeBoundary";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useUserRole } from "../../hooks/useUserRole";
 import { useAccountStore } from "../../store/accountStore";
@@ -280,7 +281,8 @@ function AppAlert({
   const isStacked = buttons.length > 2;
 
   return (
-    <Modal
+    <DarkModeBoundary>
+      <Modal
       transparent
       visible={state.visible}
       animationType="fade"
@@ -364,7 +366,8 @@ function AppAlert({
           </View>
         </Pressable>
       </Pressable>
-    </Modal>
+      </Modal>
+    </DarkModeBoundary>
   );
 }
 
@@ -1614,7 +1617,8 @@ export default function AddAccountScreen() {
   };
 
   return (
-    <KeyboardAvoidingView
+    <DarkModeBoundary>
+      <KeyboardAvoidingView
       style={[styles.container, { paddingBottom: insets.bottom }]}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={0}
@@ -2392,7 +2396,8 @@ export default function AddAccountScreen() {
       </Modal>
 
       <AppAlert state={alertState} onDismiss={dismissAlert} />
-    </KeyboardAvoidingView>
+      </KeyboardAvoidingView>
+    </DarkModeBoundary>
   );
 }
 

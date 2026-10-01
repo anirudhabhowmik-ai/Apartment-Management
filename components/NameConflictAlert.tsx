@@ -9,6 +9,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { DarkModeBoundary } from "./DarkModeBoundary";
 
 export interface NameConflictPayload {
   phone: string; // 10-digit
@@ -120,7 +121,8 @@ export default function NameConflictAlert() {
   const existing = payload.existing_name || "another person";
 
   return (
-    <Modal
+    <DarkModeBoundary>
+      <Modal
       key={modalKeyRef.current}
       visible={visible}
       transparent
@@ -203,7 +205,8 @@ export default function NameConflictAlert() {
           </Text>
         </View>
       </View>
-    </Modal>
+      </Modal>
+    </DarkModeBoundary>
   );
 }
 

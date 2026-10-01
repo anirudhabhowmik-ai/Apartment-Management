@@ -22,6 +22,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { DarkModeBoundary } from "../../components/DarkModeBoundary";
 import { sendOtp } from "../../services/otpService";
 import { useAuthStore } from "../../store/useAuthStore";
 
@@ -497,7 +498,8 @@ export default function LoginScreen() {
   // ==============================================================
 
   return (
-    <KeyboardAvoidingView
+    <DarkModeBoundary>
+      <KeyboardAvoidingView
       style={[
         styles.container,
         {
@@ -703,7 +705,8 @@ export default function LoginScreen() {
       {/* CONTACT PICKER */}
 
       {renderContactPickerModal()}
-    </KeyboardAvoidingView>
+      </KeyboardAvoidingView>
+    </DarkModeBoundary>
   );
 }
 

@@ -12,6 +12,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { DarkModeBoundary } from "../../components/DarkModeBoundary";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useAccountStore } from "../../store/accountStore";
 import { useAuthStore } from "../../store/useAuthStore";
@@ -108,7 +109,8 @@ export default function SelectAccountScreen() {
   }
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <DarkModeBoundary>
+      <View style={[styles.container, { paddingTop: insets.top }]}>
       <ScrollView
         contentContainerStyle={[
           styles.content,
@@ -243,7 +245,8 @@ export default function SelectAccountScreen() {
           </Text>
         </View>
       </ScrollView>
-    </View>
+      </View>
+    </DarkModeBoundary>
   );
 }
 

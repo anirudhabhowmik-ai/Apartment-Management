@@ -10,6 +10,8 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { DarkModeBoundary } from "../../components/DarkModeBoundary";
+import { useThemeStore } from "../../store/themeStore";
 
 // ---------------------------------------------------------------------------
 // Configuration — change these two when your domain is ready.
@@ -32,6 +34,7 @@ const PUBLIC_URLS: Record<string, string> = {
 };
 
 export default function LegalPageScreen() {
+  const isDarkMode = useThemeStore((state) => state.isDarkMode);
   const router = useRouter();
   const { title, type } = useLocalSearchParams<{
     title: string;
@@ -413,12 +416,16 @@ export default function LegalPageScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <DarkModeBoundary>
+      <SafeAreaView style={styles.container}>
       <Stack.Screen
         options={{
           title: displayTitle,
           headerBackTitle: "Back",
-          headerStyle: { backgroundColor: "#fff" },
+          headerStyle: {
+            backgroundColor: isDarkMode ? "#151C27" : "#fff",
+          },
+          headerTintColor: isDarkMode ? "#E7EDF5" : "#0F172A",
           headerShadowVisible: false,
           headerTitleStyle: { fontSize: 17, fontWeight: "600" },
         }}
@@ -467,7 +474,8 @@ export default function LegalPageScreen() {
           © {new Date().getFullYear()} {APP_NAME}. All rights reserved.
         </Text>
       </ScrollView>
-    </SafeAreaView>
+      </SafeAreaView>
+    </DarkModeBoundary>
   );
 }
 

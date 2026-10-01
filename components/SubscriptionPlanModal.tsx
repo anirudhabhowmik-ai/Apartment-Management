@@ -13,6 +13,7 @@ import {
   View,
 } from "react-native";
 
+import { DarkModeBoundary } from "./DarkModeBoundary";
 import {
   getCurrentOffering,
   purchasePackage,
@@ -354,7 +355,8 @@ export default function SubscriptionPlanModal({
   const currentPlanName = currentPlan?.name ?? "Free";
 
   return (
-    <>
+    <DarkModeBoundary>
+      <>
       {/* ---------------- Main plans modal ---------------- */}
       <Modal
         transparent
@@ -744,7 +746,8 @@ export default function SubscriptionPlanModal({
           </View>
         </View>
       ) : null}
-    </>
+      </>
+    </DarkModeBoundary>
   );
 }
 

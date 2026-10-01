@@ -17,6 +17,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getSecureItem } from "../../utils/tokenStorage";
 
+import { DarkModeBoundary } from "../../components/DarkModeBoundary";
 import { useStaff } from "../../hooks/useManagement";
 import { useAccountStore } from "../../store/accountStore";
 import { useAttendanceStore } from "../../store/attendanceStore";
@@ -483,7 +484,8 @@ export default function MarkAttendanceScreen() {
   }
 
   return (
-    <KeyboardAvoidingView
+    <DarkModeBoundary>
+      <KeyboardAvoidingView
       style={styles.flexOne}
       behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={Platform.OS === "ios" ? 90 : 0}
@@ -679,7 +681,8 @@ export default function MarkAttendanceScreen() {
 
         <View style={styles.bottomSpace} />
       </ScrollView>
-    </KeyboardAvoidingView>
+      </KeyboardAvoidingView>
+    </DarkModeBoundary>
   );
 }
 

@@ -15,6 +15,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { DarkModeBoundary } from "../../components/DarkModeBoundary";
 import { recoverAccount, sendOtp, verifyOtp } from "../../services/otpService";
 import { useAuthStore } from "../../store/useAuthStore";
 import { setSecureItem } from "../../utils/tokenStorage";
@@ -102,7 +103,8 @@ function AppAlert({
   const isStacked = buttons.length > 2;
 
   return (
-    <Modal
+    <DarkModeBoundary>
+      <Modal
       transparent
       visible={state.visible}
       animationType="fade"
@@ -185,7 +187,8 @@ function AppAlert({
           </View>
         </Pressable>
       </Pressable>
-    </Modal>
+      </Modal>
+    </DarkModeBoundary>
   );
 }
 
@@ -614,7 +617,8 @@ export default function OtpVerifyScreen() {
   }
 
   return (
-    <KeyboardAvoidingView
+    <DarkModeBoundary>
+      <KeyboardAvoidingView
       style={[
         styles.container,
         {
@@ -777,7 +781,8 @@ export default function OtpVerifyScreen() {
       </ScrollView>
 
       <AppAlert state={alertState} onDismiss={dismissAlert} />
-    </KeyboardAvoidingView>
+      </KeyboardAvoidingView>
+    </DarkModeBoundary>
   );
 }
 

@@ -20,6 +20,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getSecureItem } from "../../utils/tokenStorage";
 
 import DatePickerModal from "../../components/DatePickerModal";
+import { DarkModeBoundary } from "../../components/DarkModeBoundary";
 import GenerateBillModal from "../../components/GenerateBillModal";
 import MonthYearPickerModal from "../../components/MonthYearPickerModal";
 import { useAccounts } from "../../hooks/useAccounts";
@@ -101,7 +102,8 @@ function AppAlert({
   const isStacked = buttons.length > 2;
 
   return (
-    <Modal
+    <DarkModeBoundary>
+      <Modal
       transparent
       visible={state.visible}
       animationType="fade"
@@ -166,7 +168,8 @@ function AppAlert({
           </View>
         </Pressable>
       </Pressable>
-    </Modal>
+      </Modal>
+    </DarkModeBoundary>
   );
 }
 
@@ -1764,7 +1767,8 @@ export default function PeopleScreen() {
   const showingCurrentMonth = isCurrentMonth(selectedMonth);
 
   return (
-    <View style={styles.container}>
+    <DarkModeBoundary>
+      <View style={styles.container}>
       {/* ── HEADER: title + subtitle + month pill (NO new card) ─────── */}
       <View style={styles.header}>
         <View style={styles.headerTop}>
@@ -3078,7 +3082,8 @@ export default function PeopleScreen() {
       />
 
       <AppAlert state={alert.state} onDismiss={alert.dismiss} />
-    </View>
+      </View>
+    </DarkModeBoundary>
   );
 }
 
