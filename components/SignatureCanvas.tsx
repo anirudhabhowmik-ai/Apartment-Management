@@ -590,6 +590,123 @@ export default function SignatureCanvas({
     return null;
   };
 
+  const beginCropGesture = (locationX: number, locationY: number) => {
+    if (!isCropModeRef.current) return false;
+
+    const rect = { ...cropRectRef.current };
+    const handle = getCropHandleAtPoint(locationX, locationY, rect);
+    const inside =
+      locationX >= rect.x &&
+      locationX <= rect.x + rect.width &&
+      locationY >= rect.y &&
+      locationY <= rect.y + rect.height;
+
+    if (handle) {
+      cropGestureRef.current = {
+        type: "resize",
+        handle,
+        startTouch: { x: locationX, y: locationY },
+        startRect: rect,
+      };
+      setResizeHandle(handle);
+      setIsResizing(true);
+      setIsDraggingCrop(false);
+      return true;
+    }
+    if (inside) {
+      cropGestureRef.current = {
+        type: "move",
+        handle: null,
+        startTouch: { x: locationX, y: locationY },
+        startRect: rect,
+      };
+      setIsDraggingCrop(true);
+      setIsResizing(false);
+      setResizeHandle(null);
+      return true;
+    }
+
+    cropGestureRef.current = null;
+    return false;
+  };
+
+  const moveCropGesture = (locationX: number, locationY: number) => {
+    if (!isCropModeRef.current) return;
+
+    const gesture = cropGestureRef.current;
+    if (!gesture) return;
+
+    const dx = locationX - gesture.startTouch.x;
+    const dy = locationY - gesture.startTouch.y;
+    const rect = gesture.startRect;
+    let next = { ...rect };
+
+    if (gesture.type === "resize" && gesture.handle) {
+      const right = rect.x + rect.width;
+      const bottom = rect.y + rect.height;
+
+      switch (gesture.handle) {
+        case "tl": {
+          const newX = clampNumber(rect.x + dx, 0, right - MIN_CROP_SIZE);
+          const newY = clampNumber(rect.y + dy, 0, bottom - MIN_CROP_SIZE);
+          next = { x: newX, y: newY, width: right - newX, height: bottom - newY };
+          break;
+        }
+        case "tr": {
+          const newRight = clampNumber(right + dx, rect.x + MIN_CROP_SIZE, CROP_VIEWPORT_W);
+          const newY = clampNumber(rect.y + dy, 0, bottom - MIN_CROP_SIZE);
+          next = { x: rect.x, y: newY, width: newRight - rect.x, height: bottom - newY };
+          break;
+        }
+        case "bl": {
+          const newX = clampNumber(rect.x + dx, 0, right - MIN_CROP_SIZE);
+          const newBottom = clampNumber(bottom + dy, rect.y + MIN_CROP_SIZE, CROP_VIEWPORT_H);
+          next = { x: newX, y: rect.y, width: right - newX, height: newBottom - rect.y };
+          break;
+        }
+        case "br": {
+          const newRight = clampNumber(right + dx, rect.x + MIN_CROP_SIZE, CROP_VIEWPORT_W);
+          const newBottom = clampNumber(bottom + dy, rect.y + MIN_CROP_SIZE, CROP_VIEWPORT_H);
+          next = { x: rect.x, y: rect.y, width: newRight - rect.x, height: newBottom - rect.y };
+          break;
+        }
+        case "top": {
+          const newY = clampNumber(rect.y + dy, 0, bottom - MIN_CROP_SIZE);
+          next = { x: rect.x, y: newY, width: rect.width, height: bottom - newY };
+          break;
+        }
+        case "bottom": {
+          const newBottom = clampNumber(bottom + dy, rect.y + MIN_CROP_SIZE, CROP_VIEWPORT_H);
+          next = { x: rect.x, y: rect.y, width: rect.width, height: newBottom - rect.y };
+          break;
+        }
+        case "left": {
+          const newX = clampNumber(rect.x + dx, 0, right - MIN_CROP_SIZE);
+          next = { x: newX, y: rect.y, width: right - newX, height: rect.height };
+          break;
+        }
+        case "right": {
+          const newRight = clampNumber(right + dx, rect.x + MIN_CROP_SIZE, CROP_VIEWPORT_W);
+          next = { x: rect.x, y: rect.y, width: newRight - rect.x, height: rect.height };
+          break;
+        }
+      }
+    } else {
+      next.x = clampNumber(rect.x + dx, 0, CROP_VIEWPORT_W - rect.width);
+      next.y = clampNumber(rect.y + dy, 0, CROP_VIEWPORT_H - rect.height);
+    }
+
+    cropRectRef.current = next;
+    setCropRect(next);
+  };
+
+  const endCropGesture = () => {
+    cropGestureRef.current = null;
+    setIsDraggingCrop(false);
+    setIsResizing(false);
+    setResizeHandle(null);
+  };
+
   const cropBoxPanResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: (evt) => {
@@ -630,195 +747,72 @@ export default function SignatureCanvas({
       onShouldBlockNativeResponder: () => true,
 
       onPanResponderGrant: (evt) => {
-        if (!isCropModeRef.current) return;
-
         const { locationX, locationY } = evt.nativeEvent;
-        const rect = { ...cropRectRef.current };
-        const handle = getCropHandleAtPoint(locationX, locationY, rect);
-
-        const inside =
-          locationX >= rect.x &&
-          locationX <= rect.x + rect.width &&
-          locationY >= rect.y &&
-          locationY <= rect.y + rect.height;
-
-        if (handle) {
-          cropGestureRef.current = {
-            type: "resize",
-            handle,
-            startTouch: { x: locationX, y: locationY },
-            startRect: rect,
-          };
-          setResizeHandle(handle);
-          setIsResizing(true);
-          setIsDraggingCrop(false);
-        } else if (inside) {
-          cropGestureRef.current = {
-            type: "move",
-            handle: null,
-            startTouch: { x: locationX, y: locationY },
-            startRect: rect,
-          };
-          setIsDraggingCrop(true);
-          setIsResizing(false);
-          setResizeHandle(null);
-        } else {
-          cropGestureRef.current = null;
-        }
+        beginCropGesture(locationX, locationY);
       },
 
       onPanResponderMove: (evt) => {
-        if (!isCropModeRef.current) return;
-
-        const gesture = cropGestureRef.current;
-        if (!gesture) return;
-
         const { locationX, locationY } = evt.nativeEvent;
-        const dx = locationX - gesture.startTouch.x;
-        const dy = locationY - gesture.startTouch.y;
-        const rect = gesture.startRect;
-        let next = { ...rect };
-
-        if (gesture.type === "resize" && gesture.handle) {
-          const handle = gesture.handle;
-          const right = rect.x + rect.width;
-          const bottom = rect.y + rect.height;
-
-          switch (handle) {
-            case "tl": {
-              const newX = clampNumber(rect.x + dx, 0, right - MIN_CROP_SIZE);
-              const newY = clampNumber(rect.y + dy, 0, bottom - MIN_CROP_SIZE);
-              next = {
-                x: newX,
-                y: newY,
-                width: right - newX,
-                height: bottom - newY,
-              };
-              break;
-            }
-            case "tr": {
-              const newRight = clampNumber(
-                right + dx,
-                rect.x + MIN_CROP_SIZE,
-                CROP_VIEWPORT_W,
-              );
-              const newY = clampNumber(rect.y + dy, 0, bottom - MIN_CROP_SIZE);
-              next = {
-                x: rect.x,
-                y: newY,
-                width: newRight - rect.x,
-                height: bottom - newY,
-              };
-              break;
-            }
-            case "bl": {
-              const newX = clampNumber(rect.x + dx, 0, right - MIN_CROP_SIZE);
-              const newBottom = clampNumber(
-                bottom + dy,
-                rect.y + MIN_CROP_SIZE,
-                CROP_VIEWPORT_H,
-              );
-              next = {
-                x: newX,
-                y: rect.y,
-                width: right - newX,
-                height: newBottom - rect.y,
-              };
-              break;
-            }
-            case "br": {
-              const newRight = clampNumber(
-                right + dx,
-                rect.x + MIN_CROP_SIZE,
-                CROP_VIEWPORT_W,
-              );
-              const newBottom = clampNumber(
-                bottom + dy,
-                rect.y + MIN_CROP_SIZE,
-                CROP_VIEWPORT_H,
-              );
-              next = {
-                x: rect.x,
-                y: rect.y,
-                width: newRight - rect.x,
-                height: newBottom - rect.y,
-              };
-              break;
-            }
-            case "top": {
-              const newY = clampNumber(rect.y + dy, 0, bottom - MIN_CROP_SIZE);
-              next = {
-                x: rect.x,
-                y: newY,
-                width: rect.width,
-                height: bottom - newY,
-              };
-              break;
-            }
-            case "bottom": {
-              const newBottom = clampNumber(
-                bottom + dy,
-                rect.y + MIN_CROP_SIZE,
-                CROP_VIEWPORT_H,
-              );
-              next = {
-                x: rect.x,
-                y: rect.y,
-                width: rect.width,
-                height: newBottom - rect.y,
-              };
-              break;
-            }
-            case "left": {
-              const newX = clampNumber(rect.x + dx, 0, right - MIN_CROP_SIZE);
-              next = {
-                x: newX,
-                y: rect.y,
-                width: right - newX,
-                height: rect.height,
-              };
-              break;
-            }
-            case "right": {
-              const newRight = clampNumber(
-                right + dx,
-                rect.x + MIN_CROP_SIZE,
-                CROP_VIEWPORT_W,
-              );
-              next = {
-                x: rect.x,
-                y: rect.y,
-                width: newRight - rect.x,
-                height: rect.height,
-              };
-              break;
-            }
-          }
-        } else {
-          // Moving the complete crop rectangle.
-          next.x = clampNumber(rect.x + dx, 0, CROP_VIEWPORT_W - rect.width);
-          next.y = clampNumber(rect.y + dy, 0, CROP_VIEWPORT_H - rect.height);
-        }
-
-        cropRectRef.current = next;
-        setCropRect(next);
+        moveCropGesture(locationX, locationY);
       },
 
-      onPanResponderRelease: () => {
-        cropGestureRef.current = null;
-        setIsDraggingCrop(false);
-        setIsResizing(false);
-        setResizeHandle(null);
-      },
-
-      onPanResponderTerminate: () => {
-        cropGestureRef.current = null;
-        setIsDraggingCrop(false);
-        setIsResizing(false);
-        setResizeHandle(null);
-      },
+      onPanResponderRelease: endCropGesture,
+      onPanResponderTerminate: endCropGesture,
     }),
   ).current;
+
+  const cropPointerIdRef = useRef<number | null>(null);
+  const getCropPointerPosition = (event: any) => {
+    const pointer = event.nativeEvent ?? event;
+    const bounds = event.currentTarget?.getBoundingClientRect?.();
+    return {
+      x:
+        pointer.locationX ??
+        pointer.offsetX ??
+        pointer.clientX - (bounds?.left ?? 0),
+      y:
+        pointer.locationY ??
+        pointer.offsetY ??
+        pointer.clientY - (bounds?.top ?? 0),
+    };
+  };
+
+  const cropPointerHandlers = {
+    onPointerDown: (event: any) => {
+      if (Platform.OS !== "web") return;
+      const { x, y } = getCropPointerPosition(event);
+      if (!beginCropGesture(x, y)) return;
+
+      const pointer = event.nativeEvent ?? event;
+      cropPointerIdRef.current = pointer.pointerId;
+      event.preventDefault?.();
+      try {
+        event.currentTarget?.setPointerCapture?.(pointer.pointerId);
+      } catch {
+        // Pointer capture is unavailable in some browser implementations.
+      }
+    },
+    onPointerMove: (event: any) => {
+      if (Platform.OS !== "web" || cropPointerIdRef.current === null) return;
+      const pointer = event.nativeEvent ?? event;
+      if (
+        pointer.pointerId !== undefined &&
+        pointer.pointerId !== cropPointerIdRef.current
+      ) {
+        return;
+      }
+      const { x, y } = getCropPointerPosition(event);
+      moveCropGesture(x, y);
+    },
+    onPointerUp: () => {
+      cropPointerIdRef.current = null;
+      endCropGesture();
+    },
+    onPointerCancel: () => {
+      cropPointerIdRef.current = null;
+      endCropGesture();
+    },
+  };
 
   const handleRetake = () => {
     setRawImage(null);
@@ -1196,8 +1190,7 @@ export default function SignatureCanvas({
 
           {mode === "upload" && uploadStage === "crop" && rawImage && (
             <>
-              {Platform.OS !== "web" && (
-                <View style={sigStyles.cropModeSwitcher}>
+              <View style={sigStyles.cropModeSwitcher}>
                   <TouchableOpacity
                     style={[
                       sigStyles.cropModeButton,
@@ -1242,11 +1235,12 @@ export default function SignatureCanvas({
                       Crop
                     </Text>
                   </TouchableOpacity>
-                </View>
-              )}
+              </View>
               <Text style={sigStyles.cropModeHint}>
                 {Platform.OS === "web"
-                  ? "Drag the image to position it and use the zoom controls."
+                  ? isCropMode
+                    ? "Drag the crop box to move it, or drag a handle to resize."
+                    : "Drag the image to position it and use the zoom controls."
                   : isCropMode
                     ? "Drag the corners or edges to resize the crop box. The photo is locked."
                     : "Pinch with two fingers to zoom • Drag to reposition the photo"}
@@ -1341,8 +1335,15 @@ export default function SignatureCanvas({
                           crop box. This is much more reliable on Android than a
                           small transparent touch-area view. */}
                       <View
-                        style={sigStyles.cropGestureLayer}
-                        {...cropBoxPanResponder.panHandlers}
+                        style={[
+                          sigStyles.cropGestureLayer,
+                          Platform.OS === "web"
+                            ? ({ touchAction: "none", cursor: "crosshair" } as any)
+                            : null,
+                        ]}
+                        {...(Platform.OS === "web"
+                          ? (cropPointerHandlers as any)
+                          : cropBoxPanResponder.panHandlers)}
                       />
 
                       {/* Corner handles */}
@@ -1434,21 +1435,6 @@ export default function SignatureCanvas({
                         pointerEvents="none"
                       />
                     </>
-                  )}
-
-                  {Platform.OS === "web" && !isCropMode && (
-                    <View
-                      style={[
-                        sigStyles.cropBoxBorder,
-                        {
-                          left: cropRect.x,
-                          top: cropRect.y,
-                          width: cropRect.width,
-                          height: cropRect.height,
-                        },
-                      ]}
-                      pointerEvents="none"
-                    />
                   )}
 
                   {!isCropMode && (
