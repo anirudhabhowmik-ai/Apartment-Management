@@ -400,6 +400,7 @@ async function savePushPreference(
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${authToken}`,
+      "x-app-platform": Platform.OS === "web" ? "web" : "mobile",
     },
     body: JSON.stringify({ enabled }),
   });
@@ -412,7 +413,10 @@ async function savePushPreference(
 async function loadPushPreference(authToken: string): Promise<boolean | null> {
   try {
     const res = await fetch(`${API_URL}/api/push/preferences`, {
-      headers: { Authorization: `Bearer ${authToken}` },
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+        "x-app-platform": Platform.OS === "web" ? "web" : "mobile",
+      },
     });
     if (!res.ok) return null;
     const data = await res.json();
@@ -589,19 +593,6 @@ function isHiddenAuditRow(row: AuditRow): boolean {
   return HIDDEN_ACTIONS.has(`${row.entity_type}.${row.action}`);
 }
 
-// ---------------------------------------------------------------------------
-// Suppress self-service role grants that duplicate an "invitation.accept" row.
-//
-// When someone accepts an invitation, the backend writes BOTH:
-//   1. invitation.accept           → "X accepted invitation for tenant access"
-//   2. account_member.role_granted → "X granted themselves tenant access"
-//
-// These describe the same event. We keep only the invitation.accept row.
-//
-// Rule: hide account_member.role_granted when the actor IS the target
-// (self-grant) — because that's always the invite-acceptance path.
-// Admin-grants to a different user are preserved.
-// ---------------------------------------------------------------------------
 function isSelfServiceRoleGrant(row: AuditRow): boolean {
   return (
     row.entity_type === "account_member" &&
@@ -706,13 +697,6 @@ function buildHistoryTitle(
   const k = `${row.entity_type}.${row.action}`;
 
   const memberNoun = isHomeAccount ? "room" : "property";
-
-  // -------------------------------------------------------------------------
-  // Tenant-aware payment nouns:
-  //   • member payments on a home account → "rent" (tenant pays rent)
-  //   • member payments on other accounts → "maintenance"
-  //   • staff payments are always "salary"
-  // -------------------------------------------------------------------------
   const paymentNoun = isHomeAccount ? "rent" : "maintenance";
 
   switch (k) {
@@ -875,8 +859,6 @@ function buildHistoryTitle(
   }
 }
 
-// Role words that, if present in a backend-stored summary, we would
-// want to rewrite on the client with tenant-aware wording.
 const ROLE_WORDS_IN_SUMMARY = [
   " member access",
   " a member",
@@ -887,7 +869,6 @@ const ROLE_WORDS_IN_SUMMARY = [
   " ownership",
 ];
 
-// "property" wording that, on a home account, must be rebuilt as "room".
 const PROPERTY_WORDS_IN_SUMMARY = [
   "property for",
   "a property",
@@ -896,7 +877,6 @@ const PROPERTY_WORDS_IN_SUMMARY = [
   "the property",
 ];
 
-// "maintenance" wording that, on a home account, must be rebuilt as "rent".
 const MAINTENANCE_WORDS_IN_SUMMARY = [
   "maintenance paid",
   "maintenance due",
@@ -912,8 +892,6 @@ function summaryNeedsRebuild(
 ): boolean {
   if (!summary) return false;
 
-  // When the viewer is the actor, the backend summary carries their real
-  // name. Rebuild on the client so it reads "You ...".
   if (actorIsSelf) return true;
 
   const s = summary.toLowerCase();
@@ -929,8 +907,6 @@ function summaryNeedsRebuild(
     return true;
   }
 
-  // On a home account, the backend may still have stored "maintenance"
-  // in old summaries. Rebuild so it reads "rent" instead.
   if (
     isHomeAccount &&
     MAINTENANCE_WORDS_IN_SUMMARY.some((w) => s.includes(w.toLowerCase()))
@@ -969,11 +945,6 @@ function mapAuditRowToHistoryEntry(
 
   const actorIsSelf = !!currentUserId && row.actor_user_id === currentUserId;
 
-  // Primary check: backend-resolved target_user_id matches the viewer.
-  // Fallback check: the backend didn't resolve target_user_id (null), but
-  // the stored target_name matches the viewer's own name. This catches
-  // member.payment_* rows where the lateral join failed to resolve the
-  // member's user_id.
   const targetIsSelf =
     !!currentUserId &&
     (row.target_user_id === currentUserId ||
@@ -1010,11 +981,6 @@ function mapAuditRowToHistoryEntry(
       ? row.summary.trim()
       : null;
 
-  // Prefer the frontend's buildHistoryTitle() whenever the backend's
-  // stored summary would render the actor's name instead of "You",
-  // mentions a role word, says "property" instead of "room", says
-  // "maintenance" instead of "rent", or when the viewer IS the target
-  // (so we say "for you" / "your invitation" instead of a name).
   const title =
     backendSummary &&
     !summaryNeedsRebuild(backendSummary, isHomeAccount, actorIsSelf) &&
@@ -1956,14 +1922,16 @@ export default function ProfileTabScreen(): React.ReactElement {
   // Tenant viewer flag
   //   A tenant = member_visibility user on a home account who is NOT
   //   owner and NOT admin.
-  //   Tenants must NOT see the subscription card.
   // ---------------------------------------------------------------------------
   const isTenantViewer = isTenantAccount && isMember && !isOwner && !isAdmin;
 
   const canManageBills = isOwner || isAdmin;
-  // Members can see subscription. Tenants cannot.
+
+  // ✅ Reverted — the subscription card is visible on every platform.
+  //    Web uses Razorpay checkout.js, Android/iOS use RevenueCat.
   const canSeeSubscription =
     (isOwner || isAdmin || isMember) && !isTenantViewer;
+
   const canManageSubscription = isAdmin || isOwner;
 
   const historyScope: "full" | "self" | "none" =
@@ -2072,7 +2040,12 @@ export default function ProfileTabScreen(): React.ReactElement {
       if (!token) return;
       const res = await fetch(
         `${API_URL}/api/accounts/${selectedAccount.id}/subscription`,
-        { headers: { Authorization: `Bearer ${token}` } },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "x-app-platform": Platform.OS === "web" ? "web" : "mobile",
+          },
+        },
       );
       if (!res.ok) return;
       const data = await res.json();
@@ -2111,7 +2084,12 @@ export default function ProfileTabScreen(): React.ReactElement {
       if (!token) return;
       const res = await fetch(
         `${API_URL}/api/accounts/${selectedAccount.id}/people`,
-        { headers: { Authorization: `Bearer ${token}` } },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "x-app-platform": Platform.OS === "web" ? "web" : "mobile",
+          },
+        },
       );
       if (!res.ok) {
         setAccountPeople(null);
@@ -2156,7 +2134,10 @@ export default function ProfileTabScreen(): React.ReactElement {
             : `${API_URL}/api/accounts/${selectedAccount.id}/history/me?limit=100`;
 
         const res = await fetch(url, {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "x-app-platform": Platform.OS === "web" ? "web" : "mobile",
+          },
         });
 
         if (!res.ok) {
@@ -2169,8 +2150,6 @@ export default function ProfileTabScreen(): React.ReactElement {
           ? data.history
           : [];
 
-        // Drop hidden rows AND self-service role grants that duplicate
-        // an invitation.accept row.
         const visibleRows = rows.filter((r) => !shouldHideAuditRow(r));
 
         setHistory(
@@ -2303,7 +2282,10 @@ export default function ProfileTabScreen(): React.ReactElement {
 
       const res = await fetch(`${API_URL}/api/auth/me`, {
         method: "DELETE",
-        headers: { Authorization: `Bearer ${token}` },
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "x-app-platform": Platform.OS === "web" ? "web" : "mobile",
+        },
       });
 
       const data = await res.json().catch(() => null);
@@ -2468,6 +2450,7 @@ export default function ProfileTabScreen(): React.ReactElement {
             headers: {
               "Content-Type": "application/json",
               Authorization: `Bearer ${token}`,
+              "x-app-platform": Platform.OS === "web" ? "web" : "mobile",
             },
             body: JSON.stringify(body),
           },
@@ -2525,6 +2508,7 @@ export default function ProfileTabScreen(): React.ReactElement {
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
+            "x-app-platform": Platform.OS === "web" ? "web" : "mobile",
           },
           body: JSON.stringify(body),
         },
@@ -2572,6 +2556,7 @@ export default function ProfileTabScreen(): React.ReactElement {
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
+            "x-app-platform": Platform.OS === "web" ? "web" : "mobile",
           },
           body: JSON.stringify({ plan_id: "free", billing_period: "monthly" }),
         },
@@ -2614,6 +2599,7 @@ export default function ProfileTabScreen(): React.ReactElement {
           headers: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
+            "x-app-platform": Platform.OS === "web" ? "web" : "mobile",
           },
           body: JSON.stringify({
             keepMemberVisibility: true,
@@ -3362,13 +3348,7 @@ export default function ProfileTabScreen(): React.ReactElement {
           </View>
         )}
 
-        {/*
-          Subscription card:
-            • Owner   → visible
-            • Admin   → visible
-            • Member  → visible
-            • Tenant  → hidden (isTenantViewer)
-        */}
+        {/* Subscription card — visible on every platform */}
         {canSeeSubscription &&
           (() => {
             const currentPlan = plans.find((p) => p.id === activePlan);

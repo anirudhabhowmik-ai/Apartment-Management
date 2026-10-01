@@ -30,14 +30,8 @@ async function getAuthToken(): Promise<string | null> {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Lazy native module loader
+// Platform detection
 // ─────────────────────────────────────────────────────────────────────────────
-
-type RazorpayCheckoutModule = {
-  open: (options: any) => Promise<any>;
-};
-
-let cachedRazorpay: RazorpayCheckoutModule | null = null;
 
 function isWebPlatform(): boolean {
   try {
@@ -48,12 +42,45 @@ function isWebPlatform(): boolean {
   }
 }
 
+/**
+ * Tells the backend which client is calling.
+ *   web   → Razorpay web checkout is allowed
+ *   mobile → Razorpay is blocked; RevenueCat handles payments
+ */
+function getPlatformHeader(): "web" | "mobile" {
+  return isWebPlatform() ? "web" : "mobile";
+}
+
+/**
+ * Shared headers for every request this service makes.
+ * Includes the platform header that the backend guard reads.
+ */
+async function buildHeaders(): Promise<Record<string, string>> {
+  const token = await getAuthToken();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "x-app-platform": getPlatformHeader(),
+  };
+  if (token) headers.Authorization = `Bearer ${token}`;
+  return headers;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Native module loader (Android / iOS only)
+// ─────────────────────────────────────────────────────────────────────────────
+
+type RazorpayCheckoutModule = {
+  open: (options: any) => Promise<any>;
+};
+
+let cachedRazorpay: RazorpayCheckoutModule | null = null;
+
 function loadRazorpayNative(): RazorpayCheckoutModule {
   if (cachedRazorpay) return cachedRazorpay;
 
   if (isWebPlatform()) {
     throw new Error(
-      "Razorpay Checkout is not available on web. Please use the mobile app to complete payments.",
+      "Razorpay native module is not available on web. Use the web checkout instead.",
     );
   }
 
@@ -82,6 +109,132 @@ function loadRazorpayNative(): RazorpayCheckoutModule {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Web checkout (Razorpay checkout.js)
+// ─────────────────────────────────────────────────────────────────────────────
+
+const RAZORPAY_WEB_SCRIPT_SRC = "https://checkout.razorpay.com/v1/checkout.js";
+
+let webScriptPromise: Promise<void> | null = null;
+
+function loadRazorpayWebScript(): Promise<void> {
+  if (typeof document === "undefined") {
+    return Promise.reject(new Error("Web checkout is not available."));
+  }
+
+  const w = window as any;
+  if (w.Razorpay) return Promise.resolve();
+
+  if (webScriptPromise) return webScriptPromise;
+
+  webScriptPromise = new Promise<void>((resolve, reject) => {
+    const existing = document.querySelector<HTMLScriptElement>(
+      `script[src="${RAZORPAY_WEB_SCRIPT_SRC}"]`,
+    );
+
+    if (existing) {
+      if ((window as any).Razorpay) return resolve();
+      existing.addEventListener("load", () => resolve());
+      existing.addEventListener("error", () =>
+        reject(new Error("Failed to load Razorpay script.")),
+      );
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = RAZORPAY_WEB_SCRIPT_SRC;
+    script.async = true;
+    script.onload = () => resolve();
+    script.onerror = () =>
+      reject(new Error("Failed to load Razorpay checkout script."));
+    document.body.appendChild(script);
+  });
+
+  return webScriptPromise;
+}
+
+async function openRazorpayOnWeb(options: {
+  key: string;
+  amount: number;
+  currency: string;
+  name: string;
+  description: string;
+  order_id: string;
+  prefill?: { name?: string; email?: string; contact?: string };
+  theme?: { color?: string };
+}): Promise<{
+  razorpay_payment_id: string;
+  razorpay_order_id: string;
+  razorpay_signature: string;
+}> {
+  await loadRazorpayWebScript();
+
+  const Razorpay = (window as any).Razorpay;
+  if (!Razorpay) {
+    throw {
+      error: {
+        code: "SCRIPT_NOT_LOADED",
+        description: "Razorpay checkout script is unavailable.",
+      },
+    };
+  }
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+
+    const rzp = new Razorpay({
+      key: options.key,
+      amount: options.amount,
+      currency: options.currency,
+      name: options.name,
+      description: options.description,
+      order_id: options.order_id,
+      prefill: options.prefill || {},
+      theme: options.theme || { color: "#2563EB" },
+
+      handler: (response: any) => {
+        settled = true;
+        resolve({
+          razorpay_payment_id: response?.razorpay_payment_id,
+          razorpay_order_id: response?.razorpay_order_id,
+          razorpay_signature: response?.razorpay_signature,
+        });
+      },
+
+      modal: {
+        ondismiss: () => {
+          if (settled) return;
+          settled = true;
+          reject({
+            error: {
+              code: "PAYMENT_CANCELLED",
+              reason: "payment_cancelled",
+              description: "Payment was cancelled by the user.",
+            },
+          });
+        },
+      },
+    });
+
+    rzp.on("payment.failed", (resp: any) => {
+      if (settled) return;
+      settled = true;
+      reject({
+        error: {
+          code: resp?.error?.code || "PAYMENT_FAILED",
+          description:
+            resp?.error?.description || "Payment failed. Please try again.",
+          reason: resp?.error?.reason || "",
+          source: resp?.error?.source || "",
+          step: resp?.error?.step || "",
+        },
+      });
+    });
+
+    rzp.open();
+  });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -102,18 +255,16 @@ const createOrderOnBackend = async (
     throw new Error("EXPO_PUBLIC_API_URL is not configured.");
   }
 
-  const token = await getAuthToken();
-  if (!token) {
+  const headers = await buildHeaders();
+
+  if (!headers.Authorization) {
     throw new Error("You are not signed in. Please log in again.");
   }
 
   try {
     const response = await fetch(`${API_URL}/api/payment/create-order`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${token}`,
-      },
+      headers,
       body: JSON.stringify({
         accountId,
         plan_id: planId,
@@ -124,13 +275,16 @@ const createOrderOnBackend = async (
     const data = await response.json().catch(() => null);
 
     if (!response.ok) {
-      throw new Error(
-        data?.error || data?.message || `Backend error: ${response.status}`,
-      );
+      // Surface the backend's real message so the user sees something useful
+      const msg =
+        data?.message || data?.error || `Backend error: ${response.status}`;
+      throw new Error(msg);
     }
 
     if (!data?.success) {
-      throw new Error(data?.error || "Unable to create Razorpay order.");
+      throw new Error(
+        data?.error || data?.message || "Unable to create Razorpay order.",
+      );
     }
 
     if (!data?.orderId) {
@@ -192,10 +346,7 @@ export const startRazorpayPayment = async (
 ): Promise<PaymentResponse> => {
   try {
     if (!API_URL) {
-      return {
-        success: false,
-        error: "Payment API URL is not configured.",
-      };
+      return { success: false, error: "Payment API URL is not configured." };
     }
 
     if (!accountId) {
@@ -214,21 +365,7 @@ export const startRazorpayPayment = async (
       return {
         success: false,
         error:
-          "Razorpay Key ID is not configured. Add EXPO_PUBLIC_RAZORPAY_KEY_ID to your .env and rebuild the Android APK.",
-      };
-    }
-
-    // ── Lazy-load the native module ONLY when we actually need it ──
-    let RazorpayCheckout: RazorpayCheckoutModule;
-    try {
-      RazorpayCheckout = loadRazorpayNative();
-    } catch (loadErr: any) {
-      console.error("Razorpay native module load failed:", loadErr);
-      return {
-        success: false,
-        error:
-          loadErr?.message ||
-          "Razorpay is not available in this build. Please rebuild the app.",
+          "Razorpay Key ID is not configured. Add EXPO_PUBLIC_RAZORPAY_KEY_ID to your .env and rebuild the app.",
       };
     }
 
@@ -238,6 +375,7 @@ export const startRazorpayPayment = async (
       name: user.name || "",
       email: user.email || "",
       contact,
+      platform: getPlatformHeader(),
     });
 
     console.log("Creating Razorpay order...", {
@@ -269,6 +407,57 @@ export const startRazorpayPayment = async (
       },
     };
 
+    // ─────────────────────────────────────────────────────────────────────
+    // WEB — Razorpay checkout.js
+    // ─────────────────────────────────────────────────────────────────────
+    if (isWebPlatform()) {
+      console.log("Opening Razorpay web checkout…");
+
+      const data = await openRazorpayOnWeb({
+        key: options.key,
+        amount: options.amount,
+        currency: options.currency,
+        name: options.name,
+        description: options.description,
+        order_id: options.order_id,
+        prefill: options.prefill,
+        theme: options.theme,
+      });
+
+      console.log("Razorpay web payment response:", data);
+
+      const paymentId = data?.razorpay_payment_id;
+      const orderId = data?.razorpay_order_id || order.orderId;
+      const signature = data?.razorpay_signature;
+
+      if (!paymentId || !orderId || !signature) {
+        console.error("Incomplete Razorpay web payment response:", data);
+        return {
+          success: false,
+          error:
+            "Razorpay did not return complete payment verification details.",
+        };
+      }
+
+      return { success: true, paymentId, orderId, signature };
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // NATIVE (Android / iOS) — react-native-razorpay
+    // ─────────────────────────────────────────────────────────────────────
+    let RazorpayCheckout: RazorpayCheckoutModule;
+    try {
+      RazorpayCheckout = loadRazorpayNative();
+    } catch (loadErr: any) {
+      console.error("Razorpay native module load failed:", loadErr);
+      return {
+        success: false,
+        error:
+          loadErr?.message ||
+          "Razorpay is not available in this build. Please rebuild the app.",
+      };
+    }
+
     const data = await RazorpayCheckout.open(options);
 
     console.log("Razorpay payment response:", data);
@@ -285,12 +474,7 @@ export const startRazorpayPayment = async (
       };
     }
 
-    return {
-      success: true,
-      paymentId,
-      orderId,
-      signature,
-    };
+    return { success: true, paymentId, orderId, signature };
   } catch (error: any) {
     console.error("Razorpay payment error:", error);
 
@@ -305,13 +489,11 @@ export const startRazorpayPayment = async (
       reason === "user_cancelled" ||
       reason === "cancelled" ||
       reason === "payment_cancel" ||
+      parsed.code === "PAYMENT_CANCELLED" ||
       description.includes("cancel")
     ) {
       console.log("Razorpay Checkout cancelled by user.");
-      return {
-        success: false,
-        error: "Payment was cancelled.",
-      };
+      return { success: false, error: "Payment was cancelled." };
     }
 
     if (reason === "payment_error") {
