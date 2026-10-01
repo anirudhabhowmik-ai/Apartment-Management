@@ -2729,20 +2729,33 @@ export default function ProfileTabScreen(): React.ReactElement {
   ];
 
   const settingsSections = useMemo(() => {
-    const sections = [
-      { title: "BILLING", itemIds: ["generate_bill"] },
-      { title: "PREFERENCES", itemIds: ["notifications", "dark_mode"] },
-      {
-        title: "LEGAL & SUPPORT",
-        itemIds: [
+    const isWeb = Platform.OS === "web";
+
+    // On web: hide Push Notifications (no native push support) and
+    // Rate the App (no app store to open).
+    const preferencesItems = isWeb
+      ? ["dark_mode"]
+      : ["notifications", "dark_mode"];
+
+    const legalSupportItems = isWeb
+      ? ["privacy_policy", "terms_conditions", "about_us", "help_support"]
+      : [
           "privacy_policy",
           "terms_conditions",
           "about_us",
           "help_support",
           "rate_app",
-        ],
+        ];
+
+    const sections = [
+      { title: "BILLING", itemIds: ["generate_bill"] },
+      { title: "PREFERENCES", itemIds: preferencesItems },
+      {
+        title: "LEGAL & SUPPORT",
+        itemIds: legalSupportItems,
       },
     ];
+
     if (canManageBills) return sections;
     return sections.filter((s) => s.title !== "BILLING");
   }, [canManageBills]);
