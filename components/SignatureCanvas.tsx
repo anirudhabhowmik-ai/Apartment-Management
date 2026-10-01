@@ -3,19 +3,22 @@ import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
-  Dimensions,
-  GestureResponderEvent,
-  Image,
-  PanResponder,
-  StyleSheet,
-  Switch,
-  Text,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Dimensions,
+    GestureResponderEvent,
+    Image,
+    PanResponder,
+    Platform,
+    StyleSheet,
+    Switch,
+    Text,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import Svg, { Path } from "react-native-svg";
+import { usePhotoAdjustPointer } from "../hooks/usePhotoAdjustPointer";
 import { SignatureData } from "../store/billStore";
+import { PhotoZoomControls } from "./PhotoZoomControls";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -377,6 +380,14 @@ export default function SignatureCanvas({
       y: clampNumber(t.y, -maxY, maxY),
     };
   };
+
+  const { pointerHandlers, zoomIn, zoomOut } = usePhotoAdjustPointer({
+    zoom: cropZoom,
+    translate: cropTranslate,
+    setZoom: setCropZoom,
+    setTranslate: setCropTranslate,
+    clampTranslate: clampTranslateFromRefs,
+  });
 
   type AdjustGesture =
     | {
@@ -849,10 +860,18 @@ export default function SignatureCanvas({
           { crop: { originX, originY, width: finalW, height: finalH } },
           { resize: { width: 900 } },
         ],
-        { compress: 0.9, format: ImageManipulator.SaveFormat.PNG },
+        {
+          compress: 0.9,
+          format: ImageManipulator.SaveFormat.PNG,
+          base64: Platform.OS === "web",
+        },
       );
 
-      onSave({ type: "image", uri: result.uri, transparentBg });
+      const uri =
+        Platform.OS === "web" && result.base64
+          ? `data:image/png;base64,${result.base64}`
+          : result.uri;
+      onSave({ type: "image", uri, transparentBg });
     } catch (err: any) {
       console.error("Signature crop failed:", err);
       setCropError(
@@ -1066,46 +1085,90 @@ export default function SignatureCanvas({
 
           {mode === "upload" && uploadStage === "pick" && (
             <>
-              <TouchableOpacity
-                style={sigStyles.uploadOption}
-                onPress={handleTakePhoto}
-                activeOpacity={0.8}
-              >
-                <View style={sigStyles.uploadOptionIcon}>
-                  <Ionicons name="camera" size={22} color="#1a73e8" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={sigStyles.uploadOptionTitle}>Take a Photo</Text>
-                  <Text style={sigStyles.uploadOptionSubtitle}>
-                    Capture the signature with your camera
+              {Platform.OS === "web" ? (
+                <View style={sigStyles.webUploadPanel}>
+                  <View style={sigStyles.webUploadIcon}>
+                    <Ionicons
+                      name="cloud-upload-outline"
+                      size={26}
+                      color="#1a73e8"
+                    />
+                  </View>
+                  <Text style={sigStyles.webUploadTitle}>
+                    Upload a signature image
                   </Text>
+                  <Text style={sigStyles.webUploadSubtitle}>
+                    Choose a PNG, JPEG, or WebP file from your computer.
+                  </Text>
+                  <TouchableOpacity
+                    style={sigStyles.webBrowseButton}
+                    onPress={handleChooseGallery}
+                    activeOpacity={0.85}
+                  >
+                    <Ionicons
+                      name="folder-open-outline"
+                      size={17}
+                      color="#fff"
+                    />
+                    <Text style={sigStyles.webBrowseButtonText}>
+                      Browse files
+                    </Text>
+                  </TouchableOpacity>
                 </View>
-                <Ionicons name="chevron-forward" size={18} color="#cbd5e1" />
-              </TouchableOpacity>
+              ) : (
+                <>
+                  <TouchableOpacity
+                    style={sigStyles.uploadOption}
+                    onPress={handleTakePhoto}
+                    activeOpacity={0.8}
+                  >
+                    <View style={sigStyles.uploadOptionIcon}>
+                      <Ionicons name="camera" size={22} color="#1a73e8" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={sigStyles.uploadOptionTitle}>
+                        Take a Photo
+                      </Text>
+                      <Text style={sigStyles.uploadOptionSubtitle}>
+                        Capture the signature with your camera
+                      </Text>
+                    </View>
+                    <Ionicons
+                      name="chevron-forward"
+                      size={18}
+                      color="#cbd5e1"
+                    />
+                  </TouchableOpacity>
 
-              <TouchableOpacity
-                style={sigStyles.uploadOption}
-                onPress={handleChooseGallery}
-                activeOpacity={0.8}
-              >
-                <View
-                  style={[
-                    sigStyles.uploadOptionIcon,
-                    { backgroundColor: "#ecfdf5" },
-                  ]}
-                >
-                  <Ionicons name="images" size={22} color="#059669" />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={sigStyles.uploadOptionTitle}>
-                    Choose from Gallery
-                  </Text>
-                  <Text style={sigStyles.uploadOptionSubtitle}>
-                    Select an existing signature image
-                  </Text>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color="#cbd5e1" />
-              </TouchableOpacity>
+                  <TouchableOpacity
+                    style={sigStyles.uploadOption}
+                    onPress={handleChooseGallery}
+                    activeOpacity={0.8}
+                  >
+                    <View
+                      style={[
+                        sigStyles.uploadOptionIcon,
+                        { backgroundColor: "#ecfdf5" },
+                      ]}
+                    >
+                      <Ionicons name="images" size={22} color="#059669" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={sigStyles.uploadOptionTitle}>
+                        Choose from Gallery
+                      </Text>
+                      <Text style={sigStyles.uploadOptionSubtitle}>
+                        Select an existing signature image
+                      </Text>
+                    </View>
+                    <Ionicons
+                      name="chevron-forward"
+                      size={18}
+                      color="#cbd5e1"
+                    />
+                  </TouchableOpacity>
+                </>
+              )}
 
               {pickError ? (
                 <View style={sigStyles.errorContainer}>
@@ -1133,56 +1196,60 @@ export default function SignatureCanvas({
 
           {mode === "upload" && uploadStage === "crop" && rawImage && (
             <>
-              <View style={sigStyles.cropModeSwitcher}>
-                <TouchableOpacity
-                  style={[
-                    sigStyles.cropModeButton,
-                    !isCropMode && sigStyles.cropModeButtonActive,
-                  ]}
-                  onPress={() => setIsCropMode(false)}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons
-                    name="move-outline"
-                    size={15}
-                    color={!isCropMode ? "#1a73e8" : "#94a3b8"}
-                  />
-                  <Text
+              {Platform.OS !== "web" && (
+                <View style={sigStyles.cropModeSwitcher}>
+                  <TouchableOpacity
                     style={[
-                      sigStyles.cropModeButtonText,
-                      !isCropMode && sigStyles.cropModeButtonTextActive,
+                      sigStyles.cropModeButton,
+                      !isCropMode && sigStyles.cropModeButtonActive,
                     ]}
+                    onPress={() => setIsCropMode(false)}
+                    activeOpacity={0.8}
                   >
-                    Adjust Photo
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    sigStyles.cropModeButton,
-                    isCropMode && sigStyles.cropModeButtonActive,
-                  ]}
-                  onPress={() => setIsCropMode(true)}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons
-                    name="crop"
-                    size={15}
-                    color={isCropMode ? "#1a73e8" : "#94a3b8"}
-                  />
-                  <Text
+                    <Ionicons
+                      name="move-outline"
+                      size={15}
+                      color={!isCropMode ? "#1a73e8" : "#94a3b8"}
+                    />
+                    <Text
+                      style={[
+                        sigStyles.cropModeButtonText,
+                        !isCropMode && sigStyles.cropModeButtonTextActive,
+                      ]}
+                    >
+                      Adjust Photo
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
                     style={[
-                      sigStyles.cropModeButtonText,
-                      isCropMode && sigStyles.cropModeButtonTextActive,
+                      sigStyles.cropModeButton,
+                      isCropMode && sigStyles.cropModeButtonActive,
                     ]}
+                    onPress={() => setIsCropMode(true)}
+                    activeOpacity={0.8}
                   >
-                    Crop
-                  </Text>
-                </TouchableOpacity>
-              </View>
+                    <Ionicons
+                      name="crop"
+                      size={15}
+                      color={isCropMode ? "#1a73e8" : "#94a3b8"}
+                    />
+                    <Text
+                      style={[
+                        sigStyles.cropModeButtonText,
+                        isCropMode && sigStyles.cropModeButtonTextActive,
+                      ]}
+                    >
+                      Crop
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              )}
               <Text style={sigStyles.cropModeHint}>
-                {isCropMode
-                  ? "Drag the corners or edges to resize the crop box. The photo is locked."
-                  : "Pinch with two fingers to zoom • Drag to reposition the photo"}
+                {Platform.OS === "web"
+                  ? "Drag the image to position it and use the zoom controls."
+                  : isCropMode
+                    ? "Drag the corners or edges to resize the crop box. The photo is locked."
+                    : "Pinch with two fingers to zoom • Drag to reposition the photo"}
               </Text>
 
               <View style={sigStyles.cropViewportWrapper}>
@@ -1194,8 +1261,18 @@ export default function SignatureCanvas({
                   collapsable={false}
                 >
                   <View
-                    style={StyleSheet.absoluteFill}
-                    {...imagePanResponder.panHandlers}
+                    style={[
+                      StyleSheet.absoluteFill,
+                      Platform.OS === "web" &&
+                        !isCropMode &&
+                        ({ touchAction: "none", cursor: "grab" } as any),
+                    ]}
+                    {...(Platform.OS === "web"
+                      ? {}
+                      : imagePanResponder.panHandlers)}
+                    {...(Platform.OS === "web" && !isCropMode
+                      ? (pointerHandlers as any)
+                      : {})}
                   >
                     <Image
                       source={{ uri: rawImage.uri }}
@@ -1359,6 +1436,21 @@ export default function SignatureCanvas({
                     </>
                   )}
 
+                  {Platform.OS === "web" && !isCropMode && (
+                    <View
+                      style={[
+                        sigStyles.cropBoxBorder,
+                        {
+                          left: cropRect.x,
+                          top: cropRect.y,
+                          width: cropRect.width,
+                          height: cropRect.height,
+                        },
+                      ]}
+                      pointerEvents="none"
+                    />
+                  )}
+
                   {!isCropMode && (
                     <View style={sigStyles.zoomBadge} pointerEvents="none">
                       <Text style={sigStyles.zoomBadgeText}>
@@ -1368,6 +1460,14 @@ export default function SignatureCanvas({
                   )}
                 </View>
               </View>
+
+              {Platform.OS === "web" && !isCropMode && (
+                <PhotoZoomControls
+                  zoom={cropZoom}
+                  onZoomIn={zoomIn}
+                  onZoomOut={zoomOut}
+                />
+              )}
 
               <View style={sigStyles.transparentRow}>
                 <View style={{ flex: 1 }}>
@@ -1532,6 +1632,57 @@ const sigStyles = StyleSheet.create({
     paddingHorizontal: 10,
   },
   toolButtonText: { fontSize: 13, fontWeight: "600", color: "#475569" },
+
+  webUploadPanel: {
+    alignItems: "center",
+    borderWidth: 1.5,
+    borderStyle: "dashed",
+    borderColor: "#BFDBFE",
+    backgroundColor: "#F8FAFC",
+    borderRadius: 14,
+    paddingHorizontal: 24,
+    paddingVertical: 28,
+    marginTop: 8,
+    marginBottom: 10,
+  },
+  webUploadIcon: {
+    width: 52,
+    height: 52,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 16,
+    backgroundColor: "#EFF6FF",
+    marginBottom: 12,
+  },
+  webUploadTitle: {
+    color: "#0F172A",
+    fontSize: 15,
+    fontWeight: "700",
+    textAlign: "center",
+  },
+  webUploadSubtitle: {
+    color: "#64748B",
+    fontSize: 12,
+    lineHeight: 18,
+    textAlign: "center",
+    marginTop: 5,
+    marginBottom: 16,
+  },
+  webBrowseButton: {
+    minHeight: 42,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 7,
+    borderRadius: 10,
+    backgroundColor: "#2563EB",
+    paddingHorizontal: 16,
+  },
+  webBrowseButtonText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "700",
+  },
 
   uploadOption: {
     flexDirection: "row",

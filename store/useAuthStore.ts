@@ -1,8 +1,8 @@
 // store/useAuthStore.ts
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import * as FileSystem from "expo-file-system/legacy";
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
+import { encodePhotoForServer } from "../utils/photoEncoding";
 import { deleteSecureItem, getSecureItem } from "../utils/tokenStorage";
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
@@ -55,37 +55,6 @@ async function getAuthToken(): Promise<string | null> {
   } catch {
     return null;
   }
-}
-
-// ------------------------------------------------------------
-// Photo encoding
-//
-// A device-local URI (file://, content://, ph://) cannot be read on any
-// other phone. Encode it as a base64 data URI so the server stores a
-// portable value that renders everywhere.
-// ------------------------------------------------------------
-async function encodePhotoForServer(localUri: string): Promise<string> {
-  if (!localUri) return localUri;
-
-  // Already portable — pass through unchanged.
-  if (localUri.startsWith("data:") || /^https?:\/\//i.test(localUri)) {
-    return localUri;
-  }
-
-  // Anything else must be encoded. Do NOT fall back to returning the raw
-  // URI — that would leak a device-local path into the database.
-  const base64 = await FileSystem.readAsStringAsync(localUri, {
-    encoding: FileSystem.EncodingType.Base64,
-  });
-
-  const lower = localUri.toLowerCase();
-  const mime = lower.endsWith(".png")
-    ? "image/png"
-    : lower.endsWith(".webp")
-      ? "image/webp"
-      : "image/jpeg";
-
-  return `data:${mime};base64,${base64}`;
 }
 
 // ------------------------------------------------------------
