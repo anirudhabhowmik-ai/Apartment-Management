@@ -15,6 +15,7 @@ import {
   StyleSheet,
   Text,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -56,6 +57,51 @@ const COLORS = {
   purple: "#7C3AED",
   purpleLight: "#F5F3FF",
 };
+
+// ---------------------------------------------------------------------------
+// Desktop web sidebar: a tab button with a clearly visible hover/active state.
+// The library's built-in "material" hover effect is a near-invisible 8%
+// opacity overlay, which is what made hover/active states hard to see.
+// ---------------------------------------------------------------------------
+
+function createSidebarTabButton(activeBg: string, hoverBg: string) {
+  return function SidebarTabButton({
+    children,
+    style,
+    onPress,
+    href: _href,
+    ...rest
+  }: any) {
+    const [hovered, setHovered] = useState(false);
+    const focused = rest["aria-selected"] === true;
+
+    return (
+      <Pressable
+        {...rest}
+        onPress={onPress}
+        onHoverIn={() => setHovered(true)}
+        onHoverOut={() => setHovered(false)}
+        style={[
+          style,
+          {
+            // The library's "material" pill style (54px tall, 56px radius)
+            // doesn't match our 44px/9px wrapping box, which clipped the
+            // pill unevenly. Force both to line up so nothing gets cut off.
+            height: "100%",
+            borderRadius: 9,
+            backgroundColor: focused
+              ? activeBg
+              : hovered
+                ? hoverBg
+                : "transparent",
+          },
+        ]}
+      >
+        {children}
+      </Pressable>
+    );
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Presentation helpers
@@ -165,7 +211,18 @@ function iconForNotification(n: NotificationItem): {
 export default function TabsLayout() {
   const isDarkMode = useThemeStore((state) => state.isDarkMode);
   const insets = useSafeAreaInsets();
+  const { width: viewportWidth } = useWindowDimensions();
+  const isDesktopWeb = Platform.OS === "web" && viewportWidth >= 960;
   const router = useRouter();
+
+  const sidebarTabBarButton = useMemo(
+    () =>
+      createSidebarTabButton(
+        isDarkMode ? "#1E293B" : "#EFF6FF",
+        isDarkMode ? "#243044" : "#E2E8F0",
+      ),
+    [isDarkMode],
+  );
 
   const authUser = useAuthStore((s) => s.user);
   const refreshProfile = useAuthStore((s) => s.refreshProfile);
@@ -439,6 +496,7 @@ export default function TabsLayout() {
           headerTitleAlign: "left",
           headerStyle: {
             backgroundColor: isDarkMode ? "#151C27" : COLORS.white,
+            height: isDesktopWeb ? 72 : undefined,
             elevation: 0,
             borderBottomWidth: 1,
             borderBottomColor: isDarkMode ? "#354154" : COLORS.border,
@@ -655,30 +713,44 @@ export default function TabsLayout() {
           ),
           tabBarActiveTintColor: isDarkMode ? "#60A5FA" : COLORS.primary,
           tabBarInactiveTintColor: isDarkMode ? "#94A3B8" : COLORS.muted,
+          tabBarPosition: isDesktopWeb ? "left" : "bottom",
+          tabBarVariant: isDesktopWeb ? "material" : "uikit",
+          tabBarButton: isDesktopWeb ? sidebarTabBarButton : undefined,
+          tabBarLabelPosition: isDesktopWeb ? "beside-icon" : "below-icon",
+          tabBarActiveBackgroundColor: isDarkMode ? "#1E293B" : "#EFF6FF",
           tabBarStyle: {
-            height: 64 + bottomInset,
-            paddingTop: 5,
-            paddingBottom: bottomInset + 5,
-            paddingHorizontal: 8,
+            height: isDesktopWeb ? "100%" : 64 + bottomInset,
+            width: isDesktopWeb ? 248 : undefined,
+            paddingTop: isDesktopWeb ? 20 : 5,
+            paddingBottom: isDesktopWeb ? 20 : bottomInset + 5,
+            paddingHorizontal: isDesktopWeb ? 12 : 8,
             backgroundColor: isDarkMode ? "#151C27" : COLORS.white,
-            borderTopWidth: 1,
-            borderTopColor: isDarkMode ? "#354154" : COLORS.border,
+            borderTopWidth: isDesktopWeb ? 0 : 1,
+            borderTopColor: isDesktopWeb
+              ? "transparent"
+              : isDarkMode
+                ? "#354154"
+                : COLORS.border,
+            borderRightWidth: isDesktopWeb ? 1 : 0,
+            borderRightColor: isDarkMode ? "#354154" : COLORS.border,
             ...(Platform.OS === "android" ? { elevation: 0 } : {}),
           },
           sceneStyle: {
             backgroundColor: isDarkMode ? "#101720" : COLORS.background,
           },
           tabBarLabelStyle: {
-            fontSize: 10,
+            fontSize: isDesktopWeb ? 13 : 10,
             fontWeight: "600",
-            marginTop: 1,
+            marginTop: isDesktopWeb ? 0 : 1,
+            marginLeft: isDesktopWeb ? 10 : 0,
           },
           tabBarItemStyle: {
             height: 44,
-            marginHorizontal: 0,
-            padding: 0,
+            marginHorizontal: isDesktopWeb ? 0 : 0,
+            marginVertical: isDesktopWeb ? 4 : 0,
+            paddingHorizontal: isDesktopWeb ? 10 : 0,
             backgroundColor: "transparent",
-            borderRadius: 0,
+            borderRadius: isDesktopWeb ? 9 : 0,
           },
         }}
       >

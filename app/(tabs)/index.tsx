@@ -9,6 +9,7 @@ import {
   Image,
   Linking,
   Modal,
+  Platform,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -3766,7 +3767,10 @@ export default function HomeScreen() {
         <View style={styles.container}>
           <ScrollView
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.scrollContent}
+            contentContainerStyle={[
+              styles.scrollContent,
+              Platform.OS === "web" && styles.webContent,
+            ]}
             refreshControl={
               <RefreshControl
                 refreshing={refreshing}
@@ -3948,7 +3952,10 @@ export default function HomeScreen() {
       <View style={styles.container}>
         <ScrollView
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[
+            styles.scrollContent,
+            Platform.OS === "web" && styles.webContent,
+          ]}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -4195,6 +4202,7 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 30,
   },
+  webContent: { width: "100%", maxWidth: 1120, alignSelf: "center" },
 
   loadingScreen: {
     flex: 1,

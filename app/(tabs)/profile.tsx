@@ -1025,6 +1025,7 @@ function mapAuditRowToHistoryEntry(
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#F5F7FB" },
   scrollContent: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 40 },
+  webContent: { width: "100%", maxWidth: 1120, alignSelf: "center" },
 
   heroCard: {
     backgroundColor: "#FFFFFF",
@@ -3169,7 +3170,10 @@ export default function ProfileTabScreen(): React.ReactElement {
       <View style={styles.container}>
         <ScrollView
           showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[
+            styles.scrollContent,
+            Platform.OS === "web" && styles.webContent,
+          ]}
         >
           <View style={styles.heroCard}>
             <View style={styles.heroTopRow}>

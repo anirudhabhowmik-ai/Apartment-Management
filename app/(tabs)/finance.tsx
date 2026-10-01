@@ -2225,7 +2225,10 @@ export default function FinanceScreen() {
     <DarkModeBoundary>
       <View style={styles.container}>
         <ScrollView
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[
+            styles.scrollContent,
+            Platform.OS === "web" && styles.webContent,
+          ]}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -2740,6 +2743,7 @@ const styles = StyleSheet.create({
     paddingTop: 18,
     paddingBottom: 30,
   },
+  webContent: { width: "100%", maxWidth: 1120, alignSelf: "center" },
 
   bottomPadding: { height: 30 },
 

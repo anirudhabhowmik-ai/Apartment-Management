@@ -33,6 +33,26 @@ export default function RootLayout() {
     }
   }, [isDarkMode]);
 
+  // ── Web: remove the browser's default focus outline/border on inputs,
+  // applied globally so every screen is covered.
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+    const styleId = "global-web-focus-style";
+    if (document.getElementById(styleId)) return;
+    const style = document.createElement("style");
+    style.id = styleId;
+    style.textContent = `
+      input, textarea, select {
+        outline: none;
+      }
+      input:focus, textarea:focus, select:focus {
+        outline: none;
+        box-shadow: none;
+      }
+    `;
+    document.head.appendChild(style);
+  }, []);
+
   useEffect(() => {
     if (isAuthenticated && user?.id) {
       initializeRevenueCat(user.id).catch((err) =>

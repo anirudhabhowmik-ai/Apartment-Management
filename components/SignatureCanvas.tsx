@@ -27,7 +27,10 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 // taller, so it behaves like a real signing surface rather than a small box.
 const CANVAS_HEIGHT = Math.min(SCREEN_HEIGHT * 0.42, 420);
 
-const CROP_VIEWPORT_W = Math.min(SCREEN_WIDTH - 80, 320);
+const CROP_VIEWPORT_W =
+  Platform.OS === "web"
+    ? Math.min(SCREEN_WIDTH - 112, 560)
+    : Math.min(SCREEN_WIDTH - 80, 320);
 const CROP_VIEWPORT_H = Math.round(CROP_VIEWPORT_W / 2.6);
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 4;
@@ -944,9 +947,18 @@ export default function SignatureCanvas({
 
   return (
     <View style={sigStyles.overlay} collapsable={false}>
-      <View style={sigStyles.backdrop}>
+      <View
+        style={[
+          sigStyles.backdrop,
+          Platform.OS === "web" && sigStyles.backdropWeb,
+        ]}
+      >
         <View
-          style={[sigStyles.card, mode === "draw" && sigStyles.cardDrawMode]}
+          style={[
+            sigStyles.card,
+            mode === "draw" && sigStyles.cardDrawMode,
+            Platform.OS === "web" && sigStyles.cardWeb,
+          ]}
         >
           <View style={mode === "draw" ? sigStyles.headerPadded : undefined}>
             <Text style={sigStyles.title}>Secretary Signature</Text>
@@ -1589,12 +1601,20 @@ const sigStyles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: 12,
   },
+  backdropWeb: { paddingHorizontal: 24, paddingVertical: 20 },
   card: {
     backgroundColor: "#ffffff",
     borderRadius: 22,
     padding: 20,
     width: "100%",
     maxWidth: 440,
+  },
+  cardWeb: {
+    maxWidth: 880,
+    maxHeight: "100%",
+    padding: 28,
+    borderRadius: 14,
+    ...(Platform.OS === "web" ? ({ overflowY: "auto" } as any) : {}),
   },
   // While drawing, shrink the card's own side padding so the canvas can
   // stretch to nearly the full device width - the header/footer keep the

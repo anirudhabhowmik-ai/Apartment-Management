@@ -1769,7 +1769,7 @@ export default function PeopleScreen() {
 
   return (
     <DarkModeBoundary>
-      <View style={styles.container}>
+      <View style={[styles.container, Platform.OS === "web" && styles.webPage]}>
         {/* ── HEADER: title + subtitle + month pill (NO new card) ─────── */}
         <View style={styles.header}>
           <View style={styles.headerTop}>
@@ -3122,6 +3122,7 @@ const cardShadow = {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: COLORS.background },
+  webPage: { width: "100%", maxWidth: 1120, alignSelf: "center" },
   scrollArea: { flex: 1 },
   pressedButton: { opacity: 0.7 },
 

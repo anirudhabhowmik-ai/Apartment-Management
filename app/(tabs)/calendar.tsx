@@ -17,7 +17,6 @@ import {
   Image,
   KeyboardAvoidingView,
   Linking,
-  Modal,
   NativeModules,
   Platform,
   Pressable,
@@ -33,6 +32,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getSecureItem } from "../../utils/tokenStorage";
 
 import { DarkModeBoundary } from "../../components/DarkModeBoundary";
+import IOSFriendlyModal from "../../components/IOSFriendlyModal";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useUserRole } from "../../hooks/useUserRole";
 import { useAccountStore } from "../../store/accountStore";
@@ -2166,7 +2166,10 @@ function CalendarScreenImpl() {
     <DarkModeBoundary>
       <View style={styles.container}>
         <ScrollView
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[
+            styles.scrollContent,
+            Platform.OS === "web" && styles.webContent,
+          ]}
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.header}>
@@ -2651,7 +2654,7 @@ function CalendarScreenImpl() {
         )}
 
         {/* ==================== Add/Edit modal ==================== */}
-        <Modal
+        <IOSFriendlyModal
           visible={showAddModal}
           transparent
           animationType="slide"
@@ -3118,11 +3121,11 @@ function CalendarScreenImpl() {
               </ScrollView>
             </View>
           </KeyboardAvoidingView>
-        </Modal>
+        </IOSFriendlyModal>
 
         {/* ==================== iOS time picker ==================== */}
         {Platform.OS === "ios" && timePickerMode !== null && (
-          <Modal
+          <IOSFriendlyModal
             transparent
             animationType="fade"
             visible={timePickerMode !== null}
@@ -3160,7 +3163,7 @@ function CalendarScreenImpl() {
                 </View>
               </View>
             </Pressable>
-          </Modal>
+          </IOSFriendlyModal>
         )}
 
         {/* ==================== Android time picker ==================== */}
@@ -3173,7 +3176,7 @@ function CalendarScreenImpl() {
         )}
 
         {/* ==================== Photo options ==================== */}
-        <Modal
+        <IOSFriendlyModal
           visible={showPhotoOptions}
           transparent
           animationType="fade"
@@ -3264,10 +3267,10 @@ function CalendarScreenImpl() {
               </TouchableOpacity>
             </View>
           </Pressable>
-        </Modal>
+        </IOSFriendlyModal>
 
         {/* ==================== Date picker ==================== */}
-        <Modal
+        <IOSFriendlyModal
           visible={showDatePicker}
           transparent
           animationType="fade"
@@ -3386,10 +3389,10 @@ function CalendarScreenImpl() {
               </View>
             </View>
           </Pressable>
-        </Modal>
+        </IOSFriendlyModal>
 
         {/* ==================== View Details modal ==================== */}
-        <Modal
+        <IOSFriendlyModal
           visible={viewingEvent !== null}
           transparent
           animationType="fade"
@@ -4449,10 +4452,10 @@ function CalendarScreenImpl() {
               </View>
             )}
           </View>
-        </Modal>
+        </IOSFriendlyModal>
 
         {/* ==================== Reject modal ==================== */}
-        <Modal
+        <IOSFriendlyModal
           visible={rejectingId !== null}
           transparent
           animationType="fade"
@@ -4531,10 +4534,10 @@ function CalendarScreenImpl() {
               </View>
             </View>
           </KeyboardAvoidingView>
-        </Modal>
+        </IOSFriendlyModal>
 
         {/* ==================== Delete event modal ==================== */}
-        <Modal
+        <IOSFriendlyModal
           visible={deletingId !== null}
           transparent
           animationType="fade"
@@ -4602,7 +4605,7 @@ function CalendarScreenImpl() {
               </View>
             </View>
           </Pressable>
-        </Modal>
+        </IOSFriendlyModal>
       </View>
     </DarkModeBoundary>
   );
@@ -4617,6 +4620,7 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#f8fafc" },
   scrollContent: { padding: 16, paddingBottom: 100 },
+  webContent: { width: "100%", maxWidth: 1120, alignSelf: "center" },
 
   header: { marginBottom: 16 },
   title: { fontSize: 22, fontWeight: "800", color: "#0f172a", marginBottom: 4 },

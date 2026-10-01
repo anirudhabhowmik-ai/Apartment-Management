@@ -1,6 +1,7 @@
 import { useState } from "react";
-import { Modal, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { DarkModeBoundary } from "./DarkModeBoundary";
+import IOSFriendlyModal from "./IOSFriendlyModal";
 
 interface MonthYearPickerModalProps {
   visible: boolean;
@@ -39,7 +40,7 @@ export default function MonthYearPickerModal({
 
   return (
     <DarkModeBoundary>
-      <Modal
+      <IOSFriendlyModal
         transparent
         animationType="fade"
         visible={visible}
@@ -131,7 +132,7 @@ export default function MonthYearPickerModal({
             </TouchableOpacity>
           </View>
         </View>
-      </Modal>
+      </IOSFriendlyModal>
     </DarkModeBoundary>
   );
 }

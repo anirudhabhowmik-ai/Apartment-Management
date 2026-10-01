@@ -1,7 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import { useEffect, useMemo, useState } from "react";
 import {
-    Modal,
     Platform,
     StyleSheet,
     Text,
@@ -9,6 +8,7 @@ import {
     View,
 } from "react-native";
 import { DarkModeBoundary } from "./DarkModeBoundary";
+import IOSFriendlyModal from "./IOSFriendlyModal";
 
 interface DatePickerModalProps {
   visible: boolean;
@@ -133,7 +133,7 @@ export default function DatePickerModal({
 
   return (
     <DarkModeBoundary>
-      <Modal
+      <IOSFriendlyModal
         visible={visible}
         transparent
         animationType="fade"
@@ -223,7 +223,7 @@ export default function DatePickerModal({
             </View>
           </View>
         </View>
-      </Modal>
+      </IOSFriendlyModal>
     </DarkModeBoundary>
   );
 }
