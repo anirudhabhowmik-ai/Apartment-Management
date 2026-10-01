@@ -9,6 +9,7 @@ import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
     Alert,
+    Image,
     KeyboardAvoidingView,
     Linking,
     Modal,
@@ -529,7 +530,11 @@ export default function LoginScreen() {
           <View style={styles.header}>
             <View style={styles.logoContainer}>
               <View style={styles.logoCircle}>
-                <Ionicons name="business-outline" size={40} color="#1a73e8" />
+                <Image
+                  source={require("../../assets/images/logo-mark.png")}
+                  style={styles.logoImage}
+                  resizeMode="contain"
+                />
               </View>
             </View>
 
@@ -761,6 +766,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#e8f0fe",
     justifyContent: "center",
     alignItems: "center",
+  },
+
+  logoImage: {
+    width: 44,
+    height: 44,
   },
 
   title: {

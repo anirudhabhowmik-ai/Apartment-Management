@@ -8,6 +8,7 @@ import {
   Animated,
   AppState,
   Easing,
+  Image,
   Modal,
   Platform,
   Pressable,
@@ -490,6 +491,13 @@ export default function TabsLayout() {
         screenOptions={{
           headerTitle: () => (
             <View style={styles.accountSwitcherContainer}>
+              {isDesktopWeb && (
+                <Image
+                  source={require("../../assets/images/logo-mark.png")}
+                  style={styles.brandMarkImage}
+                  resizeMode="contain"
+                />
+              )}
               <AccountSwitcherTrigger />
             </View>
           ),
@@ -874,8 +882,11 @@ const styles = StyleSheet.create({
   accountSwitcherContainer: {
     flex: 1,
     maxWidth: 280,
-    justifyContent: "center",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
   },
+  brandMarkImage: { width: 28, height: 28 },
   notificationMenu: { position: "relative", zIndex: 100 },
   notificationButton: { marginRight: 12, padding: 5 },
   notificationIconWrapper: {
