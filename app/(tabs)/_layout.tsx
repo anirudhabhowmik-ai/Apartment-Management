@@ -745,12 +745,17 @@ export default function TabsLayout() {
             marginLeft: isDesktopWeb ? 10 : 0,
           },
           tabBarItemStyle: {
-            height: 44,
+            // Fixed height + no border radius on mobile left a gap below the
+            // active item's highlight rectangle (it didn't fill the row),
+            // which showed up as a flat "cut" edge above the safe area.
+            // Stretching to fill the row (no explicit height) and rounding
+            // the corners fixes it.
+            height: isDesktopWeb ? 44 : undefined,
             marginHorizontal: isDesktopWeb ? 0 : 0,
             marginVertical: isDesktopWeb ? 4 : 0,
             paddingHorizontal: isDesktopWeb ? 10 : 0,
             backgroundColor: "transparent",
-            borderRadius: isDesktopWeb ? 9 : 0,
+            borderRadius: isDesktopWeb ? 9 : 12,
           },
         }}
       >
