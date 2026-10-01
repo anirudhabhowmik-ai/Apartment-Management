@@ -21,7 +21,10 @@ Google Console Deployment
 https://play.google.com/console/u/0/developers/5444417485597620200/app-list
 
 Google Console Deployment
-Need to change Version and VersionCode
+Need to change Version and VersionCode In App.JSON
+
+In Google Console Need Add This
+Internal Testing v1.0.3
 <en-US>
 Initial release of Apartment Management.
 
