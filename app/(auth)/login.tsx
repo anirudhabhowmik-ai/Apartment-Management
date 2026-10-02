@@ -80,7 +80,7 @@ const LEGAL_URLS = {
 // APK DOWNLOAD URL
 // ================================================================
 
-const APK_DOWNLOAD_URL = "/apartment-manage.apk";
+const APK_DOWNLOAD_URL = "/apartment-management.apk";
 
 // ================================================================
 // INLINE SVG PHONE MOCKUP (data URI - no extra package needed)
