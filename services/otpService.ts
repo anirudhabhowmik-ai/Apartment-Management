@@ -8,11 +8,13 @@ import type {
 } from "./otpTypes";
 
 export type {
-  SendOtpResponse, VerifyOtpOnlyResponse, VerifyOtpResponse
+  SendOtpResponse,
+  VerifyOtpOnlyResponse,
+  VerifyOtpResponse
 } from "./otpTypes";
 
 const MSG91_WIDGET_ID = process.env.EXPO_PUBLIC_MSG91_WIDGET_ID;
-const MSG91_TOKEN = process.env.EXPO_PUBLIC_MSG91_WIDGET_TOKEN;
+const MSG91_TOKEN = process.env.MSG91_WIDGET_TOKEN;
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
 
 const REQ_ID_STORAGE_PREFIX = "msg91_reqid:";
@@ -75,7 +77,7 @@ function initializeWidget() {
   if (widgetInitialized) return;
   if (!MSG91_WIDGET_ID || !MSG91_TOKEN) {
     throw new Error(
-      "MSG91 Widget configuration is missing. Check EXPO_PUBLIC_MSG91_WIDGET_ID and EXPO_PUBLIC_MSG91_WIDGET_TOKEN.",
+      "MSG91 Widget configuration is missing. Check EXPO_PUBLIC_MSG91_WIDGET_ID and MSG91_WIDGET_TOKEN.",
     );
   }
   OTPWidget.initializeWidget(MSG91_WIDGET_ID, MSG91_TOKEN);
