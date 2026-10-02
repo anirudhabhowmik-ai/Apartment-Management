@@ -27,6 +27,15 @@ import { DarkModeBoundary } from "../../components/DarkModeBoundary";
 import { sendOtp } from "../../services/otpService";
 import { useAuthStore } from "../../store/useAuthStore";
 
+// Allow <img> tag on web (React Native Web supports HTML elements)
+declare global {
+  namespace JSX {
+    interface IntrinsicElements {
+      img: any;
+    }
+  }
+}
+
 // ================================================================
 // REACT NATIVE WEB WARNING FILTER
 // ================================================================
@@ -66,7 +75,7 @@ if (
 }
 
 // ================================================================
-// PUBLIC LEGAL URLS (GitHub Pages)
+// PUBLIC LEGAL URLS
 // ================================================================
 
 const LEGAL_URLS = {
@@ -78,58 +87,19 @@ const LEGAL_URLS = {
 
 // ================================================================
 // APK DOWNLOAD URL
-// Replace this with your GitHub Releases URL after uploading the APK
 // ================================================================
 
 const APK_DOWNLOAD_URL = "/apartment-management.apk";
 
 // ================================================================
-// INLINE SVG PHONE MOCKUP (rendered on web via dangerouslySetInnerHTML)
+// INLINE SVG PHONE MOCKUP
 // ================================================================
 
-const PHONE_MOCKUP_SVG = `
-<svg width="100" height="140" viewBox="0 0 140 200" xmlns="http://www.w3.org/2000/svg" style="display:block;">
-  <defs>
-    <linearGradient id="screenGrad" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0%" stop-color="#1a73e8"/>
-      <stop offset="100%" stop-color="#4a90e2"/>
-    </linearGradient>
-  </defs>
-  <rect x="10" y="10" width="120" height="180" rx="18" ry="18" fill="#1f2937"/>
-  <rect x="16" y="16" width="108" height="168" rx="13" ry="13" fill="url(#screenGrad)"/>
-  <rect x="55" y="16" width="30" height="6" rx="3" fill="#1f2937"/>
-  <rect x="22" y="28" width="40" height="3" rx="1.5" fill="#ffffff" opacity="0.6"/>
-  <circle cx="118" cy="30" r="2" fill="#ffffff" opacity="0.6"/>
-  <circle cx="112" cy="30" r="2" fill="#ffffff" opacity="0.6"/>
-  <rect x="22" y="40" width="60" height="6" rx="3" fill="#ffffff" opacity="0.9"/>
-  <rect x="22" y="50" width="90" height="4" rx="2" fill="#ffffff" opacity="0.5"/>
-  <rect x="22" y="64" width="96" height="30" rx="6" fill="#ffffff" opacity="0.95"/>
-  <rect x="28" y="70" width="30" height="4" rx="2" fill="#1a73e8" opacity="0.9"/>
-  <rect x="28" y="78" width="60" height="3" rx="1.5" fill="#1a73e8" opacity="0.5"/>
-  <rect x="28" y="84" width="40" height="3" rx="1.5" fill="#1a73e8" opacity="0.4"/>
-  <rect x="22" y="100" width="46" height="24" rx="6" fill="#ffffff" opacity="0.9"/>
-  <circle cx="32" cy="112" r="5" fill="#1a73e8" opacity="0.9"/>
-  <rect x="42" y="108" width="20" height="3" rx="1.5" fill="#1a73e8" opacity="0.6"/>
-  <rect x="42" y="114" width="15" height="3" rx="1.5" fill="#1a73e8" opacity="0.4"/>
-  <rect x="72" y="100" width="46" height="24" rx="6" fill="#ffffff" opacity="0.9"/>
-  <circle cx="82" cy="112" r="5" fill="#34a853" opacity="0.9"/>
-  <rect x="92" y="108" width="20" height="3" rx="1.5" fill="#34a853" opacity="0.6"/>
-  <rect x="92" y="114" width="15" height="3" rx="1.5" fill="#34a853" opacity="0.4"/>
-  <rect x="22" y="130" width="96" height="34" rx="6" fill="#ffffff" opacity="0.9"/>
-  <rect x="28" y="136" width="24" height="3" rx="1.5" fill="#1a73e8" opacity="0.6"/>
-  <rect x="28" y="148" width="6" height="10" rx="1.5" fill="#1a73e8" opacity="0.7"/>
-  <rect x="38" y="144" width="6" height="14" rx="1.5" fill="#1a73e8" opacity="0.8"/>
-  <rect x="48" y="146" width="6" height="12" rx="1.5" fill="#1a73e8" opacity="0.7"/>
-  <rect x="58" y="142" width="6" height="16" rx="1.5" fill="#1a73e8" opacity="0.9"/>
-  <rect x="68" y="146" width="6" height="12" rx="1.5" fill="#1a73e8" opacity="0.7"/>
-  <rect x="78" y="140" width="6" height="18" rx="1.5" fill="#1a73e8"/>
-  <rect x="22" y="170" width="96" height="10" rx="5" fill="#ffffff" opacity="0.85"/>
-  <circle cx="38" cy="175" r="2" fill="#1a73e8"/>
-  <circle cx="60" cy="175" r="2" fill="#1a73e8" opacity="0.5"/>
-  <circle cx="82" cy="175" r="2" fill="#1a73e8" opacity="0.5"/>
-  <circle cx="104" cy="175" r="2" fill="#1a73e8" opacity="0.5"/>
-</svg>
-`.trim();
+const PHONE_MOCKUP_SVG = `<svg width="140" height="200" viewBox="0 0 140 200" xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="screenGrad" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#1a73e8"/><stop offset="100%" stop-color="#4a90e2"/></linearGradient></defs><rect x="10" y="10" width="120" height="180" rx="18" ry="18" fill="#1f2937"/><rect x="16" y="16" width="108" height="168" rx="13" ry="13" fill="url(#screenGrad)"/><rect x="55" y="16" width="30" height="6" rx="3" fill="#1f2937"/><rect x="22" y="28" width="40" height="3" rx="1.5" fill="#ffffff" opacity="0.6"/><circle cx="118" cy="30" r="2" fill="#ffffff" opacity="0.6"/><circle cx="112" cy="30" r="2" fill="#ffffff" opacity="0.6"/><rect x="22" y="40" width="60" height="6" rx="3" fill="#ffffff" opacity="0.9"/><rect x="22" y="50" width="90" height="4" rx="2" fill="#ffffff" opacity="0.5"/><rect x="22" y="64" width="96" height="30" rx="6" fill="#ffffff" opacity="0.95"/><rect x="28" y="70" width="30" height="4" rx="2" fill="#1a73e8" opacity="0.9"/><rect x="28" y="78" width="60" height="3" rx="1.5" fill="#1a73e8" opacity="0.5"/><rect x="28" y="84" width="40" height="3" rx="1.5" fill="#1a73e8" opacity="0.4"/><rect x="22" y="100" width="46" height="24" rx="6" fill="#ffffff" opacity="0.9"/><circle cx="32" cy="112" r="5" fill="#1a73e8" opacity="0.9"/><rect x="42" y="108" width="20" height="3" rx="1.5" fill="#1a73e8" opacity="0.6"/><rect x="42" y="114" width="15" height="3" rx="1.5" fill="#1a73e8" opacity="0.4"/><rect x="72" y="100" width="46" height="24" rx="6" fill="#ffffff" opacity="0.9"/><circle cx="82" cy="112" r="5" fill="#34a853" opacity="0.9"/><rect x="92" y="108" width="20" height="3" rx="1.5" fill="#34a853" opacity="0.6"/><rect x="92" y="114" width="15" height="3" rx="1.5" fill="#34a853" opacity="0.4"/><rect x="22" y="130" width="96" height="34" rx="6" fill="#ffffff" opacity="0.9"/><rect x="28" y="136" width="24" height="3" rx="1.5" fill="#1a73e8" opacity="0.6"/><rect x="28" y="148" width="6" height="10" rx="1.5" fill="#1a73e8" opacity="0.7"/><rect x="38" y="144" width="6" height="14" rx="1.5" fill="#1a73e8" opacity="0.8"/><rect x="48" y="146" width="6" height="12" rx="1.5" fill="#1a73e8" opacity="0.7"/><rect x="58" y="142" width="6" height="16" rx="1.5" fill="#1a73e8" opacity="0.9"/><rect x="68" y="146" width="6" height="12" rx="1.5" fill="#1a73e8" opacity="0.7"/><rect x="78" y="140" width="6" height="18" rx="1.5" fill="#1a73e8"/><rect x="22" y="170" width="96" height="10" rx="5" fill="#ffffff" opacity="0.85"/><circle cx="38" cy="175" r="2" fill="#1a73e8"/><circle cx="60" cy="175" r="2" fill="#1a73e8" opacity="0.5"/><circle cx="82" cy="175" r="2" fill="#1a73e8" opacity="0.5"/><circle cx="104" cy="175" r="2" fill="#1a73e8" opacity="0.5"/></svg>`;
+
+const PHONE_MOCKUP_DATA_URI = `data:image/svg+xml;utf8,${encodeURIComponent(
+  PHONE_MOCKUP_SVG,
+)}`;
 
 const openLegalUrl = async (type: "privacy" | "terms") => {
   const url = LEGAL_URLS[type];
@@ -187,10 +157,6 @@ export default function LoginScreen() {
   const [contactsList, setContactsList] = useState<ContactData[]>([]);
   const [contactSearch, setContactSearch] = useState("");
 
-  // ==============================================================
-  // BLUR BROWSER FOCUS
-  // ==============================================================
-
   const blurWebFocus = () => {
     if (Platform.OS !== "web") return;
 
@@ -199,10 +165,6 @@ export default function LoginScreen() {
       activeElement.blur();
     }
   };
-
-  // ==============================================================
-  // SEND OTP
-  // ==============================================================
 
   const handleSendOtp = async () => {
     setError("");
@@ -240,10 +202,6 @@ export default function LoginScreen() {
     }
   };
 
-  // ==============================================================
-  // PICK CONTACT
-  // ==============================================================
-
   const pickContact = async () => {
     if (Platform.OS === "web") {
       Alert.alert(
@@ -251,7 +209,6 @@ export default function LoginScreen() {
         "Contact picker is only available on mobile devices. Please enter your phone number manually.",
         [{ text: "OK" }],
       );
-
       return;
     }
 
@@ -271,9 +228,7 @@ export default function LoginScreen() {
 
       const contacts = await Contact.getAllDetails(
         [ContactField.FULL_NAME, ContactField.PHONES],
-        {
-          sortOrder: ContactsSortOrder.GivenName,
-        },
+        { sortOrder: ContactsSortOrder.GivenName },
       );
 
       if (contacts.length === 0) {
@@ -307,10 +262,6 @@ export default function LoginScreen() {
     }
   };
 
-  // ==============================================================
-  // FILTER CONTACTS
-  // ==============================================================
-
   const filteredContacts = contactsList.filter((contact) => {
     const search = contactSearch.toLowerCase().trim();
     if (!search) return true;
@@ -323,19 +274,11 @@ export default function LoginScreen() {
     return nameMatch || phoneMatch;
   });
 
-  // ==============================================================
-  // CLOSE CONTACT PICKER
-  // ==============================================================
-
   const closeContactPicker = () => {
     setContactSearch("");
     setShowContactPicker(false);
     blurWebFocus();
   };
-
-  // ==============================================================
-  // SELECT CONTACT
-  // ==============================================================
 
   const selectContact = (contact: ContactData) => {
     if (contact && contact.phoneNumbers && contact.phoneNumbers.length > 0) {
@@ -358,19 +301,13 @@ export default function LoginScreen() {
 
       setPhone(phoneNumber);
       setError("");
-
       setContactSearch("");
       setShowContactPicker(false);
-
       blurWebFocus();
     } else {
       setError("Selected contact doesn't have a phone number");
     }
   };
-
-  // ==============================================================
-  // CONTACT PICKER MODAL
-  // ==============================================================
 
   const renderContactPickerModal = () => {
     if (!showContactPicker) return null;
@@ -525,10 +462,6 @@ export default function LoginScreen() {
     );
   };
 
-  // ==============================================================
-  // SCREEN
-  // ==============================================================
-
   return (
     <DarkModeBoundary>
       <KeyboardAvoidingView
@@ -551,7 +484,6 @@ export default function LoginScreen() {
           bounces={false}
         >
           {/* HEADER */}
-
           <View style={styles.header}>
             <View style={styles.logoContainer}>
               <View style={styles.logoCircle}>
@@ -564,14 +496,12 @@ export default function LoginScreen() {
             </View>
 
             <Text style={styles.title}>Property Manager</Text>
-
             <Text style={styles.subtitle}>
               Manage your properties effortlessly
             </Text>
           </View>
 
           {/* LOGIN CARD */}
-
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Welcome Back</Text>
 
@@ -580,7 +510,6 @@ export default function LoginScreen() {
             </Text>
 
             {/* PHONE INPUT */}
-
             <View style={styles.inputWrapper}>
               <Text style={styles.inputLabel}>Phone Number</Text>
 
@@ -623,7 +552,6 @@ export default function LoginScreen() {
             </View>
 
             {/* CONTINUE BUTTON */}
-
             <Pressable
               style={({ pressed }) => [
                 styles.button,
@@ -648,7 +576,6 @@ export default function LoginScreen() {
             </Pressable>
 
             {/* DOWNLOAD ANDROID APP (WEB ONLY) */}
-
             {Platform.OS === "web" && (
               <View style={styles.downloadSection}>
                 <View style={styles.downloadHero}>
@@ -672,13 +599,19 @@ export default function LoginScreen() {
                       </Text>
                     </View>
 
-                    {/* SVG PHONE MOCKUP */}
-                    {/* On web, React Native renders View as <div>, so we can inject raw SVG */}
-                    <View
-                      style={styles.downloadMockupImage}
-                      // @ts-ignore - RN Web supports dangerouslySetInnerHTML
-                      dangerouslySetInnerHTML={{ __html: PHONE_MOCKUP_SVG }}
-                    />
+                    {/* PLAIN HTML IMG FOR SVG */}
+                    <View style={styles.downloadMockupImage}>
+                      <img
+                        src={PHONE_MOCKUP_DATA_URI}
+                        alt="App preview"
+                        style={{
+                          width: "100%",
+                          height: "100%",
+                          objectFit: "contain",
+                          display: "block",
+                        }}
+                      />
+                    </View>
                   </View>
 
                   <Pressable
@@ -732,7 +665,6 @@ export default function LoginScreen() {
             )}
 
             {/* LEGAL CONSENT */}
-
             <View style={styles.legalRow}>
               <Text style={styles.legalText}>
                 By continuing, you agree to our{" "}
@@ -759,14 +691,12 @@ export default function LoginScreen() {
           </View>
 
           {/* FOOTER */}
-
           <View style={styles.footer}>
             <View style={styles.featureRow}>
               <View style={styles.featureItem}>
                 <View style={styles.featureIcon}>
                   <Ionicons name="home-outline" size={20} color="#1a73e8" />
                 </View>
-
                 <Text style={styles.featureText} numberOfLines={2}>
                   Manage{"\n"}Properties
                 </Text>
@@ -776,7 +706,6 @@ export default function LoginScreen() {
                 <View style={styles.featureIcon}>
                   <Ionicons name="people-outline" size={20} color="#1a73e8" />
                 </View>
-
                 <Text style={styles.featureText} numberOfLines={2}>
                   Tenant{"\n"}Management
                 </Text>
@@ -786,7 +715,6 @@ export default function LoginScreen() {
                 <View style={styles.featureIcon}>
                   <Ionicons name="cash-outline" size={20} color="#1a73e8" />
                 </View>
-
                 <Text style={styles.featureText} numberOfLines={2}>
                   Track{"\n"}Expenses
                 </Text>
@@ -806,20 +734,10 @@ export default function LoginScreen() {
 // =================================================================
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: "#f5f7fa",
-  },
+  container: { flex: 1, backgroundColor: "#f5f7fa" },
+  screenScroll: { flex: 1 },
+  screenContent: { flexGrow: 1 },
 
-  screenScroll: {
-    flex: 1,
-  },
-
-  screenContent: {
-    flexGrow: 1,
-  },
-
-  // HEADER
   header: {
     alignItems: "center",
     paddingTop: Platform.OS === "ios" ? 60 : 40,
@@ -829,11 +747,7 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 30,
     boxShadow: "0px 2px 10px rgba(0, 0, 0, 0.05)",
   },
-
-  logoContainer: {
-    marginBottom: 12,
-  },
-
+  logoContainer: { marginBottom: 12 },
   logoCircle: {
     width: 70,
     height: 70,
@@ -842,19 +756,13 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
   },
-
-  logoImage: {
-    width: 44,
-    height: 44,
-  },
-
+  logoImage: { width: 44, height: 44 },
   title: {
     fontSize: 28,
     fontWeight: "700",
     color: "#1a1a1a",
     letterSpacing: -0.5,
   },
-
   subtitle: {
     fontSize: 14,
     color: "#666",
@@ -862,7 +770,6 @@ const styles = StyleSheet.create({
     fontWeight: "400",
   },
 
-  // LOGIN CARD
   card: {
     marginHorizontal: 20,
     marginTop: 30,
@@ -872,14 +779,12 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     boxShadow: "0px 4px 20px rgba(0, 0, 0, 0.08)",
   },
-
   cardTitle: {
     fontSize: 24,
     fontWeight: "700",
     color: "#1a1a1a",
     marginBottom: 8,
   },
-
   cardSubtitle: {
     fontSize: 14,
     color: "#666",
@@ -887,18 +792,13 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
 
-  // INPUT
-  inputWrapper: {
-    marginBottom: 24,
-  },
-
+  inputWrapper: { marginBottom: 24 },
   inputLabel: {
     fontSize: 14,
     fontWeight: "600",
     color: "#333",
     marginBottom: 8,
   },
-
   inputRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -909,42 +809,28 @@ const styles = StyleSheet.create({
     height: 56,
     overflow: "hidden",
   },
-
-  inputRowFocused: {
-    borderColor: "#1a73e8",
-    backgroundColor: "#fff",
-  },
-
+  inputRowFocused: { borderColor: "#1a73e8", backgroundColor: "#fff" },
   countryCode: {
     flexDirection: "row",
     alignItems: "center",
     paddingLeft: 14,
     paddingRight: 10,
   },
-
-  prefix: {
-    fontSize: 16,
-    color: "#333",
-    fontWeight: "600",
-  },
-
+  prefix: { fontSize: 16, color: "#333", fontWeight: "600" },
   divider: {
     width: 1.5,
     height: 24,
     backgroundColor: "#e0e0e0",
     marginLeft: 10,
   },
-
   input: {
     flex: 1,
     height: 56,
     fontSize: 16,
     color: "#1a1a1a",
     paddingHorizontal: 12,
-
     ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as any) : {}),
   },
-
   contactIcon: {
     padding: 12,
     justifyContent: "center",
@@ -953,7 +839,6 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     marginRight: 4,
   },
-
   error: {
     color: "#e53935",
     marginTop: 8,
@@ -961,7 +846,6 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
 
-  // BUTTON
   button: {
     backgroundColor: "#1a73e8",
     borderRadius: 12,
@@ -972,35 +856,13 @@ const styles = StyleSheet.create({
     marginTop: 8,
     boxShadow: "0px 4px 12px rgba(26, 115, 232, 0.3)",
   },
+  buttonDisabled: { backgroundColor: "#a0c4f0", opacity: 0.7 },
+  buttonPressed: { opacity: 0.9 },
+  buttonText: { color: "#fff", fontSize: 16, fontWeight: "600" },
+  buttonIcon: { marginLeft: 8 },
+  pressed: { opacity: 0.7 },
 
-  buttonDisabled: {
-    backgroundColor: "#a0c4f0",
-    opacity: 0.7,
-  },
-
-  buttonPressed: {
-    opacity: 0.9,
-  },
-
-  buttonText: {
-    color: "#fff",
-    fontSize: 16,
-    fontWeight: "600",
-  },
-
-  buttonIcon: {
-    marginLeft: 8,
-  },
-
-  pressed: {
-    opacity: 0.7,
-  },
-
-  // DOWNLOAD SECTION
-  downloadSection: {
-    marginTop: 24,
-  },
-
+  downloadSection: { marginTop: 24 },
   downloadHero: {
     backgroundColor: "#1a73e8",
     borderRadius: 20,
@@ -1009,7 +871,6 @@ const styles = StyleSheet.create({
     position: "relative",
     boxShadow: "0px 10px 30px rgba(26, 115, 232, 0.35)",
   },
-
   downloadHeroCircle1: {
     position: "absolute",
     width: 160,
@@ -1019,7 +880,6 @@ const styles = StyleSheet.create({
     top: -60,
     right: -50,
   },
-
   downloadHeroCircle2: {
     position: "absolute",
     width: 100,
@@ -1029,18 +889,12 @@ const styles = StyleSheet.create({
     bottom: -40,
     left: -30,
   },
-
   downloadContentRow: {
     flexDirection: "row",
     alignItems: "center",
     marginBottom: 18,
   },
-
-  downloadTextCol: {
-    flex: 1,
-    paddingRight: 8,
-  },
-
+  downloadTextCol: { flex: 1, paddingRight: 8 },
   downloadBadge: {
     flexDirection: "row",
     alignItems: "center",
@@ -1052,14 +906,12 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     gap: 4,
   },
-
   downloadBadgeText: {
     color: "#fff",
     fontSize: 9,
     fontWeight: "800",
     letterSpacing: 0.8,
   },
-
   downloadHeroTitle: {
     color: "#fff",
     fontSize: 22,
@@ -1067,20 +919,15 @@ const styles = StyleSheet.create({
     marginBottom: 6,
     letterSpacing: -0.3,
   },
-
   downloadHeroSubtitle: {
     color: "rgba(255,255,255,0.85)",
     fontSize: 12,
     lineHeight: 17,
   },
-
   downloadMockupImage: {
     width: 100,
     height: 140,
-    alignItems: "center",
-    justifyContent: "center",
   },
-
   downloadCta: {
     flexDirection: "row",
     alignItems: "center",
@@ -1092,37 +939,20 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     boxShadow: "0px 4px 12px rgba(0, 0, 0, 0.15)",
   },
-
-  downloadCtaPressed: {
-    opacity: 0.9,
-    transform: [{ scale: 0.98 }],
-  },
-
-  downloadCtaText: {
-    color: "#1a73e8",
-    fontSize: 15,
-    fontWeight: "700",
-  },
-
+  downloadCtaPressed: { opacity: 0.9, transform: [{ scale: 0.98 }] },
+  downloadCtaText: { color: "#1a73e8", fontSize: 15, fontWeight: "700" },
   downloadTrustRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 10,
   },
-
-  downloadTrustItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-
+  downloadTrustItem: { flexDirection: "row", alignItems: "center", gap: 4 },
   downloadTrustText: {
     color: "rgba(255,255,255,0.9)",
     fontSize: 11,
     fontWeight: "600",
   },
-
   downloadTrustDot: {
     width: 3,
     height: 3,
@@ -1130,7 +960,6 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.5)",
   },
 
-  // LEGAL
   legalRow: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -1138,13 +967,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginTop: 18,
   },
-
-  legalText: {
-    fontSize: 12,
-    color: "#8a8a8a",
-    lineHeight: 18,
-  },
-
+  legalText: { fontSize: 12, color: "#8a8a8a", lineHeight: 18 },
   legalLink: {
     fontSize: 12,
     color: "#1a73e8",
@@ -1152,12 +975,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
 
-  // FOOTER
-  footer: {
-    paddingHorizontal: 20,
-    paddingBottom: 10,
-  },
-
+  footer: { paddingHorizontal: 20, paddingBottom: 10 },
   featureRow: {
     flexDirection: "row",
     alignItems: "stretch",
@@ -1168,14 +986,12 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     boxShadow: "0px 2px 8px rgba(0, 0, 0, 0.04)",
   },
-
   featureItem: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
     paddingHorizontal: 4,
   },
-
   featureIcon: {
     width: 36,
     height: 36,
@@ -1185,7 +1001,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 6,
   },
-
   featureText: {
     fontSize: 11,
     color: "#555",
@@ -1194,13 +1009,11 @@ const styles = StyleSheet.create({
     lineHeight: 15,
   },
 
-  // CONTACT MODAL
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0, 0, 0, 0.5)",
     justifyContent: "flex-end",
   },
-
   modalContainer: {
     backgroundColor: "#fff",
     borderTopLeftRadius: 24,
@@ -1210,24 +1023,14 @@ const styles = StyleSheet.create({
     maxHeight: "85%",
     minHeight: "40%",
   },
-
   modalHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 16,
   },
-
-  modalTitle: {
-    fontSize: 18,
-    fontWeight: "700",
-    color: "#1a1a1a",
-  },
-
-  modalCloseButton: {
-    padding: 4,
-  },
-
+  modalTitle: { fontSize: 18, fontWeight: "700", color: "#1a1a1a" },
+  modalCloseButton: { padding: 4 },
   modalSearchContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -1237,37 +1040,22 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     minHeight: 46,
   },
-
   modalSearchInput: {
     flex: 1,
     paddingVertical: 10,
     paddingHorizontal: 8,
     fontSize: 15,
     color: "#1a1a1a",
-
     ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as any) : {}),
   },
-
   clearSearchButton: {
     padding: 4,
     justifyContent: "center",
     alignItems: "center",
   },
-
-  contactListWrapper: {
-    flex: 1,
-    minHeight: 200,
-    maxHeight: 400,
-  },
-
-  contactListContainer: {
-    flex: 1,
-  },
-
-  contactListContent: {
-    paddingBottom: 8,
-  },
-
+  contactListWrapper: { flex: 1, minHeight: 200, maxHeight: 400 },
+  contactListContainer: { flex: 1 },
+  contactListContent: { paddingBottom: 8 },
   contactItem: {
     flexDirection: "row",
     alignItems: "center",
@@ -1275,12 +1063,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#f0f0f0",
   },
-
-  contactItemPressed: {
-    opacity: 0.7,
-    backgroundColor: "#fafafa",
-  },
-
+  contactItemPressed: { opacity: 0.7, backgroundColor: "#fafafa" },
   contactAvatar: {
     width: 44,
     height: 44,
@@ -1290,37 +1073,24 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginRight: 12,
   },
-
   contactAvatarText: {
     fontSize: 18,
     fontWeight: "600",
     color: "#1a73e8",
   },
-
-  contactInfo: {
-    flex: 1,
-    marginRight: 8,
-  },
-
+  contactInfo: { flex: 1, marginRight: 8 },
   contactName: {
     fontSize: 15,
     fontWeight: "600",
     color: "#1a1a1a",
   },
-
-  contactPhone: {
-    fontSize: 13,
-    color: "#666",
-    marginTop: 2,
-  },
-
+  contactPhone: { fontSize: 13, color: "#666", marginTop: 2 },
   noContactsContainer: {
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: 40,
     paddingHorizontal: 20,
   },
-
   noContactsIcon: {
     width: 64,
     height: 64,
@@ -1330,33 +1100,25 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginBottom: 12,
   },
-
   noContactsTitle: {
     fontSize: 16,
     fontWeight: "600",
     color: "#333",
     marginBottom: 6,
   },
-
   noContactsText: {
     fontSize: 13,
     color: "#888",
     textAlign: "center",
     lineHeight: 19,
   },
-
-  modalFooter: {
-    paddingTop: 16,
-    paddingBottom: 20,
-  },
-
+  modalFooter: { paddingTop: 16, paddingBottom: 20 },
   modalCancelButton: {
     paddingVertical: 14,
     borderRadius: 12,
     backgroundColor: "#f5f5f5",
     alignItems: "center",
   },
-
   modalCancelButtonText: {
     fontSize: 16,
     fontWeight: "600",
