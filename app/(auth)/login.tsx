@@ -78,16 +78,17 @@ const LEGAL_URLS = {
 
 // ================================================================
 // APK DOWNLOAD URL
+// Replace this with your GitHub Releases URL after uploading the APK
 // ================================================================
 
 const APK_DOWNLOAD_URL = "/apartment-management.apk";
 
 // ================================================================
-// INLINE SVG PHONE MOCKUP (data URI - no extra package needed)
+// INLINE SVG PHONE MOCKUP (rendered on web via dangerouslySetInnerHTML)
 // ================================================================
 
 const PHONE_MOCKUP_SVG = `
-<svg width="140" height="200" viewBox="0 0 140 200" xmlns="http://www.w3.org/2000/svg">
+<svg width="100" height="140" viewBox="0 0 140 200" xmlns="http://www.w3.org/2000/svg" style="display:block;">
   <defs>
     <linearGradient id="screenGrad" x1="0" y1="0" x2="0" y2="1">
       <stop offset="0%" stop-color="#1a73e8"/>
@@ -129,10 +130,6 @@ const PHONE_MOCKUP_SVG = `
   <circle cx="104" cy="175" r="2" fill="#1a73e8" opacity="0.5"/>
 </svg>
 `.trim();
-
-const PHONE_MOCKUP_DATA_URI = `data:image/svg+xml;utf8,${encodeURIComponent(
-  PHONE_MOCKUP_SVG,
-)}`;
 
 const openLegalUrl = async (type: "privacy" | "terms") => {
   const url = LEGAL_URLS[type];
@@ -675,10 +672,12 @@ export default function LoginScreen() {
                       </Text>
                     </View>
 
-                    <Image
-                      source={{ uri: PHONE_MOCKUP_DATA_URI }}
+                    {/* SVG PHONE MOCKUP */}
+                    {/* On web, React Native renders View as <div>, so we can inject raw SVG */}
+                    <View
                       style={styles.downloadMockupImage}
-                      resizeMode="contain"
+                      // @ts-ignore - RN Web supports dangerouslySetInnerHTML
+                      dangerouslySetInnerHTML={{ __html: PHONE_MOCKUP_SVG }}
                     />
                   </View>
 
@@ -1078,6 +1077,8 @@ const styles = StyleSheet.create({
   downloadMockupImage: {
     width: 100,
     height: 140,
+    alignItems: "center",
+    justifyContent: "center",
   },
 
   downloadCta: {
