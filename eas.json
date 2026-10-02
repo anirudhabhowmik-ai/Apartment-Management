@@ -28,7 +28,7 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://apartment-management-backend-production.up.railway.app/api",
+        "EXPO_PUBLIC_API_URL": "https://api.apartmentmanage.com/api",
         "EXPO_PUBLIC_MSG91_WIDGET_ID": "366966727762363938373131",
         "MSG91_WIDGET_TOKEN": "568397T7nV94F0eX6a9db9a8P1",
         "EXPO_PUBLIC_RAZORPAY_KEY_ID": "rzp_live_TiBsWYc4745cSO",
