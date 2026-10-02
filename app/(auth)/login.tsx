@@ -42,10 +42,7 @@ if (
     const message = args
       .map((arg) => {
         try {
-          if (typeof arg === "string") {
-            return arg;
-          }
-
+          if (typeof arg === "string") return arg;
           return JSON.stringify(arg);
         } catch {
           return String(arg);
@@ -84,6 +81,58 @@ const LEGAL_URLS = {
 // ================================================================
 
 const APK_DOWNLOAD_URL = "/apartment-manage.apk";
+
+// ================================================================
+// INLINE SVG PHONE MOCKUP (data URI - no extra package needed)
+// ================================================================
+
+const PHONE_MOCKUP_SVG = `
+<svg width="140" height="200" viewBox="0 0 140 200" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="screenGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#1a73e8"/>
+      <stop offset="100%" stop-color="#4a90e2"/>
+    </linearGradient>
+  </defs>
+  <rect x="10" y="10" width="120" height="180" rx="18" ry="18" fill="#1f2937"/>
+  <rect x="16" y="16" width="108" height="168" rx="13" ry="13" fill="url(#screenGrad)"/>
+  <rect x="55" y="16" width="30" height="6" rx="3" fill="#1f2937"/>
+  <rect x="22" y="28" width="40" height="3" rx="1.5" fill="#ffffff" opacity="0.6"/>
+  <circle cx="118" cy="30" r="2" fill="#ffffff" opacity="0.6"/>
+  <circle cx="112" cy="30" r="2" fill="#ffffff" opacity="0.6"/>
+  <rect x="22" y="40" width="60" height="6" rx="3" fill="#ffffff" opacity="0.9"/>
+  <rect x="22" y="50" width="90" height="4" rx="2" fill="#ffffff" opacity="0.5"/>
+  <rect x="22" y="64" width="96" height="30" rx="6" fill="#ffffff" opacity="0.95"/>
+  <rect x="28" y="70" width="30" height="4" rx="2" fill="#1a73e8" opacity="0.9"/>
+  <rect x="28" y="78" width="60" height="3" rx="1.5" fill="#1a73e8" opacity="0.5"/>
+  <rect x="28" y="84" width="40" height="3" rx="1.5" fill="#1a73e8" opacity="0.4"/>
+  <rect x="22" y="100" width="46" height="24" rx="6" fill="#ffffff" opacity="0.9"/>
+  <circle cx="32" cy="112" r="5" fill="#1a73e8" opacity="0.9"/>
+  <rect x="42" y="108" width="20" height="3" rx="1.5" fill="#1a73e8" opacity="0.6"/>
+  <rect x="42" y="114" width="15" height="3" rx="1.5" fill="#1a73e8" opacity="0.4"/>
+  <rect x="72" y="100" width="46" height="24" rx="6" fill="#ffffff" opacity="0.9"/>
+  <circle cx="82" cy="112" r="5" fill="#34a853" opacity="0.9"/>
+  <rect x="92" y="108" width="20" height="3" rx="1.5" fill="#34a853" opacity="0.6"/>
+  <rect x="92" y="114" width="15" height="3" rx="1.5" fill="#34a853" opacity="0.4"/>
+  <rect x="22" y="130" width="96" height="34" rx="6" fill="#ffffff" opacity="0.9"/>
+  <rect x="28" y="136" width="24" height="3" rx="1.5" fill="#1a73e8" opacity="0.6"/>
+  <rect x="28" y="148" width="6" height="10" rx="1.5" fill="#1a73e8" opacity="0.7"/>
+  <rect x="38" y="144" width="6" height="14" rx="1.5" fill="#1a73e8" opacity="0.8"/>
+  <rect x="48" y="146" width="6" height="12" rx="1.5" fill="#1a73e8" opacity="0.7"/>
+  <rect x="58" y="142" width="6" height="16" rx="1.5" fill="#1a73e8" opacity="0.9"/>
+  <rect x="68" y="146" width="6" height="12" rx="1.5" fill="#1a73e8" opacity="0.7"/>
+  <rect x="78" y="140" width="6" height="18" rx="1.5" fill="#1a73e8"/>
+  <rect x="22" y="170" width="96" height="10" rx="5" fill="#ffffff" opacity="0.85"/>
+  <circle cx="38" cy="175" r="2" fill="#1a73e8"/>
+  <circle cx="60" cy="175" r="2" fill="#1a73e8" opacity="0.5"/>
+  <circle cx="82" cy="175" r="2" fill="#1a73e8" opacity="0.5"/>
+  <circle cx="104" cy="175" r="2" fill="#1a73e8" opacity="0.5"/>
+</svg>
+`.trim();
+
+const PHONE_MOCKUP_DATA_URI = `data:image/svg+xml;utf8,${encodeURIComponent(
+  PHONE_MOCKUP_SVG,
+)}`;
 
 const openLegalUrl = async (type: "privacy" | "terms") => {
   const url = LEGAL_URLS[type];
@@ -146,12 +195,9 @@ export default function LoginScreen() {
   // ==============================================================
 
   const blurWebFocus = () => {
-    if (Platform.OS !== "web") {
-      return;
-    }
+    if (Platform.OS !== "web") return;
 
     const activeElement = document.activeElement;
-
     if (activeElement instanceof HTMLElement) {
       activeElement.blur();
     }
@@ -219,15 +265,7 @@ export default function LoginScreen() {
         Alert.alert(
           "Permission Required",
           "We need access to your contacts to help you quickly add phone numbers.",
-          [
-            {
-              text: "Cancel",
-              style: "cancel",
-            },
-            {
-              text: "OK",
-            },
-          ],
+          [{ text: "Cancel", style: "cancel" }, { text: "OK" }],
         );
 
         setError("Permission to access contacts is required");
@@ -278,13 +316,9 @@ export default function LoginScreen() {
 
   const filteredContacts = contactsList.filter((contact) => {
     const search = contactSearch.toLowerCase().trim();
-
-    if (!search) {
-      return true;
-    }
+    if (!search) return true;
 
     const nameMatch = contact.name.toLowerCase().includes(search);
-
     const phoneMatch = contact.phoneNumbers.some((phone) =>
       phone.number.toLowerCase().includes(search),
     );
@@ -299,7 +333,6 @@ export default function LoginScreen() {
   const closeContactPicker = () => {
     setContactSearch("");
     setShowContactPicker(false);
-
     blurWebFocus();
   };
 
@@ -343,9 +376,7 @@ export default function LoginScreen() {
   // ==============================================================
 
   const renderContactPickerModal = () => {
-    if (!showContactPicker) {
-      return null;
-    }
+    if (!showContactPicker) return null;
 
     return (
       <Modal
@@ -386,9 +417,7 @@ export default function LoginScreen() {
                     returnKeyType="search"
                     autoFocus={false}
                     {...(Platform.OS === "web"
-                      ? ({
-                          outlineStyle: "none",
-                        } as any)
+                      ? ({ outlineStyle: "none" } as any)
                       : {})}
                   />
 
@@ -508,9 +537,7 @@ export default function LoginScreen() {
       <KeyboardAvoidingView
         style={[
           styles.container,
-          {
-            paddingBottom: Platform.OS === "ios" ? insets.bottom : 0,
-          },
+          { paddingBottom: Platform.OS === "ios" ? insets.bottom : 0 },
         ]}
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         keyboardVerticalOffset={0}
@@ -519,9 +546,7 @@ export default function LoginScreen() {
           style={styles.screenScroll}
           contentContainerStyle={[
             styles.screenContent,
-            {
-              paddingBottom: Math.max(insets.bottom, 24),
-            },
+            { paddingBottom: Math.max(insets.bottom, 24) },
           ]}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="none"
@@ -567,7 +592,6 @@ export default function LoginScreen() {
               >
                 <View style={styles.countryCode}>
                   <Text style={styles.prefix}>+91</Text>
-
                   <View style={styles.divider} />
                 </View>
 
@@ -583,9 +607,7 @@ export default function LoginScreen() {
                   onBlur={() => setIsFocused(false)}
                   returnKeyType="done"
                   {...(Platform.OS === "web"
-                    ? ({
-                        outlineStyle: "none",
-                      } as any)
+                    ? ({ outlineStyle: "none" } as any)
                     : {})}
                 />
 
@@ -628,20 +650,15 @@ export default function LoginScreen() {
               )}
             </Pressable>
 
-            {/* ====================================================
-                DOWNLOAD ANDROID APP (WEB ONLY)
-            ==================================================== */}
+            {/* DOWNLOAD ANDROID APP (WEB ONLY) */}
 
             {Platform.OS === "web" && (
               <View style={styles.downloadSection}>
-                {/* Image-based hero card */}
                 <View style={styles.downloadHero}>
-                  {/* Decorative background circles */}
                   <View style={styles.downloadHeroCircle1} />
                   <View style={styles.downloadHeroCircle2} />
 
                   <View style={styles.downloadContentRow}>
-                    {/* LEFT: Text */}
                     <View style={styles.downloadTextCol}>
                       <View style={styles.downloadBadge}>
                         <Ionicons name="sparkles" size={10} color="#fff" />
@@ -658,15 +675,13 @@ export default function LoginScreen() {
                       </Text>
                     </View>
 
-                    {/* RIGHT: Phone mockup image */}
                     <Image
-                      source={require("../../assets/images/apkDownload.jpg")}
+                      source={{ uri: PHONE_MOCKUP_DATA_URI }}
                       style={styles.downloadMockupImage}
                       resizeMode="contain"
                     />
                   </View>
 
-                  {/* CTA Button */}
                   <Pressable
                     onPress={handleDownloadApk}
                     style={({ pressed }) => [
@@ -685,7 +700,6 @@ export default function LoginScreen() {
                     />
                   </Pressable>
 
-                  {/* Trust row */}
                   <View style={styles.downloadTrustRow}>
                     <View style={styles.downloadTrustItem}>
                       <Ionicons
@@ -929,11 +943,7 @@ const styles = StyleSheet.create({
     color: "#1a1a1a",
     paddingHorizontal: 12,
 
-    ...(Platform.OS === "web"
-      ? ({
-          outlineStyle: "none",
-        } as any)
-      : {}),
+    ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as any) : {}),
   },
 
   contactIcon: {
@@ -987,10 +997,7 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
 
-  // ==============================================================
-  // DOWNLOAD SECTION (IMAGE-BASED)
-  // ==============================================================
-
+  // DOWNLOAD SECTION
   downloadSection: {
     marginTop: 24,
   },
@@ -1237,11 +1244,7 @@ const styles = StyleSheet.create({
     fontSize: 15,
     color: "#1a1a1a",
 
-    ...(Platform.OS === "web"
-      ? ({
-          outlineStyle: "none",
-        } as any)
-      : {}),
+    ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as any) : {}),
   },
 
   clearSearchButton: {
