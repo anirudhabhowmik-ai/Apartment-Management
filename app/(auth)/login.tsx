@@ -1,26 +1,26 @@
 import { Ionicons } from "@expo/vector-icons";
 import {
-    Contact,
-    ContactField,
-    ContactsSortOrder,
-    requestPermissionsAsync,
+  Contact,
+  ContactField,
+  ContactsSortOrder,
+  requestPermissionsAsync,
 } from "expo-contacts";
 import { useRouter } from "expo-router";
 import { useState } from "react";
 import {
-    Alert,
-    Image,
-    KeyboardAvoidingView,
-    Linking,
-    Modal,
-    Platform,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableWithoutFeedback,
-    View,
+  Alert,
+  Image,
+  KeyboardAvoidingView,
+  Linking,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableWithoutFeedback,
+  View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DarkModeBoundary } from "../../components/DarkModeBoundary";
@@ -70,7 +70,6 @@ if (
 
 // ================================================================
 // PUBLIC LEGAL URLS (GitHub Pages)
-// Replace YOUR-USERNAME with your GitHub handle.
 // ================================================================
 
 const LEGAL_URLS = {
@@ -79,6 +78,12 @@ const LEGAL_URLS = {
   terms:
     "https://anirudhabhowmik-ai.github.io/apartment-management-legal/terms.html",
 } as const;
+
+// ================================================================
+// APK DOWNLOAD URL
+// ================================================================
+
+const APK_DOWNLOAD_URL = "/apartment-manage.apk";
 
 const openLegalUrl = async (type: "privacy" | "terms") => {
   const url = LEGAL_URLS[type];
@@ -91,6 +96,24 @@ const openLegalUrl = async (type: "privacy" | "terms") => {
     }
   } catch {
     Alert.alert("Unable to open link", url);
+  }
+};
+
+const handleDownloadApk = async () => {
+  try {
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      window.location.href = APK_DOWNLOAD_URL;
+      return;
+    }
+
+    const supported = await Linking.canOpenURL(APK_DOWNLOAD_URL);
+    if (supported) {
+      await Linking.openURL(APK_DOWNLOAD_URL);
+    } else {
+      Alert.alert("Unable to open link", APK_DOWNLOAD_URL);
+    }
+  } catch {
+    Alert.alert("Unable to download app", APK_DOWNLOAD_URL);
   }
 };
 
@@ -288,16 +311,10 @@ export default function LoginScreen() {
     if (contact && contact.phoneNumbers && contact.phoneNumbers.length > 0) {
       let phoneNumber = contact.phoneNumbers[0].number || "";
 
-      // Remove spaces, +, -, brackets, etc.
       phoneNumber = phoneNumber.replace(/[^0-9]/g, "");
-
-      // Remove country code.
       phoneNumber = phoneNumber.replace(/^91/, "");
-
-      // Remove leading zero.
       phoneNumber = phoneNumber.replace(/^0/, "");
 
-      // If still longer than 10 digits, take last 10.
       if (phoneNumber.length > 10) {
         phoneNumber = phoneNumber.slice(-10);
       }
@@ -341,8 +358,6 @@ export default function LoginScreen() {
           <View style={styles.modalOverlay}>
             <TouchableWithoutFeedback onPress={(e) => e.stopPropagation()}>
               <View style={styles.modalContainer}>
-                {/* MODAL HEADER */}
-
                 <View style={styles.modalHeader}>
                   <Text style={styles.modalTitle}>Select Contact</Text>
 
@@ -356,8 +371,6 @@ export default function LoginScreen() {
                     <Ionicons name="close" size={24} color="#333" />
                   </Pressable>
                 </View>
-
-                {/* SEARCH */}
 
                 <View style={styles.modalSearchContainer}>
                   <Ionicons name="search" size={20} color="#999" />
@@ -392,8 +405,6 @@ export default function LoginScreen() {
                   )}
                 </View>
 
-                {/* CONTACT LIST */}
-
                 <View style={styles.contactListWrapper}>
                   <ScrollView
                     style={styles.contactListContainer}
@@ -416,8 +427,6 @@ export default function LoginScreen() {
                           ]}
                           onPress={() => selectContact(contact)}
                         >
-                          {/* AVATAR */}
-
                           <View style={styles.contactAvatar}>
                             <Text style={styles.contactAvatarText}>
                               {contact.name
@@ -425,8 +434,6 @@ export default function LoginScreen() {
                                 : "?"}
                             </Text>
                           </View>
-
-                          {/* CONTACT INFO */}
 
                           <View style={styles.contactInfo}>
                             <Text style={styles.contactName} numberOfLines={1}>
@@ -472,8 +479,6 @@ export default function LoginScreen() {
                     )}
                   </ScrollView>
                 </View>
-
-                {/* MODAL FOOTER */}
 
                 <View style={styles.modalFooter}>
                   <Pressable
@@ -523,9 +528,7 @@ export default function LoginScreen() {
           showsVerticalScrollIndicator={false}
           bounces={false}
         >
-          {/* ========================================================
-            HEADER
-        ======================================================== */}
+          {/* HEADER */}
 
           <View style={styles.header}>
             <View style={styles.logoContainer}>
@@ -545,9 +548,7 @@ export default function LoginScreen() {
             </Text>
           </View>
 
-          {/* ========================================================
-            LOGIN CARD
-        ======================================================== */}
+          {/* LOGIN CARD */}
 
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Welcome Back</Text>
@@ -564,15 +565,11 @@ export default function LoginScreen() {
               <View
                 style={[styles.inputRow, isFocused && styles.inputRowFocused]}
               >
-                {/* COUNTRY CODE */}
-
                 <View style={styles.countryCode}>
                   <Text style={styles.prefix}>+91</Text>
 
                   <View style={styles.divider} />
                 </View>
-
-                {/* PHONE INPUT */}
 
                 <TextInput
                   style={styles.input}
@@ -592,8 +589,6 @@ export default function LoginScreen() {
                     : {})}
                 />
 
-                {/* CONTACT BUTTON */}
-
                 <Pressable
                   onPress={pickContact}
                   style={({ pressed }) => [
@@ -604,8 +599,6 @@ export default function LoginScreen() {
                   <Ionicons name="person-outline" size={22} color="#1a73e8" />
                 </Pressable>
               </View>
-
-              {/* ERROR */}
 
               {error ? <Text style={styles.error}>{error}</Text> : null}
             </View>
@@ -635,6 +628,50 @@ export default function LoginScreen() {
               )}
             </Pressable>
 
+            {/* ====================================================
+                DOWNLOAD ANDROID APP (WEB ONLY)
+            ==================================================== */}
+
+            {Platform.OS === "web" && (
+              <>
+                <View style={styles.orDivider}>
+                  <View style={styles.orDividerLine} />
+
+                  <Text style={styles.orDividerText}>OR</Text>
+
+                  <View style={styles.orDividerLine} />
+                </View>
+
+                <Pressable
+                  onPress={handleDownloadApk}
+                  style={({ pressed }) => [
+                    styles.downloadCard,
+                    pressed && styles.downloadCardPressed,
+                  ]}
+                >
+                  <View style={styles.downloadIconCircle}>
+                    <Ionicons name="logo-android" size={26} color="#1a73e8" />
+                  </View>
+
+                  <View style={styles.downloadTextBlock}>
+                    <Text style={styles.downloadTitle}>
+                      Download Android App
+                    </Text>
+
+                    <Text style={styles.downloadSubtitle}>
+                      Faster login · Push notifications · Better experience
+                    </Text>
+                  </View>
+
+                  <Ionicons name="download-outline" size={22} color="#1a73e8" />
+                </Pressable>
+
+                <Text style={styles.downloadMeta}>
+                  Version 1.0.0 · Android only · ~25 MB
+                </Text>
+              </>
+            )}
+
             {/* LEGAL CONSENT */}
 
             <View style={styles.legalRow}>
@@ -662,14 +699,10 @@ export default function LoginScreen() {
             </View>
           </View>
 
-          {/* ========================================================
-            FEATURES FOOTER
-        ======================================================== */}
+          {/* FOOTER */}
 
           <View style={styles.footer}>
             <View style={styles.featureRow}>
-              {/* PROPERTY */}
-
               <View style={styles.featureItem}>
                 <View style={styles.featureIcon}>
                   <Ionicons name="home-outline" size={20} color="#1a73e8" />
@@ -680,8 +713,6 @@ export default function LoginScreen() {
                 </Text>
               </View>
 
-              {/* TENANTS */}
-
               <View style={styles.featureItem}>
                 <View style={styles.featureIcon}>
                   <Ionicons name="people-outline" size={20} color="#1a73e8" />
@@ -691,8 +722,6 @@ export default function LoginScreen() {
                   Tenant{"\n"}Management
                 </Text>
               </View>
-
-              {/* EXPENSES */}
 
               <View style={styles.featureItem}>
                 <View style={styles.featureIcon}>
@@ -707,8 +736,6 @@ export default function LoginScreen() {
           </View>
         </ScrollView>
 
-        {/* CONTACT PICKER */}
-
         {renderContactPickerModal()}
       </KeyboardAvoidingView>
     </DarkModeBoundary>
@@ -720,18 +747,10 @@ export default function LoginScreen() {
 // =================================================================
 
 const styles = StyleSheet.create({
-  // ==============================================================
-  // CONTAINER
-  // ==============================================================
-
   container: {
     flex: 1,
     backgroundColor: "#f5f7fa",
   },
-
-  // ==============================================================
-  // MAIN SCROLL
-  // ==============================================================
 
   screenScroll: {
     flex: 1,
@@ -741,10 +760,7 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
 
-  // ==============================================================
   // HEADER
-  // ==============================================================
-
   header: {
     alignItems: "center",
     paddingTop: Platform.OS === "ios" ? 60 : 40,
@@ -787,10 +803,7 @@ const styles = StyleSheet.create({
     fontWeight: "400",
   },
 
-  // ==============================================================
   // LOGIN CARD
-  // ==============================================================
-
   card: {
     marginHorizontal: 20,
     marginTop: 30,
@@ -815,10 +828,7 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
 
-  // ==============================================================
   // INPUT
-  // ==============================================================
-
   inputWrapper: {
     marginBottom: 24,
   },
@@ -896,10 +906,7 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
 
-  // ==============================================================
   // BUTTON
-  // ==============================================================
-
   button: {
     backgroundColor: "#1a73e8",
     borderRadius: 12,
@@ -930,18 +937,87 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
 
-  // ==============================================================
-  // PRESSED STATE
-  // ==============================================================
-
   pressed: {
     opacity: 0.7,
   },
 
-  // ==============================================================
-  // LEGAL LINKS
-  // ==============================================================
+  // OR DIVIDER
+  orDivider: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 22,
+    marginBottom: 18,
+  },
 
+  orDividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: "#e5e7eb",
+  },
+
+  orDividerText: {
+    marginHorizontal: 12,
+    fontSize: 12,
+    fontWeight: "600",
+    color: "#9ca3af",
+    letterSpacing: 1,
+  },
+
+  // DOWNLOAD CARD
+  downloadCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#f0f6ff",
+    borderWidth: 1.5,
+    borderColor: "#d6e4ff",
+    borderRadius: 14,
+    paddingVertical: 14,
+    paddingHorizontal: 14,
+  },
+
+  downloadCardPressed: {
+    opacity: 0.85,
+    backgroundColor: "#e6f0ff",
+  },
+
+  downloadIconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "#ffffff",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+    boxShadow: "0px 2px 6px rgba(26, 115, 232, 0.15)",
+  },
+
+  downloadTextBlock: {
+    flex: 1,
+    marginRight: 8,
+  },
+
+  downloadTitle: {
+    fontSize: 15,
+    fontWeight: "700",
+    color: "#1a1a1a",
+    marginBottom: 2,
+  },
+
+  downloadSubtitle: {
+    fontSize: 12,
+    color: "#5f6b7a",
+    lineHeight: 16,
+  },
+
+  downloadMeta: {
+    fontSize: 11,
+    color: "#9ca3af",
+    textAlign: "center",
+    marginTop: 10,
+    fontWeight: "500",
+  },
+
+  // LEGAL
   legalRow: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -963,10 +1039,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
 
-  // ==============================================================
   // FOOTER
-  // ==============================================================
-
   footer: {
     paddingHorizontal: 20,
     paddingBottom: 10,
@@ -1008,10 +1081,7 @@ const styles = StyleSheet.create({
     lineHeight: 15,
   },
 
-  // ==============================================================
   // CONTACT MODAL
-  // ==============================================================
-
   modalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0, 0, 0, 0.5)",
