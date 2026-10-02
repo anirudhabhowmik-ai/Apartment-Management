@@ -633,43 +633,89 @@ export default function LoginScreen() {
             ==================================================== */}
 
             {Platform.OS === "web" && (
-              <>
-                <View style={styles.orDivider}>
-                  <View style={styles.orDividerLine} />
+              <View style={styles.downloadSection}>
+                {/* Image-based hero card */}
+                <View style={styles.downloadHero}>
+                  {/* Decorative background circles */}
+                  <View style={styles.downloadHeroCircle1} />
+                  <View style={styles.downloadHeroCircle2} />
 
-                  <Text style={styles.orDividerText}>OR</Text>
+                  <View style={styles.downloadContentRow}>
+                    {/* LEFT: Text */}
+                    <View style={styles.downloadTextCol}>
+                      <View style={styles.downloadBadge}>
+                        <Ionicons name="sparkles" size={10} color="#fff" />
+                        <Text style={styles.downloadBadgeText}>
+                          RECOMMENDED
+                        </Text>
+                      </View>
 
-                  <View style={styles.orDividerLine} />
+                      <Text style={styles.downloadHeroTitle}>Get the App</Text>
+
+                      <Text style={styles.downloadHeroSubtitle}>
+                        Faster login, instant notifications, and a smoother
+                        experience.
+                      </Text>
+                    </View>
+
+                    {/* RIGHT: Phone mockup image */}
+                    <Image
+                      source={require("../../assets/images/apkDownload.jfif")}
+                      style={styles.downloadMockupImage}
+                      resizeMode="contain"
+                    />
+                  </View>
+
+                  {/* CTA Button */}
+                  <Pressable
+                    onPress={handleDownloadApk}
+                    style={({ pressed }) => [
+                      styles.downloadCta,
+                      pressed && styles.downloadCtaPressed,
+                    ]}
+                  >
+                    <Ionicons name="logo-android" size={20} color="#1a73e8" />
+                    <Text style={styles.downloadCtaText}>
+                      Download for Android
+                    </Text>
+                    <Ionicons
+                      name="download-outline"
+                      size={18}
+                      color="#1a73e8"
+                    />
+                  </Pressable>
+
+                  {/* Trust row */}
+                  <View style={styles.downloadTrustRow}>
+                    <View style={styles.downloadTrustItem}>
+                      <Ionicons
+                        name="shield-checkmark"
+                        size={12}
+                        color="#dbeafe"
+                      />
+                      <Text style={styles.downloadTrustText}>Safe</Text>
+                    </View>
+
+                    <View style={styles.downloadTrustDot} />
+
+                    <View style={styles.downloadTrustItem}>
+                      <Ionicons name="cube-outline" size={12} color="#dbeafe" />
+                      <Text style={styles.downloadTrustText}>25 MB</Text>
+                    </View>
+
+                    <View style={styles.downloadTrustDot} />
+
+                    <View style={styles.downloadTrustItem}>
+                      <Ionicons
+                        name="pricetag-outline"
+                        size={12}
+                        color="#dbeafe"
+                      />
+                      <Text style={styles.downloadTrustText}>v1.0.0</Text>
+                    </View>
+                  </View>
                 </View>
-
-                <Pressable
-                  onPress={handleDownloadApk}
-                  style={({ pressed }) => [
-                    styles.downloadCard,
-                    pressed && styles.downloadCardPressed,
-                  ]}
-                >
-                  <View style={styles.downloadIconCircle}>
-                    <Ionicons name="logo-android" size={26} color="#1a73e8" />
-                  </View>
-
-                  <View style={styles.downloadTextBlock}>
-                    <Text style={styles.downloadTitle}>
-                      Download Android App
-                    </Text>
-
-                    <Text style={styles.downloadSubtitle}>
-                      Faster login · Push notifications · Better experience
-                    </Text>
-                  </View>
-
-                  <Ionicons name="download-outline" size={22} color="#1a73e8" />
-                </Pressable>
-
-                <Text style={styles.downloadMeta}>
-                  Version 1.0.0 · Android only · ~25 MB
-                </Text>
-              </>
+              </View>
             )}
 
             {/* LEGAL CONSENT */}
@@ -941,80 +987,139 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
 
-  // OR DIVIDER
-  orDivider: {
+  // ==============================================================
+  // DOWNLOAD SECTION (IMAGE-BASED)
+  // ==============================================================
+
+  downloadSection: {
+    marginTop: 24,
+  },
+
+  downloadHero: {
+    backgroundColor: "#1a73e8",
+    borderRadius: 20,
+    padding: 20,
+    overflow: "hidden",
+    position: "relative",
+    boxShadow: "0px 10px 30px rgba(26, 115, 232, 0.35)",
+  },
+
+  downloadHeroCircle1: {
+    position: "absolute",
+    width: 160,
+    height: 160,
+    borderRadius: 80,
+    backgroundColor: "rgba(255,255,255,0.08)",
+    top: -60,
+    right: -50,
+  },
+
+  downloadHeroCircle2: {
+    position: "absolute",
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: "rgba(255,255,255,0.05)",
+    bottom: -40,
+    left: -30,
+  },
+
+  downloadContentRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: 22,
     marginBottom: 18,
   },
 
-  orDividerLine: {
+  downloadTextCol: {
     flex: 1,
-    height: 1,
-    backgroundColor: "#e5e7eb",
+    paddingRight: 8,
   },
 
-  orDividerText: {
-    marginHorizontal: 12,
-    fontSize: 12,
-    fontWeight: "600",
-    color: "#9ca3af",
-    letterSpacing: 1,
-  },
-
-  // DOWNLOAD CARD
-  downloadCard: {
+  downloadBadge: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#f0f6ff",
-    borderWidth: 1.5,
-    borderColor: "#d6e4ff",
-    borderRadius: 14,
-    paddingVertical: 14,
-    paddingHorizontal: 14,
+    alignSelf: "flex-start",
+    backgroundColor: "rgba(255,255,255,0.2)",
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 20,
+    marginBottom: 10,
+    gap: 4,
   },
 
-  downloadCardPressed: {
-    opacity: 0.85,
-    backgroundColor: "#e6f0ff",
+  downloadBadgeText: {
+    color: "#fff",
+    fontSize: 9,
+    fontWeight: "800",
+    letterSpacing: 0.8,
   },
 
-  downloadIconCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#ffffff",
+  downloadHeroTitle: {
+    color: "#fff",
+    fontSize: 22,
+    fontWeight: "800",
+    marginBottom: 6,
+    letterSpacing: -0.3,
+  },
+
+  downloadHeroSubtitle: {
+    color: "rgba(255,255,255,0.85)",
+    fontSize: 12,
+    lineHeight: 17,
+  },
+
+  downloadMockupImage: {
+    width: 100,
+    height: 140,
+  },
+
+  downloadCta: {
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 12,
-    boxShadow: "0px 2px 6px rgba(26, 115, 232, 0.15)",
+    backgroundColor: "#ffffff",
+    borderRadius: 12,
+    height: 52,
+    gap: 8,
+    marginBottom: 12,
+    boxShadow: "0px 4px 12px rgba(0, 0, 0, 0.15)",
   },
 
-  downloadTextBlock: {
-    flex: 1,
-    marginRight: 8,
+  downloadCtaPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.98 }],
   },
 
-  downloadTitle: {
+  downloadCtaText: {
+    color: "#1a73e8",
     fontSize: 15,
     fontWeight: "700",
-    color: "#1a1a1a",
-    marginBottom: 2,
   },
 
-  downloadSubtitle: {
-    fontSize: 12,
-    color: "#5f6b7a",
-    lineHeight: 16,
+  downloadTrustRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
   },
 
-  downloadMeta: {
+  downloadTrustItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+
+  downloadTrustText: {
+    color: "rgba(255,255,255,0.9)",
     fontSize: 11,
-    color: "#9ca3af",
-    textAlign: "center",
-    marginTop: 10,
-    fontWeight: "500",
+    fontWeight: "600",
+  },
+
+  downloadTrustDot: {
+    width: 3,
+    height: 3,
+    borderRadius: 1.5,
+    backgroundColor: "rgba(255,255,255,0.5)",
   },
 
   // LEGAL
