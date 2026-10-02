@@ -660,7 +660,7 @@ export default function LoginScreen() {
 
                     {/* RIGHT: Phone mockup image */}
                     <Image
-                      source={require("../../assets/images/apkDownload.jfif")}
+                      source={require("../../assets/images/apkDownload.jpg")}
                       style={styles.downloadMockupImage}
                       resizeMode="contain"
                     />
