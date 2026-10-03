@@ -1517,6 +1517,8 @@ export default function FinanceScreen() {
         return;
       }
 
+      closeDetails();
+
       const baseName = (name || "bill").replace(/\.[^.]+$/, "");
 
       try {
