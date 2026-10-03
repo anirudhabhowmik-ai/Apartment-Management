@@ -3,16 +3,17 @@ import { Link } from "expo-router";
 import Head from "expo-router/head";
 import { useEffect, useState } from "react";
 import {
-    Image,
-    Platform,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    useWindowDimensions,
-    View,
+  Image,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  useWindowDimensions,
+  View,
 } from "react-native";
 import { ANDROID_APK_URL } from "../utils/appDownloads";
+
 const SITE_URL = process.env.EXPO_PUBLIC_SITE_URL?.replace(/\/+$/, "");
 const PAGE_TITLE =
   "Apartment Management App for Societies | Apartment Management";
@@ -38,7 +39,7 @@ const features = [
   },
   {
     icon: "wallet-outline" as const,
-    title: "Expenses and balances",
+    title: "Bills and payments",
     description:
       "Track property expenses and see the account picture in one place.",
     color: "#4B5F9A",
@@ -55,9 +56,19 @@ const features = [
 
 export default function SeoLandingPage() {
   const { width } = useWindowDimensions();
+
+  // ------------------------------------------------------------------
+  // IMPORTANT (hydration-safe):
+  // On first paint, ALWAYS render with the server-known width so the
+  // pre-rendered HTML matches the client. Only after the component has
+  // mounted do we switch to the actual viewport width. This prevents
+  // React hydration error #418.
+  // ------------------------------------------------------------------
+  const [mounted, setMounted] = useState(false);
   const [webViewportWidth, setWebViewportWidth] = useState<number | null>(null);
 
   useEffect(() => {
+    setMounted(true);
     if (Platform.OS !== "web") return;
 
     const updateWidth = () => setWebViewportWidth(window.innerWidth);
@@ -66,10 +77,14 @@ export default function SeoLandingPage() {
     return () => window.removeEventListener("resize", updateWidth);
   }, []);
 
-  const responsiveWidth = webViewportWidth ?? width;
+  // Until mounted, fall back to `width` (RNW's server value).
+  const responsiveWidth =
+    mounted && webViewportWidth ? webViewportWidth : width;
+
   const isWide = responsiveWidth >= 900;
   const isCompactDesktop = responsiveWidth >= 600 && responsiveWidth < 900;
   const isMobile = responsiveWidth < 600;
+
   const structuredData = {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
@@ -98,11 +113,18 @@ export default function SeoLandingPage() {
           {JSON.stringify(structuredData)}
         </script>
       </Head>
+
       <ScrollView
         style={styles.page}
         contentContainerStyle={styles.pageContent}
+        // @ts-ignore — RNW accepts this DOM attribute
+        suppressHydrationWarning
       >
-        <View style={[styles.header, isMobile && styles.headerMobile]}>
+        <View
+          style={[styles.header, isMobile && styles.headerMobile]}
+          // @ts-ignore
+          suppressHydrationWarning
+        >
           <View style={styles.brand}>
             <Image
               source={require("../assets/images/logo-mark.png")}
@@ -131,12 +153,16 @@ export default function SeoLandingPage() {
             isCompactDesktop && styles.heroCompact,
             isMobile && styles.heroMobile,
           ]}
+          // @ts-ignore
+          suppressHydrationWarning
         >
           <View
             style={[
               styles.heroCopy,
               isCompactDesktop && styles.heroCopyCompact,
             ]}
+            // @ts-ignore
+            suppressHydrationWarning
           >
             <View style={[styles.eyebrow, isMobile && styles.eyebrowMobile]}>
               <View style={styles.eyebrowDot} />
@@ -151,6 +177,8 @@ export default function SeoLandingPage() {
                 isCompactDesktop && styles.heroTitleCompact,
                 isMobile && styles.heroTitleMobile,
               ]}
+              // @ts-ignore
+              suppressHydrationWarning
             >
               Apartment management, all in one place.
             </Text>
@@ -160,12 +188,16 @@ export default function SeoLandingPage() {
                 isMobile && styles.heroDescriptionMobile,
                 isCompactDesktop && styles.heroDescriptionCompact,
               ]}
+              // @ts-ignore
+              suppressHydrationWarning
             >
               Manage residents, maintenance bills, payments, expenses, and staff
               attendance with one straightforward apartment management app.
             </Text>
             <View
               style={[styles.heroActions, isMobile && styles.heroActionsMobile]}
+              // @ts-ignore
+              suppressHydrationWarning
             >
               <DownloadButton />
               <Link href="#features" style={styles.secondaryLink}>
@@ -185,6 +217,8 @@ export default function SeoLandingPage() {
 
           <View
             style={[styles.preview, isCompactDesktop && styles.previewCompact]}
+            // @ts-ignore
+            suppressHydrationWarning
           >
             <View style={styles.previewTopline}>
               <View>
@@ -242,6 +276,8 @@ export default function SeoLandingPage() {
             styles.featuresSection,
             isMobile && styles.featuresSectionMobile,
           ]}
+          // @ts-ignore
+          suppressHydrationWarning
         >
           <View style={styles.sectionHeading}>
             <Text style={styles.sectionKicker}>ONE PRACTICAL TOOLKIT</Text>
@@ -290,7 +326,11 @@ export default function SeoLandingPage() {
           </View>
         </View>
 
-        <View style={[styles.bottomCta, isMobile && styles.bottomCtaMobile]}>
+        <View
+          style={[styles.bottomCta, isMobile && styles.bottomCtaMobile]}
+          // @ts-ignore
+          suppressHydrationWarning
+        >
           <View
             style={[
               styles.bottomCtaCopy,
@@ -322,7 +362,11 @@ export default function SeoLandingPage() {
           </View>
         </View>
 
-        <View style={[styles.footer, isMobile && styles.footerMobile]}>
+        <View
+          style={[styles.footer, isMobile && styles.footerMobile]}
+          // @ts-ignore
+          suppressHydrationWarning
+        >
           <Text style={styles.footerText}>Apartment Management</Text>
           <Text style={styles.footerNote}>
             Property, resident, and payment management.
