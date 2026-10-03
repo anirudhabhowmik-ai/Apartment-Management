@@ -4,8 +4,8 @@ import Head from "expo-router/head";
 import { useEffect, useState } from "react";
 import {
     Image,
+    Platform,
     Pressable,
-  Platform,
     ScrollView,
     StyleSheet,
     Text,
@@ -128,13 +128,16 @@ export default function SeoLandingPage() {
           style={[
             styles.hero,
             isWide && styles.heroWide,
-              isCompactDesktop && styles.heroCompact,
+            isCompactDesktop && styles.heroCompact,
             isMobile && styles.heroMobile,
           ]}
         >
-            <View
-              style={[styles.heroCopy, isCompactDesktop && styles.heroCopyCompact]}
-            >
+          <View
+            style={[
+              styles.heroCopy,
+              isCompactDesktop && styles.heroCopyCompact,
+            ]}
+          >
             <View style={[styles.eyebrow, isMobile && styles.eyebrowMobile]}>
               <View style={styles.eyebrowDot} />
               <Text style={styles.eyebrowText}>
@@ -149,13 +152,13 @@ export default function SeoLandingPage() {
                 isMobile && styles.heroTitleMobile,
               ]}
             >
-               Apartment management, all in one place.
+              Apartment management, all in one place.
             </Text>
             <Text
               style={[
                 styles.heroDescription,
                 isMobile && styles.heroDescriptionMobile,
-                  isCompactDesktop && styles.heroDescriptionCompact,
+                isCompactDesktop && styles.heroDescriptionCompact,
               ]}
             >
               Manage residents, maintenance bills, payments, expenses, and staff
@@ -548,7 +551,13 @@ const styles = StyleSheet.create({
     borderColor: "#DEE4DA",
     backgroundColor: "#FFFFFF",
   },
-  previewCompact: { width: "auto", flex: 1, minWidth: 0, maxWidth: 340, padding: 18 },
+  previewCompact: {
+    width: "auto",
+    flex: 1,
+    minWidth: 0,
+    maxWidth: 340,
+    padding: 18,
+  },
   previewTopline: {
     flexDirection: "row",
     justifyContent: "space-between",
