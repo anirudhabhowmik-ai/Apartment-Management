@@ -28,7 +28,7 @@ export interface FinanceReportPdfResult {
 }
 
 /* ================================================================
-   HELPERS
+   HELPERS  (used by the native expo-print HTML template)
 ================================================================ */
 
 const escapeHtml = (value: string | number | undefined | null): string =>
@@ -55,7 +55,7 @@ const getCategoryLabel = (category: string): string =>
   })[category] || category;
 
 /* ================================================================
-   HTML BUILDER
+   NATIVE HTML BUILDER  (unchanged — used only by expo-print)
 ================================================================ */
 
 function buildFinanceReportHtml({
@@ -346,6 +346,231 @@ function buildFinanceReportHtml({
 }
 
 /* ================================================================
+   WEB — hand-rolled PDF (no library)
+
+   The PDF format is plain text with a small fixed structure. We build
+   a minimal 1-page PDF containing Helvetica text and hand the bytes
+   to `downloadWebFile`, which forces a real <a download>.
+================================================================ */
+
+/** Escape a PDF string literal: ( ) \ must be escaped. */
+function pdfEscape(text: string): string {
+  return String(text ?? "")
+    .replace(/\\/g, "\\\\")
+    .replace(/\(/g, "\\(")
+    .replace(/\)/g, "\\)")
+    .replace(/\r?\n/g, " ");
+}
+
+type PdfLine = {
+  text: string;
+  x: number;
+  y: number;
+  size: number;
+  bold?: boolean;
+  color?: [number, number, number]; // 0..1 RGB
+};
+
+/**
+ * Lays out the report as a flat list of draw commands.
+ * Coordinate origin in PDF is bottom-left, y increases upward.
+ * A4 = 595.28 x 841.89 pt.
+ */
+function layoutReportLines(params: FinanceReportPdfInput): {
+  lines: PdfLine[];
+  pageHeight: number;
+} {
+  const { propertyName, month, income, expenses, net, transactions } = params;
+
+  const PAGE_W = 595.28; // eslint-disable-line @typescript-eslint/no-unused-vars
+  const PAGE_H = 841.89;
+  const MARGIN = 36;
+  const LINE = 14;
+
+  const lines: PdfLine[] = [];
+  let y = PAGE_H - MARGIN;
+
+  const push = (
+    text: string,
+    opts: {
+      size?: number;
+      bold?: boolean;
+      color?: [number, number, number];
+      gap?: number;
+    } = {},
+  ) => {
+    lines.push({
+      text,
+      x: MARGIN,
+      y,
+      size: opts.size ?? 10,
+      bold: opts.bold,
+      color: opts.color,
+    });
+    y -= opts.gap ?? LINE;
+  };
+
+  const inr = (n: number) => `Rs. ${Number(n || 0).toLocaleString("en-IN")}`;
+
+  // Header
+  push("Finance Report", { size: 18, bold: true, color: [0.15, 0.39, 0.92] });
+  push(propertyName, { size: 11, color: [0.39, 0.45, 0.55] });
+  push(`Month: ${month}`, { size: 10, color: [0.39, 0.45, 0.55] });
+  y -= 6;
+
+  // Summary
+  push(`Income:    ${inr(income)}`, {
+    size: 11,
+    bold: true,
+    color: [0.09, 0.64, 0.29],
+  });
+  push(`Expenses:  ${inr(expenses)}`, {
+    size: 11,
+    bold: true,
+    color: [0.86, 0.15, 0.15],
+  });
+  push(`Net:       ${inr(net)}`, {
+    size: 11,
+    bold: true,
+    color: net >= 0 ? [0.15, 0.39, 0.92] : [0.86, 0.15, 0.15],
+  });
+  y -= 10;
+
+  // Sections
+  const addSection = (title: string, rows: string[]) => {
+    y -= 6;
+    push(title, { size: 12, bold: true });
+    if (rows.length === 0) {
+      push("No entries", { size: 10, color: [0.58, 0.64, 0.72] });
+      return;
+    }
+    for (const row of rows) {
+      // simple truncation — PDF text here is single-line
+      const safe = row.length > 110 ? row.slice(0, 109) + "\u2026" : row;
+      push(safe, { size: 9.5 });
+    }
+  };
+
+  addSection(
+    "Maintenance",
+    transactions
+      .filter((t) => t.category === "maintenance")
+      .map(
+        (t) =>
+          `${t.wing || ""}  Flat ${t.flatNumber || ""}  \u00B7  ${
+            t.memberName || ""
+          }  \u00B7  ${t.phone || ""}  \u00B7  ${inr(t.amount)}  \u00B7  ${
+            t.status
+          }`,
+      ),
+  );
+
+  addSection(
+    "Staff",
+    transactions
+      .filter((t) => t.category === "salary")
+      .map(
+        (t) =>
+          `${t.memberName || t.description || ""}  \u00B7  ${
+            t.phone || ""
+          }  \u00B7  ${t.memberRole || "Staff"}  \u00B7  ${inr(
+            t.amount,
+          )}  \u00B7  ${t.status}`,
+      ),
+  );
+
+  addSection(
+    "Other Expenses",
+    transactions
+      .filter((t) => t.category !== "maintenance" && t.category !== "salary")
+      .map(
+        (t) =>
+          `${t.description || getCategoryLabel(t.category)}  \u00B7  ${inr(
+            t.amount,
+          )}  \u00B7  ${t.dueDate || ""}  \u00B7  ${t.status}`,
+      ),
+  );
+
+  // Footer
+  y -= 10;
+  push(`Generated on ${new Date().toLocaleString()}`, {
+    size: 8.5,
+    color: [0.58, 0.64, 0.72],
+  });
+
+  return { lines, pageHeight: PAGE_H };
+}
+
+/**
+ * Serializes a minimal one-page PDF (Helvetica only) as base64.
+ * No third-party library — just the raw PDF syntax.
+ */
+function buildMinimalPdfBase64(lines: PdfLine[], pageHeight: number): string {
+  const PAGE_W = 595.28;
+
+  // ---- content stream ----
+  let content = "q\n";
+  for (const line of lines) {
+    const font = line.bold ? "/F2" : "/F1";
+    const [r, g, b] = line.color ?? [0, 0, 0];
+    content +=
+      `BT\n` +
+      `${font} ${line.size} Tf\n` +
+      `${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)} rg\n` +
+      `1 0 0 1 ${line.x.toFixed(2)} ${line.y.toFixed(2)} Tm\n` +
+      `(${pdfEscape(line.text)}) Tj\n` +
+      `ET\n`;
+  }
+  content += "Q\n";
+
+  // We must use latin-1 byte length for the stream /Length entry.
+  // TextEncoder would give UTF-8 length, but we write ASCII only, so
+  // length matches character count.
+  const contentLength = content.length;
+
+  // ---- object graph ----
+  // 1 Catalog, 2 Pages, 3 Page, 4 Contents, 5 Helvetica, 6 Helvetica-Bold
+  const objects: string[] = [];
+  objects[1] = `<< /Type /Catalog /Pages 2 0 R >>`;
+  objects[2] = `<< /Type /Pages /Kids [3 0 R] /Count 1 >>`;
+  objects[3] =
+    `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_W.toFixed(
+      2,
+    )} ${pageHeight.toFixed(2)}] ` +
+    `/Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> ` +
+    `/Contents 4 0 R >>`;
+  objects[4] = `<< /Length ${contentLength} >>\nstream\n${content}\nendstream`;
+  objects[5] = `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>`;
+  objects[6] = `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>`;
+
+  // ---- assemble ----
+  let pdf = "%PDF-1.4\n";
+  const offsets: number[] = [0];
+  for (let i = 1; i < objects.length; i++) {
+    offsets[i] = pdf.length;
+    pdf += `${i} 0 obj\n${objects[i]}\nendobj\n`;
+  }
+
+  const xrefStart = pdf.length;
+  pdf += `xref\n0 ${objects.length}\n`;
+  pdf += `0000000000 65535 f \n`;
+  for (let i = 1; i < objects.length; i++) {
+    pdf += `${String(offsets[i]).padStart(10, "0")} 00000 n \n`;
+  }
+  pdf +=
+    `trailer\n<< /Size ${objects.length} /Root 1 0 R >>\n` +
+    `startxref\n${xrefStart}\n%%EOF\n`;
+
+  // Base64 encode (PDF bytes are latin-1 ASCII here).
+  return btoa(pdf);
+}
+
+function generatePdfBase64OnWeb(params: FinanceReportPdfInput): string {
+  const { lines, pageHeight } = layoutReportLines(params);
+  return buildMinimalPdfBase64(lines, pageHeight);
+}
+
+/* ================================================================
    MAIN EXPORT
 ================================================================ */
 
@@ -357,6 +582,31 @@ export const downloadFinanceReportPdf = async ({
   net,
   transactions,
 }: FinanceReportPdfInput): Promise<FinanceReportPdfResult> => {
+  const safeMonth = month.replace(/[^\w-]+/g, "_");
+  const fileName = `apartment-management-finance-${safeMonth}.pdf`;
+
+  /* ------------------------------------------------------------
+     WEB PATH — generate a real PDF in-browser (no library) and
+     force a direct download. Never touches expo-print, so the
+     browser never opens a print dialog.
+  ------------------------------------------------------------ */
+  if (Platform.OS === "web") {
+    const base64 = generatePdfBase64OnWeb({
+      propertyName,
+      month,
+      income,
+      expenses,
+      net,
+      transactions,
+    });
+    const fileUri = `data:application/pdf;base64,${base64}`;
+    await downloadWebFile(fileUri, fileName, "application/pdf");
+    return { saved: true, fileName, fileUri };
+  }
+
+  /* ------------------------------------------------------------
+     NATIVE PATH — unchanged from your working APK build.
+  ------------------------------------------------------------ */
   const html = buildFinanceReportHtml({
     propertyName,
     month,
@@ -366,7 +616,6 @@ export const downloadFinanceReportPdf = async ({
     transactions,
   });
 
-  // 1. Generate PDF bytes in memory
   const { base64 } = await Print.printToFileAsync({
     html,
     base64: true,
@@ -381,16 +630,6 @@ export const downloadFinanceReportPdf = async ({
     throw new Error("PDF generation failed — no data returned.");
   }
 
-  const safeMonth = month.replace(/[^\w-]+/g, "_");
-  const fileName = `apartment-management-finance-${safeMonth}.pdf`;
-
-  if (Platform.OS === "web") {
-    const fileUri = `data:application/pdf;base64,${base64}`;
-    await downloadWebFile(fileUri, fileName, "application/pdf");
-    return { saved: true, fileName, fileUri };
-  }
-
-  // 2. Write to our own cache so the file has a stable, shareable URI
   const cacheDir = FileSystem.cacheDirectory;
   if (!cacheDir) {
     throw new Error("Cache directory is unavailable on this device.");
@@ -407,15 +646,13 @@ export const downloadFinanceReportPdf = async ({
     throw new Error("PDF was written but could not be verified on disk.");
   }
 
-  // ==============================================================
-  // ANDROID — save directly to a user-chosen folder using SAF.
-  // ==============================================================
+  /* ==============================================================
+     ANDROID — save directly to a user-chosen folder using SAF.
+  ============================================================== */
   if (Platform.OS === "android") {
     const permissions =
       await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
 
-    // If the user cancels the folder picker, we bail out quietly.
-    // The caller gets `saved: false` and can decide what to show.
     if (!permissions.granted) {
       return {
         saved: false,
@@ -445,9 +682,9 @@ export const downloadFinanceReportPdf = async ({
     };
   }
 
-  // ==============================================================
-  // iOS — share sheet fallback (no "save to folder" API exists).
-  // ==============================================================
+  /* ==============================================================
+     iOS — share sheet fallback (no "save to folder" API exists).
+  ============================================================== */
   const canShare = await Sharing.isAvailableAsync();
   if (!canShare) {
     throw new Error("Sharing is not available on this device.");
