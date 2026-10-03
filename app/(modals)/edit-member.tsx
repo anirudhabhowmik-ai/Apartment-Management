@@ -47,6 +47,7 @@ import {
   pickBillMediaAttachments,
   pickBillPdfAttachments,
 } from "../../utils/billAttachments";
+import { downloadWebFile } from "../../utils/webFileDownload";
 
 type TransactionKind = "expense" | "income";
 
@@ -236,36 +237,8 @@ async function saveBillWithFolderPicker(
   const fileName = `${safeBase}.${ext}`;
 
   if (Platform.OS === "web") {
-    try {
-      let href = uri;
-      let isBlob = false;
-
-      if (uri.startsWith("data:")) {
-        const match = uri.match(/^data:([^;]+);base64,(.*)$/);
-        if (!match) throw new Error("Invalid data URI");
-        const mime = match[1] || mimeType;
-        const b64 = match[2];
-        const binary = atob(b64);
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) {
-          bytes[i] = binary.charCodeAt(i);
-        }
-        const blob = new Blob([bytes], { type: mime });
-        href = URL.createObjectURL(blob);
-        isBlob = true;
-      }
-
-      const a = document.createElement("a");
-      a.href = href;
-      a.download = fileName;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      if (isBlob) setTimeout(() => URL.revokeObjectURL(href), 1000);
-      return { savedUri: fileName };
-    } catch (e: any) {
-      throw new Error(e?.message || "Browser download failed.");
-    }
+    await downloadWebFile(uri, fileName, mimeType);
+    return { savedUri: fileName };
   }
 
   const cacheDir = FileSystem.cacheDirectory;
@@ -1226,7 +1199,7 @@ export default function EditMemberScreen() {
     setIsBillPhotoMode(forBill);
     if (Platform.OS === "web") {
       if (forBill) void chooseBillMediaForWeb();
-      else void choosePhoto();
+      else void choosePhoto(false);
       return;
     }
     setShowPhotoOptions(true);
@@ -1334,6 +1307,10 @@ export default function EditMemberScreen() {
         setShowAdjustModal(true);
       }
     }
+  };
+
+  const handleChoosePhotoPress = () => {
+    void choosePhoto(isBillPhotoMode);
   };
 
   const chooseBillPdf = async () => {
@@ -3086,7 +3063,7 @@ export default function EditMemberScreen() {
 
               <TouchableOpacity
                 style={styles.photoOptionButton}
-                onPress={choosePhoto}
+                onPress={handleChoosePhotoPress}
                 activeOpacity={0.7}
               >
                 <View

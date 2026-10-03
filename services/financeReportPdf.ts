@@ -5,6 +5,7 @@ import * as Sharing from "expo-sharing";
 import { Platform } from "react-native";
 
 import { PeopleTransaction } from "../utils/peopleTransactions";
+import { downloadWebFile } from "../utils/webFileDownload";
 
 interface FinanceReportPdfInput {
   propertyName: string;
@@ -380,14 +381,21 @@ export const downloadFinanceReportPdf = async ({
     throw new Error("PDF generation failed — no data returned.");
   }
 
+  const safeMonth = month.replace(/[^\w-]+/g, "_");
+  const fileName = `apartment-management-finance-${safeMonth}.pdf`;
+
+  if (Platform.OS === "web") {
+    const fileUri = `data:application/pdf;base64,${base64}`;
+    await downloadWebFile(fileUri, fileName, "application/pdf");
+    return { saved: true, fileName, fileUri };
+  }
+
   // 2. Write to our own cache so the file has a stable, shareable URI
   const cacheDir = FileSystem.cacheDirectory;
   if (!cacheDir) {
     throw new Error("Cache directory is unavailable on this device.");
   }
 
-  const safeMonth = month.replace(/[^\w-]+/g, "_");
-  const fileName = `apartment-management-finance-${safeMonth}.pdf`;
   const fileUri = `${cacheDir}${fileName}`;
 
   await FileSystem.writeAsStringAsync(fileUri, base64, {

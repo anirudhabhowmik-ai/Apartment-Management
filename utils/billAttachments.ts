@@ -5,10 +5,43 @@ import type { BillAttachment } from "../types/member";
 
 const BILL_ATTACHMENT_DIRECTORY = "bill-attachments/";
 
+async function persistWebBlobAttachment(
+  attachment: BillAttachment,
+): Promise<BillAttachment> {
+  const response = await fetch(attachment.uri);
+  if (!response.ok) {
+    throw new Error("Could not read the selected attachment in this browser.");
+  }
+
+  const blob = await response.blob();
+  const dataUri = await new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result === "string") resolve(reader.result);
+      else reject(new Error("Could not save the selected attachment."));
+    };
+    reader.onerror = () =>
+      reject(
+        reader.error || new Error("Could not save the selected attachment."),
+      );
+    reader.readAsDataURL(blob);
+  });
+
+  return {
+    ...attachment,
+    uri: dataUri,
+    mimeType: attachment.mimeType || blob.type || null,
+  };
+}
+
 export async function persistBillAttachment(
   attachment: BillAttachment,
   pickedFile?: File,
 ): Promise<BillAttachment> {
+  if (Platform.OS === "web" && attachment.uri.startsWith("blob:")) {
+    return persistWebBlobAttachment(attachment);
+  }
+
   if (!pickedFile && !attachment.uri.startsWith("file://")) return attachment;
 
   const source = pickedFile ?? new File(attachment.uri);
@@ -96,11 +129,22 @@ export async function pickBillMediaAttachments(
 
   const assets = result.assets ?? [];
   return {
-    attachments: assets.slice(0, limit).map((asset) => ({
-      uri: asset.uri,
-      name: asset.name || "Bill attachment",
-      mimeType: asset.mimeType || null,
-    })),
+    attachments:
+      Platform.OS === "web"
+        ? await Promise.all(
+            assets.slice(0, limit).map((asset) =>
+              persistBillAttachment({
+                uri: asset.uri,
+                name: asset.name || "Bill attachment",
+                mimeType: asset.mimeType || null,
+              }),
+            ),
+          )
+        : assets.slice(0, limit).map((asset) => ({
+            uri: asset.uri,
+            name: asset.name || "Bill attachment",
+            mimeType: asset.mimeType || null,
+          })),
     selectedCount: assets.length,
   };
 }

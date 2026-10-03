@@ -5,6 +5,7 @@ import * as Sharing from "expo-sharing";
 import { Alert, Platform } from "react-native";
 
 import type { SignatureData } from "../store/billStore";
+import { downloadWebFile } from "../utils/webFileDownload";
 
 /* ================================================================
    TYPES
@@ -903,6 +904,10 @@ export async function generateBillPDF(data: BillData): Promise<string> {
       throw new Error("PDF generation failed — no data returned.");
     }
 
+    if (Platform.OS === "web") {
+      return `data:application/pdf;base64,${base64}`;
+    }
+
     const cacheDir = FileSystem.cacheDirectory;
     if (!cacheDir) {
       throw new Error("Cache directory is unavailable on this device.");
@@ -958,6 +963,11 @@ export async function savePDFToDevice(
   fileName: string,
 ): Promise<{ saved: boolean; message?: string }> {
   try {
+    if (Platform.OS === "web") {
+      await downloadWebFile(uri, fileName, "application/pdf");
+      return { saved: true };
+    }
+
     if (Platform.OS === "android") {
       const base64 = await FileSystem.readAsStringAsync(uri, {
         encoding: FileSystem.EncodingType.Base64,

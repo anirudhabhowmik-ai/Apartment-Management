@@ -6,19 +6,19 @@ import { useRouter } from "expo-router";
 import * as Sharing from "expo-sharing";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-    ActivityIndicator,
-    Image,
-    Linking,
-    Modal,
-    Platform,
-    Pressable,
-    RefreshControl,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Image,
+  Linking,
+  Modal,
+  Platform,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import * as XLSX from "xlsx";
 import { getSecureItem } from "../../utils/tokenStorage";
@@ -30,17 +30,18 @@ import { useExpenses, useMembers, useStaff } from "../../hooks/useManagement";
 import { useUserRole } from "../../hooks/useUserRole";
 import { useAccountStore } from "../../store/accountStore";
 import type { Member } from "../../types";
+import { downloadWebFile } from "../../utils/webFileDownload";
 
 import {
-    getPaymentCategoryColor,
-    getPaymentStatusColor,
-    PaymentCategory,
-    PaymentStatus,
+  getPaymentCategoryColor,
+  getPaymentStatusColor,
+  PaymentCategory,
+  PaymentStatus,
 } from "../../types/payment";
 
 import {
-    getPeopleSummary,
-    PeopleTransaction,
+  getPeopleSummary,
+  PeopleTransaction,
 } from "../../utils/peopleTransactions";
 
 // ============================================================
@@ -582,34 +583,8 @@ const saveFileWithFolderPicker = async (
   const fileName = `${safeBase}.${ext}`;
 
   if (Platform.OS === "web") {
-    try {
-      let href = base64OrLocalUri;
-      let isBlob = false;
-      if (base64OrLocalUri.startsWith("data:")) {
-        const match = base64OrLocalUri.match(/^data:([^;]+);base64,(.*)$/);
-        if (!match) throw new Error("Invalid data URI");
-        const mime = match[1] || mimeType;
-        const b64 = match[2];
-        const binary = atob(b64);
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) {
-          bytes[i] = binary.charCodeAt(i);
-        }
-        const blob = new Blob([bytes], { type: mime });
-        href = URL.createObjectURL(blob);
-        isBlob = true;
-      }
-      const a = document.createElement("a");
-      a.href = href;
-      a.download = fileName;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      if (isBlob) setTimeout(() => URL.revokeObjectURL(href), 1000);
-      return { savedUri: fileName };
-    } catch (e: any) {
-      throw new Error(e?.message || "Browser download failed.");
-    }
+    await downloadWebFile(base64OrLocalUri, fileName, mimeType);
+    return { savedUri: fileName };
   }
 
   const cacheDir = FileSystem.cacheDirectory;
@@ -885,8 +860,10 @@ function TransactionDetailModal({
                     </Text>
                     <Text style={styles.attachmentUrl} numberOfLines={1}>
                       {att.url?.startsWith("data:")
-                        ? "Embedded image"
-                        : att.url || ""}
+                        ? "Embedded attachment"
+                        : att.url?.startsWith("blob:")
+                          ? "Temporary browser attachment · re-upload required"
+                          : att.url || ""}
                     </Text>
                   </View>
                   <TouchableOpacity
