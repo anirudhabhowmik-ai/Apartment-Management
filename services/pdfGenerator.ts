@@ -53,8 +53,6 @@ interface BillData {
   };
   billType: "maintenance" | "salary";
   staffRole?: string;
-
-  // ── NEW: tenant/photo support ──
   isTenantAccount?: boolean;
   societyPhotoUri?: string | null;
 }
@@ -144,12 +142,6 @@ function buildBillFileName(billNumber: string): string {
   return `Bill-${safeSuffix}.pdf`;
 }
 
-/**
- * Loads an image URI and returns something the HTML renderer can use.
- *  - http/https / data:  → returned as-is
- *  - file:// / content:// → read as base64 and returned as a data: URI
- * Returns null if the URI is missing or loading fails.
- */
 async function resolvePhotoForHtml(
   rawUri: string | null | undefined,
 ): Promise<string | null> {
@@ -177,10 +169,6 @@ async function resolvePhotoForHtml(
     return null;
   }
 }
-
-/* ================================================================
-   ROW BUILDER
-================================================================ */
 
 function rowHtml(
   label: string,
@@ -217,10 +205,6 @@ function rowHtml(
     </div>
   `;
 }
-
-/* ================================================================
-   HEADER BUILDER
-================================================================ */
 
 function buildHeaderHtml(
   variant: LayoutVariant,
@@ -350,7 +334,7 @@ function buildHeaderHtml(
 }
 
 /* ================================================================
-   HTML BUILDER (native — used by expo-print only)
+   HTML BUILDER — shared by native (expo-print) AND web (html2pdf.js)
 ================================================================ */
 
 async function buildBillHtml(data: BillData): Promise<string> {
@@ -875,286 +859,62 @@ async function buildBillHtml(data: BillData): Promise<string> {
 }
 
 /* ================================================================
-   WEB — hand-rolled PDF (no library)
+   WEB — HTML to PDF via html2pdf.js (same HTML as native)
 ================================================================ */
 
-/** Escape a PDF string literal: ( ) \ must be escaped. */
-function pdfEscape(text: string): string {
-  return String(text ?? "")
-    .replace(/\\/g, "\\\\")
-    .replace(/\(/g, "\\(")
-    .replace(/\)/g, "\\)")
-    .replace(/\r?\n/g, " ");
-}
-
-type PdfLine = {
-  text: string;
-  x: number;
-  y: number;
-  size: number;
-  bold?: boolean;
-  color?: [number, number, number];
-};
-
-/** "Rs. 1,234" — ASCII-only so Helvetica can render it. */
-function inrAscii(amount: number): string {
-  return `Rs. ${Number(amount || 0).toLocaleString("en-IN")}`;
-}
-
-function layoutBillLines(data: BillData): {
-  lines: PdfLine[];
-  pageHeight: number;
-} {
-  const {
-    billNumber,
-    societyName,
-    address,
-    contactNumber,
-    email,
-    memberName,
-    flatNumber,
-    amount,
-    month,
-    paidDate,
-    additionalAmount,
-    additionalNote,
-    deductionAmount,
-    deductionNote,
-    netAmount,
-    billType,
-    staffRole,
-    isTenantAccount = false,
-  } = data;
-
-  const PAGE_H = 841.89;
-  const MARGIN = 40;
-  const LINE = 15;
-
-  const lines: PdfLine[] = [];
-  let y = PAGE_H - MARGIN;
-
-  const push = (
-    text: string,
-    opts: {
-      size?: number;
-      bold?: boolean;
-      color?: [number, number, number];
-      gap?: number;
-      x?: number;
-    } = {},
-  ) => {
-    lines.push({
-      text,
-      x: opts.x ?? MARGIN,
-      y,
-      size: opts.size ?? 10,
-      bold: opts.bold,
-      color: opts.color,
-    });
-    y -= opts.gap ?? LINE;
-  };
-
-  const isOwnerBill = billType === "maintenance";
-  const unitLabel = isTenantAccount ? "Room Number" : "Flat Number";
-  const memberLabel = isOwnerBill
-    ? `${isTenantAccount ? "Tenant" : "Owner"} Name`
-    : "Staff Name";
-  const billTitleText = isOwnerBill
-    ? isTenantAccount
-      ? "RENT BILL"
-      : "MAINTENANCE BILL"
-    : "SALARY RECEIPT";
-  const baseLabel = isOwnerBill
-    ? isTenantAccount
-      ? "Base Rent"
-      : "Base Maintenance"
-    : "Base Salary";
-  const totalLabel = isOwnerBill
-    ? isTenantAccount
-      ? "Rent Amount"
-      : "Maintenance Amount"
-    : "Salary Amount";
-
-  // ── Header ──
-  push(societyName, { size: 18, bold: true, color: [0.06, 0.09, 0.16] });
-  if (address) push(address, { size: 10, color: [0.39, 0.45, 0.55] });
-  const contactLine = [
-    contactNumber ? `Phone: ${contactNumber}` : "",
-    email ? `Email: ${email}` : "",
-  ]
-    .filter(Boolean)
-    .join("   ");
-  if (contactLine) push(contactLine, { size: 9.5, color: [0.58, 0.64, 0.72] });
-
-  y -= 6;
-
-  // ── Bill title strip ──
-  push(billTitleText, {
-    size: 13,
-    bold: true,
-    color: [0.15, 0.39, 0.92],
-  });
-  push(`Bill #: ${billNumber}`, { size: 9.5, color: [0.39, 0.45, 0.55] });
-  push(`Date: ${formatDate(paidDate)}`, {
-    size: 9.5,
-    color: [0.39, 0.45, 0.55],
-  });
-
-  y -= 8;
-
-  // ── Info block ──
-  const infoRows: [string, string][] = [
-    [memberLabel, memberName],
-    ...(flatNumber ? ([[unitLabel, flatNumber]] as [string, string][]) : []),
-    ...(staffRole ? ([["Role", staffRole]] as [string, string][]) : []),
-    ["Month", month],
-    ["Payment Date", formatDate(paidDate)],
-  ];
-  for (const [label, value] of infoRows) {
-    push(`${label}: ${value}`, { size: 10.5 });
+async function generateBillPdfDataUriOnWeb(data: BillData): Promise<string> {
+  if (typeof window === "undefined" || typeof document === "undefined") {
+    throw new Error("Web PDF generation requires a browser environment.");
   }
 
-  y -= 8;
+  const html = await buildBillHtml(data);
 
-  // ── Amount block ──
-  push(baseLabel, { size: 10.5 });
-  push(inrAscii(amount), { size: 10.5, x: MARGIN + 240 });
+  // Dynamic import so the library only loads on web when the user taps
+  // Download. Native paths never reach this code.
+  const mod: any = await import("html2pdf.js" as any);
+  const html2pdf = mod?.default ?? mod;
 
-  if (additionalAmount) {
-    push("Additional Amount", { size: 10.5 });
-    push(`+ ${inrAscii(additionalAmount)}`, {
-      size: 10.5,
-      x: MARGIN + 240,
-    });
-    if (additionalNote) {
-      push(`(${additionalNote})`, {
-        size: 9,
-        color: [0.58, 0.64, 0.72],
-      });
+  // Render into an off-screen container so it never touches the UI.
+  const container = document.createElement("div");
+  container.style.position = "fixed";
+  container.style.left = "-100000px";
+  container.style.top = "0";
+  container.style.width = "800px";
+  container.style.background = "#ffffff";
+  container.innerHTML = html;
+  document.body.appendChild(container);
+
+  try {
+    const worker = html2pdf()
+      .set({
+        margin: 0,
+        filename: "bill.pdf",
+        image: { type: "jpeg", quality: 0.98 },
+        html2canvas: {
+          scale: 2,
+          useCORS: true,
+          backgroundColor: "#ffffff",
+          logging: false,
+        },
+        jsPDF: {
+          unit: "pt",
+          format: "a4",
+          orientation: "portrait",
+        },
+        pagebreak: { mode: ["css", "legacy"] },
+      })
+      .from(container.firstElementChild ?? container);
+
+    const dataUri: string = await worker.outputPdf("datauristring");
+
+    if (!dataUri || !dataUri.startsWith("data:application/pdf;base64,")) {
+      throw new Error("html2pdf did not return a PDF data URI.");
     }
+
+    return dataUri;
+  } finally {
+    if (container.parentNode) container.parentNode.removeChild(container);
   }
-  if (deductionAmount) {
-    push("Deduction", { size: 10.5 });
-    push(`- ${inrAscii(deductionAmount)}`, {
-      size: 10.5,
-      x: MARGIN + 240,
-    });
-    if (deductionNote) {
-      push(`(${deductionNote})`, { size: 9, color: [0.58, 0.64, 0.72] });
-    }
-  }
-
-  y -= 4;
-  // Plain ASCII divider so we never emit non-Latin1 characters.
-  push("-".repeat(60), { size: 8, color: [0.8, 0.85, 0.9] });
-  push(totalLabel, { size: 12, bold: true, color: [0.06, 0.09, 0.16] });
-  push(inrAscii(netAmount), {
-    size: 12,
-    bold: true,
-    color: [0.09, 0.4, 0.92],
-    x: MARGIN + 240,
-  });
-
-  y -= 12;
-
-  // ── Footer note ──
-  push("This is a computer-generated receipt.", {
-    size: 9,
-    color: [0.58, 0.64, 0.72],
-  });
-  push(`${societyName} | ${contactNumber}`, {
-    size: 9,
-    color: [0.58, 0.64, 0.72],
-  });
-  push(`Generated on ${new Date().toLocaleString()}`, {
-    size: 8.5,
-    color: [0.65, 0.7, 0.78],
-  });
-
-  return { lines, pageHeight: PAGE_H };
-}
-
-/**
- * Replaces any character outside the Latin-1 range with an ASCII
- * fallback. Helvetica (our PDF font) only covers Latin-1 anyway, so
- * unsupported glyphs would render as garbage — this also protects
- * `btoa` from throwing on characters above code point 255.
- */
-function toLatin1Safe(text: string): string {
-  return (
-    String(text ?? "")
-      .replace(/\u20B9/g, "Rs.") // ₹
-      .replace(/\u2015/g, "-") // ―
-      .replace(/\u2014/g, "-") // —
-      .replace(/\u2013/g, "-") // –
-      .replace(/[\u2018\u2019]/g, "'") // ‘ ’
-      .replace(/[\u201C\u201D]/g, '"') // “ ”
-      .replace(/\u2026/g, "...") // …
-      .replace(/\u00A0/g, " ") // non-breaking space
-      // Anything still outside Latin-1 → "?" (never throws, never invalid).
-      .replace(/[^\x00-\xFF]/g, "?")
-  );
-}
-
-function buildMinimalPdfBase64(lines: PdfLine[], pageHeight: number): string {
-  const PAGE_W = 595.28;
-
-  let content = "q\n";
-  for (const line of lines) {
-    const font = line.bold ? "/F2" : "/F1";
-    const [r, g, b] = line.color ?? [0, 0, 0];
-    content +=
-      `BT\n` +
-      `${font} ${line.size} Tf\n` +
-      `${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)} rg\n` +
-      `1 0 0 1 ${line.x.toFixed(2)} ${line.y.toFixed(2)} Tm\n` +
-      `(${pdfEscape(line.text)}) Tj\n` +
-      `ET\n`;
-  }
-  content += "Q\n";
-
-  // Normalise to Latin-1 BEFORE measuring, so /Length matches the
-  // actual byte count of the stream we write.
-  const safeContent = toLatin1Safe(content);
-
-  const objects: string[] = [];
-  objects[1] = `<< /Type /Catalog /Pages 2 0 R >>`;
-  objects[2] = `<< /Type /Pages /Kids [3 0 R] /Count 1 >>`;
-  objects[3] =
-    `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_W.toFixed(
-      2,
-    )} ${pageHeight.toFixed(2)}] ` +
-    `/Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> ` +
-    `/Contents 4 0 R >>`;
-  objects[4] = `<< /Length ${safeContent.length} >>\nstream\n${safeContent}\nendstream`;
-  objects[5] = `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>`;
-  objects[6] = `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>`;
-
-  let pdf = "%PDF-1.4\n";
-  const offsets: number[] = [0];
-  for (let i = 1; i < objects.length; i++) {
-    offsets[i] = pdf.length;
-    pdf += `${i} 0 obj\n${objects[i]}\nendobj\n`;
-  }
-
-  const xrefStart = pdf.length;
-  pdf += `xref\n0 ${objects.length}\n`;
-  pdf += `0000000000 65535 f \n`;
-  for (let i = 1; i < objects.length; i++) {
-    pdf += `${String(offsets[i]).padStart(10, "0")} 00000 n \n`;
-  }
-  pdf +=
-    `trailer\n<< /Size ${objects.length} /Root 1 0 R >>\n` +
-    `startxref\n${xrefStart}\n%%EOF\n`;
-
-  // The whole file is Latin-1 now, so btoa is safe.
-  // eslint-disable-next-line no-undef
-  return btoa(toLatin1Safe(pdf));
-}
-
-function generateBillPdfBase64OnWeb(data: BillData): string {
-  const { lines, pageHeight } = layoutBillLines(data);
-  return buildMinimalPdfBase64(lines, pageHeight);
 }
 
 /* ================================================================
@@ -1163,17 +923,15 @@ function generateBillPdfBase64OnWeb(data: BillData): string {
 
 export async function generateBillPDF(data: BillData): Promise<string> {
   /* ------------------------------------------------------------
-     WEB — build a real PDF in-browser (no expo-print).
-     expo-print's web shim opens the browser print dialog and
-     ignores `base64: true`, so we bypass it entirely on web.
+     WEB — styled PDF via html2pdf.js (no print dialog).
   ------------------------------------------------------------ */
   if (Platform.OS === "web") {
-    const base64 = generateBillPdfBase64OnWeb(data);
-    return `data:application/pdf;base64,${base64}`;
+    return generateBillPdfDataUriOnWeb(data);
   }
 
   /* ------------------------------------------------------------
-     NATIVE — unchanged from the working APK build.
+     NATIVE — unchanged. expo-print renders the same HTML with the
+     OS's PDF engine. This is what your APK runs today.
   ------------------------------------------------------------ */
   const html = await buildBillHtml(data);
 
@@ -1248,8 +1006,7 @@ export async function savePDFToDevice(
 ): Promise<{ saved: boolean; message?: string }> {
   try {
     if (Platform.OS === "web") {
-      // On web, `uri` is a real data: URI from generateBillPDF.
-      // downloadWebFile forces an actual download via <a download>.
+      // On web, `uri` is a data: URI from generateBillPDF.
       await downloadWebFile(uri, fileName, "application/pdf");
       return { saved: true };
     }
