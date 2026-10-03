@@ -1,4 +1,3 @@
-// services/financeReportPdf.ts
 import * as FileSystem from "expo-file-system/legacy";
 import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
@@ -24,7 +23,7 @@ export interface FinanceReportPdfResult {
 }
 
 /* ================================================================
-   HELPERS — shared by native (expo-print) and web (html2pdf.js)
+   HELPERS
 ================================================================ */
 
 const escapeHtml = (value: string | number | undefined | null): string =>
@@ -51,7 +50,7 @@ const getCategoryLabel = (category: string): string =>
   })[category] || category;
 
 /* ================================================================
-   HTML BUILDER — shared by native (expo-print) and web (html2pdf.js)
+   HTML BUILDER
 ================================================================ */
 
 function buildFinanceReportHtml({
@@ -342,8 +341,79 @@ function buildFinanceReportHtml({
 }
 
 /* ================================================================
-   WEB — HTML to PDF via html2pdf.js
+   WEB PDF — normalises jsPDF output safely across all its builds
 ================================================================ */
+
+function coercePdfOutputToDataUri(pdf: any): string {
+  let out: unknown = null;
+  try {
+    out = pdf.output("datauristring");
+  } catch {
+    out = null;
+  }
+
+  if (typeof out === "string") {
+    if (out.startsWith("data:application/pdf")) {
+      return out;
+    }
+    if (/^[A-Za-z0-9+/=]+$/.test(out) && out.length > 100) {
+      return `data:application/pdf;base64,${out}`;
+    }
+  }
+
+  let raw: unknown = out;
+  if (raw == null) {
+    try {
+      raw = pdf.output("arraybuffer");
+    } catch {
+      raw = null;
+    }
+  }
+
+  if (raw instanceof ArrayBuffer) {
+    return arrayBufferToPdfDataUri(raw);
+  }
+
+  if (raw instanceof Uint8Array) {
+    // Copy into a fresh Uint8Array so `.buffer` is a plain ArrayBuffer.
+    const copy = new Uint8Array(raw.byteLength);
+    copy.set(raw);
+    return arrayBufferToPdfDataUri(copy.buffer);
+  }
+
+  if (Array.isArray(raw)) {
+    return arrayBufferToPdfDataUri(new Uint8Array(raw).buffer);
+  }
+
+  try {
+    const s = pdf.output();
+    if (typeof s === "string" && s.startsWith("data:application/pdf")) {
+      return s;
+    }
+  } catch {
+    // ignore
+  }
+
+  throw new Error(
+    `Could not convert jsPDF output to a data URI (got ${
+      raw == null ? "null" : typeof raw
+    }).`,
+  );
+}
+
+function arrayBufferToPdfDataUri(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf);
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode.apply(
+      null,
+      Array.from(bytes.subarray(i, i + chunk)) as any,
+    );
+  }
+  const base64 = btoa(binary);
+  return `data:application/pdf;base64,${base64}`;
+}
 
 async function generateFinanceReportDataUriOnWeb(
   params: FinanceReportPdfInput,
@@ -396,18 +466,7 @@ async function generateFinanceReportDataUriOnWeb(
       throw new Error("Could not access the jsPDF instance.");
     }
 
-    const dataUri: string =
-      typeof pdf.output === "function"
-        ? pdf.output("datauristring")
-        : String(pdf.output());
-
-    if (!dataUri || !dataUri.startsWith("data:application/pdf;base64,")) {
-      throw new Error(
-        `html2pdf returned an unexpected output (${typeof dataUri}).`,
-      );
-    }
-
-    return dataUri;
+    return coercePdfOutputToDataUri(pdf);
   } finally {
     if (container.parentNode) container.parentNode.removeChild(container);
   }
@@ -428,9 +487,6 @@ export const downloadFinanceReportPdf = async ({
   const safeMonth = month.replace(/[^\w-]+/g, "_");
   const fileName = `apartment-management-finance-${safeMonth}.pdf`;
 
-  /* ------------------------------------------------------------
-     WEB — styled PDF via html2pdf.js (no print dialog).
-  ------------------------------------------------------------ */
   if (Platform.OS === "web") {
     const fileUri = await generateFinanceReportDataUriOnWeb({
       propertyName,
@@ -444,9 +500,6 @@ export const downloadFinanceReportPdf = async ({
     return { saved: true, fileName, fileUri };
   }
 
-  /* ------------------------------------------------------------
-     NATIVE — unchanged from your working APK build.
-  ------------------------------------------------------------ */
   const html = buildFinanceReportHtml({
     propertyName,
     month,
