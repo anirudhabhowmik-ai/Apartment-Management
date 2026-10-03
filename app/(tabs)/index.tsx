@@ -313,17 +313,6 @@ function getCurrentMonthLabel(): string {
   return `${MONTHS[d.getMonth()]} ${d.getFullYear()}`;
 }
 
-/**
- * Human-readable label for a member's free-form `role` field.
- *
- * On an apartment account:
- *   flat  → "Flat Owner"
- *   shop  → "Shop Owner"
- *
- * On a home (tenant) account:
- *   flat  → "Room Rent"
- *   shop  → "Shop Rent"
- */
 function getMemberRoleLabel(role?: string, isTenantAccount: boolean = false) {
   const fallback = isTenantAccount ? "Tenant" : "Member";
   if (!role) return fallback;
@@ -507,7 +496,6 @@ function normalizeAttendanceStatus(raw: any): AttendanceStatusUI | "none" {
   return "none";
 }
 
-/* ── Record chips builder (Wing / Flat-Room / Area) ── */
 interface HomeRecordChip {
   key: "wing" | "flat" | "area";
   icon: keyof typeof Ionicons.glyphMap;
@@ -559,10 +547,6 @@ function buildHomeRecordChips(
 
   return chips;
 }
-
-/* ============================================================
-   FINANCE HELPERS
-   ============================================================ */
 
 type PaidEntry = {
   category: PaymentCategory;
@@ -1083,10 +1067,6 @@ function ToggleSwitch({
   );
 }
 
-/* ------------------------------------------------------------
-   PENDING OFFER BANNERS
-   ------------------------------------------------------------ */
-
 function PendingAdminOfferBanner({
   offer,
   busy,
@@ -1348,10 +1328,6 @@ function PendingVisibilityOfferBanner({
   );
 }
 
-/* ============================================================
-   MONTH / YEAR PICKER
-   ============================================================ */
-
 function MonthYearPickerModal({
   visible,
   year,
@@ -1484,10 +1460,6 @@ function MonthYearPickerModal({
     </Modal>
   );
 }
-
-/* ============================================================
-   ATTENDANCE CALENDAR
-   ============================================================ */
 
 function AttendanceCalendar({
   staffId,
@@ -1781,6 +1753,11 @@ export default function HomeScreen() {
   const [myRoles, setMyRoles] = useState<MyRole[]>([]);
   const [myRolesLoading, setMyRolesLoading] = useState(true);
 
+  // ── NEW: prevents tab-switch refetches ────────────────────────────
+  // Tracks the last account fully loaded in this app session.
+  const homeBootstrappedRef = useRef<string | null>(null);
+  // ──────────────────────────────────────────────────────────────────
+
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
   const [withdrawPreview, setWithdrawPreview] = useState<RevokePreview | null>(
     null,
@@ -1807,10 +1784,6 @@ export default function HomeScreen() {
         .join(","),
     [accounts],
   );
-
-  /* ------------------------------------------------------------
-     ROLE-AWARE VISIBILITY
-     ------------------------------------------------------------ */
 
   const hasMemberAccessOnAccount = useMemo(() => {
     if (isAdmin) return true;
@@ -1878,189 +1851,199 @@ export default function HomeScreen() {
     });
   }, [router]);
 
-  /* ── Load pending offers ── */
-  const loadPendingOffers = useCallback(async () => {
-    if (!user?.phone) {
-      setPendingAdminOffers([]);
-      setPendingOwnershipOffers([]);
-      setPendingVisibilityOffers([]);
-      return;
-    }
+  /* ── Load pending offers (now with silent flag) ── */
+  const loadPendingOffers = useCallback(
+    async (opts: { silent?: boolean } = {}) => {
+      const { silent = false } = opts;
 
-    const token = await getAuthToken();
-    if (!token) {
-      setPendingAdminOffers([]);
-      setPendingOwnershipOffers([]);
-      setPendingVisibilityOffers([]);
-      return;
-    }
-
-    setOffersLoading(true);
-    try {
-      const url = `${API_BASE_URL}/me/invitations`;
-      const res = await fetch(url, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!res.ok) {
+      if (!user?.phone) {
         setPendingAdminOffers([]);
         setPendingOwnershipOffers([]);
         setPendingVisibilityOffers([]);
         return;
       }
 
-      const data: any = await res.json();
-      const rows: any[] = Array.isArray(data?.invitations)
-        ? data.invitations
-        : [];
-
-      const myAccountIds = new Set(
-        accountIdsKey ? accountIdsKey.split(",") : [],
-      );
-
-      const adminOffers: PendingAdminOffer[] = [];
-      const ownershipOffers: PendingOwnershipOffer[] = [];
-      const visibilityOffers: PendingVisibilityOffer[] = [];
-
-      for (const r of rows) {
-        if (!r) continue;
-        if (r.status !== "pending") continue;
-        if (!myAccountIds.has(r.account_id)) continue;
-
-        const currentRole: string | null = r.current_role ?? null;
-        if (!currentRole) continue;
-
-        if (r.role === "admin") {
-          adminOffers.push({
-            id: r.id,
-            account_id: r.account_id,
-            account_name: r.account_name ?? "",
-            account_photo_url: r.account_photo_url ?? null,
-            invited_name: r.invited_name ?? null,
-            invited_by_phone: r.invited_by_phone ?? null,
-            created_at: r.created_at ?? "",
-            current_role: currentRole,
-          });
-        } else if (r.role === "ownership_transfer") {
-          ownershipOffers.push({
-            id: r.id,
-            account_id: r.account_id,
-            account_name: r.account_name ?? "",
-            account_photo_url: r.account_photo_url ?? null,
-            invited_name: r.invited_name ?? null,
-            invited_by_phone: r.invited_by_phone ?? null,
-            created_at: r.created_at ?? "",
-            current_role: currentRole,
-          });
-        } else if (
-          r.role === "member_visibility" ||
-          r.role === "staff_visibility"
-        ) {
-          visibilityOffers.push({
-            id: r.id,
-            account_id: r.account_id,
-            account_name: r.account_name ?? "",
-            account_photo_url: r.account_photo_url ?? null,
-            invited_name: r.invited_name ?? null,
-            invited_by_phone: r.invited_by_phone ?? null,
-            created_at: r.created_at ?? "",
-            current_role: currentRole,
-            role: r.role,
-          });
-        }
+      const token = await getAuthToken();
+      if (!token) {
+        setPendingAdminOffers([]);
+        setPendingOwnershipOffers([]);
+        setPendingVisibilityOffers([]);
+        return;
       }
 
-      setPendingAdminOffers(adminOffers);
-      setPendingOwnershipOffers(ownershipOffers);
-      setPendingVisibilityOffers(visibilityOffers);
-    } catch (e) {
-      console.warn("[home] loadPendingOffers failed:", e);
-      setPendingAdminOffers([]);
-      setPendingOwnershipOffers([]);
-      setPendingVisibilityOffers([]);
-    } finally {
-      setOffersLoading(false);
-    }
-  }, [user?.phone, accountIdsKey]);
+      if (!silent) setOffersLoading(true);
+      try {
+        const url = `${API_BASE_URL}/me/invitations`;
+        const res = await fetch(url, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!res.ok) {
+          setPendingAdminOffers([]);
+          setPendingOwnershipOffers([]);
+          setPendingVisibilityOffers([]);
+          return;
+        }
+
+        const data: any = await res.json();
+        const rows: any[] = Array.isArray(data?.invitations)
+          ? data.invitations
+          : [];
+
+        const myAccountIds = new Set(
+          accountIdsKey ? accountIdsKey.split(",") : [],
+        );
+
+        const adminOffers: PendingAdminOffer[] = [];
+        const ownershipOffers: PendingOwnershipOffer[] = [];
+        const visibilityOffers: PendingVisibilityOffer[] = [];
+
+        for (const r of rows) {
+          if (!r) continue;
+          if (r.status !== "pending") continue;
+          if (!myAccountIds.has(r.account_id)) continue;
+
+          const currentRole: string | null = r.current_role ?? null;
+          if (!currentRole) continue;
+
+          if (r.role === "admin") {
+            adminOffers.push({
+              id: r.id,
+              account_id: r.account_id,
+              account_name: r.account_name ?? "",
+              account_photo_url: r.account_photo_url ?? null,
+              invited_name: r.invited_name ?? null,
+              invited_by_phone: r.invited_by_phone ?? null,
+              created_at: r.created_at ?? "",
+              current_role: currentRole,
+            });
+          } else if (r.role === "ownership_transfer") {
+            ownershipOffers.push({
+              id: r.id,
+              account_id: r.account_id,
+              account_name: r.account_name ?? "",
+              account_photo_url: r.account_photo_url ?? null,
+              invited_name: r.invited_name ?? null,
+              invited_by_phone: r.invited_by_phone ?? null,
+              created_at: r.created_at ?? "",
+              current_role: currentRole,
+            });
+          } else if (
+            r.role === "member_visibility" ||
+            r.role === "staff_visibility"
+          ) {
+            visibilityOffers.push({
+              id: r.id,
+              account_id: r.account_id,
+              account_name: r.account_name ?? "",
+              account_photo_url: r.account_photo_url ?? null,
+              invited_name: r.invited_name ?? null,
+              invited_by_phone: r.invited_by_phone ?? null,
+              created_at: r.created_at ?? "",
+              current_role: currentRole,
+              role: r.role,
+            });
+          }
+        }
+
+        setPendingAdminOffers(adminOffers);
+        setPendingOwnershipOffers(ownershipOffers);
+        setPendingVisibilityOffers(visibilityOffers);
+      } catch (e) {
+        console.warn("[home] loadPendingOffers failed:", e);
+        setPendingAdminOffers([]);
+        setPendingOwnershipOffers([]);
+        setPendingVisibilityOffers([]);
+      } finally {
+        if (!silent) setOffersLoading(false);
+      }
+    },
+    [user?.phone, accountIdsKey],
+  );
 
   useEffect(() => {
-    if (isFocused) {
-      loadPendingOffers();
-    }
-  }, [isFocused, loadPendingOffers]);
+    if (!isFocused) return;
+    const silent = homeBootstrappedRef.current === accountId;
+    loadPendingOffers({ silent }).catch(() => {});
+  }, [isFocused, loadPendingOffers, accountId]);
 
   useEffect(() => {
     if (!isFocused) return;
     if (!user?.phone) return;
 
     const handle = setInterval(() => {
-      loadPendingOffers().catch(() => {});
+      loadPendingOffers({ silent: true }).catch(() => {});
     }, 30000);
 
     return () => clearInterval(handle);
   }, [isFocused, user?.phone, loadPendingOffers]);
 
-  /* ── Load my grants ── */
-  const loadMyRoles = useCallback(async () => {
-    if (!selectedAccount?.id || !user?.id) {
-      setMyRoles([]);
-      setMyRolesLoading(true);
-      return;
-    }
+  /* ── Load my grants (now with silent flag) ── */
+  const loadMyRoles = useCallback(
+    async (opts: { silent?: boolean } = {}) => {
+      const { silent = false } = opts;
 
-    const token = await getAuthToken();
-    if (!token) {
-      setMyRoles([]);
-      setMyRolesLoading(false);
-      return;
-    }
-
-    setMyRolesLoading(true);
-    try {
-      const res = await fetch(
-        `${API_BASE_URL}/accounts/${selectedAccount.id}/invitations`,
-        { headers: { Authorization: `Bearer ${token}` } },
-      );
-      if (!res.ok) {
+      if (!selectedAccount?.id || !user?.id) {
         setMyRoles([]);
+        setMyRolesLoading(!silent);
         return;
       }
-      const data: any = await res.json();
-      const rows: any[] = Array.isArray(data?.invitations)
-        ? data.invitations
-        : Array.isArray(data)
-          ? data
-          : [];
 
-      const mine: MyRole[] = rows
-        .filter(
-          (r) =>
-            r?.status === "accepted" &&
-            r?.accepted_by === user.id &&
-            (r.role === "admin" ||
-              r.role === "member_visibility" ||
-              r.role === "staff_visibility" ||
-              r.role === "ownership_transfer"),
-        )
-        .map((r) => ({
-          role: r.role,
-          grantId: r.id,
-          accepted_by: r.accepted_by ?? null,
-        }));
+      const token = await getAuthToken();
+      if (!token) {
+        setMyRoles([]);
+        setMyRolesLoading(false);
+        return;
+      }
 
-      setMyRoles(mine);
-    } catch (e) {
-      console.warn("[home] loadMyRoles failed:", e);
-      setMyRoles([]);
-    } finally {
-      setMyRolesLoading(false);
-    }
-  }, [selectedAccount?.id, user?.id]);
+      if (!silent) setMyRolesLoading(true);
+      try {
+        const res = await fetch(
+          `${API_BASE_URL}/accounts/${selectedAccount.id}/invitations`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        if (!res.ok) {
+          setMyRoles([]);
+          return;
+        }
+        const data: any = await res.json();
+        const rows: any[] = Array.isArray(data?.invitations)
+          ? data.invitations
+          : Array.isArray(data)
+            ? data
+            : [];
+
+        const mine: MyRole[] = rows
+          .filter(
+            (r) =>
+              r?.status === "accepted" &&
+              r?.accepted_by === user.id &&
+              (r.role === "admin" ||
+                r.role === "member_visibility" ||
+                r.role === "staff_visibility" ||
+                r.role === "ownership_transfer"),
+          )
+          .map((r) => ({
+            role: r.role,
+            grantId: r.id,
+            accepted_by: r.accepted_by ?? null,
+          }));
+
+        setMyRoles(mine);
+      } catch (e) {
+        console.warn("[home] loadMyRoles failed:", e);
+        setMyRoles([]);
+      } finally {
+        if (!silent) setMyRolesLoading(false);
+      }
+    },
+    [selectedAccount?.id, user?.id],
+  );
 
   useEffect(() => {
-    if (isFocused) {
-      loadMyRoles();
-    }
-  }, [isFocused, loadMyRoles]);
+    if (!isFocused) return;
+    const silent = homeBootstrappedRef.current === accountId;
+    loadMyRoles({ silent }).catch(() => {});
+  }, [isFocused, loadMyRoles, accountId]);
 
   useEffect(() => {
     if (!isFocused) return;
@@ -2068,30 +2051,44 @@ export default function HomeScreen() {
     if (!user?.id) return;
 
     const handle = setInterval(() => {
-      loadMyRoles().catch(() => {});
+      loadMyRoles({ silent: true }).catch(() => {});
     }, 30000);
 
     return () => clearInterval(handle);
   }, [isFocused, selectedAccount?.id, user?.id, loadMyRoles]);
 
+  /* ── Main focus effect (load once per account) ── */
   useFocusEffect(
     useCallback(() => {
       if (!accountId) return;
+
+      const isFirstLoadForAccount = homeBootstrappedRef.current !== accountId;
+
       let cancelled = false;
       (async () => {
         try {
-          await Promise.all([
-            membersHook.refresh({ force: true }),
-            staffHook.refresh({ force: true }),
-            loadMyRoles(),
-          ]);
-          await refreshProfile();
+          if (isFirstLoadForAccount) {
+            // First visit → full load with spinner.
+            await Promise.all([
+              membersHook.refresh({ force: true }),
+              staffHook.refresh({ force: true }),
+              loadMyRoles({ silent: false }),
+            ]);
+            await refreshProfile();
+            if (!cancelled) {
+              homeBootstrappedRef.current = accountId;
+            }
+          } else {
+            // Already loaded → silent role verification only.
+            await loadMyRoles({ silent: true });
+          }
         } catch (e) {
           if (!cancelled) {
             console.warn("[home] focus refresh failed:", e);
           }
         }
       })();
+
       return () => {
         cancelled = true;
       };
@@ -2150,7 +2147,6 @@ export default function HomeScreen() {
     }
   };
 
-  /* ── Accept / Reject ownership transfer ── */
   const handleAcceptOwnership = async (offer: PendingOwnershipOffer) => {
     const token = await getAuthToken();
     if (!token) return;
@@ -2209,7 +2205,6 @@ export default function HomeScreen() {
     }
   };
 
-  /* ── Accept / Reject visibility invites ── */
   const handleAcceptVisibility = async (offer: PendingVisibilityOffer) => {
     const token = await getAuthToken();
     if (!token) return;
@@ -2268,7 +2263,6 @@ export default function HomeScreen() {
     }
   };
 
-  /* ── Withdraw modal ── */
   const openWithdrawModal = useCallback(async () => {
     if (!selectedAccount?.id || !user?.id) return;
 
@@ -2445,7 +2439,6 @@ export default function HomeScreen() {
     };
   }, [selectedAccount?.id]);
 
-  /* ── Fetch attendance for own staff profiles across all accounts ── */
   useEffect(() => {
     if (!user?.id) return;
     if (!accounts.length) return;
@@ -2581,7 +2574,6 @@ export default function HomeScreen() {
   const overallNet = openingBalance + allTime.net;
   const isOverallPositive = overallNet >= 0;
 
-  /* ── Self bill download ── */
   const handleSelfDownloadBill = useCallback(
     async (opts: {
       member: any;
@@ -2716,8 +2708,6 @@ export default function HomeScreen() {
             ? ("maintenance" as const)
             : ("salary" as const),
           staffRole: opts.isApartment ? undefined : opts.member.role,
-
-          // ── NEW: tenant + society photo support ──
           isTenantAccount,
           societyPhotoUri: (selectedAccount as any)?.photoUri ?? null,
         };
@@ -2799,10 +2789,6 @@ export default function HomeScreen() {
     router.push("/(modals)/edit-profile");
   };
 
-  /* ============================================================
-     PROFILE BLOCK
-     ============================================================ */
-
   const renderProfileBlock = () => {
     const hasMembers = matchedMemberProfiles.length > 0;
     const hasStaff = matchedStaffProfiles.length > 0;
@@ -2874,7 +2860,6 @@ export default function HomeScreen() {
               </TouchableOpacity>
             ) : null}
 
-            {/* ── MEMBER ROWS ─────────────────────────────────── */}
             {hasMembers ? (
               <View style={styles.groupCard}>
                 <Pressable
@@ -2954,10 +2939,8 @@ export default function HomeScreen() {
                           ]}
                           onPress={handleOpenMembersGroup}
                         >
-                          {/* LEFT: Wing / Flat / Area / Role / Amount inline */}
                           <View style={styles.roleRowLeft}>
                             <View style={styles.roleRowInline}>
-                              {/* Wing chip */}
                               {recordChips.find((c) => c.key === "wing") ? (
                                 <View style={styles.unitChip}>
                                   <Ionicons
@@ -2977,7 +2960,6 @@ export default function HomeScreen() {
                                 </View>
                               ) : null}
 
-                              {/* Flat / Room chip (with icon) */}
                               {recordChips.find((c) => c.key === "flat") ? (
                                 <View style={styles.unitChip}>
                                   <Ionicons
@@ -2997,7 +2979,6 @@ export default function HomeScreen() {
                                 </View>
                               ) : null}
 
-                              {/* Area chip (with icon) */}
                               {recordChips.find((c) => c.key === "area") ? (
                                 <View style={styles.unitChip}>
                                   <Ionicons
@@ -3017,7 +2998,6 @@ export default function HomeScreen() {
                                 </View>
                               ) : null}
 
-                              {/* Role chip */}
                               <View
                                 style={[
                                   styles.roleInlineChip,
@@ -3038,7 +3018,6 @@ export default function HomeScreen() {
                                 </Text>
                               </View>
 
-                              {/* Monthly amount */}
                               <Text
                                 style={styles.roleInlineAmount}
                                 numberOfLines={1}
@@ -3048,7 +3027,6 @@ export default function HomeScreen() {
                             </View>
                           </View>
 
-                          {/* RIGHT: paid amount + paid date only */}
                           <View style={styles.roleRowRight}>
                             <Text
                               style={[
@@ -3125,7 +3103,6 @@ export default function HomeScreen() {
               </View>
             ) : null}
 
-            {/* ── STAFF ROWS ──────────────────────────────────── */}
             {hasStaff ? (
               <View style={styles.groupCard}>
                 <Pressable
@@ -3208,10 +3185,8 @@ export default function HomeScreen() {
                           ]}
                           onPress={handleOpenStaffGroup}
                         >
-                          {/* LEFT: Role / Amount / Paid days inline */}
                           <View style={styles.roleRowLeft}>
                             <View style={styles.roleRowInline}>
-                              {/* Role chip */}
                               <View
                                 style={[
                                   styles.roleInlineChip,
@@ -3232,7 +3207,6 @@ export default function HomeScreen() {
                                 </Text>
                               </View>
 
-                              {/* Monthly amount */}
                               <Text
                                 style={styles.roleInlineAmount}
                                 numberOfLines={1}
@@ -3240,7 +3214,6 @@ export default function HomeScreen() {
                                 {formatCurrency(baseSalary)}/mo
                               </Text>
 
-                              {/* Paid days chip (non-admin view) */}
                               {!isAdmin && paidDays != null ? (
                                 <View style={styles.roleInlinePaidDays}>
                                   <Ionicons
@@ -3257,7 +3230,6 @@ export default function HomeScreen() {
                             </View>
                           </View>
 
-                          {/* RIGHT: paid amount + paid date only */}
                           <View style={styles.roleRowRight}>
                             <Text
                               style={[
@@ -3359,10 +3331,6 @@ export default function HomeScreen() {
       </>
     );
   };
-
-  /* ============================================================
-     ATTENDANCE MODAL
-     ============================================================ */
 
   const renderAttendanceModal = () => {
     const visible = !!attendanceModalStaffId;
@@ -3733,10 +3701,6 @@ export default function HomeScreen() {
         ? "Staff Portal"
         : "Portal";
 
-  /* ============================================================
-     NON-ADMIN VIEW
-     ============================================================ */
-
   if (!isAdmin && (isMember || isStaff)) {
     return (
       <DarkModeBoundary>
@@ -3918,10 +3882,6 @@ export default function HomeScreen() {
       </DarkModeBoundary>
     );
   }
-
-  /* ============================================================
-     ADMIN VIEW
-     ============================================================ */
 
   return (
     <DarkModeBoundary>

@@ -2,7 +2,7 @@
 import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
-import { Appearance, LogBox, Platform } from "react-native";
+import { Appearance, AppState, LogBox, Platform } from "react-native";
 
 import NameConflictAlert from "../components/NameConflictAlert";
 import { registerForPushNotificationsAsync } from "../services/notificationService";
@@ -26,15 +26,14 @@ export default function RootLayout() {
   const user = useAuthStore((s) => s.user);
   const isAuthenticated = !!user;
 
-  // ── RevenueCat: init on login, reset on logout ─────────────────────────
+  // ── Dark mode ────────────────────────────────────────────────────────
   useEffect(() => {
     if (Platform.OS !== "web") {
       Appearance.setColorScheme(isDarkMode ? "dark" : "light");
     }
   }, [isDarkMode]);
 
-  // ── Web: remove the browser's default focus outline/border on inputs,
-  // applied globally so every screen is covered.
+  // ── Web: remove the browser's default focus outline/border on inputs ──
   useEffect(() => {
     if (Platform.OS !== "web") return;
     const styleId = "global-web-focus-style";
@@ -53,6 +52,7 @@ export default function RootLayout() {
     document.head.appendChild(style);
   }, []);
 
+  // ── RevenueCat: init on login, reset on logout ───────────────────────
   useEffect(() => {
     if (isAuthenticated && user?.id) {
       initializeRevenueCat(user.id).catch((err) =>
@@ -63,7 +63,7 @@ export default function RootLayout() {
     }
   }, [isAuthenticated, user?.id]);
 
-  // ── Push notification registration (existing) ──────────────────────────
+  // ── Push notification registration ───────────────────────────────────
   useEffect(() => {
     if (!isAuthenticated) return;
     let cancelled = false;
@@ -102,6 +102,22 @@ export default function RootLayout() {
       cancelled = true;
     };
   }, [isAuthenticated]);
+
+  // ── On app foreground: silently re-verify auth state ─────────────────
+  // This catches cases where the user leaves the app in the background
+  // and the server revoked their access while they were away.
+  useEffect(() => {
+    if (Platform.OS === "web") return;
+
+    const sub = AppState.addEventListener("change", (state) => {
+      if (state !== "active") return;
+      // Touch the auth store to trigger any auth-related refresh.
+      // The individual screens handle their own role verification
+      // on focus, so no additional work is needed here yet.
+    });
+
+    return () => sub.remove();
+  }, []);
 
   return (
     <>

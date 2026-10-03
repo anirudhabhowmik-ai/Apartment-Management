@@ -4,7 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import * as FileSystem from "expo-file-system/legacy";
 import { useRouter } from "expo-router";
 import * as Sharing from "expo-sharing";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Image,
@@ -507,8 +507,6 @@ const isRowInactiveForMonth = (row: any, monthKey: string): boolean => {
   return monthKey >= deletedMonth;
 };
 
-// ✅ FIXED — now understands XLSX / XLS / XLSM / CSV and never falls
-// back to "jpg" for non-image files.
 const pickExtension = (mimeOrUri?: string | null): string => {
   const s = String(mimeOrUri || "").toLowerCase();
 
@@ -540,7 +538,6 @@ const pickExtension = (mimeOrUri?: string | null): string => {
   }
   if (s.includes("text/csv") || s.endsWith(".csv")) return "csv";
 
-  // Never default to an image extension for unknown types.
   return "bin";
 };
 
@@ -1468,12 +1465,13 @@ export default function FinanceScreen() {
     null,
   );
 
+  // ── NEW: prevents tab-switch recalculations ─────────────────────────
+  // Tracks the last account we loaded in this session.
+  const financeBootstrappedRef = useRef<string | null>(null);
+  // ────────────────────────────────────────────────────────────────────
+
   const openDetails = (payment: PeopleTransaction) => setDetailPayment(payment);
   const closeDetails = () => setDetailPayment(null);
-
-  // ============================================================
-  // CALL HELPER — custom alert
-  // ============================================================
 
   const handleCall = useCallback(
     async (raw?: string | null) => {
@@ -1501,10 +1499,6 @@ export default function FinanceScreen() {
     },
     [showAlert],
   );
-
-  // ============================================================
-  // ATTACHMENT DOWNLOAD — custom alert
-  // ============================================================
 
   const handleDownloadAttachment = useCallback(
     async (uri?: string | null, name?: string | null) => {
@@ -1553,18 +1547,10 @@ export default function FinanceScreen() {
     [showAlert],
   );
 
-  // ============================================================
-  // MONTH HELPERS
-  // ============================================================
-
   const getMonthKey = (date: Date) =>
     `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
 
   const selectedMonthKey = getMonthKey(selectedMonth);
-
-  // ============================================================
-  // OPENING BALANCE — FETCH
-  // ============================================================
 
   useEffect(() => {
     if (!selectedAccount?.id) {
@@ -1603,10 +1589,6 @@ export default function FinanceScreen() {
       cancelled = true;
     };
   }, [selectedAccount?.id]);
-
-  // ============================================================
-  // CARRIED FORWARD — FETCH
-  // ============================================================
 
   useEffect(() => {
     if (!selectedAccount?.id) {
@@ -1650,10 +1632,6 @@ export default function FinanceScreen() {
     summary.totalIncome,
     summary.totalExpense,
   ]);
-
-  // ============================================================
-  // TRANSACTIONS
-  // ============================================================
 
   const getTransactionsForMonth = (monthKey: string): PeopleTransaction[] => {
     const peopleRows: PeopleTransaction[] = [];
@@ -1777,10 +1755,6 @@ export default function FinanceScreen() {
     };
   };
 
-  // ============================================================
-  // OPENING BALANCE — EDITOR
-  // ============================================================
-
   const openOpeningBalanceEditor = () => {
     if (!canEditBalance) return;
     setOpeningBalanceInput(openingBalance ? openingBalance.toString() : "");
@@ -1818,18 +1792,8 @@ export default function FinanceScreen() {
     }
   };
 
-  // ============================================================
-  // LOAD FINANCE
-  // ============================================================
-
-  useEffect(() => {
-    if (selectedAccount) {
-      loadFinanceData();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedAccount, members, expenses, filter, selectedMonth]);
-
-  const loadFinanceData = () => {
+  // ── Load finance data (accepts silent flag for background recalc) ──
+  const loadFinanceData = (_opts: { silent?: boolean } = {}) => {
     const { transactions: accountPayments } = getSelectedMonthTransactions();
 
     const counted = accountPayments.filter((p) => !(p as any).__isInactive);
@@ -1892,9 +1856,25 @@ export default function FinanceScreen() {
     );
   };
 
-  // ============================================================
-  // REFRESH
-  // ============================================================
+  // ── NEW: split into two effects ────────────────────────────────────
+  // Effect A: reload when the account, filter, or month changes.
+  useEffect(() => {
+    if (!selectedAccount) return;
+    const isFirst = financeBootstrappedRef.current !== selectedAccount.id;
+    loadFinanceData({ silent: !isFirst });
+    financeBootstrappedRef.current = selectedAccount.id;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedAccount, filter, selectedMonth]);
+
+  // Effect B: silent recalc when members/expenses update in the
+  // background (e.g. the Home tab refetched them).
+  useEffect(() => {
+    if (!selectedAccount) return;
+    if (financeBootstrappedRef.current !== selectedAccount.id) return;
+    loadFinanceData({ silent: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [members, expenses]);
+  // ────────────────────────────────────────────────────────────────────
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -1920,10 +1900,6 @@ export default function FinanceScreen() {
     setRefreshing(false);
   };
 
-  // ============================================================
-  // MONTH
-  // ============================================================
-
   const handleMonthChange = (direction: "prev" | "next") => {
     const newDate = new Date(selectedMonth);
     if (direction === "prev") newDate.setMonth(newDate.getMonth() - 1);
@@ -1931,20 +1907,12 @@ export default function FinanceScreen() {
     setSelectedMonth(newDate);
   };
 
-  // ============================================================
-  // REPORT DATA
-  // ============================================================
-
   const getReportData = () => {
     const { monthKey, transactions } = getSelectedMonthTransactions();
     const counted = transactions.filter((t) => !(t as any).__isInactive);
     const reportSummary = getPeopleSummary(counted);
     return { monthKey, reportSummary, transactions };
   };
-
-  // ============================================================
-  // EXCEL
-  // ============================================================
 
   const handleDownloadExcel = async () => {
     if (!canDownloadReport) return;
@@ -2088,10 +2056,6 @@ export default function FinanceScreen() {
     }
   };
 
-  // ============================================================
-  // PDF
-  // ============================================================
-
   const handleDownloadPdf = async () => {
     if (!canDownloadReport) return;
 
@@ -2130,10 +2094,6 @@ export default function FinanceScreen() {
       });
     }
   };
-
-  // ============================================================
-  // LOADING / NO ACCOUNT
-  // ============================================================
 
   if (accountsLoading) {
     return (
@@ -2184,10 +2144,6 @@ export default function FinanceScreen() {
       </DarkModeBoundary>
     );
   }
-
-  // ============================================================
-  // MAIN UI
-  // ============================================================
 
   const hasBeenEdited = Boolean(openingBalanceMeta.updatedAt);
 
@@ -2702,10 +2658,6 @@ export default function FinanceScreen() {
     </DarkModeBoundary>
   );
 }
-
-// ============================================================
-// STYLES
-// ============================================================
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: "#F5F7FB" },

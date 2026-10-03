@@ -9,7 +9,7 @@ import * as FileSystemModern from "expo-file-system";
 import * as FileSystem from "expo-file-system/legacy";
 import * as ImagePicker from "expo-image-picker";
 import * as Sharing from "expo-sharing";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -1020,6 +1020,7 @@ function CalendarScreenImpl() {
 
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [tempSelectedDate, setTempSelectedDate] = useState<Date>(new Date());
+  const calendarBootstrappedRef = useRef<string | null>(null);
 
   const monthKey = `${currentMonth.getFullYear()}-${pad(
     currentMonth.getMonth() + 1,
@@ -1053,10 +1054,14 @@ function CalendarScreenImpl() {
   );
 
   useEffect(() => {
-    if (token === undefined) return;
-    if (token === null) return;
-    load();
-  }, [load, token]);
+    if (token === undefined || token === null) return;
+    if (!accountId) return;
+
+    const isFirst = calendarBootstrappedRef.current !== accountId;
+    load({ silent: !isFirst });
+    calendarBootstrappedRef.current = accountId;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountId, monthKey, token, load]);
 
   useEffect(() => {
     if (!viewingEvent) return;
