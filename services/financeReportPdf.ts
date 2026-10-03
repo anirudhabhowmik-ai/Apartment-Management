@@ -17,13 +17,9 @@ interface FinanceReportPdfInput {
 }
 
 export interface FinanceReportPdfResult {
-  /** true = file was saved, false = user cancelled the folder picker */
   saved: boolean;
-  /** File name shown to the user, e.g. "apartment-management-finance-2024-12.pdf" */
   fileName: string;
-  /** Full URI where the file was written (cache + SAF destination). */
   fileUri: string;
-  /** Optional human message from the OS layer (share sheet, etc.). */
   message?: string;
 }
 
@@ -346,7 +342,7 @@ function buildFinanceReportHtml({
 }
 
 /* ================================================================
-   WEB — HTML to PDF via html2pdf.js (same HTML as native)
+   WEB — HTML to PDF via html2pdf.js
 ================================================================ */
 
 async function generateFinanceReportDataUriOnWeb(
@@ -358,26 +354,25 @@ async function generateFinanceReportDataUriOnWeb(
 
   const html = buildFinanceReportHtml(params);
 
-  // Dynamic import so the library only loads on web when the user taps
-  // Download. Native paths never reach this code.
   const mod: any = await import("html2pdf.js" as any);
   const html2pdf = mod?.default ?? mod;
 
-  // Render into an off-screen container so it never touches the UI.
+  const parsed = new DOMParser().parseFromString(html, "text/html");
+  const bodyHtml = parsed.body ? parsed.body.innerHTML : html;
+
   const container = document.createElement("div");
   container.style.position = "fixed";
   container.style.left = "-100000px";
   container.style.top = "0";
   container.style.width = "800px";
   container.style.background = "#ffffff";
-  container.innerHTML = html;
+  container.innerHTML = bodyHtml;
   document.body.appendChild(container);
 
   try {
     const worker = html2pdf()
       .set({
         margin: 0,
-        filename: "finance-report.pdf",
         image: { type: "jpeg", quality: 0.98 },
         html2canvas: {
           scale: 2,
@@ -392,12 +387,24 @@ async function generateFinanceReportDataUriOnWeb(
         },
         pagebreak: { mode: ["css", "legacy"] },
       })
-      .from(container.firstElementChild ?? container);
+      .from(container);
 
-    const dataUri: string = await worker.outputPdf("datauristring");
+    await worker.toPdf();
+
+    const pdf: any = worker.get("pdf");
+    if (!pdf) {
+      throw new Error("Could not access the jsPDF instance.");
+    }
+
+    const dataUri: string =
+      typeof pdf.output === "function"
+        ? pdf.output("datauristring")
+        : String(pdf.output());
 
     if (!dataUri || !dataUri.startsWith("data:application/pdf;base64,")) {
-      throw new Error("html2pdf did not return a PDF data URI.");
+      throw new Error(
+        `html2pdf returned an unexpected output (${typeof dataUri}).`,
+      );
     }
 
     return dataUri;
@@ -422,9 +429,7 @@ export const downloadFinanceReportPdf = async ({
   const fileName = `apartment-management-finance-${safeMonth}.pdf`;
 
   /* ------------------------------------------------------------
-     WEB — styled PDF via html2pdf.js (no print dialog). Returns a
-     real data: URI that downloadWebFile hands to the browser as a
-     direct <a download>.
+     WEB — styled PDF via html2pdf.js (no print dialog).
   ------------------------------------------------------------ */
   if (Platform.OS === "web") {
     const fileUri = await generateFinanceReportDataUriOnWeb({
@@ -481,19 +486,12 @@ export const downloadFinanceReportPdf = async ({
     throw new Error("PDF was written but could not be verified on disk.");
   }
 
-  /* ==============================================================
-     ANDROID — save directly to a user-chosen folder using SAF.
-  ============================================================== */
   if (Platform.OS === "android") {
     const permissions =
       await FileSystem.StorageAccessFramework.requestDirectoryPermissionsAsync();
 
     if (!permissions.granted) {
-      return {
-        saved: false,
-        fileName,
-        fileUri,
-      };
+      return { saved: false, fileName, fileUri };
     }
 
     const base64Bytes = await FileSystem.readAsStringAsync(fileUri, {
@@ -510,16 +508,9 @@ export const downloadFinanceReportPdf = async ({
       encoding: FileSystem.EncodingType.Base64,
     });
 
-    return {
-      saved: true,
-      fileName,
-      fileUri: destUri,
-    };
+    return { saved: true, fileName, fileUri: destUri };
   }
 
-  /* ==============================================================
-     iOS — share sheet fallback (no "save to folder" API exists).
-  ============================================================== */
   const canShare = await Sharing.isAvailableAsync();
   if (!canShare) {
     throw new Error("Sharing is not available on this device.");
@@ -531,9 +522,5 @@ export const downloadFinanceReportPdf = async ({
     UTI: "com.adobe.pdf",
   });
 
-  return {
-    saved: true,
-    fileName,
-    fileUri,
-  };
+  return { saved: true, fileName, fileUri };
 };

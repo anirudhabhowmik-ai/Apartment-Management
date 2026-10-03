@@ -874,21 +874,25 @@ async function generateBillPdfDataUriOnWeb(data: BillData): Promise<string> {
   const mod: any = await import("html2pdf.js" as any);
   const html2pdf = mod?.default ?? mod;
 
-  // Render into an off-screen container so it never touches the UI.
+  // Parse the full HTML document and extract only the <body> content so
+  // html2pdf renders the bill itself, not <html>/<head>/<style>.
+  const parsed = new DOMParser().parseFromString(html, "text/html");
+  const bodyHtml = parsed.body ? parsed.body.innerHTML : html;
+
+  // Off-screen container so the rendered layout never affects the UI.
   const container = document.createElement("div");
   container.style.position = "fixed";
   container.style.left = "-100000px";
   container.style.top = "0";
   container.style.width = "800px";
   container.style.background = "#ffffff";
-  container.innerHTML = html;
+  container.innerHTML = bodyHtml;
   document.body.appendChild(container);
 
   try {
     const worker = html2pdf()
       .set({
         margin: 0,
-        filename: "bill.pdf",
         image: { type: "jpeg", quality: 0.98 },
         html2canvas: {
           scale: 2,
@@ -903,12 +907,27 @@ async function generateBillPdfDataUriOnWeb(data: BillData): Promise<string> {
         },
         pagebreak: { mode: ["css", "legacy"] },
       })
-      .from(container.firstElementChild ?? container);
+      .from(container);
 
-    const dataUri: string = await worker.outputPdf("datauristring");
+    // Render into the worker's internal jsPDF instance.
+    await worker.toPdf();
+
+    // Read the data URI directly from jsPDF — more reliable than
+    // worker.outputPdf(), whose return type varies across versions.
+    const pdf: any = worker.get("pdf");
+    if (!pdf) {
+      throw new Error("Could not access the jsPDF instance.");
+    }
+
+    const dataUri: string =
+      typeof pdf.output === "function"
+        ? pdf.output("datauristring")
+        : String(pdf.output());
 
     if (!dataUri || !dataUri.startsWith("data:application/pdf;base64,")) {
-      throw new Error("html2pdf did not return a PDF data URI.");
+      throw new Error(
+        `html2pdf returned an unexpected output (${typeof dataUri}).`,
+      );
     }
 
     return dataUri;
