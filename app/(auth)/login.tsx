@@ -89,7 +89,8 @@ const LEGAL_URLS = {
 // APK DOWNLOAD URL
 // ================================================================
 
-const APK_DOWNLOAD_URL = "/apartment-management.apk";
+const APK_DOWNLOAD_URL =
+  "https://github.com/anirudhabhowmik-ai/Apartment-Management/releases/download/v1.0.1/apartment-management.apk";
 
 // ================================================================
 // INLINE SVG PHONE MOCKUP
