@@ -1,7 +1,6 @@
 // services/otpService.web.ts
-// Web-only implementation. Uses the backend as a proxy to MSG91 so the
-// browser never hits control.msg91.com directly (which would be blocked
-// by CORS). Native uses otpService.ts and the MSG91 SDK.
+// Shared web/native implementation. Uses the backend as a proxy to MSG91 so
+// client bundles never contain widget credentials or call MSG91 directly.
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type {

@@ -1,5 +1,4 @@
 // services/otpService.ts
-import { OTPWidget } from "@msg91comm/sendotp-react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type {
   SendOtpResponse,
@@ -13,8 +12,6 @@ export type {
   VerifyOtpResponse
 } from "./otpTypes";
 
-const MSG91_WIDGET_ID = process.env.EXPO_PUBLIC_MSG91_WIDGET_ID;
-const MSG91_TOKEN = process.env.MSG91_WIDGET_TOKEN;
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
 
 const REQ_ID_STORAGE_PREFIX = "msg91_reqid:";
@@ -27,8 +24,6 @@ function toTenDigits(phone: string): string {
   if (digits.length > 10) digits = digits.slice(-10);
   return digits;
 }
-
-let widgetInitialized = false;
 
 const reqIdByPhone: Record<string, string> = {};
 
@@ -73,17 +68,6 @@ function getMsg91ErrorMessage(message?: unknown): string {
   return "Unable to process OTP. Please try again.";
 }
 
-function initializeWidget() {
-  if (widgetInitialized) return;
-  if (!MSG91_WIDGET_ID || !MSG91_TOKEN) {
-    throw new Error(
-      "MSG91 Widget configuration is missing. Check EXPO_PUBLIC_MSG91_WIDGET_ID and MSG91_WIDGET_TOKEN.",
-    );
-  }
-  OTPWidget.initializeWidget(MSG91_WIDGET_ID, MSG91_TOKEN);
-  widgetInitialized = true;
-}
-
 function normalizePhoneForMsg91(phone: string): string | null {
   let digits = String(phone ?? "").replace(/\D/g, "");
   if (digits.length === 10) digits = `91${digits}`;
@@ -100,34 +84,39 @@ export async function sendOtp(phone: string): Promise<SendOtpResponse> {
       return { success: true, message: "OTP sent successfully." };
     }
 
-    initializeWidget();
-
     const identifier = normalizePhoneForMsg91(phone);
     if (!identifier) {
       return { success: false, message: "Invalid Indian phone number." };
     }
+    if (!API_BASE_URL) {
+      return { success: false, message: "Backend API URL is not configured." };
+    }
 
-    console.log("[otpService] Sending OTP through MSG91 for", identifier);
+    const response = await fetch(`${API_BASE_URL}/auth/send-widget-otp`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone: identifier }),
+    });
+    const data: any = await response.json().catch(() => null);
 
-    const response = await OTPWidget.sendOTP({ identifier });
-    console.log("[otpService] MSG91 send OTP response:", response);
-
-    const reqId =
-      response?.message ||
-      response?.reqId ||
-      response?.["req-id"] ||
-      response?.data?.reqId;
-
-    if (response?.type !== "success" || !reqId) {
-      console.error("[otpService] MSG91 send OTP failed:", response);
+    if (!response.ok || data?.type !== "success") {
+      console.error("[otpService] Backend send-widget-otp failed:", response.status, data);
       return {
         success: false,
-        message: getMsg91ErrorMessage(response?.message),
+        message: getMsg91ErrorMessage(data?.message),
+      };
+    }
+
+    const reqId = data?.message;
+    if (!reqId) {
+      return {
+        success: false,
+        message: "OTP was not sent correctly. Please try again.",
       };
     }
 
     await setReqId(identifier, String(reqId));
-    console.log("[otpService] reqId saved for", identifier, "→", reqId);
+    console.log("[otpService] reqId saved for", identifier);
 
     return { success: true, message: "OTP sent successfully." };
   } catch (error) {
@@ -145,8 +134,6 @@ async function msg91VerifyAndGetAccessToken(
   identifier?: string;
   message?: string;
 }> {
-  initializeWidget();
-
   const identifier = normalizePhoneForMsg91(phone);
   if (!identifier) {
     return { success: false, message: "Invalid Indian phone number." };
@@ -176,20 +163,26 @@ async function msg91VerifyAndGetAccessToken(
     };
   }
 
-  console.log("[otpService] Verifying OTP with MSG91 reqId:", reqId);
+  if (!API_BASE_URL) {
+    return { success: false, message: "Backend API URL is not configured." };
+  }
 
-  const response = await OTPWidget.verifyOTP({ reqId, otp });
-  console.log("[otpService] MSG91 verify response:", response);
+  const response = await fetch(`${API_BASE_URL}/auth/verify-widget-otp`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ reqId, otp }),
+  });
+  const data: any = await response.json().catch(() => null);
 
-  if (response?.type !== "success") {
-    console.error("[otpService] MSG91 verify failed:", response);
+  if (!response.ok || data?.type !== "success") {
+    console.error("[otpService] Backend verify-widget-otp failed:", response.status, data);
     return {
       success: false,
-      message: getMsg91ErrorMessage(response?.message),
+      message: getMsg91ErrorMessage(data?.message),
     };
   }
 
-  const accessToken = response?.message;
+  const accessToken = data?.message;
   if (!accessToken) {
     console.error(
       "[otpService] MSG91 verify succeeded but no access token was returned:",
