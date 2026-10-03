@@ -100,7 +100,11 @@ export async function sendOtp(phone: string): Promise<SendOtpResponse> {
     const data: any = await response.json().catch(() => null);
 
     if (!response.ok || data?.type !== "success") {
-      console.error("[otpService] Backend send-widget-otp failed:", response.status, data);
+      console.error(
+        "[otpService] Backend send-widget-otp failed:",
+        response.status,
+        data,
+      );
       return {
         success: false,
         message: getMsg91ErrorMessage(data?.message),
@@ -175,7 +179,11 @@ async function msg91VerifyAndGetAccessToken(
   const data: any = await response.json().catch(() => null);
 
   if (!response.ok || data?.type !== "success") {
-    console.error("[otpService] Backend verify-widget-otp failed:", response.status, data);
+    console.error(
+      "[otpService] Backend verify-widget-otp failed:",
+      response.status,
+      data,
+    );
     return {
       success: false,
       message: getMsg91ErrorMessage(data?.message),

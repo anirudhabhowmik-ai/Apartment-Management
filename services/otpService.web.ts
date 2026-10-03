@@ -4,13 +4,15 @@
 
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import type {
-    SendOtpResponse,
-    VerifyOtpOnlyResponse,
-    VerifyOtpResponse,
+  SendOtpResponse,
+  VerifyOtpOnlyResponse,
+  VerifyOtpResponse,
 } from "./otpTypes";
 
 export type {
-    SendOtpResponse, VerifyOtpOnlyResponse, VerifyOtpResponse
+  SendOtpResponse,
+  VerifyOtpOnlyResponse,
+  VerifyOtpResponse
 } from "./otpTypes";
 
 const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL;
