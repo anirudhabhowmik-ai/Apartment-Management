@@ -494,7 +494,13 @@ export default function LoginScreen() {
                 </View>
               </View>
 
-              <Text style={[styles.title, isWideWeb && styles.titleWide]}>
+              <Text
+                style={[
+                  styles.title,
+                  width < 360 && styles.titleCompact,
+                  isWideWeb && styles.titleWide,
+                ]}
+              >
                 Apartment Management
               </Text>
               <Text style={[styles.subtitle, isWideWeb && styles.subtitleWide]}>
@@ -814,12 +820,14 @@ const styles = StyleSheet.create({
   },
   logoImage: { width: 38, height: 38 },
   title: {
-    fontSize: 30,
+    fontSize: 24,
+    lineHeight: 32,
     fontWeight: "700",
     color: "#17372E",
     letterSpacing: 0,
   },
-  titleWide: { color: "#FFFFFF" },
+  titleCompact: { fontSize: 21, lineHeight: 28 },
+  titleWide: { color: "#FFFFFF", fontSize: 30, lineHeight: 38 },
   subtitle: {
     fontSize: 15,
     color: "#64746C",
@@ -895,6 +903,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingLeft: 14,
     paddingRight: 10,
+    flexShrink: 0,
   },
   prefix: { fontSize: 16, color: "#333", fontWeight: "600" },
   divider: {
@@ -905,6 +914,8 @@ const styles = StyleSheet.create({
   },
   input: {
     flex: 1,
+    flexShrink: 1,
+    minWidth: 0,
     height: 56,
     fontSize: 16,
     color: "#1a1a1a",
@@ -912,7 +923,9 @@ const styles = StyleSheet.create({
     ...(Platform.OS === "web" ? ({ outlineStyle: "none" } as any) : {}),
   },
   contactIcon: {
-    padding: 12,
+    width: 44,
+    height: 44,
+    flexShrink: 0,
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: "#E5F3ED",
