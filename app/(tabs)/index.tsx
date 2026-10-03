@@ -961,7 +961,7 @@ function ProfileCard({ user, onEdit }: { user: any; onEdit: () => void }) {
           </View>
         </View>
         <View style={styles.profileEditChip}>
-          <Ionicons name="create-outline" size={14} color="#2563EB" />
+          <Ionicons name="create-outline" size={14} color="#126B58" />
           <Text style={styles.profileEditText}>Edit</Text>
         </View>
       </View>
@@ -4299,14 +4299,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 10,
-    backgroundColor: "#EFF6FF",
+    backgroundColor: "#E5F3ED",
     borderWidth: 1,
-    borderColor: "#DBEAFE",
+    borderColor: "#C9E3D8",
   },
   profileEditText: {
     fontSize: 12,
     fontWeight: "700",
-    color: "#2563EB",
+    color: "#126B58",
   },
 
   myRolesCard: {
