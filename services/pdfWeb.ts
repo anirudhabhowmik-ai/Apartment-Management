@@ -51,8 +51,8 @@ async function ensurePdfLibsLoaded(): Promise<void> {
  * Renders a full HTML document (including <head><style>) to a PDF
  * and triggers a silent browser download.
  *
- * IMPORTANT: pass the entire HTML document string, not just the body,
- * so all CSS is preserved and the web PDF matches the native one.
+ * The rendering container hugs its content (inline-block + explicit
+ * padding) so the resulting PDF has no empty side gaps.
  */
 export async function htmlToPdfDownload(
   fullHtmlDocument: string,
@@ -64,35 +64,45 @@ export async function htmlToPdfDownload(
 
   await ensurePdfLibsLoaded();
 
-  // 1. Parse the whole document.
+  // Parse the whole document.
   const parsed = new DOMParser().parseFromString(fullHtmlDocument, "text/html");
 
-  // 2. Collect all <style> blocks (from <head> AND <body>).
+  // Collect all <style> blocks (head + body) so the render keeps
+  // the intended styling.
   const styleTags = Array.from(parsed.querySelectorAll("style"))
     .map((el) => el.outerHTML)
     .join("\n");
 
-  // 3. Take only the body content, but re-attach the styles.
+  // Take only the body content, but re-attach the styles.
   const bodyHtml = parsed.body ? parsed.body.innerHTML : fullHtmlDocument;
 
-  // 4. Build an off-screen container with styles inlined so
-  //    html2canvas renders with full fidelity.
+  // Build an off-screen container that hugs its content and owns the
+  // outer padding. This prevents html2canvas from rendering a wide
+  // blank gutter on either side.
   const container = document.createElement("div");
   container.style.position = "fixed";
   container.style.left = "-100000px";
   container.style.top = "0";
-  container.style.width = "800px";
+  container.style.width = "1000px";
   container.style.background = "#ffffff";
+  container.style.display = "inline-block";
+  container.style.padding = "40px 44px";
+  container.style.boxSizing = "border-box";
+  container.style.fontFamily =
+    "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif";
+  container.style.color = "#0f172a";
   container.innerHTML = `${styleTags}${bodyHtml}`;
   document.body.appendChild(container);
 
   try {
     const canvas = await window.html2canvas!(container, {
-      scale: 2,
+      scale: 2.5,
       useCORS: true,
       backgroundColor: "#ffffff",
       logging: false,
-      windowWidth: 800,
+      windowWidth: 1000,
+      width: container.scrollWidth,
+      height: container.scrollHeight,
     });
 
     const imgData = canvas.toDataURL("image/jpeg", 0.98);

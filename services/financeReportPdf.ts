@@ -131,11 +131,14 @@ function buildFinanceReportHtml({
   <style>
     * { box-sizing: border-box; }
 
+    /* The rendering container in pdfWeb.ts owns the outer padding.
+       Do NOT add body padding here — it fights the container and
+       produces a blank gutter on the left. */
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
       color: #0f172a;
       background: #ffffff;
-      padding: 36px 32px;
+      padding: 0;
       margin: 0;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
@@ -158,6 +161,7 @@ function buildFinanceReportHtml({
       color: #2563EB;
       margin: 0;
       letter-spacing: -0.5px;
+      line-height: 1.15;
     }
     .subtitle {
       font-size: 13px;
