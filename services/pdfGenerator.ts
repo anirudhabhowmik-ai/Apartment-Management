@@ -6,6 +6,7 @@ import { Alert, Platform } from "react-native";
 
 import type { SignatureData } from "../store/billStore";
 import { downloadWebFile } from "../utils/webFileDownload";
+import { extractBodyHtml, htmlFragmentToPdfDataUri } from "./pdfWeb";
 
 /* ================================================================
    TYPES
@@ -334,7 +335,7 @@ function buildHeaderHtml(
 }
 
 /* ================================================================
-   HTML BUILDER — shared by native (expo-print) AND web (html2pdf.js)
+   HTML BUILDER — shared by native (expo-print) AND web (jspdf)
 ================================================================ */
 
 async function buildBillHtml(data: BillData): Promise<string> {
@@ -859,87 +860,8 @@ async function buildBillHtml(data: BillData): Promise<string> {
 }
 
 /* ================================================================
-   WEB PDF — normalises jsPDF output safely across all its builds
+   WEB PDF
 ================================================================ */
-
-/**
- * Robustly turn whatever jsPDF's `.output()` returns into a
- * `data:application/pdf;base64,...` URI.
- */
-function coercePdfOutputToDataUri(pdf: any): string {
-  // 1. Explicitly ask for a data URI string.
-  let out: unknown = null;
-  try {
-    out = pdf.output("datauristring");
-  } catch {
-    out = null;
-  }
-
-  if (typeof out === "string") {
-    if (out.startsWith("data:application/pdf")) {
-      return out;
-    }
-    if (/^[A-Za-z0-9+/=]+$/.test(out) && out.length > 100) {
-      return `data:application/pdf;base64,${out}`;
-    }
-  }
-
-  // 2. Ask for raw bytes.
-  let raw: unknown = out;
-  if (raw == null) {
-    try {
-      raw = pdf.output("arraybuffer");
-    } catch {
-      raw = null;
-    }
-  }
-
-  if (raw instanceof ArrayBuffer) {
-    return arrayBufferToPdfDataUri(raw);
-  }
-
-  if (raw instanceof Uint8Array) {
-    // Copy bytes into a fresh Uint8Array so `.buffer` is a plain
-    // ArrayBuffer (not ArrayBufferLike / SharedArrayBuffer).
-    const copy = new Uint8Array(raw.byteLength);
-    copy.set(raw);
-    return arrayBufferToPdfDataUri(copy.buffer);
-  }
-
-  if (Array.isArray(raw)) {
-    return arrayBufferToPdfDataUri(new Uint8Array(raw).buffer);
-  }
-
-  // 3. Last resort: bare string form.
-  try {
-    const s = pdf.output();
-    if (typeof s === "string" && s.startsWith("data:application/pdf")) {
-      return s;
-    }
-  } catch {
-    // ignore
-  }
-
-  throw new Error(
-    `Could not convert jsPDF output to a data URI (got ${
-      raw == null ? "null" : typeof raw
-    }).`,
-  );
-}
-
-function arrayBufferToPdfDataUri(buf: ArrayBuffer): string {
-  const bytes = new Uint8Array(buf);
-  let binary = "";
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode.apply(
-      null,
-      Array.from(bytes.subarray(i, i + chunk)) as any,
-    );
-  }
-  const base64 = btoa(binary);
-  return `data:application/pdf;base64,${base64}`;
-}
 
 async function generateBillPdfDataUriOnWeb(data: BillData): Promise<string> {
   if (typeof window === "undefined" || typeof document === "undefined") {
@@ -947,53 +869,8 @@ async function generateBillPdfDataUriOnWeb(data: BillData): Promise<string> {
   }
 
   const html = await buildBillHtml(data);
-
-  const mod: any = await import("html2pdf.js" as any);
-  const html2pdf = mod?.default ?? mod;
-
-  const parsed = new DOMParser().parseFromString(html, "text/html");
-  const bodyHtml = parsed.body ? parsed.body.innerHTML : html;
-
-  const container = document.createElement("div");
-  container.style.position = "fixed";
-  container.style.left = "-100000px";
-  container.style.top = "0";
-  container.style.width = "800px";
-  container.style.background = "#ffffff";
-  container.innerHTML = bodyHtml;
-  document.body.appendChild(container);
-
-  try {
-    const worker = html2pdf()
-      .set({
-        margin: 0,
-        image: { type: "jpeg", quality: 0.98 },
-        html2canvas: {
-          scale: 2,
-          useCORS: true,
-          backgroundColor: "#ffffff",
-          logging: false,
-        },
-        jsPDF: {
-          unit: "pt",
-          format: "a4",
-          orientation: "portrait",
-        },
-        pagebreak: { mode: ["css", "legacy"] },
-      })
-      .from(container);
-
-    await worker.toPdf();
-
-    const pdf: any = worker.get("pdf");
-    if (!pdf) {
-      throw new Error("Could not access the jsPDF instance.");
-    }
-
-    return coercePdfOutputToDataUri(pdf);
-  } finally {
-    if (container.parentNode) container.parentNode.removeChild(container);
-  }
+  const bodyHtml = extractBodyHtml(html);
+  return htmlFragmentToPdfDataUri(bodyHtml, 800);
 }
 
 /* ================================================================
