@@ -54,6 +54,7 @@ const features = [
 export default function SeoLandingPage() {
   const { width } = useWindowDimensions();
   const isWide = width >= 840;
+  const isMobile = width < 600;
   const structuredData = {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
@@ -86,7 +87,7 @@ export default function SeoLandingPage() {
         style={styles.page}
         contentContainerStyle={styles.pageContent}
       >
-        <View style={styles.header}>
+        <View style={[styles.header, isMobile && styles.headerMobile]}>
           <View style={styles.brand}>
             <Image
               source={require("../assets/images/logo-mark.png")}
@@ -95,37 +96,60 @@ export default function SeoLandingPage() {
             />
             <Text style={styles.brandName}>Apartment Management</Text>
           </View>
-          <View style={styles.headerActions}>
+          <View
+            style={[
+              styles.headerActions,
+              isMobile && styles.headerActionsMobile,
+            ]}
+          >
             <Link href="/(auth)/login" style={styles.signInLink}>
               Sign in
             </Link>
-            <DownloadButton compact />
+            <DownloadButton compact light />
           </View>
         </View>
 
-        <View style={[styles.hero, isWide && styles.heroWide]}>
+        <View
+          style={[
+            styles.hero,
+            isWide && styles.heroWide,
+            isMobile && styles.heroMobile,
+          ]}
+        >
           <View style={styles.heroCopy}>
-            <View style={styles.eyebrow}>
+            <View style={[styles.eyebrow, isMobile && styles.eyebrowMobile]}>
               <View style={styles.eyebrowDot} />
               <Text style={styles.eyebrowText}>
                 MADE FOR EVERYDAY PROPERTY WORK
               </Text>
             </View>
-            <Text accessibilityRole="header" style={styles.heroTitle}>
+            <Text
+              accessibilityRole="header"
+              style={[styles.heroTitle, isMobile && styles.heroTitleMobile]}
+            >
               Apartment management, all in one place.
             </Text>
-            <Text style={styles.heroDescription}>
+            <Text
+              style={[
+                styles.heroDescription,
+                isMobile && styles.heroDescriptionMobile,
+              ]}
+            >
               Manage residents, maintenance bills, payments, expenses, and staff
               attendance with one straightforward apartment management app.
             </Text>
-            <View style={styles.heroActions}>
+            <View
+              style={[styles.heroActions, isMobile && styles.heroActionsMobile]}
+            >
               <DownloadButton />
               <Link href="#features" style={styles.secondaryLink}>
                 Explore features{" "}
                 <Ionicons name="arrow-down" size={16} color="#193E35" />
               </Link>
             </View>
-            <View style={styles.trustNote}>
+            <View
+              style={[styles.trustNote, isMobile && styles.trustNoteMobile]}
+            >
               <Ionicons name="logo-android" size={17} color="#126B58" />
               <Text style={styles.trustText}>
                 Android APK available now. iOS app coming soon.
@@ -184,10 +208,21 @@ export default function SeoLandingPage() {
           </View>
         </View>
 
-        <View nativeID="features" style={styles.featuresSection}>
+        <View
+          nativeID="features"
+          style={[
+            styles.featuresSection,
+            isMobile && styles.featuresSectionMobile,
+          ]}
+        >
           <View style={styles.sectionHeading}>
             <Text style={styles.sectionKicker}>ONE PRACTICAL TOOLKIT</Text>
-            <Text style={styles.sectionTitle}>
+            <Text
+              style={[
+                styles.sectionTitle,
+                isMobile && styles.sectionTitleMobile,
+              ]}
+            >
               The work behind a well-run apartment
             </Text>
             <Text style={styles.sectionDescription}>
@@ -195,9 +230,17 @@ export default function SeoLandingPage() {
               records to monthly collections and staff attendance.
             </Text>
           </View>
-          <View style={styles.featureGrid}>
+          <View
+            style={[styles.featureGrid, isMobile && styles.featureGridMobile]}
+          >
             {features.map((feature) => (
-              <View key={feature.title} style={styles.featureItem}>
+              <View
+                key={feature.title}
+                style={[
+                  styles.featureItem,
+                  isMobile && styles.featureItemMobile,
+                ]}
+              >
                 <View
                   style={[
                     styles.featureIcon,
@@ -219,24 +262,39 @@ export default function SeoLandingPage() {
           </View>
         </View>
 
-        <View style={styles.bottomCta}>
-          <View style={styles.bottomCtaCopy}>
-            <Text style={styles.bottomCtaTitle}>
+        <View style={[styles.bottomCta, isMobile && styles.bottomCtaMobile]}>
+          <View
+            style={[
+              styles.bottomCtaCopy,
+              isMobile && styles.bottomCtaCopyMobile,
+            ]}
+          >
+            <Text
+              style={[
+                styles.bottomCtaTitle,
+                isMobile && styles.bottomCtaTitleMobile,
+              ]}
+            >
               Bring your property records together.
             </Text>
             <Text style={styles.bottomCtaText}>
               Android APK available now. iOS is coming soon.
             </Text>
           </View>
-          <View style={styles.bottomCtaActions}>
-            <DownloadButton />
+          <View
+            style={[
+              styles.bottomCtaActions,
+              isMobile && styles.bottomCtaActionsMobile,
+            ]}
+          >
+            <DownloadButton fullWidth={isMobile} />
             <Link href="/(auth)/login" style={styles.bottomSignIn}>
               Sign in on the web
             </Link>
           </View>
         </View>
 
-        <View style={styles.footer}>
+        <View style={[styles.footer, isMobile && styles.footerMobile]}>
           <Text style={styles.footerText}>Apartment Management</Text>
           <Text style={styles.footerNote}>
             Property, resident, and payment management.
@@ -247,7 +305,15 @@ export default function SeoLandingPage() {
   );
 }
 
-function DownloadButton({ compact = false }: { compact?: boolean }) {
+function DownloadButton({
+  compact = false,
+  fullWidth = false,
+  light = false,
+}: {
+  compact?: boolean;
+  fullWidth?: boolean;
+  light?: boolean;
+}) {
   return (
     <Link href={ANDROID_APK_URL} asChild>
       <Pressable
@@ -255,10 +321,21 @@ function DownloadButton({ compact = false }: { compact?: boolean }) {
         style={StyleSheet.flatten([
           styles.downloadButton,
           compact && styles.downloadButtonCompact,
+          fullWidth && styles.downloadButtonFullWidth,
+          light && styles.downloadButtonLight,
         ])}
       >
-        <Ionicons name="logo-android" size={19} color="#FFFFFF" />
-        <Text style={styles.downloadButtonText}>
+        <Ionicons
+          name="logo-android"
+          size={19}
+          color={light ? "#126B58" : "#FFFFFF"}
+        />
+        <Text
+          style={[
+            styles.downloadButtonText,
+            light && styles.downloadButtonTextLight,
+          ]}
+        >
           {compact ? "Get the app" : "Download Android app"}
         </Text>
         {!compact ? (
@@ -308,15 +385,30 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    borderBottomWidth: 1,
-    borderBottomColor: "#E1E5DC",
+    paddingHorizontal: 18,
+    backgroundColor: "#17372E",
+    borderRadius: 8,
   },
-  brand: { flexDirection: "row", alignItems: "center", gap: 10 },
+  headerMobile: {
+    height: "auto",
+    minHeight: 88,
+    flexWrap: "wrap",
+    justifyContent: "flex-start",
+    rowGap: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  brand: { flexDirection: "row", alignItems: "center", gap: 10, flexShrink: 1 },
   logo: { width: 34, height: 34 },
-  brandName: { color: "#17372E", fontSize: 16, fontWeight: "700" },
+  brandName: { color: "#FFFFFF", fontSize: 16, fontWeight: "700" },
   headerActions: { flexDirection: "row", alignItems: "center", gap: 22 },
+  headerActionsMobile: {
+    width: "100%",
+    justifyContent: "space-between",
+    gap: 12,
+  },
   signInLink: {
-    color: "#345249",
+    color: "#E9F1EC",
     fontSize: 14,
     fontWeight: "600",
     textDecorationLine: "none",
@@ -333,6 +425,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
+  heroMobile: { paddingTop: 38, paddingBottom: 46, gap: 30 },
   heroCopy: { flex: 1, maxWidth: 570, alignItems: "flex-start" },
   eyebrow: {
     flexDirection: "row",
@@ -340,6 +433,7 @@ const styles = StyleSheet.create({
     gap: 9,
     marginBottom: 20,
   },
+  eyebrowMobile: { marginBottom: 14 },
   eyebrowDot: {
     width: 8,
     height: 8,
@@ -360,6 +454,7 @@ const styles = StyleSheet.create({
     fontFamily: "serif",
     maxWidth: 550,
   },
+  heroTitleMobile: { fontSize: 38, lineHeight: 44 },
   heroDescription: {
     color: "#52645C",
     fontSize: 17,
@@ -367,6 +462,7 @@ const styles = StyleSheet.create({
     marginTop: 20,
     maxWidth: 510,
   },
+  heroDescriptionMobile: { fontSize: 16, lineHeight: 25, marginTop: 16 },
   heroActions: {
     flexDirection: "row",
     alignItems: "center",
@@ -374,6 +470,7 @@ const styles = StyleSheet.create({
     gap: 20,
     marginTop: 27,
   },
+  heroActionsMobile: { gap: 14, marginTop: 22 },
   downloadButton: {
     minHeight: 50,
     paddingHorizontal: 18,
@@ -385,7 +482,10 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   downloadButtonCompact: { minHeight: 40, paddingHorizontal: 13, gap: 8 },
+  downloadButtonLight: { backgroundColor: "#FFFFFF" },
+  downloadButtonFullWidth: { width: "100%" },
   downloadButtonText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
+  downloadButtonTextLight: { color: "#126B58" },
   secondaryLink: {
     color: "#193E35",
     fontSize: 14,
@@ -401,6 +501,7 @@ const styles = StyleSheet.create({
     gap: 8,
     marginTop: 23,
   },
+  trustNoteMobile: { alignItems: "flex-start", marginTop: 18 },
   trustText: { color: "#66766E", fontSize: 12 },
   preview: {
     width: "100%",
@@ -493,6 +594,7 @@ const styles = StyleSheet.create({
     paddingTop: 54,
     paddingBottom: 60,
   },
+  featuresSectionMobile: { paddingTop: 38, paddingBottom: 40 },
   sectionHeading: { maxWidth: 640 },
   sectionKicker: { color: "#B45432", fontSize: 11, fontWeight: "700" },
   sectionTitle: {
@@ -503,6 +605,7 @@ const styles = StyleSheet.create({
     marginTop: 10,
     fontFamily: "serif",
   },
+  sectionTitleMobile: { fontSize: 27, lineHeight: 34 },
   sectionDescription: {
     color: "#64746C",
     fontSize: 15,
@@ -515,12 +618,18 @@ const styles = StyleSheet.create({
     gap: 28,
     marginTop: 34,
   },
+  featureGridMobile: {
+    flexDirection: "column",
+    gap: 22,
+    marginTop: 26,
+  },
   featureItem: {
     flexGrow: 1,
     flexBasis: 210,
     maxWidth: 265,
     alignItems: "flex-start",
   },
+  featureItemMobile: { width: "100%", maxWidth: "100%" },
   featureIcon: {
     width: 42,
     height: 42,
@@ -548,14 +657,23 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 20,
   },
+  bottomCtaMobile: { padding: 18, gap: 16 },
   bottomCtaCopy: { flex: 1, minWidth: 240 },
+  bottomCtaCopyMobile: { minWidth: 0, width: "100%" },
   bottomCtaTitle: { color: "#17372E", fontSize: 20, fontWeight: "700" },
+  bottomCtaTitleMobile: { fontSize: 18, lineHeight: 25 },
   bottomCtaText: { color: "#64746C", fontSize: 13, marginTop: 6 },
   bottomCtaActions: {
     flexDirection: "row",
     alignItems: "center",
     flexWrap: "wrap",
     gap: 18,
+  },
+  bottomCtaActionsMobile: {
+    width: "100%",
+    flexDirection: "column",
+    alignItems: "stretch",
+    gap: 14,
   },
   bottomSignIn: {
     color: "#193E35",
@@ -572,6 +690,7 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     gap: 8,
   },
+  footerMobile: { flexDirection: "column", alignItems: "flex-start" },
   footerText: { color: "#53645B", fontSize: 12, fontWeight: "700" },
   footerNote: { color: "#829087", fontSize: 12 },
 });

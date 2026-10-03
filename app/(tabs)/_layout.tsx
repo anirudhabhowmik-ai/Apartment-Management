@@ -43,14 +43,14 @@ const API_URL = (
 ).replace(/\/api\/?$/, "");
 
 const COLORS = {
-  primary: "#2563EB",
-  primaryLight: "#EFF6FF",
-  background: "#F8FAFC",
+  primary: Platform.OS === "web" ? "#126B58" : "#2563EB",
+  primaryLight: Platform.OS === "web" ? "#E5F3ED" : "#EFF6FF",
+  background: Platform.OS === "web" ? "#F6F7F2" : "#F8FAFC",
   white: "#FFFFFF",
-  text: "#0F172A",
-  secondary: "#64748B",
-  muted: "#94A3B8",
-  border: "#E2E8F0",
+  text: Platform.OS === "web" ? "#17372E" : "#0F172A",
+  secondary: Platform.OS === "web" ? "#64746C" : "#64748B",
+  muted: Platform.OS === "web" ? "#829087" : "#94A3B8",
+  border: Platform.OS === "web" ? "#E1E5DC" : "#E2E8F0",
   danger: "#DC2626",
   warning: "#D97706",
   warningLight: "#FFF7ED",
@@ -220,8 +220,8 @@ export default function TabsLayout() {
   const sidebarTabBarButton = useMemo(
     () =>
       createSidebarTabButton(
-        isDarkMode ? "#1E293B" : "#EFF6FF",
-        isDarkMode ? "#243044" : "#E2E8F0",
+        isDarkMode ? "#1E293B" : COLORS.primaryLight,
+        isDarkMode ? "#243044" : COLORS.primaryLight,
       ),
     [isDarkMode],
   );
@@ -723,13 +723,16 @@ export default function TabsLayout() {
               </Modal>
             </View>
           ),
-          tabBarActiveTintColor: isDarkMode ? "#60A5FA" : COLORS.primary,
+          tabBarActiveTintColor:
+            isDarkMode && Platform.OS !== "web" ? "#60A5FA" : COLORS.primary,
           tabBarInactiveTintColor: isDarkMode ? "#94A3B8" : COLORS.muted,
           tabBarPosition: isDesktopWeb ? "left" : "bottom",
           tabBarVariant: isDesktopWeb ? "material" : "uikit",
           tabBarButton: isDesktopWeb ? sidebarTabBarButton : undefined,
           tabBarLabelPosition: isDesktopWeb ? "beside-icon" : "below-icon",
-          tabBarActiveBackgroundColor: isDarkMode ? "#1E293B" : "#EFF6FF",
+          tabBarActiveBackgroundColor: isDarkMode
+            ? "#1E293B"
+            : COLORS.primaryLight,
           tabBarStyle: {
             height: isDesktopWeb ? "100%" : 64 + bottomInset,
             width: isDesktopWeb ? 248 : undefined,

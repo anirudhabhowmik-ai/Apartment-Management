@@ -7,22 +7,22 @@ import { useRouter } from "expo-router";
 import { useIsFocused } from "expo-router/react-navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
-  Dimensions,
-  GestureResponderEvent,
-  Image,
-  Modal,
-  PanResponder,
-  Platform,
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  TouchableWithoutFeedback,
-  View,
+    ActivityIndicator,
+    Dimensions,
+    GestureResponderEvent,
+    Image,
+    Modal,
+    PanResponder,
+    Platform,
+    Pressable,
+    RefreshControl,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    TouchableWithoutFeedback,
+    View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getSecureItem } from "../../utils/tokenStorage";
@@ -935,15 +935,17 @@ function GrantAvatar({
   }
 
   return (
-    <View
-      style={[
-        { width: size, height: size, borderRadius: radius },
-        styles.accessAvatar,
-        style,
-      ]}
-    >
-      <Text style={[styles.accessAvatarText, textStyle]}>{initial}</Text>
-    </View>
+    <DarkModeBoundary>
+      <View
+        style={[
+          { width: size, height: size, borderRadius: radius },
+          styles.accessAvatar,
+          style,
+        ]}
+      >
+        <Text style={[styles.accessAvatarText, textStyle]}>{initial}</Text>
+      </View>
+    </DarkModeBoundary>
   );
 }
 
