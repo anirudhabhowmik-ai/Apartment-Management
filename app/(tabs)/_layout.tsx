@@ -42,15 +42,17 @@ const API_URL = (
   process.env.EXPO_PUBLIC_API_URL || "http://localhost:3000"
 ).replace(/\/api\/?$/, "");
 
+const USE_BRAND_PALETTE = Platform.OS === "web" || Platform.OS === "android";
+
 const COLORS = {
-  primary: Platform.OS === "web" ? "#126B58" : "#2563EB",
-  primaryLight: Platform.OS === "web" ? "#E5F3ED" : "#EFF6FF",
-  background: Platform.OS === "web" ? "#F6F7F2" : "#F8FAFC",
+  primary: USE_BRAND_PALETTE ? "#126B58" : "#2563EB",
+  primaryLight: USE_BRAND_PALETTE ? "#E5F3ED" : "#EFF6FF",
+  background: USE_BRAND_PALETTE ? "#F6F7F2" : "#F8FAFC",
   white: "#FFFFFF",
-  text: Platform.OS === "web" ? "#17372E" : "#0F172A",
-  secondary: Platform.OS === "web" ? "#64746C" : "#64748B",
-  muted: Platform.OS === "web" ? "#829087" : "#94A3B8",
-  border: Platform.OS === "web" ? "#E1E5DC" : "#E2E8F0",
+  text: USE_BRAND_PALETTE ? "#17372E" : "#0F172A",
+  secondary: USE_BRAND_PALETTE ? "#64746C" : "#64748B",
+  muted: USE_BRAND_PALETTE ? "#829087" : "#94A3B8",
+  border: USE_BRAND_PALETTE ? "#E1E5DC" : "#E2E8F0",
   danger: "#DC2626",
   warning: "#D97706",
   warningLight: "#FFF7ED",

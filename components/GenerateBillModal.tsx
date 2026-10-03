@@ -5,6 +5,7 @@ import {
   ActivityIndicator,
   Image,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -273,9 +274,9 @@ interface GenerateBillModalProps {
 }
 
 const ACCENT_SWATCHES = [
+  "#126B58",
   "#1a73e8",
   "#7c3aed",
-  "#059669",
   "#d97706",
   "#dc2626",
   "#0891b2",
@@ -420,8 +421,24 @@ export default function GenerateBillModal({
   const existingConfig = getBillConfig(memberType);
   const labels = getLabels(memberType, isTenantAccount);
 
-  const accentColor = memberType === "owner" ? "#1a73e8" : "#7c3aed";
-  const accentBg = memberType === "owner" ? "#eff6ff" : "#f3e8ff";
+  const accentColor =
+    Platform.OS === "web" || Platform.OS === "android"
+      ? "#126B58"
+      : memberType === "owner"
+        ? "#1a73e8"
+        : "#7c3aed";
+  const accentBg =
+    Platform.OS === "web" || Platform.OS === "android"
+      ? "#E5F3ED"
+      : memberType === "owner"
+        ? "#eff6ff"
+        : "#f3e8ff";
+  const defaultTemplateAccent = (template: (typeof templates)[number]) =>
+    (Platform.OS === "web" || Platform.OS === "android") &&
+    template.id === "modern"
+      ? "#126B58"
+      : template.colors.primary;
+  const defaultAccentColor = defaultTemplateAccent(templates[0]);
 
   const [step, setStep] = useState<"design" | "details" | "sign">("design");
 
@@ -430,7 +447,7 @@ export default function GenerateBillModal({
   );
 
   const [swatch, setSwatch] = useState(
-    existingConfig?.accentColor ?? templates[0].colors.primary,
+    existingConfig?.accentColor ?? defaultAccentColor,
   );
 
   const [showDesignPreview, setShowDesignPreview] = useState(false);
@@ -469,7 +486,7 @@ export default function GenerateBillModal({
       setSignature(cached.signature);
     } else {
       setTemplateId(templates[0].id);
-      setSwatch(templates[0].colors.primary);
+      setSwatch(defaultAccentColor);
       setSocietyName("");
       setAddress("");
       setContactNumber("");
@@ -1413,12 +1430,13 @@ export default function GenerateBillModal({
               <Ionicons
                 name={isTenantAccount ? "key-outline" : "home-outline"}
                 size={15}
-                color={memberType === "owner" ? "#1a73e8" : "#64748b"}
+                color={memberType === "owner" ? accentColor : "#64748b"}
               />
               <Text
                 style={[
                   styles.memberTypeText,
                   memberType === "owner" && styles.memberTypeTextOwnerActive,
+                  memberType === "owner" && { color: accentColor },
                 ]}
               >
                 {isTenantAccount ? "Tenant Bill" : "Owner Bill"}
@@ -1436,12 +1454,13 @@ export default function GenerateBillModal({
               <Ionicons
                 name="briefcase-outline"
                 size={15}
-                color={memberType === "staff" ? "#7c3aed" : "#64748b"}
+                color={memberType === "staff" ? accentColor : "#64748b"}
               />
               <Text
                 style={[
                   styles.memberTypeText,
                   memberType === "staff" && styles.memberTypeTextStaffActive,
+                  memberType === "staff" && { color: accentColor },
                 ]}
               >
                 Staff Slip
@@ -1479,7 +1498,7 @@ export default function GenerateBillModal({
                       ]}
                       onPress={() => {
                         setTemplateId(t.id);
-                        setSwatch(t.colors.primary);
+                        setSwatch(defaultTemplateAccent(t));
                       }}
                       activeOpacity={0.8}
                     >
@@ -1919,7 +1938,10 @@ const styles = StyleSheet.create({
 
   memberTypeButtonOwnerActive: {
     backgroundColor: "#ffffff",
-    shadowColor: "#1a73e8",
+    shadowColor:
+      Platform.OS === "web" || Platform.OS === "android"
+        ? "#126B58"
+        : "#1a73e8",
     shadowOpacity: 0.15,
     shadowRadius: 4,
     shadowOffset: { width: 0, height: 2 },
@@ -1928,7 +1950,10 @@ const styles = StyleSheet.create({
 
   memberTypeButtonStaffActive: {
     backgroundColor: "#ffffff",
-    shadowColor: "#7c3aed",
+    shadowColor:
+      Platform.OS === "web" || Platform.OS === "android"
+        ? "#126B58"
+        : "#7c3aed",
     shadowOpacity: 0.15,
     shadowRadius: 4,
     shadowOffset: { width: 0, height: 2 },
@@ -1942,11 +1967,17 @@ const styles = StyleSheet.create({
   },
 
   memberTypeTextOwnerActive: {
-    color: "#1a73e8",
+    color:
+      Platform.OS === "web" || Platform.OS === "android"
+        ? "#126B58"
+        : "#1a73e8",
   },
 
   memberTypeTextStaffActive: {
-    color: "#7c3aed",
+    color:
+      Platform.OS === "web" || Platform.OS === "android"
+        ? "#126B58"
+        : "#7c3aed",
   },
 
   stepIndicator: {

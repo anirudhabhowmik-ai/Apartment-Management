@@ -1,6 +1,7 @@
 // app/(modals)/_layout.tsx
 import { Stack } from "expo-router";
 import Head from "expo-router/head";
+import { Platform } from "react-native";
 import { useThemeStore } from "../../store/themeStore";
 
 // Local type documenting what each modal route expects as params —
@@ -35,6 +36,7 @@ export type ModalRouteParams = {
 
 export default function ModalsLayout() {
   const isDarkMode = useThemeStore((state) => state.isDarkMode);
+  const useBrandPalette = Platform.OS === "web" || Platform.OS === "android";
 
   return (
     <>
@@ -45,10 +47,32 @@ export default function ModalsLayout() {
         screenOptions={{
           presentation: "modal",
           headerTitleAlign: "center",
-          headerStyle: { backgroundColor: isDarkMode ? "#151C27" : "#FFFFFF" },
-          headerTintColor: isDarkMode ? "#E7EDF5" : "#0F172A",
-          headerTitleStyle: { color: isDarkMode ? "#E7EDF5" : "#0F172A" },
-          contentStyle: { backgroundColor: isDarkMode ? "#101720" : "#FFFFFF" },
+          headerStyle: {
+            backgroundColor: isDarkMode
+              ? "#151C27"
+              : useBrandPalette
+                ? "#F6F7F2"
+                : "#FFFFFF",
+          },
+          headerTintColor: isDarkMode
+            ? "#E7EDF5"
+            : useBrandPalette
+              ? "#17372E"
+              : "#0F172A",
+          headerTitleStyle: {
+            color: isDarkMode
+              ? "#E7EDF5"
+              : useBrandPalette
+                ? "#17372E"
+                : "#0F172A",
+          },
+          contentStyle: {
+            backgroundColor: isDarkMode
+              ? "#101720"
+              : useBrandPalette
+                ? "#F6F7F2"
+                : "#FFFFFF",
+          },
         }}
       >
         <Stack.Screen name="add-account" options={{ title: "New Account" }} />

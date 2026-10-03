@@ -120,11 +120,11 @@ function mapColor(
   value: unknown,
   key: string,
   isDarkMode: boolean,
-  useWebBrand: boolean,
+  useBrandPalette: boolean,
 ): unknown {
   if (typeof value !== "string" || value === "transparent") return value;
 
-  if (!isDarkMode && useWebBrand) {
+  if (!isDarkMode && useBrandPalette) {
     return WEB_BRAND_COLORS[value.toUpperCase()] ?? mapWebBlue(value) ?? value;
   }
 
@@ -166,31 +166,31 @@ function mapColor(
 function mapStyle(
   style: unknown,
   isDarkMode: boolean,
-  useWebBrand: boolean,
+  useBrandPalette: boolean,
 ): unknown {
   if (Array.isArray(style))
-    return style.map((item) => mapStyle(item, isDarkMode, useWebBrand));
+    return style.map((item) => mapStyle(item, isDarkMode, useBrandPalette));
   if (typeof style === "number")
     return mapStyle(
       StyleSheet.flatten(style as never),
       isDarkMode,
-      useWebBrand,
+      useBrandPalette,
     );
   if (!style || typeof style !== "object") return style;
 
   const result: Record<string, unknown> = { ...style };
   for (const [key, value] of Object.entries(result)) {
     if (COLOR_KEYS.has(key)) {
-      result[key] = mapColor(value, key, isDarkMode, useWebBrand);
+      result[key] = mapColor(value, key, isDarkMode, useBrandPalette);
     } else if (key === "trackColor" && value && typeof value === "object") {
       result[key] = Object.fromEntries(
         Object.entries(value).map(([track, color]) => [
           track,
-          mapColor(color, "trackColor", isDarkMode, useWebBrand),
+          mapColor(color, "trackColor", isDarkMode, useBrandPalette),
         ]),
       );
     } else if (value && typeof value === "object") {
-      result[key] = mapStyle(value, isDarkMode, useWebBrand);
+      result[key] = mapStyle(value, isDarkMode, useBrandPalette);
     }
   }
   return result;
@@ -199,11 +199,11 @@ function mapStyle(
 function transformNode(
   node: React.ReactNode,
   isDarkMode: boolean,
-  useWebBrand: boolean,
+  useBrandPalette: boolean,
 ): React.ReactNode {
   if (Array.isArray(node))
     return React.Children.toArray(node).map((child) =>
-      transformNode(child, isDarkMode, useWebBrand),
+      transformNode(child, isDarkMode, useBrandPalette),
     );
   if (!isValidElement<Record<string, unknown>>(node)) return node;
 
@@ -213,24 +213,24 @@ function transformNode(
       props.children = transformNode(
         value as React.ReactNode,
         isDarkMode,
-        useWebBrand,
+        useBrandPalette,
       );
     } else if (key === "style" || key.endsWith("Style")) {
       props[key] = mapStyle(
         typeof value === "function"
           ? (...args: unknown[]) =>
-              mapStyle(value(...args), isDarkMode, useWebBrand)
+              mapStyle(value(...args), isDarkMode, useBrandPalette)
           : value,
         isDarkMode,
-        useWebBrand,
+        useBrandPalette,
       );
     } else if (COLOR_KEYS.has(key)) {
-      props[key] = mapColor(value, key, isDarkMode, useWebBrand);
+      props[key] = mapColor(value, key, isDarkMode, useBrandPalette);
     } else if (key === "trackColor" && value && typeof value === "object") {
       props[key] = Object.fromEntries(
         Object.entries(value).map(([track, color]) => [
           track,
-          mapColor(color, "trackColor", isDarkMode, useWebBrand),
+          mapColor(color, "trackColor", isDarkMode, useBrandPalette),
         ]),
       );
     } else if (
@@ -238,7 +238,7 @@ function transformNode(
       (key === "renderItem" || key.endsWith("Component"))
     ) {
       props[key] = (...args: unknown[]) =>
-        transformNode(value(...args), isDarkMode, useWebBrand);
+        transformNode(value(...args), isDarkMode, useBrandPalette);
     }
   }
 
@@ -247,7 +247,7 @@ function transformNode(
 
 export function DarkModeBoundary({ children }: { children: React.ReactNode }) {
   const isDarkMode = useThemeStore((state) => state.isDarkMode);
-  const useWebBrand = Platform.OS === "web";
-  if (!isDarkMode && !useWebBrand) return children;
-  return <>{transformNode(children, isDarkMode, useWebBrand)}</>;
+  const useBrandPalette = Platform.OS === "web" || Platform.OS === "android";
+  if (!isDarkMode && !useBrandPalette) return children;
+  return <>{transformNode(children, isDarkMode, useBrandPalette)}</>;
 }
