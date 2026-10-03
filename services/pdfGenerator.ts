@@ -1045,7 +1045,8 @@ function layoutBillLines(data: BillData): {
   }
 
   y -= 4;
-  push("―".repeat(56), { size: 8, color: [0.8, 0.85, 0.9] });
+  // Plain ASCII divider so we never emit non-Latin1 characters.
+  push("-".repeat(60), { size: 8, color: [0.8, 0.85, 0.9] });
   push(totalLabel, { size: 12, bold: true, color: [0.06, 0.09, 0.16] });
   push(inrAscii(netAmount), {
     size: 12,
@@ -1073,6 +1074,28 @@ function layoutBillLines(data: BillData): {
   return { lines, pageHeight: PAGE_H };
 }
 
+/**
+ * Replaces any character outside the Latin-1 range with an ASCII
+ * fallback. Helvetica (our PDF font) only covers Latin-1 anyway, so
+ * unsupported glyphs would render as garbage — this also protects
+ * `btoa` from throwing on characters above code point 255.
+ */
+function toLatin1Safe(text: string): string {
+  return (
+    String(text ?? "")
+      .replace(/\u20B9/g, "Rs.") // ₹
+      .replace(/\u2015/g, "-") // ―
+      .replace(/\u2014/g, "-") // —
+      .replace(/\u2013/g, "-") // –
+      .replace(/[\u2018\u2019]/g, "'") // ‘ ’
+      .replace(/[\u201C\u201D]/g, '"') // “ ”
+      .replace(/\u2026/g, "...") // …
+      .replace(/\u00A0/g, " ") // non-breaking space
+      // Anything still outside Latin-1 → "?" (never throws, never invalid).
+      .replace(/[^\x00-\xFF]/g, "?")
+  );
+}
+
 function buildMinimalPdfBase64(lines: PdfLine[], pageHeight: number): string {
   const PAGE_W = 595.28;
 
@@ -1090,7 +1113,9 @@ function buildMinimalPdfBase64(lines: PdfLine[], pageHeight: number): string {
   }
   content += "Q\n";
 
-  const contentLength = content.length;
+  // Normalise to Latin-1 BEFORE measuring, so /Length matches the
+  // actual byte count of the stream we write.
+  const safeContent = toLatin1Safe(content);
 
   const objects: string[] = [];
   objects[1] = `<< /Type /Catalog /Pages 2 0 R >>`;
@@ -1101,7 +1126,7 @@ function buildMinimalPdfBase64(lines: PdfLine[], pageHeight: number): string {
     )} ${pageHeight.toFixed(2)}] ` +
     `/Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> ` +
     `/Contents 4 0 R >>`;
-  objects[4] = `<< /Length ${contentLength} >>\nstream\n${content}\nendstream`;
+  objects[4] = `<< /Length ${safeContent.length} >>\nstream\n${safeContent}\nendstream`;
   objects[5] = `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>`;
   objects[6] = `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>`;
 
@@ -1122,9 +1147,9 @@ function buildMinimalPdfBase64(lines: PdfLine[], pageHeight: number): string {
     `trailer\n<< /Size ${objects.length} /Root 1 0 R >>\n` +
     `startxref\n${xrefStart}\n%%EOF\n`;
 
-  // btoa exists only in browsers — this code path runs only on web.
+  // The whole file is Latin-1 now, so btoa is safe.
   // eslint-disable-next-line no-undef
-  return btoa(pdf);
+  return btoa(toLatin1Safe(pdf));
 }
 
 function generateBillPdfBase64OnWeb(data: BillData): string {
