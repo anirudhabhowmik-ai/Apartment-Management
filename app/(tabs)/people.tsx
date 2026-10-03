@@ -3,18 +3,18 @@ import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Image,
-  Keyboard,
-  KeyboardAvoidingView,
-  Linking,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  View,
+    Image,
+    Keyboard,
+    KeyboardAvoidingView,
+    Linking,
+    Modal,
+    Platform,
+    Pressable,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getSecureItem } from "../../utils/tokenStorage";
@@ -23,12 +23,13 @@ import { DarkModeBoundary } from "../../components/DarkModeBoundary";
 import DatePickerModal from "../../components/DatePickerModal";
 import GenerateBillModal from "../../components/GenerateBillModal";
 import MonthYearPickerModal from "../../components/MonthYearPickerModal";
+import { WorkspaceEmptyState } from "../../components/WorkspaceEmptyState";
 import { useAccounts } from "../../hooks/useAccounts";
 import {
-  useExpenses,
-  useManagementStore,
-  useMembers,
-  useStaff,
+    useExpenses,
+    useManagementStore,
+    useMembers,
+    useStaff,
 } from "../../hooks/useManagement";
 import { usePayments } from "../../hooks/usePayments";
 import { useUserRole } from "../../hooks/useUserRole";
@@ -1634,33 +1635,18 @@ export default function PeopleScreen() {
 
   if (!selectedAccountId) {
     return (
-      <View style={styles.container}>
-        <View style={styles.noPropertyState}>
-          <View style={styles.noPropertyIcon}>
-            <Ionicons
-              name="business-outline"
-              size={40}
-              color={COLORS.primary}
-            />
-          </View>
-          <Text style={styles.noPropertyTitle}>Create your property</Text>
-          <Text style={styles.noPropertySubtitle}>
-            Create a property first to start managing your apartment or home.
-          </Text>
-          {canEdit && (
-            <Pressable
-              style={({ pressed }) => [
-                styles.createButton,
-                pressed && styles.pressedButton,
-              ]}
-              onPress={() => router.push("/(modals)/add-account")}
-            >
-              <Ionicons name="add" size={18} color={COLORS.white} />
-              <Text style={styles.createButtonText}>Create Property</Text>
-            </Pressable>
-          )}
-        </View>
-      </View>
+      <DarkModeBoundary>
+        <WorkspaceEmptyState
+          icon="people-outline"
+          eyebrow="PEOPLE WORKSPACE"
+          title="Bring your residents and staff together."
+          description="Create a property to organize resident records, staff details, and day-to-day management."
+          actionLabel={canEdit ? "Create property" : undefined}
+          onAction={
+            canEdit ? () => router.push("/(modals)/add-account") : undefined
+          }
+        />
+      </DarkModeBoundary>
     );
   }
 

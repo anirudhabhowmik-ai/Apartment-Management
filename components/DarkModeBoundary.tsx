@@ -44,6 +44,7 @@ const WEB_BRAND_COLORS: Record<string, string> = {
   "#CBD5E1": "#D1DBD3",
   "#D1D5DB": "#D1DBD3",
   "#0F172A": "#17372E",
+  "#0F1E33": "#17372E",
   "#1E293B": "#24463B",
   "#1F2937": "#24463B",
   "#334155": "#345249",

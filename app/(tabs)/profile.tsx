@@ -3,41 +3,41 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
+    useCallback,
+    useEffect,
+    useMemo,
+    useRef,
+    useState,
 } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  Linking,
-  Modal,
-  Platform,
-  Pressable,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Switch,
-  Text,
-  TouchableOpacity,
-  TouchableWithoutFeedback,
-  View,
+    ActivityIndicator,
+    Alert,
+    Linking,
+    Modal,
+    Platform,
+    Pressable,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Switch,
+    Text,
+    TouchableOpacity,
+    TouchableWithoutFeedback,
+    View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
-  deleteSecureItem,
-  getSecureItem,
-  setSecureItem,
+    deleteSecureItem,
+    getSecureItem,
+    setSecureItem,
 } from "../../utils/tokenStorage";
 
 import { DarkModeBoundary } from "../../components/DarkModeBoundary";
 import GenerateBillModal from "../../components/GenerateBillModal";
 import SubscriptionPlanModal, {
-  BillingPeriod,
-  DEFAULT_PLANS,
-  SubscriptionPlan,
+    BillingPeriod,
+    DEFAULT_PLANS,
+    SubscriptionPlan,
 } from "../../components/SubscriptionPlanModal";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useUserRole } from "../../hooks/useUserRole";
@@ -1350,7 +1350,7 @@ const styles = StyleSheet.create({
 
   subscriptionCard: {
     backgroundColor: "#0F1E33",
-    borderRadius: 20,
+    borderRadius: Platform.OS === "web" ? 12 : 20,
     padding: 18,
     marginTop: 16,
     marginBottom: 14,
@@ -1364,7 +1364,8 @@ const styles = StyleSheet.create({
     width: 160,
     height: 160,
     borderRadius: 80,
-    backgroundColor: "rgba(59,130,246,0.25)",
+    backgroundColor:
+      Platform.OS === "web" ? "rgba(18,107,88,0.28)" : "rgba(59,130,246,0.25)",
   },
   subscriptionHeader: {
     flexDirection: "row",

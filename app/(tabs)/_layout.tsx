@@ -494,13 +494,28 @@ export default function TabsLayout() {
       <Tabs
         screenOptions={{
           headerTitle: () => (
-            <View style={styles.accountSwitcherContainer}>
+            <View
+              style={[
+                styles.accountSwitcherContainer,
+                isDesktopWeb && styles.accountSwitcherContainerWeb,
+              ]}
+            >
               {isDesktopWeb && (
-                <Image
-                  source={require("../../assets/images/logo-mark.png")}
-                  style={styles.brandMarkImage}
-                  resizeMode="contain"
-                />
+                <>
+                  <View style={styles.webHeaderBrand}>
+                    <View style={styles.webHeaderLogoTile}>
+                      <Image
+                        source={require("../../assets/images/logo-mark.png")}
+                        style={styles.brandMarkImage}
+                        resizeMode="contain"
+                      />
+                    </View>
+                    <Text style={styles.webHeaderBrandName}>
+                      Apartment Management
+                    </Text>
+                  </View>
+                  <View style={styles.webHeaderDivider} />
+                </>
               )}
               <AccountSwitcherTrigger />
             </View>
@@ -725,7 +740,11 @@ export default function TabsLayout() {
           ),
           tabBarActiveTintColor:
             isDarkMode && Platform.OS !== "web" ? "#60A5FA" : COLORS.primary,
-          tabBarInactiveTintColor: isDarkMode ? "#94A3B8" : COLORS.muted,
+          tabBarInactiveTintColor: isDarkMode
+            ? "#94A3B8"
+            : isDesktopWeb
+              ? "#D5E2DA"
+              : COLORS.muted,
           tabBarPosition: isDesktopWeb ? "left" : "bottom",
           tabBarVariant: isDesktopWeb ? "material" : "uikit",
           tabBarButton: isDesktopWeb ? sidebarTabBarButton : undefined,
@@ -739,7 +758,11 @@ export default function TabsLayout() {
             paddingTop: isDesktopWeb ? 20 : 5,
             paddingBottom: isDesktopWeb ? 20 : bottomInset + 5,
             paddingHorizontal: isDesktopWeb ? 12 : 8,
-            backgroundColor: isDarkMode ? "#151C27" : COLORS.white,
+            backgroundColor: isDarkMode
+              ? "#151C27"
+              : isDesktopWeb
+                ? "#17372E"
+                : COLORS.white,
             borderTopWidth: isDesktopWeb ? 0 : 1,
             borderTopColor: isDesktopWeb
               ? "transparent"
@@ -747,7 +770,7 @@ export default function TabsLayout() {
                 ? "#354154"
                 : COLORS.border,
             borderRightWidth: isDesktopWeb ? 1 : 0,
-            borderRightColor: isDarkMode ? "#354154" : COLORS.border,
+            borderRightColor: isDarkMode ? "#354154" : "#24463B",
             ...(Platform.OS === "android" ? { elevation: 0 } : {}),
           },
           sceneStyle: {
@@ -775,7 +798,7 @@ export default function TabsLayout() {
         }}
       >
         <Tabs.Screen
-          name="index"
+          name="home"
           options={{
             title: "Home",
             tabBarIcon: ({ color, focused }) => (
@@ -794,6 +817,7 @@ export default function TabsLayout() {
             ),
           }}
         />
+        <Tabs.Screen name="index" options={{ href: null }} />
         <Tabs.Screen
           name="calendar"
           options={{
@@ -893,7 +917,28 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 10,
   },
+  accountSwitcherContainerWeb: { maxWidth: 620, gap: 14 },
   brandMarkImage: { width: 28, height: 28 },
+  webHeaderBrand: { flexDirection: "row", alignItems: "center", gap: 9 },
+  webHeaderLogoTile: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: "#E5F3ED",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  webHeaderBrandName: {
+    color: COLORS.text,
+    fontSize: 13,
+    fontWeight: "700",
+    flexShrink: 0,
+  },
+  webHeaderDivider: {
+    width: 1,
+    height: 34,
+    backgroundColor: COLORS.border,
+  },
   notificationMenu: { position: "relative", zIndex: 100 },
   notificationButton: { marginRight: 12, padding: 5 },
   notificationIconWrapper: {

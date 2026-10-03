@@ -6,24 +6,25 @@ import { useRouter } from "expo-router";
 import * as Sharing from "expo-sharing";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  ActivityIndicator,
-  Image,
-  Linking,
-  Modal,
-  Platform,
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Image,
+    Linking,
+    Modal,
+    Platform,
+    Pressable,
+    RefreshControl,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import * as XLSX from "xlsx";
 import { getSecureItem } from "../../utils/tokenStorage";
 
 import { DarkModeBoundary } from "../../components/DarkModeBoundary";
+import { WorkspaceEmptyState } from "../../components/WorkspaceEmptyState";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useExpenses, useMembers, useStaff } from "../../hooks/useManagement";
 import { useUserRole } from "../../hooks/useUserRole";
@@ -31,15 +32,15 @@ import { useAccountStore } from "../../store/accountStore";
 import type { Member } from "../../types";
 
 import {
-  getPaymentCategoryColor,
-  getPaymentStatusColor,
-  PaymentCategory,
-  PaymentStatus,
+    getPaymentCategoryColor,
+    getPaymentStatusColor,
+    PaymentCategory,
+    PaymentStatus,
 } from "../../types/payment";
 
 import {
-  getPeopleSummary,
-  PeopleTransaction,
+    getPeopleSummary,
+    PeopleTransaction,
 } from "../../utils/peopleTransactions";
 
 // ============================================================
@@ -2174,41 +2175,33 @@ export default function FinanceScreen() {
   if (!selectedAccount) {
     return (
       <DarkModeBoundary>
-        <View style={styles.container}>
-          <View style={styles.emptyState}>
-            <View style={styles.emptyIcon}>
-              <Ionicons name="wallet-outline" size={38} color="#2563EB" />
-            </View>
-            <Text style={styles.emptyTitle}>No Property Selected</Text>
-            <Text style={styles.emptySubtitle}>
-              {accounts.length > 0
-                ? "Select a property to view its financial overview."
-                : "Create a property to start managing finances."}
-            </Text>
-            <TouchableOpacity
-              style={styles.selectButton}
-              onPress={() => {
-                if (accounts.length > 0) {
-                  setAccountSwitcherOpen(true);
-                } else {
-                  router.push({
-                    pathname: "/(modals)/add-account",
-                    params: { mode: "create" },
-                  });
-                }
-              }}
-            >
-              <Ionicons
-                name={accounts.length > 0 ? "business-outline" : "add"}
-                size={18}
-                color="#fff"
-              />
-              <Text style={styles.selectButtonText}>
-                {accounts.length > 0 ? "Select Property" : "Create Property"}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+        <WorkspaceEmptyState
+          icon="wallet-outline"
+          eyebrow="FINANCE WORKSPACE"
+          title={
+            accounts.length > 0
+              ? "Choose a property to view its finances."
+              : "Bring your property finances into focus."
+          }
+          description={
+            accounts.length > 0
+              ? "Select an account to review balances, payments, and expenses."
+              : "Create a property to organize balances, maintenance payments, and expenses in one place."
+          }
+          actionLabel={
+            accounts.length > 0 ? "Select property" : "Create property"
+          }
+          onAction={() => {
+            if (accounts.length > 0) {
+              setAccountSwitcherOpen(true);
+            } else {
+              router.push({
+                pathname: "/(modals)/add-account",
+                params: { mode: "create" },
+              });
+            }
+          }}
+        />
       </DarkModeBoundary>
     );
   }

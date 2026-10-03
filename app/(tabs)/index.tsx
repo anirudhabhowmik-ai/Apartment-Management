@@ -4,24 +4,25 @@ import { useFocusEffect, useRouter } from "expo-router";
 import { useIsFocused } from "expo-router/react-navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  Image,
-  Linking,
-  Modal,
-  Platform,
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Switch,
-  Text,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    Image,
+    Linking,
+    Modal,
+    Platform,
+    Pressable,
+    RefreshControl,
+    ScrollView,
+    StyleSheet,
+    Switch,
+    Text,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { getSecureItem } from "../../utils/tokenStorage";
 
 import { DarkModeBoundary } from "../../components/DarkModeBoundary";
+import { WorkspaceEmptyState } from "../../components/WorkspaceEmptyState";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useExpenses, useMembers, useStaff } from "../../hooks/useManagement";
 import { useUserRole } from "../../hooks/useUserRole";
@@ -3642,60 +3643,35 @@ export default function HomeScreen() {
 
   if (!selectedAccount) {
     return (
-      <View style={styles.container}>
-        <ScrollView contentContainerStyle={styles.emptyScrollContent}>
-          <View style={styles.emptyStateContainer}>
-            <View style={styles.emptyIconCircle}>
-              <Ionicons name="business-outline" size={42} color="#2563EB" />
-            </View>
-            <Text style={styles.emptyTitle}>
-              {accounts.length > 0
-                ? "No property selected"
-                : "Create your property"}
-            </Text>
-            <Text style={styles.emptySubtitle}>
-              {accounts.length > 0
-                ? "Please select a property from the property settings to continue."
-                : "Create your first property to start managing members, staff and expenses."}
-            </Text>
-            {accounts.length === 0 ? (
-              <Pressable
-                style={({ pressed }) => [
-                  styles.primaryButton,
-                  pressed && styles.pressed,
-                ]}
-                onPress={() =>
-                  router.push({
-                    pathname: "/(modals)/add-account",
-                    params: { mode: "create" },
-                  })
-                }
-              >
-                <Ionicons name="add" size={20} color="#FFFFFF" />
-                <Text style={styles.primaryButtonText}>Create Property</Text>
-              </Pressable>
-            ) : (
-              <Pressable
-                style={({ pressed }) => [
-                  styles.secondaryActionButton,
-                  pressed && styles.pressed,
-                ]}
-                onPress={() =>
-                  router.push({
-                    pathname: "/(modals)/add-account",
-                    params: { mode: "create" },
-                  })
-                }
-              >
-                <Ionicons name="add-outline" size={18} color="#2563EB" />
-                <Text style={styles.secondaryButtonText}>
-                  Add another property
-                </Text>
-              </Pressable>
-            )}
-          </View>
-        </ScrollView>
-      </View>
+      <DarkModeBoundary>
+        <WorkspaceEmptyState
+          icon="business-outline"
+          eyebrow="PROPERTY WORKSPACE"
+          title={
+            accounts.length > 0
+              ? "Choose a property to continue."
+              : "Set up your property workspace."
+          }
+          description={
+            accounts.length > 0
+              ? "Select a property to open its members, staff, finances, and activity."
+              : "Start by creating an apartment or home, then keep its people, payments, and activity organized."
+          }
+          actionLabel={
+            accounts.length > 0 ? "Select property" : "Create property"
+          }
+          onAction={() => {
+            if (accounts.length > 0) {
+              router.push("/(modals)/select-account");
+            } else {
+              router.push({
+                pathname: "/(modals)/add-account",
+                params: { mode: "create" },
+              });
+            }
+          }}
+        />
+      </DarkModeBoundary>
     );
   }
 
