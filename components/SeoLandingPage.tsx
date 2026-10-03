@@ -100,6 +100,11 @@ export default function SeoLandingPage() {
     <>
       <Head>
         <title>{PAGE_TITLE}</title>
+        <meta
+          name="google-site-verification"
+          content="9T0gUIERl2OwMTf_zqwbokswq203y_NKljCJyOBny6Y"
+        />
+        <meta name="theme-color" content="#F6F7F2" />
         <meta name="description" content={PAGE_DESCRIPTION} />
         <meta name="robots" content="index, follow" />
         <meta property="og:type" content="website" />
