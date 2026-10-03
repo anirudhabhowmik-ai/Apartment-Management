@@ -221,7 +221,7 @@ export default function TabsLayout() {
     () =>
       createSidebarTabButton(
         isDarkMode ? "#1E293B" : COLORS.primaryLight,
-        isDarkMode ? "#243044" : COLORS.primaryLight,
+        isDarkMode ? "#243044" : "#2B5548",
       ),
     [isDarkMode],
   );

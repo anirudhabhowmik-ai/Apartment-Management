@@ -3,21 +3,22 @@ import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { useEffect, useRef, useState } from "react";
 import {
-    ActivityIndicator,
-    Dimensions,
-    GestureResponderEvent,
-    Image,
-    PanResponder,
-    Platform,
-    StyleSheet,
-    Switch,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Dimensions,
+  GestureResponderEvent,
+  Image,
+  PanResponder,
+  Platform,
+  StyleSheet,
+  Switch,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { usePhotoAdjustPointer } from "../hooks/usePhotoAdjustPointer";
 import { SignatureData } from "../store/billStore";
+import { DarkModeBoundary } from "./DarkModeBoundary";
 import { PhotoZoomControls } from "./PhotoZoomControls";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
@@ -946,645 +947,652 @@ export default function SignatureCanvas({
   if (!visible) return null;
 
   return (
-    <View style={sigStyles.overlay} collapsable={false}>
-      <View
-        style={[
-          sigStyles.backdrop,
-          Platform.OS === "web" && sigStyles.backdropWeb,
-        ]}
-      >
+    <DarkModeBoundary>
+      <View style={sigStyles.overlay} collapsable={false}>
         <View
           style={[
-            sigStyles.card,
-            mode === "draw" && sigStyles.cardDrawMode,
-            Platform.OS === "web" && sigStyles.cardWeb,
+            sigStyles.backdrop,
+            Platform.OS === "web" && sigStyles.backdropWeb,
           ]}
         >
-          <View style={mode === "draw" ? sigStyles.headerPadded : undefined}>
-            <Text style={sigStyles.title}>Secretary Signature</Text>
-            <Text style={sigStyles.subtitle}>
-              Appears on every generated bill
-            </Text>
+          <View
+            style={[
+              sigStyles.card,
+              mode === "draw" && sigStyles.cardDrawMode,
+              Platform.OS === "web" && sigStyles.cardWeb,
+            ]}
+          >
+            <View style={mode === "draw" ? sigStyles.headerPadded : undefined}>
+              <Text style={sigStyles.title}>Secretary Signature</Text>
+              <Text style={sigStyles.subtitle}>
+                Appears on every generated bill
+              </Text>
 
-            <View style={sigStyles.modeSwitcher}>
-              <TouchableOpacity
-                style={[
-                  sigStyles.modeButton,
-                  mode === "draw" && sigStyles.modeButtonActive,
-                ]}
-                onPress={() => setMode("draw")}
-                activeOpacity={0.8}
-              >
-                <Ionicons
-                  name="create-outline"
-                  size={15}
-                  color={mode === "draw" ? "#1a73e8" : "#94a3b8"}
-                />
-                <Text
+              <View style={sigStyles.modeSwitcher}>
+                <TouchableOpacity
                   style={[
-                    sigStyles.modeButtonText,
-                    mode === "draw" && sigStyles.modeButtonTextActive,
+                    sigStyles.modeButton,
+                    mode === "draw" && sigStyles.modeButtonActive,
                   ]}
+                  onPress={() => setMode("draw")}
+                  activeOpacity={0.8}
                 >
-                  Draw
-                </Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={[
-                  sigStyles.modeButton,
-                  mode === "upload" && sigStyles.modeButtonActive,
-                ]}
-                onPress={() => setMode("upload")}
-                activeOpacity={0.8}
-              >
-                <Ionicons
-                  name="image-outline"
-                  size={15}
-                  color={mode === "upload" ? "#1a73e8" : "#94a3b8"}
-                />
-                <Text
+                  <Ionicons
+                    name="create-outline"
+                    size={15}
+                    color={mode === "draw" ? "#1a73e8" : "#94a3b8"}
+                  />
+                  <Text
+                    style={[
+                      sigStyles.modeButtonText,
+                      mode === "draw" && sigStyles.modeButtonTextActive,
+                    ]}
+                  >
+                    Draw
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
                   style={[
-                    sigStyles.modeButtonText,
-                    mode === "upload" && sigStyles.modeButtonTextActive,
+                    sigStyles.modeButton,
+                    mode === "upload" && sigStyles.modeButtonActive,
                   ]}
+                  onPress={() => setMode("upload")}
+                  activeOpacity={0.8}
                 >
-                  Upload
-                </Text>
-              </TouchableOpacity>
+                  <Ionicons
+                    name="image-outline"
+                    size={15}
+                    color={mode === "upload" ? "#1a73e8" : "#94a3b8"}
+                  />
+                  <Text
+                    style={[
+                      sigStyles.modeButtonText,
+                      mode === "upload" && sigStyles.modeButtonTextActive,
+                    ]}
+                  >
+                    Upload
+                  </Text>
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
 
-          {mode === "draw" && (
-            <>
-              <View
-                style={[
-                  sigStyles.canvasBox,
-                  { width: "100%", height: CANVAS_HEIGHT },
-                ]}
-                collapsable={false}
-                renderToHardwareTextureAndroid
-                onLayout={(e) => {
-                  const { width, height } = e.nativeEvent.layout;
-                  setCanvasSize({ width, height });
-                }}
-                onStartShouldSetResponder={() => true}
-                onMoveShouldSetResponder={() => true}
-                onResponderTerminationRequest={() => false}
-                onResponderGrant={handleDrawStart}
-                onResponderMove={handleDrawMove}
-                onResponderRelease={handleDrawEnd}
-                onResponderTerminate={handleDrawEnd}
-              >
-                {!hasDrawing && existingSign && (
+            {mode === "draw" && (
+              <>
+                <View
+                  style={[
+                    sigStyles.canvasBox,
+                    { width: "100%", height: CANVAS_HEIGHT },
+                  ]}
+                  collapsable={false}
+                  renderToHardwareTextureAndroid
+                  onLayout={(e) => {
+                    const { width, height } = e.nativeEvent.layout;
+                    setCanvasSize({ width, height });
+                  }}
+                  onStartShouldSetResponder={() => true}
+                  onMoveShouldSetResponder={() => true}
+                  onResponderTerminationRequest={() => false}
+                  onResponderGrant={handleDrawStart}
+                  onResponderMove={handleDrawMove}
+                  onResponderRelease={handleDrawEnd}
+                  onResponderTerminate={handleDrawEnd}
+                >
+                  {!hasDrawing && existingSign && (
+                    <View
+                      style={sigStyles.existingHint}
+                      pointerEvents="none"
+                      collapsable={false}
+                    >
+                      <Text style={sigStyles.existingHintText}>
+                        Draw over this box to replace the saved signature
+                      </Text>
+                    </View>
+                  )}
                   <View
-                    style={sigStyles.existingHint}
+                    style={StyleSheet.absoluteFill}
                     pointerEvents="none"
                     collapsable={false}
                   >
-                    <Text style={sigStyles.existingHintText}>
-                      Draw over this box to replace the saved signature
-                    </Text>
+                    <Svg width="100%" height={CANVAS_HEIGHT}>
+                      {drawPathData.map((d, i) => (
+                        <Path
+                          key={i}
+                          d={d}
+                          stroke="#0f172a"
+                          strokeWidth={3.5}
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          fill="none"
+                        />
+                      ))}
+                    </Svg>
                   </View>
-                )}
-                <View
-                  style={StyleSheet.absoluteFill}
-                  pointerEvents="none"
-                  collapsable={false}
-                >
-                  <Svg width="100%" height={CANVAS_HEIGHT}>
-                    {drawPathData.map((d, i) => (
-                      <Path
-                        key={i}
-                        d={d}
-                        stroke="#0f172a"
-                        strokeWidth={3.5}
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        fill="none"
-                      />
-                    ))}
-                  </Svg>
+                  {!hasDrawing && (
+                    <View
+                      style={sigStyles.placeholderLine}
+                      pointerEvents="none"
+                      collapsable={false}
+                    />
+                  )}
                 </View>
-                {!hasDrawing && (
-                  <View
-                    style={sigStyles.placeholderLine}
-                    pointerEvents="none"
-                    collapsable={false}
-                  />
-                )}
-              </View>
 
-              <View style={sigStyles.footerPadded}>
-                {drawError ? (
-                  <View style={sigStyles.errorContainer}>
-                    <Ionicons name="alert-circle" size={14} color="#dc2626" />
-                    <Text style={sigStyles.errorText}>{drawError}</Text>
+                <View style={sigStyles.footerPadded}>
+                  {drawError ? (
+                    <View style={sigStyles.errorContainer}>
+                      <Ionicons name="alert-circle" size={14} color="#dc2626" />
+                      <Text style={sigStyles.errorText}>{drawError}</Text>
+                    </View>
+                  ) : (
+                    <Text style={sigStyles.hintText}>
+                      Sign above the line, then tap Save
+                    </Text>
+                  )}
+
+                  <View style={sigStyles.toolRow}>
+                    <TouchableOpacity
+                      style={sigStyles.toolButton}
+                      onPress={handleUndo}
+                      disabled={strokes.length === 0}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons
+                        name="arrow-undo"
+                        size={16}
+                        color={strokes.length === 0 ? "#cbd5e1" : "#475569"}
+                      />
+                      <Text
+                        style={[
+                          sigStyles.toolButtonText,
+                          strokes.length === 0 && { color: "#cbd5e1" },
+                        ]}
+                      >
+                        Undo
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={sigStyles.toolButton}
+                      onPress={handleClear}
+                      disabled={!hasDrawing}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons
+                        name="refresh"
+                        size={16}
+                        color={!hasDrawing ? "#cbd5e1" : "#475569"}
+                      />
+                      <Text
+                        style={[
+                          sigStyles.toolButtonText,
+                          !hasDrawing && { color: "#cbd5e1" },
+                        ]}
+                      >
+                        Clear
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  <View style={sigStyles.actionRow}>
+                    <TouchableOpacity
+                      style={sigStyles.cancelButton}
+                      onPress={onCancel}
+                      activeOpacity={0.8}
+                    >
+                      <Text style={sigStyles.cancelText}>Cancel</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        sigStyles.saveButton,
+                        !hasDrawing && sigStyles.saveButtonDisabled,
+                      ]}
+                      onPress={handleSaveDrawing}
+                      activeOpacity={0.85}
+                    >
+                      <Ionicons name="checkmark" size={18} color="#fff" />
+                      <Text style={sigStyles.saveText}>Save Signature</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              </>
+            )}
+
+            {mode === "upload" && uploadStage === "pick" && (
+              <>
+                {Platform.OS === "web" ? (
+                  <View style={sigStyles.webUploadPanel}>
+                    <View style={sigStyles.webUploadIcon}>
+                      <Ionicons
+                        name="cloud-upload-outline"
+                        size={26}
+                        color="#1a73e8"
+                      />
+                    </View>
+                    <Text style={sigStyles.webUploadTitle}>
+                      Upload a signature image
+                    </Text>
+                    <Text style={sigStyles.webUploadSubtitle}>
+                      Choose a PNG, JPEG, or WebP file from your computer.
+                    </Text>
+                    <TouchableOpacity
+                      style={sigStyles.webBrowseButton}
+                      onPress={handleChooseGallery}
+                      activeOpacity={0.85}
+                    >
+                      <Ionicons
+                        name="folder-open-outline"
+                        size={17}
+                        color="#fff"
+                      />
+                      <Text style={sigStyles.webBrowseButtonText}>
+                        Browse files
+                      </Text>
+                    </TouchableOpacity>
                   </View>
                 ) : (
-                  <Text style={sigStyles.hintText}>
-                    Sign above the line, then tap Save
-                  </Text>
+                  <>
+                    <TouchableOpacity
+                      style={sigStyles.uploadOption}
+                      onPress={handleTakePhoto}
+                      activeOpacity={0.8}
+                    >
+                      <View style={sigStyles.uploadOptionIcon}>
+                        <Ionicons name="camera" size={22} color="#1a73e8" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={sigStyles.uploadOptionTitle}>
+                          Take a Photo
+                        </Text>
+                        <Text style={sigStyles.uploadOptionSubtitle}>
+                          Capture the signature with your camera
+                        </Text>
+                      </View>
+                      <Ionicons
+                        name="chevron-forward"
+                        size={18}
+                        color="#cbd5e1"
+                      />
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={sigStyles.uploadOption}
+                      onPress={handleChooseGallery}
+                      activeOpacity={0.8}
+                    >
+                      <View
+                        style={[
+                          sigStyles.uploadOptionIcon,
+                          { backgroundColor: "#ecfdf5" },
+                        ]}
+                      >
+                        <Ionicons name="images" size={22} color="#059669" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={sigStyles.uploadOptionTitle}>
+                          Choose from Gallery
+                        </Text>
+                        <Text style={sigStyles.uploadOptionSubtitle}>
+                          Select an existing signature image
+                        </Text>
+                      </View>
+                      <Ionicons
+                        name="chevron-forward"
+                        size={18}
+                        color="#cbd5e1"
+                      />
+                    </TouchableOpacity>
+                  </>
                 )}
 
-                <View style={sigStyles.toolRow}>
+                {pickError ? (
+                  <View style={sigStyles.errorContainer}>
+                    <Ionicons name="alert-circle" size={14} color="#dc2626" />
+                    <Text style={sigStyles.errorText}>{pickError}</Text>
+                  </View>
+                ) : null}
+
+                <TouchableOpacity
+                  style={sigStyles.cancelButtonFull}
+                  onPress={onCancel}
+                  activeOpacity={0.8}
+                >
+                  <Text style={sigStyles.cancelText}>Cancel</Text>
+                </TouchableOpacity>
+              </>
+            )}
+
+            {mode === "upload" && uploadStage === "loading" && (
+              <View style={sigStyles.loadingBox}>
+                <ActivityIndicator size="large" color="#1a73e8" />
+                <Text style={sigStyles.loadingText}>Preparing image...</Text>
+              </View>
+            )}
+
+            {mode === "upload" && uploadStage === "crop" && rawImage && (
+              <>
+                <View style={sigStyles.cropModeSwitcher}>
                   <TouchableOpacity
-                    style={sigStyles.toolButton}
-                    onPress={handleUndo}
-                    disabled={strokes.length === 0}
-                    activeOpacity={0.7}
+                    style={[
+                      sigStyles.cropModeButton,
+                      !isCropMode && sigStyles.cropModeButtonActive,
+                    ]}
+                    onPress={() => setIsCropMode(false)}
+                    activeOpacity={0.8}
                   >
                     <Ionicons
-                      name="arrow-undo"
-                      size={16}
-                      color={strokes.length === 0 ? "#cbd5e1" : "#475569"}
+                      name="move-outline"
+                      size={15}
+                      color={!isCropMode ? "#1a73e8" : "#94a3b8"}
                     />
                     <Text
                       style={[
-                        sigStyles.toolButtonText,
-                        strokes.length === 0 && { color: "#cbd5e1" },
+                        sigStyles.cropModeButtonText,
+                        !isCropMode && sigStyles.cropModeButtonTextActive,
                       ]}
                     >
-                      Undo
+                      Adjust Photo
                     </Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={sigStyles.toolButton}
-                    onPress={handleClear}
-                    disabled={!hasDrawing}
-                    activeOpacity={0.7}
+                    style={[
+                      sigStyles.cropModeButton,
+                      isCropMode && sigStyles.cropModeButtonActive,
+                    ]}
+                    onPress={() => setIsCropMode(true)}
+                    activeOpacity={0.8}
                   >
                     <Ionicons
-                      name="refresh"
-                      size={16}
-                      color={!hasDrawing ? "#cbd5e1" : "#475569"}
+                      name="crop"
+                      size={15}
+                      color={isCropMode ? "#1a73e8" : "#94a3b8"}
                     />
                     <Text
                       style={[
-                        sigStyles.toolButtonText,
-                        !hasDrawing && { color: "#cbd5e1" },
+                        sigStyles.cropModeButtonText,
+                        isCropMode && sigStyles.cropModeButtonTextActive,
                       ]}
                     >
-                      Clear
+                      Crop
                     </Text>
                   </TouchableOpacity>
                 </View>
+                <Text style={sigStyles.cropModeHint}>
+                  {Platform.OS === "web"
+                    ? isCropMode
+                      ? "Drag the crop box to move it, or drag a handle to resize."
+                      : "Drag the image to position it and use the zoom controls."
+                    : isCropMode
+                      ? "Drag the corners or edges to resize the crop box. The photo is locked."
+                      : "Pinch with two fingers to zoom • Drag to reposition the photo"}
+                </Text>
+
+                <View style={sigStyles.cropViewportWrapper}>
+                  <View
+                    style={[
+                      sigStyles.cropViewport,
+                      { width: CROP_VIEWPORT_W, height: CROP_VIEWPORT_H },
+                    ]}
+                    collapsable={false}
+                  >
+                    <View
+                      style={[
+                        StyleSheet.absoluteFill,
+                        Platform.OS === "web" &&
+                          !isCropMode &&
+                          ({ touchAction: "none", cursor: "grab" } as any),
+                      ]}
+                      {...(Platform.OS === "web"
+                        ? {}
+                        : imagePanResponder.panHandlers)}
+                      {...(Platform.OS === "web" && !isCropMode
+                        ? (pointerHandlers as any)
+                        : {})}
+                    >
+                      <Image
+                        source={{ uri: rawImage.uri }}
+                        style={{
+                          position: "absolute",
+                          width: displayWidth,
+                          height: displayHeight,
+                          left:
+                            CROP_VIEWPORT_W / 2 -
+                            displayWidth / 2 +
+                            cropTranslate.x,
+                          top:
+                            CROP_VIEWPORT_H / 2 -
+                            displayHeight / 2 +
+                            cropTranslate.y,
+                        }}
+                        resizeMode="cover"
+                      />
+                    </View>
+
+                    {isCropMode && (
+                      <>
+                        <View
+                          style={sigStyles.cropOverlay}
+                          pointerEvents="none"
+                        >
+                          <View
+                            style={[
+                              sigStyles.cropOverlaySection,
+                              { height: cropRect.y },
+                            ]}
+                          />
+                          <View style={sigStyles.cropOverlayMiddle}>
+                            <View style={{ width: cropRect.x, flex: 1 }} />
+                            <View
+                              style={{
+                                width: cropRect.width,
+                                height: cropRect.height,
+                              }}
+                            />
+                            <View style={{ flex: 1 }} />
+                          </View>
+                          <View
+                            style={[
+                              sigStyles.cropOverlaySection,
+                              {
+                                height:
+                                  CROP_VIEWPORT_H -
+                                  cropRect.y -
+                                  cropRect.height,
+                              },
+                            ]}
+                          />
+                        </View>
+
+                        <View
+                          style={[
+                            sigStyles.cropBoxBorder,
+                            {
+                              left: cropRect.x,
+                              top: cropRect.y,
+                              width: cropRect.width,
+                              height: cropRect.height,
+                            },
+                          ]}
+                          pointerEvents="none"
+                        />
+
+                        {/* Full viewport gesture layer. The responder itself decides
+                          whether the finger is on a resize handle or inside the
+                          crop box. This is much more reliable on Android than a
+                          small transparent touch-area view. */}
+                        <View
+                          style={[
+                            sigStyles.cropGestureLayer,
+                            Platform.OS === "web"
+                              ? ({
+                                  touchAction: "none",
+                                  cursor: "crosshair",
+                                } as any)
+                              : null,
+                          ]}
+                          {...(Platform.OS === "web"
+                            ? (cropPointerHandlers as any)
+                            : cropBoxPanResponder.panHandlers)}
+                        />
+
+                        {/* Corner handles */}
+                        <View
+                          style={[
+                            sigStyles.resizeHandle,
+                            sigStyles.resizeHandleCorner,
+                            { left: cropRect.x - 10, top: cropRect.y - 10 },
+                          ]}
+                          pointerEvents="none"
+                        />
+                        <View
+                          style={[
+                            sigStyles.resizeHandle,
+                            sigStyles.resizeHandleCorner,
+                            {
+                              left: cropRect.x + cropRect.width - 10,
+                              top: cropRect.y - 10,
+                            },
+                          ]}
+                          pointerEvents="none"
+                        />
+                        <View
+                          style={[
+                            sigStyles.resizeHandle,
+                            sigStyles.resizeHandleCorner,
+                            {
+                              left: cropRect.x - 10,
+                              top: cropRect.y + cropRect.height - 10,
+                            },
+                          ]}
+                          pointerEvents="none"
+                        />
+                        <View
+                          style={[
+                            sigStyles.resizeHandle,
+                            sigStyles.resizeHandleCorner,
+                            {
+                              left: cropRect.x + cropRect.width - 10,
+                              top: cropRect.y + cropRect.height - 10,
+                            },
+                          ]}
+                          pointerEvents="none"
+                        />
+
+                        {/* Edge handles */}
+                        <View
+                          style={[
+                            sigStyles.resizeHandle,
+                            sigStyles.resizeHandleEdge,
+                            {
+                              left: cropRect.x + cropRect.width / 2 - 8,
+                              top: cropRect.y - 8,
+                            },
+                          ]}
+                          pointerEvents="none"
+                        />
+                        <View
+                          style={[
+                            sigStyles.resizeHandle,
+                            sigStyles.resizeHandleEdge,
+                            {
+                              left: cropRect.x + cropRect.width / 2 - 8,
+                              top: cropRect.y + cropRect.height - 8,
+                            },
+                          ]}
+                          pointerEvents="none"
+                        />
+                        <View
+                          style={[
+                            sigStyles.resizeHandle,
+                            sigStyles.resizeHandleEdge,
+                            {
+                              left: cropRect.x - 8,
+                              top: cropRect.y + cropRect.height / 2 - 8,
+                            },
+                          ]}
+                          pointerEvents="none"
+                        />
+                        <View
+                          style={[
+                            sigStyles.resizeHandle,
+                            sigStyles.resizeHandleEdge,
+                            {
+                              left: cropRect.x + cropRect.width - 8,
+                              top: cropRect.y + cropRect.height / 2 - 8,
+                            },
+                          ]}
+                          pointerEvents="none"
+                        />
+                      </>
+                    )}
+
+                    {!isCropMode && (
+                      <View style={sigStyles.zoomBadge} pointerEvents="none">
+                        <Text style={sigStyles.zoomBadgeText}>
+                          {Math.round(cropZoom * 100)}%
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                </View>
+
+                {Platform.OS === "web" && !isCropMode && (
+                  <PhotoZoomControls
+                    zoom={cropZoom}
+                    onZoomIn={zoomIn}
+                    onZoomOut={zoomOut}
+                  />
+                )}
+
+                <View style={sigStyles.transparentRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={sigStyles.transparentLabel}>
+                      Transparent Background
+                    </Text>
+                    <Text style={sigStyles.transparentSubtext}>
+                      Blends a white background into the bill so only the ink
+                      shows
+                    </Text>
+                  </View>
+                  <Switch
+                    value={transparentBg}
+                    onValueChange={setTransparentBg}
+                    trackColor={{ false: "#e2e8f0", true: "#93c5fd" }}
+                    thumbColor={transparentBg ? "#1a73e8" : "#f4f4f5"}
+                  />
+                </View>
+
+                {cropError ? (
+                  <View style={sigStyles.errorContainer}>
+                    <Ionicons name="alert-circle" size={14} color="#dc2626" />
+                    <Text style={sigStyles.errorText}>{cropError}</Text>
+                  </View>
+                ) : null}
 
                 <View style={sigStyles.actionRow}>
                   <TouchableOpacity
                     style={sigStyles.cancelButton}
-                    onPress={onCancel}
+                    onPress={handleRetake}
                     activeOpacity={0.8}
+                    disabled={processingCrop}
                   >
-                    <Text style={sigStyles.cancelText}>Cancel</Text>
+                    <Text style={sigStyles.cancelText}>Retake</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[
-                      sigStyles.saveButton,
-                      !hasDrawing && sigStyles.saveButtonDisabled,
-                    ]}
-                    onPress={handleSaveDrawing}
+                    style={sigStyles.saveButton}
+                    onPress={handleConfirmCrop}
                     activeOpacity={0.85}
+                    disabled={processingCrop}
                   >
                     <Ionicons name="checkmark" size={18} color="#fff" />
-                    <Text style={sigStyles.saveText}>Save Signature</Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-            </>
-          )}
-
-          {mode === "upload" && uploadStage === "pick" && (
-            <>
-              {Platform.OS === "web" ? (
-                <View style={sigStyles.webUploadPanel}>
-                  <View style={sigStyles.webUploadIcon}>
-                    <Ionicons
-                      name="cloud-upload-outline"
-                      size={26}
-                      color="#1a73e8"
-                    />
-                  </View>
-                  <Text style={sigStyles.webUploadTitle}>
-                    Upload a signature image
-                  </Text>
-                  <Text style={sigStyles.webUploadSubtitle}>
-                    Choose a PNG, JPEG, or WebP file from your computer.
-                  </Text>
-                  <TouchableOpacity
-                    style={sigStyles.webBrowseButton}
-                    onPress={handleChooseGallery}
-                    activeOpacity={0.85}
-                  >
-                    <Ionicons
-                      name="folder-open-outline"
-                      size={17}
-                      color="#fff"
-                    />
-                    <Text style={sigStyles.webBrowseButtonText}>
-                      Browse files
+                    <Text style={sigStyles.saveText}>
+                      {processingCrop ? "Saving..." : "Use This Signature"}
                     </Text>
                   </TouchableOpacity>
                 </View>
-              ) : (
-                <>
-                  <TouchableOpacity
-                    style={sigStyles.uploadOption}
-                    onPress={handleTakePhoto}
-                    activeOpacity={0.8}
-                  >
-                    <View style={sigStyles.uploadOptionIcon}>
-                      <Ionicons name="camera" size={22} color="#1a73e8" />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={sigStyles.uploadOptionTitle}>
-                        Take a Photo
-                      </Text>
-                      <Text style={sigStyles.uploadOptionSubtitle}>
-                        Capture the signature with your camera
-                      </Text>
-                    </View>
-                    <Ionicons
-                      name="chevron-forward"
-                      size={18}
-                      color="#cbd5e1"
-                    />
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={sigStyles.uploadOption}
-                    onPress={handleChooseGallery}
-                    activeOpacity={0.8}
-                  >
-                    <View
-                      style={[
-                        sigStyles.uploadOptionIcon,
-                        { backgroundColor: "#ecfdf5" },
-                      ]}
-                    >
-                      <Ionicons name="images" size={22} color="#059669" />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={sigStyles.uploadOptionTitle}>
-                        Choose from Gallery
-                      </Text>
-                      <Text style={sigStyles.uploadOptionSubtitle}>
-                        Select an existing signature image
-                      </Text>
-                    </View>
-                    <Ionicons
-                      name="chevron-forward"
-                      size={18}
-                      color="#cbd5e1"
-                    />
-                  </TouchableOpacity>
-                </>
-              )}
-
-              {pickError ? (
-                <View style={sigStyles.errorContainer}>
-                  <Ionicons name="alert-circle" size={14} color="#dc2626" />
-                  <Text style={sigStyles.errorText}>{pickError}</Text>
-                </View>
-              ) : null}
-
-              <TouchableOpacity
-                style={sigStyles.cancelButtonFull}
-                onPress={onCancel}
-                activeOpacity={0.8}
-              >
-                <Text style={sigStyles.cancelText}>Cancel</Text>
-              </TouchableOpacity>
-            </>
-          )}
-
-          {mode === "upload" && uploadStage === "loading" && (
-            <View style={sigStyles.loadingBox}>
-              <ActivityIndicator size="large" color="#1a73e8" />
-              <Text style={sigStyles.loadingText}>Preparing image...</Text>
-            </View>
-          )}
-
-          {mode === "upload" && uploadStage === "crop" && rawImage && (
-            <>
-              <View style={sigStyles.cropModeSwitcher}>
-                <TouchableOpacity
-                  style={[
-                    sigStyles.cropModeButton,
-                    !isCropMode && sigStyles.cropModeButtonActive,
-                  ]}
-                  onPress={() => setIsCropMode(false)}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons
-                    name="move-outline"
-                    size={15}
-                    color={!isCropMode ? "#1a73e8" : "#94a3b8"}
-                  />
-                  <Text
-                    style={[
-                      sigStyles.cropModeButtonText,
-                      !isCropMode && sigStyles.cropModeButtonTextActive,
-                    ]}
-                  >
-                    Adjust Photo
-                  </Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[
-                    sigStyles.cropModeButton,
-                    isCropMode && sigStyles.cropModeButtonActive,
-                  ]}
-                  onPress={() => setIsCropMode(true)}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons
-                    name="crop"
-                    size={15}
-                    color={isCropMode ? "#1a73e8" : "#94a3b8"}
-                  />
-                  <Text
-                    style={[
-                      sigStyles.cropModeButtonText,
-                      isCropMode && sigStyles.cropModeButtonTextActive,
-                    ]}
-                  >
-                    Crop
-                  </Text>
-                </TouchableOpacity>
-              </View>
-              <Text style={sigStyles.cropModeHint}>
-                {Platform.OS === "web"
-                  ? isCropMode
-                    ? "Drag the crop box to move it, or drag a handle to resize."
-                    : "Drag the image to position it and use the zoom controls."
-                  : isCropMode
-                    ? "Drag the corners or edges to resize the crop box. The photo is locked."
-                    : "Pinch with two fingers to zoom • Drag to reposition the photo"}
-              </Text>
-
-              <View style={sigStyles.cropViewportWrapper}>
-                <View
-                  style={[
-                    sigStyles.cropViewport,
-                    { width: CROP_VIEWPORT_W, height: CROP_VIEWPORT_H },
-                  ]}
-                  collapsable={false}
-                >
-                  <View
-                    style={[
-                      StyleSheet.absoluteFill,
-                      Platform.OS === "web" &&
-                        !isCropMode &&
-                        ({ touchAction: "none", cursor: "grab" } as any),
-                    ]}
-                    {...(Platform.OS === "web"
-                      ? {}
-                      : imagePanResponder.panHandlers)}
-                    {...(Platform.OS === "web" && !isCropMode
-                      ? (pointerHandlers as any)
-                      : {})}
-                  >
-                    <Image
-                      source={{ uri: rawImage.uri }}
-                      style={{
-                        position: "absolute",
-                        width: displayWidth,
-                        height: displayHeight,
-                        left:
-                          CROP_VIEWPORT_W / 2 -
-                          displayWidth / 2 +
-                          cropTranslate.x,
-                        top:
-                          CROP_VIEWPORT_H / 2 -
-                          displayHeight / 2 +
-                          cropTranslate.y,
-                      }}
-                      resizeMode="cover"
-                    />
-                  </View>
-
-                  {isCropMode && (
-                    <>
-                      <View style={sigStyles.cropOverlay} pointerEvents="none">
-                        <View
-                          style={[
-                            sigStyles.cropOverlaySection,
-                            { height: cropRect.y },
-                          ]}
-                        />
-                        <View style={sigStyles.cropOverlayMiddle}>
-                          <View style={{ width: cropRect.x, flex: 1 }} />
-                          <View
-                            style={{
-                              width: cropRect.width,
-                              height: cropRect.height,
-                            }}
-                          />
-                          <View style={{ flex: 1 }} />
-                        </View>
-                        <View
-                          style={[
-                            sigStyles.cropOverlaySection,
-                            {
-                              height:
-                                CROP_VIEWPORT_H - cropRect.y - cropRect.height,
-                            },
-                          ]}
-                        />
-                      </View>
-
-                      <View
-                        style={[
-                          sigStyles.cropBoxBorder,
-                          {
-                            left: cropRect.x,
-                            top: cropRect.y,
-                            width: cropRect.width,
-                            height: cropRect.height,
-                          },
-                        ]}
-                        pointerEvents="none"
-                      />
-
-                      {/* Full viewport gesture layer. The responder itself decides
-                          whether the finger is on a resize handle or inside the
-                          crop box. This is much more reliable on Android than a
-                          small transparent touch-area view. */}
-                      <View
-                        style={[
-                          sigStyles.cropGestureLayer,
-                          Platform.OS === "web"
-                            ? ({
-                                touchAction: "none",
-                                cursor: "crosshair",
-                              } as any)
-                            : null,
-                        ]}
-                        {...(Platform.OS === "web"
-                          ? (cropPointerHandlers as any)
-                          : cropBoxPanResponder.panHandlers)}
-                      />
-
-                      {/* Corner handles */}
-                      <View
-                        style={[
-                          sigStyles.resizeHandle,
-                          sigStyles.resizeHandleCorner,
-                          { left: cropRect.x - 10, top: cropRect.y - 10 },
-                        ]}
-                        pointerEvents="none"
-                      />
-                      <View
-                        style={[
-                          sigStyles.resizeHandle,
-                          sigStyles.resizeHandleCorner,
-                          {
-                            left: cropRect.x + cropRect.width - 10,
-                            top: cropRect.y - 10,
-                          },
-                        ]}
-                        pointerEvents="none"
-                      />
-                      <View
-                        style={[
-                          sigStyles.resizeHandle,
-                          sigStyles.resizeHandleCorner,
-                          {
-                            left: cropRect.x - 10,
-                            top: cropRect.y + cropRect.height - 10,
-                          },
-                        ]}
-                        pointerEvents="none"
-                      />
-                      <View
-                        style={[
-                          sigStyles.resizeHandle,
-                          sigStyles.resizeHandleCorner,
-                          {
-                            left: cropRect.x + cropRect.width - 10,
-                            top: cropRect.y + cropRect.height - 10,
-                          },
-                        ]}
-                        pointerEvents="none"
-                      />
-
-                      {/* Edge handles */}
-                      <View
-                        style={[
-                          sigStyles.resizeHandle,
-                          sigStyles.resizeHandleEdge,
-                          {
-                            left: cropRect.x + cropRect.width / 2 - 8,
-                            top: cropRect.y - 8,
-                          },
-                        ]}
-                        pointerEvents="none"
-                      />
-                      <View
-                        style={[
-                          sigStyles.resizeHandle,
-                          sigStyles.resizeHandleEdge,
-                          {
-                            left: cropRect.x + cropRect.width / 2 - 8,
-                            top: cropRect.y + cropRect.height - 8,
-                          },
-                        ]}
-                        pointerEvents="none"
-                      />
-                      <View
-                        style={[
-                          sigStyles.resizeHandle,
-                          sigStyles.resizeHandleEdge,
-                          {
-                            left: cropRect.x - 8,
-                            top: cropRect.y + cropRect.height / 2 - 8,
-                          },
-                        ]}
-                        pointerEvents="none"
-                      />
-                      <View
-                        style={[
-                          sigStyles.resizeHandle,
-                          sigStyles.resizeHandleEdge,
-                          {
-                            left: cropRect.x + cropRect.width - 8,
-                            top: cropRect.y + cropRect.height / 2 - 8,
-                          },
-                        ]}
-                        pointerEvents="none"
-                      />
-                    </>
-                  )}
-
-                  {!isCropMode && (
-                    <View style={sigStyles.zoomBadge} pointerEvents="none">
-                      <Text style={sigStyles.zoomBadgeText}>
-                        {Math.round(cropZoom * 100)}%
-                      </Text>
-                    </View>
-                  )}
-                </View>
-              </View>
-
-              {Platform.OS === "web" && !isCropMode && (
-                <PhotoZoomControls
-                  zoom={cropZoom}
-                  onZoomIn={zoomIn}
-                  onZoomOut={zoomOut}
-                />
-              )}
-
-              <View style={sigStyles.transparentRow}>
-                <View style={{ flex: 1 }}>
-                  <Text style={sigStyles.transparentLabel}>
-                    Transparent Background
-                  </Text>
-                  <Text style={sigStyles.transparentSubtext}>
-                    Blends a white background into the bill so only the ink
-                    shows
-                  </Text>
-                </View>
-                <Switch
-                  value={transparentBg}
-                  onValueChange={setTransparentBg}
-                  trackColor={{ false: "#e2e8f0", true: "#93c5fd" }}
-                  thumbColor={transparentBg ? "#1a73e8" : "#f4f4f5"}
-                />
-              </View>
-
-              {cropError ? (
-                <View style={sigStyles.errorContainer}>
-                  <Ionicons name="alert-circle" size={14} color="#dc2626" />
-                  <Text style={sigStyles.errorText}>{cropError}</Text>
-                </View>
-              ) : null}
-
-              <View style={sigStyles.actionRow}>
-                <TouchableOpacity
-                  style={sigStyles.cancelButton}
-                  onPress={handleRetake}
-                  activeOpacity={0.8}
-                  disabled={processingCrop}
-                >
-                  <Text style={sigStyles.cancelText}>Retake</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={sigStyles.saveButton}
-                  onPress={handleConfirmCrop}
-                  activeOpacity={0.85}
-                  disabled={processingCrop}
-                >
-                  <Ionicons name="checkmark" size={18} color="#fff" />
-                  <Text style={sigStyles.saveText}>
-                    {processingCrop ? "Saving..." : "Use This Signature"}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </>
-          )}
+              </>
+            )}
+          </View>
         </View>
       </View>
-    </View>
+    </DarkModeBoundary>
   );
 }
 

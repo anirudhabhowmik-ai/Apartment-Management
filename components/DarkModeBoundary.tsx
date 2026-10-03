@@ -74,6 +74,48 @@ function parseColor(value: string) {
   return rgb ? [Number(rgb[1]), Number(rgb[2]), Number(rgb[3])] : null;
 }
 
+function mapWebBlue(value: string): string | null {
+  const match = value.match(
+    /^rgba?\((\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\)$/i,
+  );
+  const rgb = parseColor(value);
+  if (!rgb) return null;
+
+  const [red, green, blue] = rgb.map((channel) => channel / 255);
+  const max = Math.max(red, green, blue);
+  const min = Math.min(red, green, blue);
+  const delta = max - min;
+  if (delta === 0) return null;
+
+  let hue = 0;
+  if (max === red) hue = 60 * (((green - blue) / delta) % 6);
+  else if (max === green) hue = 60 * ((blue - red) / delta + 2);
+  else hue = 60 * ((red - green) / delta + 4);
+  hue = (hue + 360) % 360;
+
+  const lightness = (max + min) / 2;
+  const saturation = delta / (1 - Math.abs(2 * lightness - 1));
+  if (hue < 195 || hue > 255 || saturation < 0.28) return null;
+
+  const replacement =
+    lightness < 0.22
+      ? "#17372E"
+      : lightness < 0.42
+        ? "#126B58"
+        : lightness < 0.62
+          ? "#287D65"
+          : lightness < 0.79
+            ? "#8ECAB2"
+            : lightness < 0.9
+              ? "#D1E9DE"
+              : "#E5F3ED";
+
+  if (!match?.[4]) return replacement;
+
+  const mappedRgb = parseColor(replacement)!;
+  return `rgba(${mappedRgb.join(", ")}, ${match[4]})`;
+}
+
 function mapColor(
   value: unknown,
   key: string,
@@ -83,7 +125,7 @@ function mapColor(
   if (typeof value !== "string" || value === "transparent") return value;
 
   if (!isDarkMode && useWebBrand) {
-    return WEB_BRAND_COLORS[value.toUpperCase()] ?? value;
+    return WEB_BRAND_COLORS[value.toUpperCase()] ?? mapWebBlue(value) ?? value;
   }
 
   const named: Record<string, string> = {
