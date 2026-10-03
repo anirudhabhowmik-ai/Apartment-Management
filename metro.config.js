@@ -5,14 +5,6 @@ const fs = require("fs");
 
 const config = getDefaultConfig(__dirname);
 
-// Force Metro to prefer browser/module entries over Node "main".
-config.resolver.resolverMainFields = [
-  "browser",
-  "module",
-  "main",
-  "react-native",
-];
-
 function firstExisting(dir, names) {
   for (const name of names) {
     const p = path.join(dir, name);
@@ -21,18 +13,8 @@ function firstExisting(dir, names) {
   return null;
 }
 
-// ---------------------------------------------------------------------------
-// Workaround for react-native-safe-area-context + RN 0.86 codegen failure.
-// Redirects the ESM spec file to its CJS variant which bypasses the codegen
-// babel plugin's strict parser.
-// ---------------------------------------------------------------------------
-const SAFE_AREA_CJS = path.resolve(
-  __dirname,
-  "node_modules/react-native-safe-area-context/lib/commonjs/specs/NativeSafeAreaView.js",
-);
-
 config.resolver.resolveRequest = (context, moduleName, platform) => {
-  // ── Native: never bundle browser-only PDF libs ─────────────────────────
+  // Native: never bundle browser-only PDF libs
   if (
     platform !== "web" &&
     (moduleName === "html2pdf.js" ||
@@ -42,14 +24,14 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
     return { type: "empty" };
   }
 
-  // ── Web: force jspdf ESM build ─────────────────────────────────────────
+  // Web: force jspdf ESM build
   if (moduleName === "jspdf" && platform === "web") {
     const distDir = path.resolve(__dirname, "node_modules/jspdf/dist");
     const entry = firstExisting(distDir, ["jspdf.es.min.js", "jspdf.es.js"]);
     if (entry) return { type: "sourceFile", filePath: entry };
   }
 
-  // ── Web: force html2canvas ESM build ───────────────────────────────────
+  // Web: force html2canvas ESM build
   if (moduleName === "html2canvas" && platform === "web") {
     const distDir = path.resolve(__dirname, "node_modules/html2canvas/dist");
     const entry = firstExisting(distDir, [
@@ -58,17 +40,6 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
       "html2canvas.js",
     ]);
     if (entry) return { type: "sourceFile", filePath: entry };
-  }
-
-  // ── All platforms: bypass the broken codegen spec in safe-area-context ──
-  if (
-    moduleName.includes(
-      "react-native-safe-area-context/lib/module/specs/NativeSafeAreaView",
-    )
-  ) {
-    if (fs.existsSync(SAFE_AREA_CJS)) {
-      return { type: "sourceFile", filePath: SAFE_AREA_CJS };
-    }
   }
 
   return context.resolveRequest(context, moduleName, platform);
