@@ -145,7 +145,7 @@ function buildBillFileName(billNumber: string): string {
 }
 
 /**
- * Loads an image URI and returns something expo-print can render.
+ * Loads an image URI and returns something the HTML renderer can use.
  *  - http/https / data:  → returned as-is
  *  - file:// / content:// → read as base64 and returned as a data: URI
  * Returns null if the URI is missing or loading fails.
@@ -157,10 +157,8 @@ async function resolvePhotoForHtml(
   const uri = String(rawUri).trim();
   if (!uri) return null;
 
-  // Already web-safe
   if (/^https?:\/\//i.test(uri) || uri.startsWith("data:")) return uri;
 
-  // Local file → convert to base64 data URI
   try {
     const base64 = await FileSystem.readAsStringAsync(uri, {
       encoding: FileSystem.EncodingType.Base64,
@@ -221,7 +219,7 @@ function rowHtml(
 }
 
 /* ================================================================
-   HEADER BUILDER — three genuinely different headers
+   HEADER BUILDER
 ================================================================ */
 
 function buildHeaderHtml(
@@ -352,10 +350,10 @@ function buildHeaderHtml(
 }
 
 /* ================================================================
-   GENERATE PDF
+   HTML BUILDER (native — used by expo-print only)
 ================================================================ */
 
-export async function generateBillPDF(data: BillData): Promise<string> {
+async function buildBillHtml(data: BillData): Promise<string> {
   const {
     billNumber,
     address,
@@ -397,8 +395,6 @@ export async function generateBillPDF(data: BillData): Promise<string> {
     .filter(Boolean)
     .join("  |  ");
 
-  // Resolve photo to a web-safe URL (base64 for local files).
-  // We only need it for the owner bill, not for staff salary slips.
   const resolvedPhotoUri =
     billType === "maintenance"
       ? await resolvePhotoForHtml(societyPhotoUri)
@@ -414,11 +410,9 @@ export async function generateBillPDF(data: BillData): Promise<string> {
     resolvedPhotoUri,
   );
 
-  /* ---------- Localized labels ---------- */
   const isOwnerBill = billType === "maintenance";
   const ownerTenantWord = isTenantAccount ? "Tenant" : "Owner";
   const unitLabel = isTenantAccount ? "Room Number" : "Flat Number";
-
   const memberLabel = isOwnerBill ? `${ownerTenantWord} Name` : "Staff Name";
 
   const infoRowsData: [string, string][] = [
@@ -429,28 +423,24 @@ export async function generateBillPDF(data: BillData): Promise<string> {
     ["Payment Date", formatDate(paidDate)],
   ];
 
-  /* ---------- Bill title per variant ---------- */
   const billTitleText = isOwnerBill
     ? isTenantAccount
       ? "RENT BILL"
       : "MAINTENANCE BILL"
     : "SALARY RECEIPT";
 
-  /* ---------- Base amount label ---------- */
   const baseLabel = isOwnerBill
     ? isTenantAccount
       ? "Base Rent"
       : "Base Maintenance"
     : "Base Salary";
 
-  /* ---------- Total label ---------- */
   const totalLabel = isOwnerBill
     ? isTenantAccount
       ? "Rent Amount"
       : "Maintenance Amount"
     : "Salary Amount";
 
-  /* ---------- Info panel per variant ---------- */
   const infoPanelHtml = (() => {
     if (variant === "bold") {
       const rows = infoRowsData
@@ -560,7 +550,6 @@ export async function generateBillPDF(data: BillData): Promise<string> {
     `;
   })();
 
-  /* ---------- Amount breakdown per variant ---------- */
   const amountRowsData: [string, string][] = [
     [baseLabel, formatCurrency(amount)],
     ...(additionalAmount
@@ -643,7 +632,6 @@ export async function generateBillPDF(data: BillData): Promise<string> {
     `;
   })();
 
-  /* ---------- Total row per variant ---------- */
   const totalHtml = (() => {
     if (variant === "bold") {
       return `
@@ -706,18 +694,14 @@ export async function generateBillPDF(data: BillData): Promise<string> {
     `;
   })();
 
-  /* ---------- Signature alignment per variant ---------- */
   const signatureAlign = variant === "minimal" ? "flex-start" : "center";
-
-  /* ---------- Container padding per variant ---------- */
   const containerPadding = variant === "bold" ? "0 30px 30px" : "30px";
 
-  /* ---------- Watermark text ---------- */
   const watermarkText =
     template.watermarkText ||
     (isTenantAccount && isOwnerBill ? "HOME" : "SOCIETY");
 
-  const html = `
+  return `
     <!DOCTYPE html>
     <html>
     <head>
@@ -888,6 +872,285 @@ export async function generateBillPDF(data: BillData): Promise<string> {
     </body>
     </html>
   `;
+}
+
+/* ================================================================
+   WEB — hand-rolled PDF (no library)
+================================================================ */
+
+/** Escape a PDF string literal: ( ) \ must be escaped. */
+function pdfEscape(text: string): string {
+  return String(text ?? "")
+    .replace(/\\/g, "\\\\")
+    .replace(/\(/g, "\\(")
+    .replace(/\)/g, "\\)")
+    .replace(/\r?\n/g, " ");
+}
+
+type PdfLine = {
+  text: string;
+  x: number;
+  y: number;
+  size: number;
+  bold?: boolean;
+  color?: [number, number, number];
+};
+
+/** "Rs. 1,234" — ASCII-only so Helvetica can render it. */
+function inrAscii(amount: number): string {
+  return `Rs. ${Number(amount || 0).toLocaleString("en-IN")}`;
+}
+
+function layoutBillLines(data: BillData): {
+  lines: PdfLine[];
+  pageHeight: number;
+} {
+  const {
+    billNumber,
+    societyName,
+    address,
+    contactNumber,
+    email,
+    memberName,
+    flatNumber,
+    amount,
+    month,
+    paidDate,
+    additionalAmount,
+    additionalNote,
+    deductionAmount,
+    deductionNote,
+    netAmount,
+    billType,
+    staffRole,
+    isTenantAccount = false,
+  } = data;
+
+  const PAGE_H = 841.89;
+  const MARGIN = 40;
+  const LINE = 15;
+
+  const lines: PdfLine[] = [];
+  let y = PAGE_H - MARGIN;
+
+  const push = (
+    text: string,
+    opts: {
+      size?: number;
+      bold?: boolean;
+      color?: [number, number, number];
+      gap?: number;
+      x?: number;
+    } = {},
+  ) => {
+    lines.push({
+      text,
+      x: opts.x ?? MARGIN,
+      y,
+      size: opts.size ?? 10,
+      bold: opts.bold,
+      color: opts.color,
+    });
+    y -= opts.gap ?? LINE;
+  };
+
+  const isOwnerBill = billType === "maintenance";
+  const unitLabel = isTenantAccount ? "Room Number" : "Flat Number";
+  const memberLabel = isOwnerBill
+    ? `${isTenantAccount ? "Tenant" : "Owner"} Name`
+    : "Staff Name";
+  const billTitleText = isOwnerBill
+    ? isTenantAccount
+      ? "RENT BILL"
+      : "MAINTENANCE BILL"
+    : "SALARY RECEIPT";
+  const baseLabel = isOwnerBill
+    ? isTenantAccount
+      ? "Base Rent"
+      : "Base Maintenance"
+    : "Base Salary";
+  const totalLabel = isOwnerBill
+    ? isTenantAccount
+      ? "Rent Amount"
+      : "Maintenance Amount"
+    : "Salary Amount";
+
+  // ── Header ──
+  push(societyName, { size: 18, bold: true, color: [0.06, 0.09, 0.16] });
+  if (address) push(address, { size: 10, color: [0.39, 0.45, 0.55] });
+  const contactLine = [
+    contactNumber ? `Phone: ${contactNumber}` : "",
+    email ? `Email: ${email}` : "",
+  ]
+    .filter(Boolean)
+    .join("   ");
+  if (contactLine) push(contactLine, { size: 9.5, color: [0.58, 0.64, 0.72] });
+
+  y -= 6;
+
+  // ── Bill title strip ──
+  push(billTitleText, {
+    size: 13,
+    bold: true,
+    color: [0.15, 0.39, 0.92],
+  });
+  push(`Bill #: ${billNumber}`, { size: 9.5, color: [0.39, 0.45, 0.55] });
+  push(`Date: ${formatDate(paidDate)}`, {
+    size: 9.5,
+    color: [0.39, 0.45, 0.55],
+  });
+
+  y -= 8;
+
+  // ── Info block ──
+  const infoRows: [string, string][] = [
+    [memberLabel, memberName],
+    ...(flatNumber ? ([[unitLabel, flatNumber]] as [string, string][]) : []),
+    ...(staffRole ? ([["Role", staffRole]] as [string, string][]) : []),
+    ["Month", month],
+    ["Payment Date", formatDate(paidDate)],
+  ];
+  for (const [label, value] of infoRows) {
+    push(`${label}: ${value}`, { size: 10.5 });
+  }
+
+  y -= 8;
+
+  // ── Amount block ──
+  push(baseLabel, { size: 10.5 });
+  push(inrAscii(amount), { size: 10.5, x: MARGIN + 240 });
+
+  if (additionalAmount) {
+    push("Additional Amount", { size: 10.5 });
+    push(`+ ${inrAscii(additionalAmount)}`, {
+      size: 10.5,
+      x: MARGIN + 240,
+    });
+    if (additionalNote) {
+      push(`(${additionalNote})`, {
+        size: 9,
+        color: [0.58, 0.64, 0.72],
+      });
+    }
+  }
+  if (deductionAmount) {
+    push("Deduction", { size: 10.5 });
+    push(`- ${inrAscii(deductionAmount)}`, {
+      size: 10.5,
+      x: MARGIN + 240,
+    });
+    if (deductionNote) {
+      push(`(${deductionNote})`, { size: 9, color: [0.58, 0.64, 0.72] });
+    }
+  }
+
+  y -= 4;
+  push("―".repeat(56), { size: 8, color: [0.8, 0.85, 0.9] });
+  push(totalLabel, { size: 12, bold: true, color: [0.06, 0.09, 0.16] });
+  push(inrAscii(netAmount), {
+    size: 12,
+    bold: true,
+    color: [0.09, 0.4, 0.92],
+    x: MARGIN + 240,
+  });
+
+  y -= 12;
+
+  // ── Footer note ──
+  push("This is a computer-generated receipt.", {
+    size: 9,
+    color: [0.58, 0.64, 0.72],
+  });
+  push(`${societyName} | ${contactNumber}`, {
+    size: 9,
+    color: [0.58, 0.64, 0.72],
+  });
+  push(`Generated on ${new Date().toLocaleString()}`, {
+    size: 8.5,
+    color: [0.65, 0.7, 0.78],
+  });
+
+  return { lines, pageHeight: PAGE_H };
+}
+
+function buildMinimalPdfBase64(lines: PdfLine[], pageHeight: number): string {
+  const PAGE_W = 595.28;
+
+  let content = "q\n";
+  for (const line of lines) {
+    const font = line.bold ? "/F2" : "/F1";
+    const [r, g, b] = line.color ?? [0, 0, 0];
+    content +=
+      `BT\n` +
+      `${font} ${line.size} Tf\n` +
+      `${r.toFixed(3)} ${g.toFixed(3)} ${b.toFixed(3)} rg\n` +
+      `1 0 0 1 ${line.x.toFixed(2)} ${line.y.toFixed(2)} Tm\n` +
+      `(${pdfEscape(line.text)}) Tj\n` +
+      `ET\n`;
+  }
+  content += "Q\n";
+
+  const contentLength = content.length;
+
+  const objects: string[] = [];
+  objects[1] = `<< /Type /Catalog /Pages 2 0 R >>`;
+  objects[2] = `<< /Type /Pages /Kids [3 0 R] /Count 1 >>`;
+  objects[3] =
+    `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${PAGE_W.toFixed(
+      2,
+    )} ${pageHeight.toFixed(2)}] ` +
+    `/Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> ` +
+    `/Contents 4 0 R >>`;
+  objects[4] = `<< /Length ${contentLength} >>\nstream\n${content}\nendstream`;
+  objects[5] = `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>`;
+  objects[6] = `<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>`;
+
+  let pdf = "%PDF-1.4\n";
+  const offsets: number[] = [0];
+  for (let i = 1; i < objects.length; i++) {
+    offsets[i] = pdf.length;
+    pdf += `${i} 0 obj\n${objects[i]}\nendobj\n`;
+  }
+
+  const xrefStart = pdf.length;
+  pdf += `xref\n0 ${objects.length}\n`;
+  pdf += `0000000000 65535 f \n`;
+  for (let i = 1; i < objects.length; i++) {
+    pdf += `${String(offsets[i]).padStart(10, "0")} 00000 n \n`;
+  }
+  pdf +=
+    `trailer\n<< /Size ${objects.length} /Root 1 0 R >>\n` +
+    `startxref\n${xrefStart}\n%%EOF\n`;
+
+  // btoa exists only in browsers — this code path runs only on web.
+  // eslint-disable-next-line no-undef
+  return btoa(pdf);
+}
+
+function generateBillPdfBase64OnWeb(data: BillData): string {
+  const { lines, pageHeight } = layoutBillLines(data);
+  return buildMinimalPdfBase64(lines, pageHeight);
+}
+
+/* ================================================================
+   GENERATE PDF
+================================================================ */
+
+export async function generateBillPDF(data: BillData): Promise<string> {
+  /* ------------------------------------------------------------
+     WEB — build a real PDF in-browser (no expo-print).
+     expo-print's web shim opens the browser print dialog and
+     ignores `base64: true`, so we bypass it entirely on web.
+  ------------------------------------------------------------ */
+  if (Platform.OS === "web") {
+    const base64 = generateBillPdfBase64OnWeb(data);
+    return `data:application/pdf;base64,${base64}`;
+  }
+
+  /* ------------------------------------------------------------
+     NATIVE — unchanged from the working APK build.
+  ------------------------------------------------------------ */
+  const html = await buildBillHtml(data);
 
   try {
     const { base64 } = await Print.printToFileAsync({
@@ -904,16 +1167,12 @@ export async function generateBillPDF(data: BillData): Promise<string> {
       throw new Error("PDF generation failed — no data returned.");
     }
 
-    if (Platform.OS === "web") {
-      return `data:application/pdf;base64,${base64}`;
-    }
-
     const cacheDir = FileSystem.cacheDirectory;
     if (!cacheDir) {
       throw new Error("Cache directory is unavailable on this device.");
     }
 
-    const fileName = buildBillFileName(billNumber);
+    const fileName = buildBillFileName(data.billNumber);
     const fileUri = `${cacheDir}${fileName}`;
 
     await FileSystem.writeAsStringAsync(fileUri, base64, {
@@ -933,7 +1192,7 @@ export async function generateBillPDF(data: BillData): Promise<string> {
 }
 
 /* ================================================================
-   SHARE PDF
+   SHARE PDF (native only)
 ================================================================ */
 
 export async function sharePDF(uri: string, fileName: string): Promise<void> {
@@ -964,6 +1223,8 @@ export async function savePDFToDevice(
 ): Promise<{ saved: boolean; message?: string }> {
   try {
     if (Platform.OS === "web") {
+      // On web, `uri` is a real data: URI from generateBillPDF.
+      // downloadWebFile forces an actual download via <a download>.
       await downloadWebFile(uri, fileName, "application/pdf");
       return { saved: true };
     }
