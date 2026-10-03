@@ -1,9 +1,11 @@
 import { Ionicons } from "@expo/vector-icons";
 import { Link } from "expo-router";
 import Head from "expo-router/head";
+import { useEffect, useState } from "react";
 import {
     Image,
     Pressable,
+  Platform,
     ScrollView,
     StyleSheet,
     Text,
@@ -53,8 +55,21 @@ const features = [
 
 export default function SeoLandingPage() {
   const { width } = useWindowDimensions();
-  const isWide = width >= 840;
-  const isMobile = width < 600;
+  const [webViewportWidth, setWebViewportWidth] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (Platform.OS !== "web") return;
+
+    const updateWidth = () => setWebViewportWidth(window.innerWidth);
+    updateWidth();
+    window.addEventListener("resize", updateWidth);
+    return () => window.removeEventListener("resize", updateWidth);
+  }, []);
+
+  const responsiveWidth = webViewportWidth ?? width;
+  const isWide = responsiveWidth >= 900;
+  const isCompactDesktop = responsiveWidth >= 600 && responsiveWidth < 900;
+  const isMobile = responsiveWidth < 600;
   const structuredData = {
     "@context": "https://schema.org",
     "@type": "SoftwareApplication",
@@ -113,10 +128,13 @@ export default function SeoLandingPage() {
           style={[
             styles.hero,
             isWide && styles.heroWide,
+              isCompactDesktop && styles.heroCompact,
             isMobile && styles.heroMobile,
           ]}
         >
-          <View style={styles.heroCopy}>
+            <View
+              style={[styles.heroCopy, isCompactDesktop && styles.heroCopyCompact]}
+            >
             <View style={[styles.eyebrow, isMobile && styles.eyebrowMobile]}>
               <View style={styles.eyebrowDot} />
               <Text style={styles.eyebrowText}>
@@ -125,14 +143,19 @@ export default function SeoLandingPage() {
             </View>
             <Text
               accessibilityRole="header"
-              style={[styles.heroTitle, isMobile && styles.heroTitleMobile]}
+              style={[
+                styles.heroTitle,
+                isCompactDesktop && styles.heroTitleCompact,
+                isMobile && styles.heroTitleMobile,
+              ]}
             >
-              Apartment management, all in one place.
+               Apartment management, all in one place.
             </Text>
             <Text
               style={[
                 styles.heroDescription,
                 isMobile && styles.heroDescriptionMobile,
+                  isCompactDesktop && styles.heroDescriptionCompact,
               ]}
             >
               Manage residents, maintenance bills, payments, expenses, and staff
@@ -157,7 +180,9 @@ export default function SeoLandingPage() {
             </View>
           </View>
 
-          <View style={styles.preview}>
+          <View
+            style={[styles.preview, isCompactDesktop && styles.previewCompact]}
+          >
             <View style={styles.previewTopline}>
               <View>
                 <Text style={styles.previewLabel}>PROPERTY OVERVIEW</Text>
@@ -425,8 +450,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
+  heroCompact: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingTop: 42,
+    paddingBottom: 50,
+    gap: 24,
+  },
   heroMobile: { paddingTop: 38, paddingBottom: 46, gap: 30 },
   heroCopy: { flex: 1, maxWidth: 570, alignItems: "flex-start" },
+  heroCopyCompact: { minWidth: 0, maxWidth: 300 },
   eyebrow: {
     flexDirection: "row",
     alignItems: "center",
@@ -455,6 +489,7 @@ const styles = StyleSheet.create({
     maxWidth: 550,
   },
   heroTitleMobile: { fontSize: 38, lineHeight: 44 },
+  heroTitleCompact: { fontSize: 34, lineHeight: 40 },
   heroDescription: {
     color: "#52645C",
     fontSize: 17,
@@ -463,6 +498,7 @@ const styles = StyleSheet.create({
     maxWidth: 510,
   },
   heroDescriptionMobile: { fontSize: 16, lineHeight: 25, marginTop: 16 },
+  heroDescriptionCompact: { fontSize: 15, lineHeight: 23, marginTop: 14 },
   heroActions: {
     flexDirection: "row",
     alignItems: "center",
@@ -512,6 +548,7 @@ const styles = StyleSheet.create({
     borderColor: "#DEE4DA",
     backgroundColor: "#FFFFFF",
   },
+  previewCompact: { width: "auto", flex: 1, minWidth: 0, maxWidth: 340, padding: 18 },
   previewTopline: {
     flexDirection: "row",
     justifyContent: "space-between",
