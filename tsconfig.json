@@ -7,10 +7,7 @@
     "ignoreDeprecations": "6.0",
     "skipLibCheck": true,
     "paths": {
-      "@/*": ["./*"],
-      "@msg91comm/sendotp-react-native": [
-        "./types/msg91-sendotp-react-native.d.ts"
-      ]
+      "@/*": ["./*"]
     }
   },
   "include": [
