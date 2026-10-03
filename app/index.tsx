@@ -1,10 +1,19 @@
 // app/index.tsx
 import { Redirect } from "expo-router";
-import { ActivityIndicator, StyleSheet, View } from "react-native";
+import { ActivityIndicator, Platform, StyleSheet, View } from "react-native";
+import SeoLandingPage from "../components/SeoLandingPage";
 import { useAccounts } from "../hooks/useAccounts";
 import { useAuth } from "../hooks/useAuth";
 
 export default function Index() {
+  if (Platform.OS === "web") {
+    return <SeoLandingPage />;
+  }
+
+  return <NativeAppEntry />;
+}
+
+function NativeAppEntry() {
   const { user, isLoading: authLoading } = useAuth();
   const { accounts, hasLoaded, isLoading: accountsLoading } = useAccounts();
 

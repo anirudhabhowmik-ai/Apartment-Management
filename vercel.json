@@ -1,8 +1,5 @@
 {
-  "rewrites": [
-    {
-      "source": "/((?!_expo|assets|favicon|metadata).*)",
-      "destination": "/index.html"
-    }
-  ]
+  "buildCommand": "npm run web:build",
+  "outputDirectory": "dist",
+  "cleanUrls": true
 }

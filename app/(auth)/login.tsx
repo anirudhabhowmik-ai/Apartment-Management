@@ -20,12 +20,14 @@ import {
   Text,
   TextInput,
   TouchableWithoutFeedback,
+  useWindowDimensions,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DarkModeBoundary } from "../../components/DarkModeBoundary";
 import { sendOtp } from "../../services/otpService";
 import { useAuthStore } from "../../store/useAuthStore";
+import { ANDROID_APK_URL } from "../../utils/appDownloads";
 
 // Allow <img> tag on web (React Native Web supports HTML elements)
 declare global {
@@ -86,13 +88,6 @@ const LEGAL_URLS = {
 } as const;
 
 // ================================================================
-// APK DOWNLOAD URL
-// ================================================================
-
-const APK_DOWNLOAD_URL =
-  "https://github.com/anirudhabhowmik-ai/Apartment-Management/releases/download/v1.0.1/apartment-management.apk";
-
-// ================================================================
 // INLINE SVG PHONE MOCKUP
 // ================================================================
 
@@ -119,18 +114,18 @@ const openLegalUrl = async (type: "privacy" | "terms") => {
 const handleDownloadApk = async () => {
   try {
     if (Platform.OS === "web" && typeof window !== "undefined") {
-      window.location.href = APK_DOWNLOAD_URL;
+      window.location.href = ANDROID_APK_URL;
       return;
     }
 
-    const supported = await Linking.canOpenURL(APK_DOWNLOAD_URL);
+    const supported = await Linking.canOpenURL(ANDROID_APK_URL);
     if (supported) {
-      await Linking.openURL(APK_DOWNLOAD_URL);
+      await Linking.openURL(ANDROID_APK_URL);
     } else {
-      Alert.alert("Unable to open link", APK_DOWNLOAD_URL);
+      Alert.alert("Unable to open link", ANDROID_APK_URL);
     }
   } catch {
-    Alert.alert("Unable to download app", APK_DOWNLOAD_URL);
+    Alert.alert("Unable to download app", ANDROID_APK_URL);
   }
 };
 
@@ -146,6 +141,8 @@ interface ContactData {
 export default function LoginScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { width } = useWindowDimensions();
+  const isWideWeb = Platform.OS === "web" && width >= 840;
 
   const setPendingPhone = useAuthStore((s) => s.setPendingPhone);
 
@@ -484,215 +481,245 @@ export default function LoginScreen() {
           showsVerticalScrollIndicator={false}
           bounces={false}
         >
-          {/* HEADER */}
-          <View style={styles.header}>
-            <View style={styles.logoContainer}>
-              <View style={styles.logoCircle}>
-                <Image
-                  source={require("../../assets/images/logo-mark.png")}
-                  style={styles.logoImage}
-                  resizeMode="contain"
-                />
-              </View>
-            </View>
-
-            <Text style={styles.title}>Property Manager</Text>
-            <Text style={styles.subtitle}>
-              Manage your properties effortlessly
-            </Text>
-          </View>
-
-          {/* LOGIN CARD */}
-          <View style={styles.card}>
-            <Text style={styles.cardTitle}>Welcome Back</Text>
-
-            <Text style={styles.cardSubtitle}>
-              Sign in to manage your properties, tenants, and expenses
-            </Text>
-
-            {/* PHONE INPUT */}
-            <View style={styles.inputWrapper}>
-              <Text style={styles.inputLabel}>Phone Number</Text>
-
-              <View
-                style={[styles.inputRow, isFocused && styles.inputRowFocused]}
-              >
-                <View style={styles.countryCode}>
-                  <Text style={styles.prefix}>+91</Text>
-                  <View style={styles.divider} />
+          <View style={[styles.authLayout, isWideWeb && styles.authLayoutWide]}>
+            {/* HEADER */}
+            <View style={[styles.header, isWideWeb && styles.headerWide]}>
+              <View style={styles.logoContainer}>
+                <View style={styles.logoCircle}>
+                  <Image
+                    source={require("../../assets/images/logo-mark.png")}
+                    style={styles.logoImage}
+                    resizeMode="contain"
+                  />
                 </View>
-
-                <TextInput
-                  style={styles.input}
-                  placeholder="Phone number"
-                  placeholderTextColor="#999"
-                  keyboardType="number-pad"
-                  maxLength={10}
-                  value={phone}
-                  onChangeText={(text) => setPhone(text.replace(/[^0-9]/g, ""))}
-                  onFocus={() => setIsFocused(true)}
-                  onBlur={() => setIsFocused(false)}
-                  returnKeyType="done"
-                  {...(Platform.OS === "web"
-                    ? ({ outlineStyle: "none" } as any)
-                    : {})}
-                />
-
-                <Pressable
-                  onPress={pickContact}
-                  style={({ pressed }) => [
-                    styles.contactIcon,
-                    pressed && styles.pressed,
-                  ]}
-                >
-                  <Ionicons name="person-outline" size={22} color="#1a73e8" />
-                </Pressable>
               </View>
 
-              {error ? <Text style={styles.error}>{error}</Text> : null}
+              <Text style={[styles.title, isWideWeb && styles.titleWide]}>
+                Apartment Management
+              </Text>
+              <Text style={[styles.subtitle, isWideWeb && styles.subtitleWide]}>
+                A simpler way to manage your property.
+              </Text>
+              {isWideWeb && (
+                <View style={styles.loginHighlights}>
+                  <View style={styles.loginHighlight}>
+                    <Ionicons name="people-outline" size={20} color="#D6EEE5" />
+                    <Text style={styles.loginHighlightText}>
+                      Resident and staff records
+                    </Text>
+                  </View>
+                  <View style={styles.loginHighlight}>
+                    <Ionicons
+                      name="receipt-outline"
+                      size={20}
+                      color="#F0D6C9"
+                    />
+                    <Text style={styles.loginHighlightText}>
+                      Maintenance bills and payments
+                    </Text>
+                  </View>
+                  <View style={styles.loginHighlight}>
+                    <Ionicons name="wallet-outline" size={20} color="#D9E0F5" />
+                    <Text style={styles.loginHighlightText}>
+                      Property expenses and balances
+                    </Text>
+                  </View>
+                </View>
+              )}
             </View>
 
-            {/* CONTINUE BUTTON */}
-            <Pressable
-              style={({ pressed }) => [
-                styles.button,
-                loading && styles.buttonDisabled,
-                pressed && !loading && styles.buttonPressed,
-              ]}
-              onPress={handleSendOtp}
-              disabled={loading}
-            >
-              <Text style={styles.buttonText}>
-                {loading ? "Sending..." : "Continue with OTP"}
+            {/* LOGIN CARD */}
+            <View style={[styles.card, isWideWeb && styles.cardWide]}>
+              <Text style={styles.cardTitle}>Welcome Back</Text>
+
+              <Text style={styles.cardSubtitle}>
+                Enter your phone number to continue securely with a one-time
+                code.
               </Text>
 
-              {!loading && (
-                <Ionicons
-                  name="arrow-forward"
-                  size={20}
-                  color="#fff"
-                  style={styles.buttonIcon}
-                />
-              )}
-            </Pressable>
+              {/* PHONE INPUT */}
+              <View style={styles.inputWrapper}>
+                <Text style={styles.inputLabel}>Phone Number</Text>
 
-            {/* DOWNLOAD ANDROID APP (WEB ONLY) */}
-            {Platform.OS === "web" && (
-              <View style={styles.downloadSection}>
-                <View style={styles.downloadHero}>
-                  <View style={styles.downloadHeroCircle1} />
-                  <View style={styles.downloadHeroCircle2} />
+                <View
+                  style={[styles.inputRow, isFocused && styles.inputRowFocused]}
+                >
+                  <View style={styles.countryCode}>
+                    <Text style={styles.prefix}>+91</Text>
+                    <View style={styles.divider} />
+                  </View>
 
-                  <View style={styles.downloadContentRow}>
-                    <View style={styles.downloadTextCol}>
-                      <View style={styles.downloadBadge}>
-                        <Ionicons name="sparkles" size={10} color="#fff" />
-                        <Text style={styles.downloadBadgeText}>
-                          RECOMMENDED
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Phone number"
+                    placeholderTextColor="#999"
+                    keyboardType="number-pad"
+                    maxLength={10}
+                    value={phone}
+                    onChangeText={(text) =>
+                      setPhone(text.replace(/[^0-9]/g, ""))
+                    }
+                    onFocus={() => setIsFocused(true)}
+                    onBlur={() => setIsFocused(false)}
+                    returnKeyType="done"
+                    {...(Platform.OS === "web"
+                      ? ({ outlineStyle: "none" } as any)
+                      : {})}
+                  />
+
+                  <Pressable
+                    onPress={pickContact}
+                    style={({ pressed }) => [
+                      styles.contactIcon,
+                      pressed && styles.pressed,
+                    ]}
+                  >
+                    <Ionicons name="person-outline" size={22} color="#1a73e8" />
+                  </Pressable>
+                </View>
+
+                {error ? <Text style={styles.error}>{error}</Text> : null}
+              </View>
+
+              {/* CONTINUE BUTTON */}
+              <Pressable
+                style={({ pressed }) => [
+                  styles.button,
+                  loading && styles.buttonDisabled,
+                  pressed && !loading && styles.buttonPressed,
+                ]}
+                onPress={handleSendOtp}
+                disabled={loading}
+              >
+                <Text style={styles.buttonText}>
+                  {loading ? "Sending..." : "Continue with OTP"}
+                </Text>
+
+                {!loading && (
+                  <Ionicons
+                    name="arrow-forward"
+                    size={20}
+                    color="#fff"
+                    style={styles.buttonIcon}
+                  />
+                )}
+              </Pressable>
+
+              {/* DOWNLOAD ANDROID APP (WEB ONLY) */}
+              {Platform.OS === "web" && (
+                <View style={styles.downloadSection}>
+                  <View style={styles.downloadHero}>
+                    <View style={styles.downloadHeroCircle1} />
+                    <View style={styles.downloadHeroCircle2} />
+
+                    <View style={styles.downloadContentRow}>
+                      <View style={styles.downloadTextCol}>
+                        <View style={styles.downloadBadge}>
+                          <Ionicons name="sparkles" size={10} color="#fff" />
+                          <Text style={styles.downloadBadgeText}>
+                            ANDROID APK AVAILABLE
+                          </Text>
+                        </View>
+
+                        <Text style={styles.downloadHeroTitle}>
+                          Get the Android app
+                        </Text>
+
+                        <Text style={styles.downloadHeroSubtitle}>
+                          Download the APK for Android. The iOS app is coming
+                          soon.
                         </Text>
                       </View>
 
-                      <Text style={styles.downloadHeroTitle}>Get the App</Text>
-
-                      <Text style={styles.downloadHeroSubtitle}>
-                        Faster login, instant notifications, and a smoother
-                        experience.
-                      </Text>
+                      {/* PLAIN HTML IMG FOR SVG */}
+                      <View style={styles.downloadMockupImage}>
+                        <img
+                          src={PHONE_MOCKUP_DATA_URI}
+                          alt="App preview"
+                          style={{
+                            width: "100%",
+                            height: "100%",
+                            objectFit: "contain",
+                            display: "block",
+                          }}
+                        />
+                      </View>
                     </View>
 
-                    {/* PLAIN HTML IMG FOR SVG */}
-                    <View style={styles.downloadMockupImage}>
-                      <img
-                        src={PHONE_MOCKUP_DATA_URI}
-                        alt="App preview"
-                        style={{
-                          width: "100%",
-                          height: "100%",
-                          objectFit: "contain",
-                          display: "block",
-                        }}
-                      />
-                    </View>
-                  </View>
-
-                  <Pressable
-                    onPress={handleDownloadApk}
-                    style={({ pressed }) => [
-                      styles.downloadCta,
-                      pressed && styles.downloadCtaPressed,
-                    ]}
-                  >
-                    <Ionicons name="logo-android" size={20} color="#1a73e8" />
-                    <Text style={styles.downloadCtaText}>
-                      Download for Android
-                    </Text>
-                    <Ionicons
-                      name="download-outline"
-                      size={18}
-                      color="#1a73e8"
-                    />
-                  </Pressable>
-
-                  <View style={styles.downloadTrustRow}>
-                    <View style={styles.downloadTrustItem}>
+                    <Pressable
+                      onPress={handleDownloadApk}
+                      style={({ pressed }) => [
+                        styles.downloadCta,
+                        pressed && styles.downloadCtaPressed,
+                      ]}
+                    >
+                      <Ionicons name="logo-android" size={20} color="#1a73e8" />
+                      <Text style={styles.downloadCtaText}>Download APK</Text>
                       <Ionicons
-                        name="shield-checkmark"
-                        size={12}
-                        color="#dbeafe"
+                        name="download-outline"
+                        size={18}
+                        color="#1a73e8"
                       />
-                      <Text style={styles.downloadTrustText}>Safe</Text>
-                    </View>
+                    </Pressable>
 
-                    <View style={styles.downloadTrustDot} />
+                    <View style={styles.downloadTrustRow}>
+                      <View style={styles.downloadTrustItem}>
+                        <Ionicons
+                          name="logo-android"
+                          size={13}
+                          color="#dbeafe"
+                        />
+                        <Text style={styles.downloadTrustText}>
+                          Android available now
+                        </Text>
+                      </View>
 
-                    <View style={styles.downloadTrustItem}>
-                      <Ionicons name="cube-outline" size={12} color="#dbeafe" />
-                      <Text style={styles.downloadTrustText}>25 MB</Text>
-                    </View>
+                      <View style={styles.downloadTrustDot} />
 
-                    <View style={styles.downloadTrustDot} />
-
-                    <View style={styles.downloadTrustItem}>
-                      <Ionicons
-                        name="pricetag-outline"
-                        size={12}
-                        color="#dbeafe"
-                      />
-                      <Text style={styles.downloadTrustText}>v1.0.0</Text>
+                      <View style={styles.downloadTrustItem}>
+                        <Ionicons
+                          name="phone-portrait-outline"
+                          size={12}
+                          color="#dbeafe"
+                        />
+                        <Text style={styles.downloadTrustText}>
+                          iOS coming soon
+                        </Text>
+                      </View>
                     </View>
                   </View>
                 </View>
+              )}
+
+              {/* LEGAL CONSENT */}
+              <View style={styles.legalRow}>
+                <Text style={styles.legalText}>
+                  By continuing, you agree to our{" "}
+                </Text>
+
+                <Pressable
+                  onPress={() => openLegalUrl("terms")}
+                  hitSlop={6}
+                  style={({ pressed }) => pressed && styles.pressed}
+                >
+                  <Text style={styles.legalLink}>Terms of Service</Text>
+                </Pressable>
+
+                <Text style={styles.legalText}> and </Text>
+
+                <Pressable
+                  onPress={() => openLegalUrl("privacy")}
+                  hitSlop={6}
+                  style={({ pressed }) => pressed && styles.pressed}
+                >
+                  <Text style={styles.legalLink}>Privacy Policy</Text>
+                </Pressable>
               </View>
-            )}
-
-            {/* LEGAL CONSENT */}
-            <View style={styles.legalRow}>
-              <Text style={styles.legalText}>
-                By continuing, you agree to our{" "}
-              </Text>
-
-              <Pressable
-                onPress={() => openLegalUrl("terms")}
-                hitSlop={6}
-                style={({ pressed }) => pressed && styles.pressed}
-              >
-                <Text style={styles.legalLink}>Terms of Service</Text>
-              </Pressable>
-
-              <Text style={styles.legalText}> and </Text>
-
-              <Pressable
-                onPress={() => openLegalUrl("privacy")}
-                hitSlop={6}
-                style={({ pressed }) => pressed && styles.pressed}
-              >
-                <Text style={styles.legalLink}>Privacy Policy</Text>
-              </Pressable>
             </View>
           </View>
 
           {/* FOOTER */}
-          <View style={styles.footer}>
+          <View style={[styles.footer, isWideWeb && styles.footerWide]}>
             <View style={styles.featureRow}>
               <View style={styles.featureItem}>
                 <View style={styles.featureIcon}>
@@ -735,61 +762,113 @@ export default function LoginScreen() {
 // =================================================================
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#f5f7fa" },
+  container: { flex: 1, backgroundColor: "#F6F7F2" },
   screenScroll: { flex: 1 },
-  screenContent: { flexGrow: 1 },
+  screenContent: {
+    flexGrow: 1,
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingTop: 20,
+  },
+  authLayout: {
+    width: "100%",
+    maxWidth: 520,
+    flexGrow: 1,
+    justifyContent: "center",
+  },
+  authLayoutWide: {
+    maxWidth: 1120,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 64,
+  },
 
   header: {
     alignItems: "center",
-    paddingTop: Platform.OS === "ios" ? 60 : 40,
-    paddingBottom: 20,
+    width: "100%",
+    paddingTop: 24,
+    paddingBottom: 24,
     backgroundColor: "#fff",
-    borderBottomLeftRadius: 30,
-    borderBottomRightRadius: 30,
-    boxShadow: "0px 2px 10px rgba(0, 0, 0, 0.05)",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E1E5DC",
   },
-  logoContainer: { marginBottom: 12 },
+  headerWide: {
+    flex: 1,
+    maxWidth: 460,
+    alignItems: "flex-start",
+    justifyContent: "center",
+    minHeight: 460,
+    padding: 40,
+    backgroundColor: "#17372E",
+    borderColor: "#17372E",
+  },
+  logoContainer: { marginBottom: 16 },
   logoCircle: {
-    width: 70,
-    height: 70,
-    borderRadius: 35,
-    backgroundColor: "#e8f0fe",
+    width: 58,
+    height: 58,
+    borderRadius: 12,
+    backgroundColor: "#E5F3ED",
     justifyContent: "center",
     alignItems: "center",
   },
-  logoImage: { width: 44, height: 44 },
+  logoImage: { width: 38, height: 38 },
   title: {
-    fontSize: 28,
+    fontSize: 30,
     fontWeight: "700",
-    color: "#1a1a1a",
-    letterSpacing: -0.5,
+    color: "#17372E",
+    letterSpacing: 0,
   },
+  titleWide: { color: "#FFFFFF" },
   subtitle: {
-    fontSize: 14,
-    color: "#666",
-    marginTop: 4,
-    fontWeight: "400",
+    fontSize: 15,
+    color: "#64746C",
+    marginTop: 8,
+    lineHeight: 22,
+  },
+  subtitleWide: { color: "#D5E2DA" },
+  loginHighlights: {
+    width: "100%",
+    gap: 17,
+    marginTop: 34,
+  },
+  loginHighlight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  loginHighlightText: {
+    color: "#E9F1EC",
+    fontSize: 15,
+    fontWeight: "500",
   },
 
   card: {
-    marginHorizontal: 20,
-    marginTop: 30,
+    width: "100%",
+    marginTop: 18,
     marginBottom: 20,
-    padding: 24,
+    padding: 22,
     backgroundColor: "#fff",
-    borderRadius: 20,
-    boxShadow: "0px 4px 20px rgba(0, 0, 0, 0.08)",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E1E5DC",
+  },
+  cardWide: {
+    flex: 1,
+    maxWidth: 500,
+    marginTop: 0,
+    marginBottom: 0,
   },
   cardTitle: {
-    fontSize: 24,
+    fontSize: 22,
     fontWeight: "700",
-    color: "#1a1a1a",
+    color: "#17372E",
     marginBottom: 8,
   },
   cardSubtitle: {
     fontSize: 14,
-    color: "#666",
-    marginBottom: 32,
+    color: "#64746C",
+    marginBottom: 24,
     lineHeight: 20,
   },
 
@@ -810,7 +889,7 @@ const styles = StyleSheet.create({
     height: 56,
     overflow: "hidden",
   },
-  inputRowFocused: { borderColor: "#1a73e8", backgroundColor: "#fff" },
+  inputRowFocused: { borderColor: "#126B58", backgroundColor: "#fff" },
   countryCode: {
     flexDirection: "row",
     alignItems: "center",
@@ -836,7 +915,7 @@ const styles = StyleSheet.create({
     padding: 12,
     justifyContent: "center",
     alignItems: "center",
-    backgroundColor: "#f0f6ff",
+    backgroundColor: "#E5F3ED",
     borderRadius: 8,
     marginRight: 4,
   },
@@ -848,14 +927,14 @@ const styles = StyleSheet.create({
   },
 
   button: {
-    backgroundColor: "#1a73e8",
-    borderRadius: 12,
+    backgroundColor: "#126B58",
+    borderRadius: 8,
     height: 56,
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
     marginTop: 8,
-    boxShadow: "0px 4px 12px rgba(26, 115, 232, 0.3)",
+    boxShadow: "0px 4px 12px rgba(18, 107, 88, 0.22)",
   },
   buttonDisabled: { backgroundColor: "#a0c4f0", opacity: 0.7 },
   buttonPressed: { opacity: 0.9 },
@@ -865,12 +944,12 @@ const styles = StyleSheet.create({
 
   downloadSection: { marginTop: 24 },
   downloadHero: {
-    backgroundColor: "#1a73e8",
-    borderRadius: 20,
+    backgroundColor: "#126B58",
+    borderRadius: 8,
     padding: 20,
     overflow: "hidden",
     position: "relative",
-    boxShadow: "0px 10px 30px rgba(26, 115, 232, 0.35)",
+    boxShadow: "0px 8px 20px rgba(18, 107, 88, 0.18)",
   },
   downloadHeroCircle1: {
     position: "absolute",
@@ -918,7 +997,7 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: "800",
     marginBottom: 6,
-    letterSpacing: -0.3,
+    letterSpacing: 0,
   },
   downloadHeroSubtitle: {
     color: "rgba(255,255,255,0.85)",
@@ -941,7 +1020,7 @@ const styles = StyleSheet.create({
     boxShadow: "0px 4px 12px rgba(0, 0, 0, 0.15)",
   },
   downloadCtaPressed: { opacity: 0.9, transform: [{ scale: 0.98 }] },
-  downloadCtaText: { color: "#1a73e8", fontSize: 15, fontWeight: "700" },
+  downloadCtaText: { color: "#126B58", fontSize: 15, fontWeight: "700" },
   downloadTrustRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -976,7 +1055,8 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
 
-  footer: { paddingHorizontal: 20, paddingBottom: 10 },
+  footer: { width: "100%", maxWidth: 1120, paddingBottom: 20, paddingTop: 10 },
+  footerWide: { paddingTop: 24 },
   featureRow: {
     flexDirection: "row",
     alignItems: "stretch",
