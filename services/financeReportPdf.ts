@@ -5,8 +5,7 @@ import * as Sharing from "expo-sharing";
 import { Platform } from "react-native";
 
 import { PeopleTransaction } from "../utils/peopleTransactions";
-import { downloadWebFile } from "../utils/webFileDownload";
-import { extractBodyHtml, htmlFragmentToPdfDataUri } from "./pdfWeb";
+import { htmlToPdfDownload } from "./pdfWeb";
 
 interface FinanceReportPdfInput {
   propertyName: string;
@@ -118,7 +117,7 @@ function buildFinanceReportHtml({
     .join("");
 
   const emptyRow = (cols: number) =>
-    `<tr><td colspan="${cols}" style="text-align:center;color:#94a3b8;padding:10px;">No entries</td></tr>`;
+    `<tr><td colspan="${cols}" style="text-align:center;color:#94a3b8;padding:14px;">No entries</td></tr>`;
 
   const netColor = net >= 0 ? "#16A34A" : "#DC2626";
 
@@ -131,125 +130,147 @@ function buildFinanceReportHtml({
   <title>Finance Report - ${escapeHtml(month)}</title>
   <style>
     * { box-sizing: border-box; }
+
     body {
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
       color: #0f172a;
       background: #ffffff;
-      padding: 24px;
+      padding: 36px 32px;
       margin: 0;
       -webkit-print-color-adjust: exact;
       print-color-adjust: exact;
+      font-size: 13px;
+      line-height: 1.5;
     }
+
+    /* ---------- Header ---------- */
     .header {
       display: flex;
       justify-content: space-between;
       align-items: flex-start;
-      padding-bottom: 14px;
+      padding-bottom: 20px;
       border-bottom: 2px solid #2563EB;
-      margin-bottom: 18px;
+      margin-bottom: 28px;
     }
     .title {
-      font-size: 22px;
+      font-size: 28px;
       font-weight: 800;
       color: #2563EB;
       margin: 0;
+      letter-spacing: -0.5px;
     }
     .subtitle {
-      font-size: 12px;
+      font-size: 13px;
       color: #64748b;
-      margin-top: 4px;
+      margin-top: 8px;
     }
     .month-tag {
-      font-size: 11px;
+      font-size: 12px;
       font-weight: 700;
       background: #EFF6FF;
       color: #2563EB;
-      padding: 6px 10px;
+      padding: 8px 14px;
       border-radius: 8px;
+      white-space: nowrap;
     }
+
+    /* ---------- Summary cards ---------- */
     .summary {
       display: flex;
-      gap: 10px;
-      margin-bottom: 20px;
+      gap: 16px;
+      margin-bottom: 36px;
     }
     .summary-card {
       flex: 1;
       border-radius: 12px;
-      padding: 12px;
+      padding: 18px 20px;
       border: 1px solid #e2e8f0;
     }
     .summary-card.income { background: #ECFDF3; border-color: #BBF7D0; }
     .summary-card.expense { background: #FEF2F2; border-color: #FECACA; }
     .summary-card.net { background: #EFF6FF; border-color: #BFDBFE; }
     .summary-label {
-      font-size: 10px;
+      font-size: 11px;
       font-weight: 800;
       text-transform: uppercase;
-      letter-spacing: 0.6px;
+      letter-spacing: 0.9px;
       color: #64748b;
     }
     .summary-amount {
-      font-size: 18px;
+      font-size: 24px;
       font-weight: 800;
-      margin-top: 4px;
+      margin-top: 10px;
+      letter-spacing: -0.3px;
     }
     .summary-card.income .summary-amount { color: #16A34A; }
     .summary-card.expense .summary-amount { color: #DC2626; }
     .summary-card.net .summary-amount { color: #2563EB; }
 
+    /* ---------- Sections ---------- */
     .section {
-      margin-top: 22px;
+      margin-top: 36px;
     }
     .section-title {
-      font-size: 14px;
+      font-size: 16px;
       font-weight: 800;
       color: #0f172a;
-      margin-bottom: 8px;
-      padding-bottom: 6px;
+      margin-bottom: 14px;
+      padding-bottom: 10px;
       border-bottom: 1px solid #e2e8f0;
+      letter-spacing: -0.2px;
     }
+
+    /* ---------- Tables ---------- */
     table {
       width: 100%;
       border-collapse: collapse;
+      table-layout: auto;
     }
     thead th {
-      font-size: 10px;
+      font-size: 11px;
       font-weight: 800;
       text-transform: uppercase;
-      letter-spacing: 0.4px;
+      letter-spacing: 0.7px;
       color: #64748b;
       text-align: left;
-      padding: 8px 6px;
+      padding: 14px 12px;
       border-bottom: 1px solid #e2e8f0;
+      white-space: nowrap;
     }
     tbody td {
-      font-size: 11.5px;
-      padding: 8px 6px;
+      font-size: 13px;
+      padding: 16px 12px;
       border-bottom: 1px solid #f1f5f9;
       color: #0f172a;
+      vertical-align: middle;
     }
     td.amount {
       font-weight: 700;
       white-space: nowrap;
     }
+
+    /* ---------- Status badges ---------- */
     .status {
       display: inline-block;
-      font-size: 9.5px;
+      font-size: 11px;
       font-weight: 800;
-      padding: 2px 8px;
+      padding: 5px 12px;
       border-radius: 6px;
       text-transform: uppercase;
+      letter-spacing: 0.5px;
+      white-space: nowrap;
     }
     .status.paid { background: #DCFCE7; color: #16A34A; }
     .status.due { background: #FEF3C7; color: #D97706; }
     .status.overdue { background: #FEE2E2; color: #DC2626; }
 
+    /* ---------- Footer ---------- */
     .footer {
-      margin-top: 30px;
-      padding-top: 12px;
+      margin-top: 40px;
+      padding-top: 18px;
       border-top: 1px solid #e2e8f0;
       text-align: center;
-      font-size: 10px;
+      font-size: 11px;
       color: #94a3b8;
     }
   </style>
@@ -348,14 +369,14 @@ function buildFinanceReportHtml({
 
 async function generateFinanceReportDataUriOnWeb(
   params: FinanceReportPdfInput,
+  fileName: string,
 ): Promise<string> {
   if (typeof window === "undefined" || typeof document === "undefined") {
     throw new Error("Web PDF generation requires a browser environment.");
   }
 
   const html = buildFinanceReportHtml(params);
-  const bodyHtml = extractBodyHtml(html);
-  return htmlFragmentToPdfDataUri(bodyHtml, 800);
+  return htmlToPdfDownload(html, fileName);
 }
 
 /* ================================================================
@@ -374,15 +395,10 @@ export const downloadFinanceReportPdf = async ({
   const fileName = `apartment-management-finance-${safeMonth}.pdf`;
 
   if (Platform.OS === "web") {
-    const fileUri = await generateFinanceReportDataUriOnWeb({
-      propertyName,
-      month,
-      income,
-      expenses,
-      net,
-      transactions,
-    });
-    await downloadWebFile(fileUri, fileName, "application/pdf");
+    const fileUri = await generateFinanceReportDataUriOnWeb(
+      { propertyName, month, income, expenses, net, transactions },
+      fileName,
+    );
     return { saved: true, fileName, fileUri };
   }
 

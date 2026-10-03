@@ -5,8 +5,7 @@ import * as Sharing from "expo-sharing";
 import { Alert, Platform } from "react-native";
 
 import type { SignatureData } from "../store/billStore";
-import { downloadWebFile } from "../utils/webFileDownload";
-import { extractBodyHtml, htmlFragmentToPdfDataUri } from "./pdfWeb";
+import { htmlToPdfDownload } from "./pdfWeb";
 
 /* ================================================================
    TYPES
@@ -335,7 +334,7 @@ function buildHeaderHtml(
 }
 
 /* ================================================================
-   HTML BUILDER — shared by native (expo-print) AND web (jspdf)
+   HTML BUILDER — shared by native (expo-print) AND web (jsPDF)
 ================================================================ */
 
 async function buildBillHtml(data: BillData): Promise<string> {
@@ -869,8 +868,8 @@ async function generateBillPdfDataUriOnWeb(data: BillData): Promise<string> {
   }
 
   const html = await buildBillHtml(data);
-  const bodyHtml = extractBodyHtml(html);
-  return htmlFragmentToPdfDataUri(bodyHtml, 800);
+  const fileName = buildBillFileName(data.billNumber);
+  return htmlToPdfDownload(html, fileName);
 }
 
 /* ================================================================
@@ -955,7 +954,7 @@ export async function savePDFToDevice(
 ): Promise<{ saved: boolean; message?: string }> {
   try {
     if (Platform.OS === "web") {
-      await downloadWebFile(uri, fileName, "application/pdf");
+      // The download already happened inside htmlToPdfDownload().
       return { saved: true };
     }
 
@@ -1008,7 +1007,9 @@ export async function downloadBillWithFeedback(
     const result = await savePDFToDevice(uri, fileName);
 
     if (result.saved) {
-      Alert.alert("Success", "Bill saved as PDF successfully.");
+      if (Platform.OS !== "web") {
+        Alert.alert("Success", "Bill saved as PDF successfully.");
+      }
     } else {
       Alert.alert(
         "Save Failed",
