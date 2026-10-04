@@ -60,6 +60,13 @@ const features = [
 export default function SeoLandingPage() {
   const { width } = useWindowDimensions();
 
+  // ------------------------------------------------------------------
+  // IMPORTANT (hydration-safe):
+  // On first paint, ALWAYS render with the server-known width so the
+  // pre-rendered HTML matches the client. Only after the component has
+  // mounted do we switch to the actual viewport width. This prevents
+  // React hydration error #418.
+  // ------------------------------------------------------------------
   const [mounted, setMounted] = useState(false);
   const [webViewportWidth, setWebViewportWidth] = useState<number | null>(null);
 
@@ -73,6 +80,7 @@ export default function SeoLandingPage() {
     return () => window.removeEventListener("resize", updateWidth);
   }, []);
 
+  // Until mounted, fall back to `width` (RNW's server value).
   const responsiveWidth =
     mounted && webViewportWidth ? webViewportWidth : width;
 
@@ -134,6 +142,7 @@ export default function SeoLandingPage() {
         // @ts-ignore — RNW accepts this DOM attribute
         suppressHydrationWarning
       >
+        {/* ── HEADER ────────────────────────────────────────────── */}
         <View
           style={[styles.header, isMobile && styles.headerMobile]}
           // @ts-ignore
@@ -160,28 +169,7 @@ export default function SeoLandingPage() {
           </View>
         </View>
 
-        {/* ── VIDEO SECTION — at the very top, above the hero ── */}
-        <View
-          style={[styles.videoSection, isMobile && styles.videoSectionMobile]}
-        >
-          <View style={styles.videoHeading}>
-            <Text style={styles.sectionKicker}>60-SECOND WALKTHROUGH</Text>
-            <Text
-              style={[
-                styles.sectionTitle,
-                isMobile && styles.sectionTitleMobile,
-              ]}
-            >
-              See how it works
-            </Text>
-            <Text style={styles.sectionDescription}>
-              A short walkthrough showing how to manage residents, create bills,
-              and track expenses with the Apartment Management app.
-            </Text>
-          </View>
-          <DemoVideo />
-        </View>
-
+        {/* ── HERO — headline first for context ─────────────────── */}
         <View
           style={[
             styles.hero,
@@ -306,6 +294,29 @@ export default function SeoLandingPage() {
           </View>
         </View>
 
+        {/* ── VIDEO SECTION — best placement, right after hero ─── */}
+        <View
+          style={[styles.videoSection, isMobile && styles.videoSectionMobile]}
+        >
+          <View style={styles.videoHeading}>
+            <Text style={styles.sectionKicker}>60-SECOND WALKTHROUGH</Text>
+            <Text
+              style={[
+                styles.sectionTitle,
+                isMobile && styles.sectionTitleMobile,
+              ]}
+            >
+              See how it works
+            </Text>
+            <Text style={styles.sectionDescription}>
+              A short walkthrough showing how to manage residents, create bills,
+              and track expenses with the Apartment Management app.
+            </Text>
+          </View>
+          <DemoVideo />
+        </View>
+
+        {/* ── FEATURES ──────────────────────────────────────────── */}
         <View
           nativeID="features"
           style={[
@@ -362,6 +373,7 @@ export default function SeoLandingPage() {
           </View>
         </View>
 
+        {/* ── BOTTOM CTA ────────────────────────────────────────── */}
         <View
           style={[styles.bottomCta, isMobile && styles.bottomCtaMobile]}
           // @ts-ignore
@@ -398,6 +410,7 @@ export default function SeoLandingPage() {
           </View>
         </View>
 
+        {/* ── FOOTER ────────────────────────────────────────────── */}
         <View
           style={[styles.footer, isMobile && styles.footerMobile]}
           // @ts-ignore
@@ -541,7 +554,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     backgroundColor: "#17372E",
     borderRadius: 8,
-    marginBottom: 24,
   },
   headerMobile: {
     height: "auto",
@@ -570,8 +582,8 @@ const styles = StyleSheet.create({
   hero: {
     width: "100%",
     maxWidth: 1160,
-    paddingTop: 8,
-    paddingBottom: 70,
+    paddingTop: 66,
+    paddingBottom: 54,
     gap: 52,
   },
   heroWide: {
@@ -583,11 +595,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingTop: 8,
-    paddingBottom: 50,
+    paddingTop: 42,
+    paddingBottom: 40,
     gap: 24,
   },
-  heroMobile: { paddingTop: 8, paddingBottom: 46, gap: 30 },
+  heroMobile: { paddingTop: 38, paddingBottom: 34, gap: 30 },
   heroCopy: { flex: 1, maxWidth: 570, alignItems: "flex-start" },
   heroCopyCompact: { minWidth: 0, maxWidth: 300 },
   eyebrow: {
@@ -759,15 +771,17 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
 
-  // ── Video section (now above the hero) ─────────────────────
+  // ── Video section (right after hero — best placement) ────
   videoSection: {
     width: "100%",
     maxWidth: 1160,
-    paddingTop: 0,
-    paddingBottom: 42,
+    paddingBottom: 64,
     alignItems: "center",
+    borderTopWidth: 1,
+    borderTopColor: "#E1E5DC",
+    paddingTop: 54,
   },
-  videoSectionMobile: { paddingTop: 0, paddingBottom: 30 },
+  videoSectionMobile: { paddingTop: 38, paddingBottom: 44 },
   videoHeading: {
     width: "100%",
     maxWidth: 720,
@@ -781,7 +795,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     overflow: "hidden",
     position: "relative",
-    marginTop: 22,
+    marginTop: 30,
     alignSelf: "center",
   },
   playButton: {
