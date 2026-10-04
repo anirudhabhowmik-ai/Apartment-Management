@@ -20,6 +20,9 @@ const PAGE_TITLE =
 const PAGE_DESCRIPTION =
   "Manage apartment residents, maintenance bills, payments, expenses, and staff attendance in one place with the Apartment Management app.";
 
+const VIDEO_ID = "_yDyKPzM4M0";
+const VIDEO_START_SECONDS = 22;
+
 const features = [
   {
     icon: "people-outline" as const,
@@ -94,6 +97,16 @@ export default function SeoLandingPage() {
     description: PAGE_DESCRIPTION,
     downloadUrl: ANDROID_APK_URL,
     ...(SITE_URL ? { url: SITE_URL } : {}),
+    video: {
+      "@type": "VideoObject",
+      name: "How to use Apartment Management",
+      description:
+        "A short walkthrough showing how to set up and use the Apartment Management app.",
+      thumbnailUrl: `https://img.youtube.com/vi/${VIDEO_ID}/maxresdefault.jpg`,
+      uploadDate: "2026-10-04",
+      contentUrl: `https://www.youtube.com/watch?v=${VIDEO_ID}`,
+      embedUrl: `https://www.youtube.com/embed/${VIDEO_ID}`,
+    },
   };
 
   return (
@@ -111,7 +124,11 @@ export default function SeoLandingPage() {
         <meta property="og:title" content={PAGE_TITLE} />
         <meta property="og:description" content={PAGE_DESCRIPTION} />
         <meta property="og:site_name" content="Apartment Management" />
-        <meta name="twitter:card" content="summary" />
+        <meta
+          property="og:image"
+          content={`https://img.youtube.com/vi/${VIDEO_ID}/maxresdefault.jpg`}
+        />
+        <meta name="twitter:card" content="summary_large_image" />
         {SITE_URL ? <link rel="canonical" href={SITE_URL} /> : null}
         {SITE_URL ? <meta property="og:url" content={SITE_URL} /> : null}
         <script type="application/ld+json">
@@ -275,6 +292,26 @@ export default function SeoLandingPage() {
           </View>
         </View>
 
+        {/* ── VIDEO SECTION ─────────────────────────────────────── */}
+        <View style={styles.videoSection}>
+          <View style={styles.sectionHeading}>
+            <Text style={styles.sectionKicker}>SEE IT IN ACTION</Text>
+            <Text
+              style={[
+                styles.sectionTitle,
+                isMobile && styles.sectionTitleMobile,
+              ]}
+            >
+              How to use the app
+            </Text>
+            <Text style={styles.sectionDescription}>
+              A short walkthrough showing how to manage residents, create bills,
+              and track expenses with the Apartment Management app.
+            </Text>
+          </View>
+          <DemoVideo />
+        </View>
+
         <View
           nativeID="features"
           style={[
@@ -379,6 +416,57 @@ export default function SeoLandingPage() {
         </View>
       </ScrollView>
     </>
+  );
+}
+
+function DemoVideo() {
+  const [playing, setPlaying] = useState(false);
+
+  if (playing) {
+    return (
+      <View style={styles.videoWrapper}>
+        {/*
+          The iframe is placed inside a plain React Native View. On web
+          RNW renders the iframe as a real DOM element. This is the
+          officially-supported pattern for embedding third-party web
+          content on Expo web.
+        */}
+        <iframe
+          src={`https://www.youtube.com/embed/${VIDEO_ID}?autoplay=1&start=${VIDEO_START_SECONDS}&rel=0`}
+          title="How to use Apartment Management"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          allowFullScreen
+          referrerPolicy="strict-origin-when-cross-origin"
+          style={{
+            width: "100%",
+            height: "100%",
+            border: "none",
+          }}
+        />
+      </View>
+    );
+  }
+
+  return (
+    <Pressable
+      onPress={() => setPlaying(true)}
+      style={styles.videoWrapper}
+      accessibilityRole="button"
+      accessibilityLabel="Play demo video"
+    >
+      <img
+        src={`https://img.youtube.com/vi/${VIDEO_ID}/maxresdefault.jpg`}
+        alt="Apartment Management demo video"
+        style={{
+          width: "100%",
+          height: "100%",
+          objectFit: "cover",
+        }}
+      />
+      <View style={styles.playButton}>
+        <Ionicons name="play" size={32} color="#FFFFFF" />
+      </View>
+    </Pressable>
   );
 }
 
@@ -681,6 +769,39 @@ const styles = StyleSheet.create({
     marginTop: 14,
     textAlign: "center",
   },
+
+  // ── Video section ────────────────────────────────────────────
+  videoSection: {
+    width: "100%",
+    maxWidth: 1160,
+    paddingTop: 20,
+    paddingBottom: 60,
+  },
+  videoWrapper: {
+    width: "100%",
+    maxWidth: 800,
+    aspectRatio: 16 / 9,
+    backgroundColor: "#000000",
+    borderRadius: 12,
+    overflow: "hidden",
+    position: "relative",
+    marginTop: 34,
+    alignSelf: "center",
+  },
+  playButton: {
+    position: "absolute",
+    top: "50%",
+    left: "50%",
+    marginLeft: -32,
+    marginTop: -32,
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: "rgba(0, 0, 0, 0.65)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
   featuresSection: {
     width: "100%",
     maxWidth: 1160,
