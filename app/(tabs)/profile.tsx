@@ -3,41 +3,41 @@ import { Ionicons } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import React, {
-    useCallback,
-    useEffect,
-    useMemo,
-    useRef,
-    useState,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
 } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Linking,
-    Modal,
-    Platform,
-    Pressable,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Switch,
-    Text,
-    TouchableOpacity,
-    TouchableWithoutFeedback,
-    View,
+  ActivityIndicator,
+  Alert,
+  Linking,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Switch,
+  Text,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
-    deleteSecureItem,
-    getSecureItem,
-    setSecureItem,
+  deleteSecureItem,
+  getSecureItem,
+  setSecureItem,
 } from "../../utils/tokenStorage";
 
 import { DarkModeBoundary } from "../../components/DarkModeBoundary";
 import GenerateBillModal from "../../components/GenerateBillModal";
 import SubscriptionPlanModal, {
-    BillingPeriod,
-    DEFAULT_PLANS,
-    SubscriptionPlan,
+  BillingPeriod,
+  DEFAULT_PLANS,
+  SubscriptionPlan,
 } from "../../components/SubscriptionPlanModal";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useUserRole } from "../../hooks/useUserRole";
@@ -3425,9 +3425,7 @@ export default function ProfileTabScreen(): React.ReactElement {
                   {isTrial ? (
                     <View style={styles.subscriptionPriceRow}>
                       <Text style={styles.subscriptionPrice}>Free</Text>
-                      <Text style={styles.subscriptionPeriod}>
-                        for 3 months
-                      </Text>
+                      <Text style={styles.subscriptionPeriod}>for 1 month</Text>
                     </View>
                   ) : (
                     <View style={styles.subscriptionPriceRow}>
