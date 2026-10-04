@@ -61,28 +61,37 @@ export default function SeoLandingPage() {
   const { width } = useWindowDimensions();
 
   // ------------------------------------------------------------------
-  // IMPORTANT (hydration-safe):
-  // On first paint, ALWAYS render with the server-known width so the
-  // pre-rendered HTML matches the client. Only after the component has
-  // mounted do we switch to the actual viewport width. This prevents
-  // React hydration error #418.
+  // IMPORTANT (hydration-safe + layout-safe):
+  // We start with a desktop-friendly width so the first render never
+  // accidentally collapses to the stacked mobile layout. After mount,
+  // we switch to the actual viewport width on web.
   // ------------------------------------------------------------------
-  const [mounted, setMounted] = useState(false);
-  const [webViewportWidth, setWebViewportWidth] = useState<number | null>(null);
+  const [webViewportWidth, setWebViewportWidth] = useState<number>(1024);
 
   useEffect(() => {
-    setMounted(true);
     if (Platform.OS !== "web") return;
 
-    const updateWidth = () => setWebViewportWidth(window.innerWidth);
+    const updateWidth = () => {
+      const w =
+        typeof window !== "undefined"
+          ? window.innerWidth || document.documentElement?.clientWidth || 1024
+          : 1024;
+      setWebViewportWidth(w);
+    };
+
     updateWidth();
     window.addEventListener("resize", updateWidth);
     return () => window.removeEventListener("resize", updateWidth);
   }, []);
 
-  // Until mounted, fall back to `width` (RNW's server value).
+  // Final width: prefer the real viewport, then RNW's width, then a
+  // desktop-safe default so the layout never accidentally stacks.
   const responsiveWidth =
-    mounted && webViewportWidth ? webViewportWidth : width;
+    webViewportWidth && webViewportWidth > 0
+      ? webViewportWidth
+      : width && width > 0
+        ? width
+        : 1024;
 
   const isWide = responsiveWidth >= 900;
   const isCompactDesktop = responsiveWidth >= 600 && responsiveWidth < 900;
@@ -169,7 +178,7 @@ export default function SeoLandingPage() {
           </View>
         </View>
 
-        {/* ── HERO — headline first for context ─────────────────── */}
+        {/* ── HERO — text on left, video on right (side-by-side) ── */}
         <View
           style={[
             styles.hero,
@@ -294,7 +303,7 @@ export default function SeoLandingPage() {
           </View>
         </View>
 
-        {/* ── VIDEO SECTION — best placement, right after hero ─── */}
+        {/* ── VIDEO SECTION — right after hero, before features ── */}
         <View
           style={[styles.videoSection, isMobile && styles.videoSectionMobile]}
         >
@@ -771,15 +780,15 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
 
-  // ── Video section (right after hero — best placement) ────
+  // ── Video section ────────────────────────────────────────────
   videoSection: {
     width: "100%",
     maxWidth: 1160,
+    paddingTop: 54,
     paddingBottom: 64,
     alignItems: "center",
     borderTopWidth: 1,
     borderTopColor: "#E1E5DC",
-    paddingTop: 54,
   },
   videoSectionMobile: { paddingTop: 38, paddingBottom: 44 },
   videoHeading: {
