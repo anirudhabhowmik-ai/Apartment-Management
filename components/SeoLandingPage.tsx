@@ -60,13 +60,6 @@ const features = [
 export default function SeoLandingPage() {
   const { width } = useWindowDimensions();
 
-  // ------------------------------------------------------------------
-  // IMPORTANT (hydration-safe):
-  // On first paint, ALWAYS render with the server-known width so the
-  // pre-rendered HTML matches the client. Only after the component has
-  // mounted do we switch to the actual viewport width. This prevents
-  // React hydration error #418.
-  // ------------------------------------------------------------------
   const [mounted, setMounted] = useState(false);
   const [webViewportWidth, setWebViewportWidth] = useState<number | null>(null);
 
@@ -80,7 +73,6 @@ export default function SeoLandingPage() {
     return () => window.removeEventListener("resize", updateWidth);
   }, []);
 
-  // Until mounted, fall back to `width` (RNW's server value).
   const responsiveWidth =
     mounted && webViewportWidth ? webViewportWidth : width;
 
@@ -166,6 +158,28 @@ export default function SeoLandingPage() {
             </Link>
             <DownloadButton compact light />
           </View>
+        </View>
+
+        {/* ── VIDEO SECTION — at the very top, above the hero ── */}
+        <View
+          style={[styles.videoSection, isMobile && styles.videoSectionMobile]}
+        >
+          <View style={styles.videoHeading}>
+            <Text style={styles.sectionKicker}>60-SECOND WALKTHROUGH</Text>
+            <Text
+              style={[
+                styles.sectionTitle,
+                isMobile && styles.sectionTitleMobile,
+              ]}
+            >
+              See how it works
+            </Text>
+            <Text style={styles.sectionDescription}>
+              A short walkthrough showing how to manage residents, create bills,
+              and track expenses with the Apartment Management app.
+            </Text>
+          </View>
+          <DemoVideo />
         </View>
 
         <View
@@ -292,26 +306,6 @@ export default function SeoLandingPage() {
           </View>
         </View>
 
-        {/* ── VIDEO SECTION ─────────────────────────────────────── */}
-        <View style={styles.videoSection}>
-          <View style={styles.sectionHeading}>
-            <Text style={styles.sectionKicker}>SEE IT IN ACTION</Text>
-            <Text
-              style={[
-                styles.sectionTitle,
-                isMobile && styles.sectionTitleMobile,
-              ]}
-            >
-              How to use the app
-            </Text>
-            <Text style={styles.sectionDescription}>
-              A short walkthrough showing how to manage residents, create bills,
-              and track expenses with the Apartment Management app.
-            </Text>
-          </View>
-          <DemoVideo />
-        </View>
-
         <View
           nativeID="features"
           style={[
@@ -425,12 +419,6 @@ function DemoVideo() {
   if (playing) {
     return (
       <View style={styles.videoWrapper}>
-        {/*
-          The iframe is placed inside a plain React Native View. On web
-          RNW renders the iframe as a real DOM element. This is the
-          officially-supported pattern for embedding third-party web
-          content on Expo web.
-        */}
         <iframe
           src={`https://www.youtube.com/embed/${VIDEO_ID}?autoplay=1&start=${VIDEO_START_SECONDS}&rel=0`}
           title="How to use Apartment Management"
@@ -553,6 +541,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     backgroundColor: "#17372E",
     borderRadius: 8,
+    marginBottom: 24,
   },
   headerMobile: {
     height: "auto",
@@ -581,7 +570,7 @@ const styles = StyleSheet.create({
   hero: {
     width: "100%",
     maxWidth: 1160,
-    paddingTop: 66,
+    paddingTop: 8,
     paddingBottom: 70,
     gap: 52,
   },
@@ -594,11 +583,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingTop: 42,
+    paddingTop: 8,
     paddingBottom: 50,
     gap: 24,
   },
-  heroMobile: { paddingTop: 38, paddingBottom: 46, gap: 30 },
+  heroMobile: { paddingTop: 8, paddingBottom: 46, gap: 30 },
   heroCopy: { flex: 1, maxWidth: 570, alignItems: "flex-start" },
   heroCopyCompact: { minWidth: 0, maxWidth: 300 },
   eyebrow: {
@@ -770,12 +759,19 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
 
-  // ── Video section ────────────────────────────────────────────
+  // ── Video section (now above the hero) ─────────────────────
   videoSection: {
     width: "100%",
     maxWidth: 1160,
-    paddingTop: 20,
-    paddingBottom: 60,
+    paddingTop: 0,
+    paddingBottom: 42,
+    alignItems: "center",
+  },
+  videoSectionMobile: { paddingTop: 0, paddingBottom: 30 },
+  videoHeading: {
+    width: "100%",
+    maxWidth: 720,
+    alignSelf: "center",
   },
   videoWrapper: {
     width: "100%",
@@ -785,7 +781,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     overflow: "hidden",
     position: "relative",
-    marginTop: 34,
+    marginTop: 22,
     alignSelf: "center",
   },
   playButton: {
