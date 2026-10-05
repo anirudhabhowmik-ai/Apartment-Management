@@ -68,10 +68,9 @@ interface PersonOption {
   kind: "owner" | "admin" | "member" | "staff";
 }
 
-// ─── NEW: Vehicle row shape used by the parking section ──────────────────
 interface VehicleEntry {
-  id: string; // local-only React key
-  number: string; // normalized uppercase
+  id: string;
+  number: string;
   type: "car" | "bike" | "other";
 }
 
@@ -180,7 +179,6 @@ function normalizePhoneDigits(raw?: string | null): string {
   return digits.length > 10 ? digits.slice(-10) : digits;
 }
 
-// ─── NEW: Normalize plate input. Uppercase, strip non-alphanumerics. ─────
 function normalizeVehicleNumber(raw: string): string {
   return String(raw || "")
     .toUpperCase()
@@ -722,7 +720,6 @@ export default function AddMemberScreen() {
   const [parkingAvailable, setParkingAvailable] = useState(false);
   const [maintenanceAmount, setMaintenanceAmount] = useState("");
 
-  // ─── NEW: vehicle list state ────────────────────────────────────────────
   const [vehicles, setVehicles] = useState<VehicleEntry[]>([]);
 
   const [monthlySalary, setMonthlySalary] = useState("");
@@ -890,7 +887,6 @@ export default function AddMemberScreen() {
   const maintenancePlaceholder = isTenantAccount ? "e.g. 8000" : "e.g. 2500";
   const unitNoun = isTenantAccount ? "room rent" : "flat";
 
-  // ─── NEW: Vehicle row helpers ──────────────────────────────────────────
   const addVehicleRow = () => {
     setVehicles((cur) => [
       ...cur,
@@ -1261,7 +1257,6 @@ export default function AddMemberScreen() {
         errors.maintenanceAmount = "Enter a valid amount";
       }
 
-      // ─── NEW: validate vehicles if parking is available ────────────────
       if (parkingAvailable) {
         if (vehicles.length === 0) {
           errors.vehicles = "Add at least one vehicle number";
@@ -1276,7 +1271,6 @@ export default function AddMemberScreen() {
             }
             seen.add(v.number);
           }
-          // Basic plate length sanity check (5–15 chars after normalize)
           if (!errors.vehicles) {
             const bad = vehicles.find(
               (v) => v.number.length < 5 || v.number.length > 15,
@@ -1345,7 +1339,6 @@ export default function AddMemberScreen() {
         payload.areaSqft = areaSqft ? Number(areaSqft) : undefined;
         payload.parkingAvailable = parkingAvailable;
         payload.maintenanceAmount = Number(maintenanceAmount);
-        // ─── NEW: send vehicles only when parking is available ─────────
         payload.vehicles = parkingAvailable
           ? vehicles.map((v) => ({ number: v.number, type: v.type }))
           : [];
@@ -1816,12 +1809,18 @@ export default function AddMemberScreen() {
     );
   };
 
+  // ─── KeyboardAvoidingView key: changes only when the content height
+  //     meaningfully shifts, so the KAV re-measures without stealing focus
+  //     from a vehicle input mid-type.
+  const kavKey = `kav-${groupType}-${parkingAvailable}-${vehicles.length === 0}`;
+
   return (
     <DarkModeBoundary>
       <KeyboardAvoidingView
+        key={kavKey}
         style={[styles.container, { paddingBottom: insets.bottom }]}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={0}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
+        keyboardVerticalOffset={Platform.OS === "ios" ? insets.top + 44 : 0}
       >
         <Stack.Screen
           options={{ title: getHeaderTitle(), headerBackTitle: "Back" }}
@@ -1831,11 +1830,12 @@ export default function AddMemberScreen() {
           style={styles.scrollView}
           contentContainerStyle={[
             styles.scrollContent,
-            { paddingBottom: Math.max(insets.bottom, 24) },
+            { paddingBottom: Math.max(insets.bottom, 24) + 40 },
           ]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="none"
+          keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "none"}
+          automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
           bounces={false}
         >
           {isPersonTab ? (
@@ -2366,7 +2366,6 @@ export default function AddMemberScreen() {
                 />
               </View>
 
-              {/* ─── NEW: Vehicle numbers block ──────────────────────── */}
               {parkingAvailable && (
                 <View style={styles.fieldContainer}>
                   <View style={styles.labelRow}>
@@ -2470,7 +2469,6 @@ export default function AddMemberScreen() {
                   ) : null}
                 </View>
               )}
-              {/* ─── END vehicle numbers block ──────────────────────── */}
 
               {renderInput({
                 label: maintenanceLabel,
@@ -3525,7 +3523,6 @@ const styles = StyleSheet.create({
   settingTitle: { fontSize: 14, fontWeight: "600", color: TEXT },
   settingSubtitle: { fontSize: 11, color: TEXT_SECONDARY, marginTop: 3 },
 
-  // ─── NEW: Vehicle section styles ────────────────────────────────────────
   vehicleRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -3587,7 +3584,6 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   noVehiclesText: { flex: 1, fontSize: 11.5, lineHeight: 16, color: "#92400E" },
-  // ─── END vehicle section styles ────────────────────────────────────────
 
   paymentStatusRow: { flexDirection: "row", gap: 10, marginTop: 8 },
   paymentStatus: {
