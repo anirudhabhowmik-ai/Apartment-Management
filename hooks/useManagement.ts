@@ -164,6 +164,32 @@ function localDateStringToServerISO(local: unknown): string | null {
   return localNoon.toISOString();
 }
 
+// ─── NEW: normalize server vehicles → client shape ──────────────────────
+function mapServerVehicles(raw: unknown): any[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((v: any, idx: number) => {
+      if (!v || typeof v !== "object") return null;
+      const number = String(v.number ?? v.vehicle_number ?? "")
+        .toUpperCase()
+        .replace(/[^A-Z0-9]/g, "");
+      if (!number) return null;
+      const typeRaw = String(v.type ?? v.vehicle_type ?? "car").toLowerCase();
+      const type = typeRaw === "bike" || typeRaw === "other" ? typeRaw : "car";
+      return {
+        id: String(v.id ?? `existing-${idx}`),
+        number,
+        type,
+      };
+    })
+    .filter(
+      (
+        x,
+      ): x is { id: string; number: string; type: "car" | "bike" | "other" } =>
+        x !== null,
+    );
+}
+
 function mapRowToMember(
   row: any,
   accountId: string,
@@ -210,6 +236,9 @@ function mapRowToMember(
     else if (flatNumber) unit = String(flatNumber);
     else if (wing) unit = String(wing);
 
+    // ─── NEW: carry vehicles through to the client model ─────────────
+    const vehicles = mapServerVehicles(row.vehicles);
+
     return {
       ...base,
       role: row.role,
@@ -219,6 +248,8 @@ function mapRowToMember(
       areaSqft: row.area_sqft ?? undefined,
       parkingAvailable: !!row.parking_available,
       maintenanceAmount: Number(row.maintenance_amount ?? 0),
+      // expose the vehicles array so edit-member.tsx can hydrate from it
+      vehicles,
       status: row.status ?? "active",
     } as FlatOwner;
   }
@@ -298,6 +329,37 @@ async function toServerBody(
       body.parking_available = input.parkingAvailable ?? false;
     if (input.maintenanceAmount !== undefined)
       body.maintenance_amount = input.maintenanceAmount ?? 0;
+
+    // ─── NEW: forward the vehicles array to the backend ──────────────
+    // Only forward when present so we don't accidentally clear the list
+    // on partial updates.
+    if (input.vehicles !== undefined) {
+      if (Array.isArray(input.vehicles)) {
+        body.vehicles = input.vehicles
+          .map((v: any) => {
+            if (!v || typeof v !== "object") return null;
+            const number = String(v.number ?? v.vehicle_number ?? "")
+              .toUpperCase()
+              .replace(/[^A-Z0-9]/g, "");
+            if (!number) return null;
+            const typeRaw = String(
+              v.type ?? v.vehicle_type ?? "car",
+            ).toLowerCase();
+            const type =
+              typeRaw === "bike" || typeRaw === "other" ? typeRaw : "car";
+            const entry: any = { number, type };
+            // Existing rows keep their server id so the controller knows
+            // to UPDATE rather than re-INSERT. New rows omit the id.
+            if (typeof v.id === "string" && v.id.length > 0 && !v.isNew) {
+              entry.id = v.id;
+            }
+            return entry;
+          })
+          .filter(Boolean);
+      } else {
+        body.vehicles = [];
+      }
+    }
   }
 
   if (kind === "staff") {

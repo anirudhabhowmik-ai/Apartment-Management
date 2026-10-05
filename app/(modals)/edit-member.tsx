@@ -73,6 +73,14 @@ type UpgradePrompt = {
   current?: number;
 } | null;
 
+// ─── NEW: Vehicle row shape for editing ─────────────────────────────────
+interface VehicleEntry {
+  id: string; // server id, or local-only for new rows
+  number: string;
+  type: "car" | "bike" | "other";
+  isNew?: boolean; // true if added in this edit session
+}
+
 const RED = "#DC2626";
 const GREEN = "#16A34A";
 
@@ -136,6 +144,13 @@ function normalizePhone(raw?: string): string {
   if (!raw) return "";
   const digits = String(raw).replace(/\D/g, "");
   return digits.length > 10 ? digits.slice(-10) : digits;
+}
+
+// ─── NEW: Normalize vehicle plate ───────────────────────────────────────
+function normalizeVehicleNumber(raw: string): string {
+  return String(raw || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
 }
 
 function toDateInput(raw: unknown): string {
@@ -870,6 +885,9 @@ export default function EditMemberScreen() {
   const [parkingAvailable, setParkingAvailable] = useState(false);
   const [maintenanceAmount, setMaintenanceAmount] = useState("");
 
+  // ─── NEW: vehicles state ────────────────────────────────────────────
+  const [vehicles, setVehicles] = useState<VehicleEntry[]>([]);
+
   const [monthlySalary, setMonthlySalary] = useState("");
 
   const [expenseAmount, setExpenseAmount] = useState("");
@@ -989,6 +1007,11 @@ export default function EditMemberScreen() {
     areaSqft: areaSqft.trim(),
     parkingAvailable,
     maintenanceAmount: maintenanceAmount.trim(),
+    // ─── NEW: include vehicles in the diff snapshot ────────────────────
+    vehiclesKey: vehicles
+      .map((v) => `${v.number}|${v.type}`)
+      .sort()
+      .join("::"),
     monthlySalary: monthlySalary.trim(),
     expenseAmount: expenseAmount.trim(),
     expenseStatus,
@@ -1040,6 +1063,28 @@ export default function EditMemberScreen() {
       setAreaSqft(member.areaSqft?.toString() || "");
       setParkingAvailable(member.parkingAvailable || false);
       setMaintenanceAmount(member.maintenanceAmount?.toString() || "");
+
+      // ─── NEW: hydrate vehicles from the member row ───────────────────
+      const rawVehicles = (member as any).vehicles;
+      if (Array.isArray(rawVehicles)) {
+        setVehicles(
+          rawVehicles.map((v: any, idx: number) => ({
+            id: String(v?.id ?? `existing-${idx}`),
+            number: normalizeVehicleNumber(
+              String(v?.number ?? v?.vehicle_number ?? ""),
+            ),
+            type:
+              v?.type === "bike" || v?.type === "other"
+                ? v.type
+                : v?.vehicle_type === "bike" || v?.vehicle_type === "other"
+                  ? v.vehicle_type
+                  : "car",
+            isNew: false,
+          })),
+        );
+      } else {
+        setVehicles([]);
+      }
     }
 
     if (groupType === "staff" && "monthlySalary" in member) {
@@ -1065,6 +1110,40 @@ export default function EditMemberScreen() {
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [member, groupType]);
+
+  // ─── NEW: vehicle row handlers ──────────────────────────────────────
+  const addVehicleRow = () => {
+    setVehicles((cur) => [
+      ...cur,
+      {
+        id: `new-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        number: "",
+        type: "car",
+        isNew: true,
+      },
+    ]);
+    if (fieldErrors.vehicles) {
+      setFieldErrors((cur) => ({ ...cur, vehicles: "" }));
+    }
+  };
+
+  const removeVehicleRow = (id: string) => {
+    setVehicles((cur) => cur.filter((v) => v.id !== id));
+  };
+
+  const updateVehicleNumber = (id: string, raw: string) => {
+    const cleaned = normalizeVehicleNumber(raw);
+    setVehicles((cur) =>
+      cur.map((v) => (v.id === id ? { ...v, number: cleaned } : v)),
+    );
+    if (fieldErrors.vehicles) {
+      setFieldErrors((cur) => ({ ...cur, vehicles: "" }));
+    }
+  };
+
+  const updateVehicleType = (id: string, type: VehicleEntry["type"]) => {
+    setVehicles((cur) => cur.map((v) => (v.id === id ? { ...v, type } : v)));
+  };
 
   const openIdentityEditor = () => {
     if (groupType === "expense") return;
@@ -1093,7 +1172,6 @@ export default function EditMemberScreen() {
     setIdentityError("");
   };
 
-  // ── UPDATED: save name, phone AND photo directly to backend on Apply ──
   const saveIdentityEditor = async () => {
     if (!member) return;
 
@@ -1109,9 +1187,6 @@ export default function EditMemberScreen() {
       return;
     }
 
-    // ✅ Compare against the SAVED member, not local state.
-    //    This is the key fix — `photoUri` gets updated during picking,
-    //    so comparing to it would incorrectly report "no change".
     const originalName = (member as any)?.name ?? "";
     const originalPhone = normalizePhone((member as any)?.phone);
     const originalPhotoUri = (member as any)?.photoUri ?? null;
@@ -1137,13 +1212,10 @@ export default function EditMemberScreen() {
 
       await update(memberId, updateData);
 
-      // Keep local UI state in sync
       setName(trimmedName);
       setPhone(cleanPhone);
       setPhotoUri(identityPhotoUri);
 
-      // Reset the diff baseline so "Save Changes" doesn't flag
-      // identity fields as still dirty
       if (originalRef.current) {
         originalRef.current = {
           ...originalRef.current,
@@ -1529,6 +1601,32 @@ export default function EditMemberScreen() {
       } else if (isNaN(Number(maintenanceAmount))) {
         errors.maintenanceAmount = "Enter a valid amount";
       }
+
+      // ─── NEW: validate vehicles when parking is on ───────────────────
+      if (parkingAvailable) {
+        if (vehicles.length === 0) {
+          errors.vehicles = "Add at least one vehicle number";
+        } else if (vehicles.some((v) => !v.number.trim())) {
+          errors.vehicles = "Every vehicle must have a number";
+        } else {
+          const seen = new Set<string>();
+          for (const v of vehicles) {
+            if (seen.has(v.number)) {
+              errors.vehicles = `Duplicate vehicle number: ${v.number}`;
+              break;
+            }
+            seen.add(v.number);
+          }
+          if (!errors.vehicles) {
+            const bad = vehicles.find(
+              (v) => v.number.length < 5 || v.number.length > 15,
+            );
+            if (bad) {
+              errors.vehicles = `"${bad.number}" doesn't look like a valid plate`;
+            }
+          }
+        }
+      }
     }
 
     if (groupType === "staff") {
@@ -1611,6 +1709,15 @@ export default function EditMemberScreen() {
       }
       updateData.parkingAvailable = parkingAvailable;
       updateData.maintenanceAmount = Number(maintenanceAmount);
+
+      // ─── NEW: send vehicles (only when parking is on) ──────────────
+      updateData.vehicles = parkingAvailable
+        ? vehicles.map((v) => ({
+            id: v.isNew ? undefined : v.id,
+            number: v.number,
+            type: v.type,
+          }))
+        : [];
     }
 
     if (groupType === "staff") {
@@ -1892,11 +1999,126 @@ export default function EditMemberScreen() {
                 </View>
                 <Switch
                   value={parkingAvailable}
-                  onValueChange={setParkingAvailable}
+                  onValueChange={(val) => {
+                    setParkingAvailable(val);
+                    if (!val) {
+                      setVehicles([]);
+                    } else if (vehicles.length === 0) {
+                      addVehicleRow();
+                    }
+                  }}
                   trackColor={{ false: "#d1d5db", true: "#93c5fd" }}
                   thumbColor={parkingAvailable ? "#2563eb" : "#f4f4f5"}
                 />
               </View>
+
+              {/* ─── NEW: Vehicle numbers block ──────────────────────── */}
+              {parkingAvailable && (
+                <View style={styles.vehicleSection}>
+                  <View style={styles.vehicleHeaderRow}>
+                    <Text
+                      style={[
+                        styles.fieldLabel,
+                        fieldErrors.vehicles
+                          ? styles.fieldLabelError
+                          : undefined,
+                      ]}
+                    >
+                      Vehicle Numbers
+                    </Text>
+                    <Text style={styles.vehicleCountText}>
+                      {vehicles.length} added
+                    </Text>
+                  </View>
+
+                  {vehicles.length === 0 && (
+                    <View style={styles.noVehiclesNotice}>
+                      <Ionicons
+                        name="information-circle"
+                        size={16}
+                        color="#B45309"
+                      />
+                      <Text style={styles.noVehiclesText}>
+                        Add at least one vehicle since parking is available.
+                      </Text>
+                    </View>
+                  )}
+
+                  {vehicles.map((vehicle) => (
+                    <View key={vehicle.id} style={styles.vehicleRow}>
+                      <TouchableOpacity
+                        style={styles.vehicleTypeChip}
+                        onPress={() => {
+                          const next: VehicleEntry["type"] =
+                            vehicle.type === "car"
+                              ? "bike"
+                              : vehicle.type === "bike"
+                                ? "other"
+                                : "car";
+                          updateVehicleType(vehicle.id, next);
+                        }}
+                        activeOpacity={0.75}
+                      >
+                        <Ionicons
+                          name={
+                            vehicle.type === "car"
+                              ? "car-outline"
+                              : vehicle.type === "bike"
+                                ? "bicycle-outline"
+                                : "help-circle-outline"
+                          }
+                          size={18}
+                          color="#2563eb"
+                        />
+                      </TouchableOpacity>
+
+                      <TextInput
+                        style={styles.vehicleInput}
+                        placeholder="e.g. KA01AB1234"
+                        placeholderTextColor="#9ca3af"
+                        autoCapitalize="characters"
+                        autoCorrect={false}
+                        value={vehicle.number}
+                        onChangeText={(text) =>
+                          updateVehicleNumber(vehicle.id, text)
+                        }
+                      />
+
+                      <TouchableOpacity
+                        onPress={() => removeVehicleRow(vehicle.id)}
+                        style={styles.vehicleDeleteButton}
+                        activeOpacity={0.75}
+                      >
+                        <Ionicons
+                          name="trash-outline"
+                          size={18}
+                          color="#dc2626"
+                        />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+
+                  <TouchableOpacity
+                    style={styles.addVehicleButton}
+                    onPress={addVehicleRow}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons
+                      name="add-circle-outline"
+                      size={18}
+                      color="#2563eb"
+                    />
+                    <Text style={styles.addVehicleText}>
+                      Add Another Vehicle
+                    </Text>
+                  </TouchableOpacity>
+
+                  {fieldErrors.vehicles ? (
+                    <FieldError text={fieldErrors.vehicles} />
+                  ) : null}
+                </View>
+              )}
+              {/* ─── END vehicle numbers block ──────────────────────── */}
 
               <FieldLabel
                 label={maintenanceLabel}
@@ -3681,6 +3903,90 @@ const styles = StyleSheet.create({
   settingTextContainer: { flex: 1, marginLeft: 11 },
   settingTitle: { fontSize: 14, fontWeight: "700", color: "#1f2937" },
   settingSubtitle: { fontSize: 11, color: "#8a94a6", marginTop: 3 },
+
+  // ─── NEW: Vehicle block styles (mirrors add-member.tsx) ────────────────
+  vehicleSection: {
+    marginTop: 4,
+    marginBottom: 14,
+  },
+  vehicleHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  vehicleCountText: {
+    fontSize: 11,
+    color: "#94A3B8",
+    fontWeight: "600",
+  },
+  vehicleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 8,
+  },
+  vehicleTypeChip: {
+    width: 44,
+    height: 52,
+    borderRadius: 12,
+    backgroundColor: "#eaf2ff",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  vehicleInput: {
+    flex: 1,
+    minHeight: 52,
+    borderWidth: 1,
+    borderColor: "#e2e8f0",
+    borderRadius: 13,
+    paddingHorizontal: 14,
+    fontSize: 15,
+    color: "#111827",
+    backgroundColor: "#fbfcfe",
+    letterSpacing: 1.5,
+    fontWeight: "600",
+  },
+  vehicleDeleteButton: {
+    width: 44,
+    height: 52,
+    borderRadius: 12,
+    backgroundColor: "#FEF2F2",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  addVehicleButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: "#bfdbfe",
+    backgroundColor: "#eff6ff",
+    marginTop: 4,
+  },
+  addVehicleText: { fontSize: 13, fontWeight: "800", color: "#2563eb" },
+  noVehiclesNotice: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    padding: 10,
+    borderRadius: 10,
+    backgroundColor: "#FEF3C7",
+    borderWidth: 1,
+    borderColor: "#FDE68A",
+    marginBottom: 10,
+  },
+  noVehiclesText: {
+    flex: 1,
+    fontSize: 11.5,
+    lineHeight: 16,
+    color: "#92400E",
+  },
+  // ─── END vehicle block styles ──────────────────────────────────────────
 
   paymentStatusRow: {
     flexDirection: "row",

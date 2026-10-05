@@ -57,10 +57,7 @@ interface RoleOption {
 interface ContactData {
   id: string;
   name: string;
-  phoneNumbers: {
-    number: string;
-    label?: string;
-  }[];
+  phoneNumbers: { number: string; label?: string }[];
 }
 
 interface PersonOption {
@@ -69,6 +66,13 @@ interface PersonOption {
   phone: string | null;
   photo_url: string | null;
   kind: "owner" | "admin" | "member" | "staff";
+}
+
+// ─── NEW: Vehicle row shape used by the parking section ──────────────────
+interface VehicleEntry {
+  id: string; // local-only React key
+  number: string; // normalized uppercase
+  type: "car" | "bike" | "other";
 }
 
 type UpgradePrompt = {
@@ -92,15 +96,6 @@ const AUTH_TOKEN_KEY = "auth_token";
 
 const MAX_BILL_ATTACHMENTS = 2;
 
-/**
- * Role options for the Apartment tab.
- *
- * On an apartment account → "Flat Owner" + "Shop Owner".
- * On a home (tenant) account → "Room Rent" + "Shop Rent".
- *
- * The underlying role tokens are unchanged ("flat" / "shop"), so the
- * server keeps storing the same values. Only the label changes.
- */
 function getApartmentRoles(isTenantAccount: boolean): RoleOption[] {
   return [
     {
@@ -183,6 +178,13 @@ function normalizePhoneDigits(raw?: string | null): string {
   if (!raw) return "";
   const digits = String(raw).replace(/\D/g, "");
   return digits.length > 10 ? digits.slice(-10) : digits;
+}
+
+// ─── NEW: Normalize plate input. Uppercase, strip non-alphanumerics. ─────
+function normalizeVehicleNumber(raw: string): string {
+  return String(raw || "")
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "");
 }
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -471,15 +473,10 @@ function PhotoAdjustModal({
       const result = await ImageManipulator.manipulateAsync(
         image.uri,
         [
-          {
-            crop: { originX, originY, width: cropSize, height: cropSize },
-          },
+          { crop: { originX, originY, width: cropSize, height: cropSize } },
           { resize: { width: 500, height: 500 } },
         ],
-        {
-          compress: 0.8,
-          format: ImageManipulator.SaveFormat.JPEG,
-        },
+        { compress: 0.8, format: ImageManipulator.SaveFormat.JPEG },
       );
 
       onConfirm(result.uri);
@@ -682,9 +679,6 @@ export default function AddMemberScreen() {
 
   const { selectedAccount } = useAccounts();
 
-  // On a "home" account, members are tenants → the flat role is shown as
-  // "Room Rent", the shop role as "Shop Rent", the maintenance field as
-  // "Monthly Rent", and the flat number field becomes optional.
   const isTenantAccount = useMemo(() => {
     if (!selectedAccount) return false;
     return String((selectedAccount as any).type ?? "").toLowerCase() === "home";
@@ -727,6 +721,9 @@ export default function AddMemberScreen() {
   const [areaSqft, setAreaSqft] = useState("");
   const [parkingAvailable, setParkingAvailable] = useState(false);
   const [maintenanceAmount, setMaintenanceAmount] = useState("");
+
+  // ─── NEW: vehicle list state ────────────────────────────────────────────
+  const [vehicles, setVehicles] = useState<VehicleEntry[]>([]);
 
   const [monthlySalary, setMonthlySalary] = useState("");
 
@@ -885,15 +882,42 @@ export default function AddMemberScreen() {
     }
   };
 
-  // Field labels adapt to the account type.
   const flatNumberLabel = isTenantAccount ? "Room Number" : "Flat Number";
   const flatNumberPlaceholder = isTenantAccount ? "e.g. Room 12" : "e.g. A-204";
   const maintenanceLabel = isTenantAccount
     ? "Monthly Rent"
     : "Monthly Maintenance";
   const maintenancePlaceholder = isTenantAccount ? "e.g. 8000" : "e.g. 2500";
-  // Unit noun used in "New Person" / "Existing Person" tile descriptions.
   const unitNoun = isTenantAccount ? "room rent" : "flat";
+
+  // ─── NEW: Vehicle row helpers ──────────────────────────────────────────
+  const addVehicleRow = () => {
+    setVehicles((cur) => [
+      ...cur,
+      {
+        id: `${Date.now()}-${cur.length}-${Math.random().toString(36).slice(2, 7)}`,
+        number: "",
+        type: "car",
+      },
+    ]);
+    clearFieldError("vehicles");
+  };
+
+  const removeVehicleRow = (id: string) => {
+    setVehicles((cur) => cur.filter((v) => v.id !== id));
+  };
+
+  const updateVehicleNumber = (id: string, raw: string) => {
+    const cleaned = normalizeVehicleNumber(raw);
+    setVehicles((cur) =>
+      cur.map((v) => (v.id === id ? { ...v, number: cleaned } : v)),
+    );
+    clearFieldError("vehicles");
+  };
+
+  const updateVehicleType = (id: string, type: VehicleEntry["type"]) => {
+    setVehicles((cur) => cur.map((v) => (v.id === id ? { ...v, type } : v)));
+  };
 
   const takePhoto = async () => {
     setShowPhotoOptions(false);
@@ -980,9 +1004,7 @@ export default function AddMemberScreen() {
           if (assets.length > remaining) {
             Alert.alert(
               "Some files were skipped",
-              `Only ${remaining} slot${
-                remaining === 1 ? "" : "s"
-              } available. Attached ${next.length} of ${assets.length} files.`,
+              `Only ${remaining} slot${remaining === 1 ? "" : "s"} available. Attached ${next.length} of ${assets.length} files.`,
             );
           }
           return [...cur, ...next];
@@ -1031,9 +1053,7 @@ export default function AddMemberScreen() {
       if (selectedCount > remaining) {
         Alert.alert(
           "Some files were skipped",
-          `Only ${remaining} slot${
-            remaining === 1 ? "" : "s"
-          } available. Attached ${picked.length} of ${selectedCount} files.`,
+          `Only ${remaining} slot${remaining === 1 ? "" : "s"} available. Attached ${picked.length} of ${selectedCount} files.`,
         );
       }
 
@@ -1146,12 +1166,10 @@ export default function AddMemberScreen() {
   const filteredContacts = contactsList.filter((contact) => {
     const search = contactSearch.toLowerCase().trim();
     if (!search) return true;
-
     const nameMatch = contact.name.toLowerCase().includes(search);
     const phoneMatch = contact.phoneNumbers.some((item) =>
       item.number.toLowerCase().includes(search),
     );
-
     return nameMatch || phoneMatch;
   });
 
@@ -1171,9 +1189,7 @@ export default function AddMemberScreen() {
     phoneNumber = phoneNumber.replace(/^91/, "");
     phoneNumber = phoneNumber.replace(/^0/, "");
 
-    if (phoneNumber.length > 10) {
-      phoneNumber = phoneNumber.slice(-10);
-    }
+    if (phoneNumber.length > 10) phoneNumber = phoneNumber.slice(-10);
 
     if (phoneNumber.length !== 10) {
       setError("Selected contact does not have a valid 10-digit phone number");
@@ -1214,30 +1230,24 @@ export default function AddMemberScreen() {
         } else if (phone.length !== 10) {
           errors.phone = "Phone number must be 10 digits";
         } else if (phoneAlreadyBelongs) {
-          errors.phone = `This number already belongs to ${
-            phoneAlreadyBelongs.name || "an existing person"
-          }. Use Existing Person instead.`;
+          errors.phone = `This number already belongs to ${phoneAlreadyBelongs.name || "an existing person"}. Use Existing Person instead.`;
         }
       } else if (!selectedUserId) {
         errors.person = "Please select a person";
       }
 
       if (isCustomRole) {
-        if (!normalizeRoleInput(customRole)) {
+        if (!normalizeRoleInput(customRole))
           errors.role = "Please enter a custom role name";
-        }
       } else if (!role) {
         errors.role = "Please select a role";
       }
     }
 
     if (groupType === "apartment") {
-      // Room number is optional on home (tenant) accounts.
-      // Flat number is required on apartment accounts.
       if (!isTenantAccount && !flatNumber.trim()) {
         errors.flatNumber = "Apartment number is required";
       }
-      // Area is now required on both apartment and home accounts.
       if (!areaSqft.trim()) {
         errors.areaSqft = "Area is required";
       } else if (isNaN(Number(areaSqft))) {
@@ -1249,6 +1259,32 @@ export default function AddMemberScreen() {
           : "Maintenance amount is required";
       } else if (isNaN(Number(maintenanceAmount))) {
         errors.maintenanceAmount = "Enter a valid amount";
+      }
+
+      // ─── NEW: validate vehicles if parking is available ────────────────
+      if (parkingAvailable) {
+        if (vehicles.length === 0) {
+          errors.vehicles = "Add at least one vehicle number";
+        } else if (vehicles.some((v) => !v.number.trim())) {
+          errors.vehicles = "Every vehicle must have a number";
+        } else {
+          const seen = new Set<string>();
+          for (const v of vehicles) {
+            if (seen.has(v.number)) {
+              errors.vehicles = `Duplicate vehicle number: ${v.number}`;
+              break;
+            }
+            seen.add(v.number);
+          }
+          // Basic plate length sanity check (5–15 chars after normalize)
+          if (!errors.vehicles) {
+            const bad = vehicles.find(
+              (v) => v.number.length < 5 || v.number.length > 15,
+            );
+            if (bad)
+              errors.vehicles = `"${bad.number}" doesn't look like a valid plate`;
+          }
+        }
       }
     }
 
@@ -1278,9 +1314,7 @@ export default function AddMemberScreen() {
       return;
     }
 
-    const payload: any = {
-      groupType,
-    };
+    const payload: any = { groupType };
 
     if (groupType === "expense") {
       payload.role = role;
@@ -1311,6 +1345,10 @@ export default function AddMemberScreen() {
         payload.areaSqft = areaSqft ? Number(areaSqft) : undefined;
         payload.parkingAvailable = parkingAvailable;
         payload.maintenanceAmount = Number(maintenanceAmount);
+        // ─── NEW: send vehicles only when parking is available ─────────
+        payload.vehicles = parkingAvailable
+          ? vehicles.map((v) => ({ number: v.number, type: v.type }))
+          : [];
       }
 
       if (groupType === "staff") {
@@ -2278,7 +2316,6 @@ export default function AddMemberScreen() {
                 placeholder: flatNumberPlaceholder,
                 icon: "keypad-outline",
                 errorKey: "flatNumber",
-                // Room number is optional on home (tenant) accounts.
                 optional: isTenantAccount,
               })}
 
@@ -2293,7 +2330,6 @@ export default function AddMemberScreen() {
                 icon: "resize-outline",
                 keyboardType: "numeric",
                 errorKey: "areaSqft",
-                // Area is required on both apartment and home accounts.
                 optional: false,
               })}
 
@@ -2311,7 +2347,14 @@ export default function AddMemberScreen() {
                 </View>
                 <Switch
                   value={parkingAvailable}
-                  onValueChange={setParkingAvailable}
+                  onValueChange={(val) => {
+                    setParkingAvailable(val);
+                    if (!val) {
+                      setVehicles([]);
+                    } else if (vehicles.length === 0) {
+                      addVehicleRow();
+                    }
+                  }}
                   trackColor={{ false: "#CBD5E1", true: "#93C5FD" }}
                   thumbColor={
                     Platform.OS === "android"
@@ -2322,6 +2365,112 @@ export default function AddMemberScreen() {
                   }
                 />
               </View>
+
+              {/* ─── NEW: Vehicle numbers block ──────────────────────── */}
+              {parkingAvailable && (
+                <View style={styles.fieldContainer}>
+                  <View style={styles.labelRow}>
+                    <Text
+                      style={[
+                        styles.inputLabel,
+                        fieldErrors.vehicles
+                          ? styles.inputLabelError
+                          : undefined,
+                      ]}
+                    >
+                      Vehicle Numbers
+                    </Text>
+                    <Text style={styles.optionalText}>
+                      {vehicles.length} added
+                    </Text>
+                  </View>
+
+                  {vehicles.length === 0 && (
+                    <View style={styles.noVehiclesNotice}>
+                      <Ionicons
+                        name="information-circle"
+                        size={16}
+                        color="#B45309"
+                      />
+                      <Text style={styles.noVehiclesText}>
+                        Add at least one vehicle since parking is available.
+                      </Text>
+                    </View>
+                  )}
+
+                  {vehicles.map((vehicle) => (
+                    <View key={vehicle.id} style={styles.vehicleRow}>
+                      <TouchableOpacity
+                        style={styles.vehicleTypeChip}
+                        onPress={() => {
+                          const next: VehicleEntry["type"] =
+                            vehicle.type === "car"
+                              ? "bike"
+                              : vehicle.type === "bike"
+                                ? "other"
+                                : "car";
+                          updateVehicleType(vehicle.id, next);
+                        }}
+                        activeOpacity={0.75}
+                      >
+                        <Ionicons
+                          name={
+                            vehicle.type === "car"
+                              ? "car-outline"
+                              : vehicle.type === "bike"
+                                ? "bicycle-outline"
+                                : "help-circle-outline"
+                          }
+                          size={18}
+                          color={BLUE}
+                        />
+                      </TouchableOpacity>
+
+                      <TextInput
+                        style={styles.vehicleInput}
+                        placeholder="e.g. KA01AB1234"
+                        placeholderTextColor="#A1AAB8"
+                        autoCapitalize="characters"
+                        autoCorrect={false}
+                        value={vehicle.number}
+                        onChangeText={(text) =>
+                          updateVehicleNumber(vehicle.id, text)
+                        }
+                      />
+
+                      <TouchableOpacity
+                        onPress={() => removeVehicleRow(vehicle.id)}
+                        style={styles.vehicleDeleteButton}
+                        activeOpacity={0.75}
+                      >
+                        <Ionicons name="trash-outline" size={18} color={RED} />
+                      </TouchableOpacity>
+                    </View>
+                  ))}
+
+                  <TouchableOpacity
+                    style={styles.addVehicleButton}
+                    onPress={addVehicleRow}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons
+                      name="add-circle-outline"
+                      size={18}
+                      color={BLUE}
+                    />
+                    <Text style={styles.addVehicleText}>
+                      Add Another Vehicle
+                    </Text>
+                  </TouchableOpacity>
+
+                  {fieldErrors.vehicles ? (
+                    <Text style={styles.fieldError}>
+                      {fieldErrors.vehicles}
+                    </Text>
+                  ) : null}
+                </View>
+              )}
+              {/* ─── END vehicle numbers block ──────────────────────── */}
 
               {renderInput({
                 label: maintenanceLabel,
@@ -3104,11 +3253,7 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 16, fontWeight: "700", color: TEXT },
   sectionSubtitle: { fontSize: 12, color: TEXT_SECONDARY, marginTop: 3 },
 
-  modeRow: {
-    flexDirection: "row",
-    gap: 10,
-    marginTop: 14,
-  },
+  modeRow: { flexDirection: "row", gap: 10, marginTop: 14 },
   modeCard: {
     flex: 1,
     padding: 14,
@@ -3117,10 +3262,7 @@ const styles = StyleSheet.create({
     borderColor: BORDER,
     backgroundColor: "#fff",
   },
-  modeCardSelected: {
-    borderColor: BLUE,
-    backgroundColor: BLUE_LIGHT,
-  },
+  modeCardSelected: { borderColor: BLUE, backgroundColor: BLUE_LIGHT },
   modeIcon: {
     width: 40,
     height: 40,
@@ -3140,10 +3282,7 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
 
-  personPickerTrigger: {
-    minHeight: 56,
-    paddingHorizontal: 12,
-  },
+  personPickerTrigger: { minHeight: 56, paddingHorizontal: 12 },
   personPlaceholder: {
     flex: 1,
     fontSize: 14,
@@ -3160,22 +3299,10 @@ const styles = StyleSheet.create({
     overflow: "hidden",
   },
   selectedPersonAvatarImage: { width: "100%", height: "100%" },
-  selectedPersonAvatarText: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: BLUE,
-  },
+  selectedPersonAvatarText: { fontSize: 15, fontWeight: "700", color: BLUE },
   selectedPersonInfo: { flex: 1, minWidth: 0, marginLeft: 10 },
-  selectedPersonName: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: TEXT,
-  },
-  selectedPersonPhone: {
-    fontSize: 11.5,
-    color: TEXT_SECONDARY,
-    marginTop: 2,
-  },
+  selectedPersonName: { fontSize: 14, fontWeight: "700", color: TEXT },
+  selectedPersonPhone: { fontSize: 11.5, color: TEXT_SECONDARY, marginTop: 2 },
 
   photoCard: {
     backgroundColor: "#fff",
@@ -3251,10 +3378,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     gap: 10,
   },
-  inputContainerError: {
-    borderColor: "#FCA5A5",
-    backgroundColor: "#FFF7F7",
-  },
+  inputContainerError: { borderColor: "#FCA5A5", backgroundColor: "#FFF7F7" },
   textInput: {
     flex: 1,
     minHeight: 50,
@@ -3364,10 +3488,7 @@ const styles = StyleSheet.create({
     borderColor: "#FCA5A5",
     backgroundColor: "#FEF2F2",
   },
-  kindRadioOptionIncome: {
-    borderColor: "#86EFAC",
-    backgroundColor: "#F0FDF4",
-  },
+  kindRadioOptionIncome: { borderColor: "#86EFAC", backgroundColor: "#F0FDF4" },
   radioOuter: {
     width: 18,
     height: 18,
@@ -3404,6 +3525,70 @@ const styles = StyleSheet.create({
   settingTitle: { fontSize: 14, fontWeight: "600", color: TEXT },
   settingSubtitle: { fontSize: 11, color: TEXT_SECONDARY, marginTop: 3 },
 
+  // ─── NEW: Vehicle section styles ────────────────────────────────────────
+  vehicleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 8,
+  },
+  vehicleTypeChip: {
+    width: 44,
+    height: 52,
+    borderRadius: 12,
+    backgroundColor: BLUE_LIGHT,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  vehicleInput: {
+    flex: 1,
+    minHeight: 52,
+    borderWidth: 1,
+    borderColor: BORDER,
+    borderRadius: 13,
+    paddingHorizontal: 14,
+    fontSize: 15,
+    color: TEXT,
+    backgroundColor: "#fff",
+    letterSpacing: 1.5,
+    fontWeight: "600",
+  },
+  vehicleDeleteButton: {
+    width: 44,
+    height: 52,
+    borderRadius: 12,
+    backgroundColor: "#FEF2F2",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  addVehicleButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderStyle: "dashed",
+    borderColor: "#93C5FD",
+    backgroundColor: "#F8FBFF",
+    marginTop: 4,
+  },
+  addVehicleText: { fontSize: 13, fontWeight: "700", color: BLUE },
+  noVehiclesNotice: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 8,
+    padding: 10,
+    borderRadius: 10,
+    backgroundColor: "#FEF3C7",
+    borderWidth: 1,
+    borderColor: "#FDE68A",
+    marginBottom: 10,
+  },
+  noVehiclesText: { flex: 1, fontSize: 11.5, lineHeight: 16, color: "#92400E" },
+  // ─── END vehicle section styles ────────────────────────────────────────
+
   paymentStatusRow: { flexDirection: "row", gap: 10, marginTop: 8 },
   paymentStatus: {
     flex: 1,
@@ -3415,14 +3600,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
   },
-  paymentStatusPaid: {
-    borderColor: "#86EFAC",
-    backgroundColor: "#F0FDF4",
-  },
-  paymentStatusDue: {
-    borderColor: "#FCD34D",
-    backgroundColor: "#FFFBEB",
-  },
+  paymentStatusPaid: { borderColor: "#86EFAC", backgroundColor: "#F0FDF4" },
+  paymentStatusDue: { borderColor: "#FCD34D", backgroundColor: "#FFFBEB" },
   paymentStatusIcon: {
     width: 34,
     height: 34,
@@ -3437,11 +3616,7 @@ const styles = StyleSheet.create({
   paymentStatusTitle: { fontSize: 13, fontWeight: "700", color: "#475569" },
   paymentStatusTitlePaid: { color: "#15803D" },
   paymentStatusTitleDue: { color: "#B45309" },
-  paymentStatusSubtitle: {
-    fontSize: 10,
-    color: "#94A3B8",
-    marginTop: 2,
-  },
+  paymentStatusSubtitle: { fontSize: 10, color: "#94A3B8", marginTop: 2 },
 
   reminderCard: {
     minHeight: 68,
@@ -3522,12 +3697,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginRight: 9,
   },
-  attachmentName: {
-    flex: 1,
-    fontSize: 13,
-    color: TEXT,
-    fontWeight: "500",
-  },
+  attachmentName: { flex: 1, fontSize: 13, color: TEXT, fontWeight: "500" },
   attachmentAction: {
     width: 36,
     height: 36,
@@ -3559,9 +3729,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginRight: 10,
   },
-  attachButtonIconDisabled: {
-    backgroundColor: "#E2E8F0",
-  },
+  attachButtonIconDisabled: { backgroundColor: "#E2E8F0" },
   attachButtonTextContainer: { flex: 1 },
   attachButtonTitle: { fontSize: 13, fontWeight: "700", color: BLUE },
   attachButtonTitleDisabled: { color: "#64748B" },
@@ -3609,12 +3777,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginRight: 9,
   },
-  errorText: {
-    flex: 1,
-    fontSize: 12,
-    color: "#B91C1C",
-    fontWeight: "500",
-  },
+  errorText: { flex: 1, fontSize: 12, color: "#B91C1C", fontWeight: "500" },
 
   button: {
     minHeight: 54,
@@ -3779,11 +3942,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginTop: 10,
   },
-  modalCancelButtonText: {
-    fontSize: 14,
-    fontWeight: "700",
-    color: "#475569",
-  },
+  modalCancelButtonText: { fontSize: 14, fontWeight: "700", color: "#475569" },
 
   modalBackdrop: {
     flex: 1,
@@ -3843,11 +4002,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#f8fafc",
     borderRadius: 12,
   },
-  photoOptionsCancelText: {
-    fontSize: 15,
-    fontWeight: "700",
-    color: "#dc2626",
-  },
+  photoOptionsCancelText: { fontSize: 15, fontWeight: "700", color: "#dc2626" },
 
   upgradeBackdrop: {
     flex: 1,
@@ -3899,11 +4054,7 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     marginTop: 12,
   },
-  upgradeUsageText: {
-    fontSize: 11.5,
-    fontWeight: "700",
-    color: "#475569",
-  },
+  upgradeUsageText: { fontSize: 11.5, fontWeight: "700", color: "#475569" },
   upgradeActions: {
     flexDirection: "row",
     width: "100%",
@@ -3925,14 +4076,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#E2E8F0",
   },
-  upgradeButtonGhostText: {
-    color: "#475569",
-    fontSize: 14,
-    fontWeight: "800",
-  },
-  upgradeButtonPrimary: {
-    backgroundColor: "#2563EB",
-  },
+  upgradeButtonGhostText: { color: "#475569", fontSize: 14, fontWeight: "800" },
+  upgradeButtonPrimary: { backgroundColor: "#2563EB" },
   upgradeButtonPrimaryText: {
     color: "#FFFFFF",
     fontSize: 14,
