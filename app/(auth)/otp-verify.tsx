@@ -2,17 +2,17 @@ import { Ionicons } from "@expo/vector-icons";
 import { Redirect, useRouter } from "expo-router";
 import { useEffect, useRef, useState } from "react";
 import {
-    Dimensions,
-    KeyboardAvoidingView,
-    Modal,
-    Platform,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  Dimensions,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { DarkModeBoundary } from "../../components/DarkModeBoundary";
@@ -376,6 +376,18 @@ export default function OtpVerifyScreen() {
     });
 
     setPendingPhone(null);
+
+    // --- GOOGLE ADS CONVERSION TRACKING ---
+    if (Platform.OS === "web" && typeof window !== "undefined") {
+      const gtag = (window as any).gtag;
+      if (typeof gtag === "function") {
+        gtag("event", "conversion", {
+          send_to: "AW-674352071/hjvxCIub95idFMeXx8EC",
+        });
+        console.log("Google Ads Sign-up Conversion Fired!");
+      }
+    }
+    // ---------------------------------------
 
     router.replace("/(tabs)/home");
   };
