@@ -9,7 +9,13 @@ import * as FileSystemModern from "expo-file-system";
 import * as FileSystem from "expo-file-system/legacy";
 import * as ImagePicker from "expo-image-picker";
 import * as Sharing from "expo-sharing";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -17,6 +23,7 @@ import {
   Image,
   KeyboardAvoidingView,
   Linking,
+  Modal,
   NativeModules,
   Platform,
   Pressable,
@@ -202,12 +209,6 @@ const ROLE_META: Record<Role, { label: string; color: string; bg: string }> = {
   staff: { label: "Staff", color: "#0284c7", bg: "#e0f2fe" },
 };
 
-/**
- * Tenant-aware role display.
- *
- * On a personal "home" account, `member_visibility` and `member` both
- * resolve to "tenant" (amber). Everywhere else they stay "member".
- */
 function resolveDisplayRole(
   role: string | null | undefined,
   isHomeAccount: boolean,
@@ -878,6 +879,42 @@ function PlatformTimePicker({
   onChangeSelected: (d: Date) => void;
   onDismiss?: () => void;
 }) {
+  // ── WEB: real HTML <input type="time"> ────────────────────────────────
+  if (Platform.OS === "web") {
+    const hh = String(value.getHours()).padStart(2, "0");
+    const mm = String(value.getMinutes()).padStart(2, "0");
+    return React.createElement("input", {
+      type: "time",
+      defaultValue: `${hh}:${mm}`,
+      autoFocus: true,
+      onChange: (e: any) => {
+        const parts = String(e?.target?.value ?? "").split(":");
+        if (parts.length < 2) return;
+        const h = parseInt(parts[0], 10);
+        const m = parseInt(parts[1], 10);
+        if (Number.isNaN(h) || Number.isNaN(m)) return;
+        const next = new Date(value);
+        next.setHours(h, m, 0, 0);
+        onChangeSelected(next);
+      },
+      style: {
+        width: "100%",
+        fontSize: 22,
+        padding: 14,
+        borderRadius: 12,
+        border: "1px solid #cbd5e1",
+        backgroundColor: "#ffffff",
+        color: "#0f172a",
+        textAlign: "center",
+        outline: "none",
+        marginTop: 12,
+        marginBottom: 8,
+        boxSizing: "border-box",
+      },
+    });
+  }
+
+  // ── iOS: spinner ──────────────────────────────────────────────────────
   if (Platform.OS === "ios") {
     const handle = (event: DateTimePickerEvent, selected?: Date) => {
       if (event.type !== "set") return;
@@ -895,6 +932,7 @@ function PlatformTimePicker({
     );
   }
 
+  // ── Android: native dialog via onValueChange ──────────────────────────
   const handle = (_event: DateTimePickerChangeEvent, selected: Date) => {
     if (!selected) return;
     onChangeSelected(selected);
@@ -936,10 +974,6 @@ function CalendarScreenImpl() {
   const isAdminOrOwner = isAdmin || isOwner;
   const isMemberOnly = !isAdminOrOwner && isMember;
 
-  // ── Tenant detection ────────────────────────────────────────────────
-  // Uses useAccounts() (which exposes selectedAccount). The account store
-  // only holds selectedAccountId, so reading `s.selectedAccount` from it
-  // returned undefined and every role badge fell back to "Member".
   const { selectedAccount } = useAccounts();
   const isTenantAccount = useMemo(() => {
     if (!selectedAccount) return false;
@@ -3128,28 +3162,34 @@ function CalendarScreenImpl() {
           </KeyboardAvoidingView>
         </IOSFriendlyModal>
 
-        {/* ==================== iOS time picker ==================== */}
-        {Platform.OS === "ios" && timePickerMode !== null && (
-          <IOSFriendlyModal
+        {/* ============ Time picker — iOS + Web ============ */}
+        {Platform.OS !== "android" && timePickerMode !== null && (
+          <Modal
             transparent
             animationType="fade"
             visible={timePickerMode !== null}
             onRequestClose={() => setTimePickerMode(null)}
           >
-            <Pressable
-              style={styles.modalBackdropCenter}
-              onPress={() => setTimePickerMode(null)}
-            >
+            <View style={styles.modalBackdropCenter}>
+              {/* Backdrop is a sibling, not a parent — taps on the card
+                  never bubble up to close the modal. */}
+              <Pressable
+                style={StyleSheet.absoluteFill}
+                onPress={() => setTimePickerMode(null)}
+              />
+
               <View style={styles.timePickerCard}>
                 <Text style={styles.timePickerTitle}>
                   {timePickerMode === "start"
                     ? "Select Start Time"
                     : "Select End Time"}
                 </Text>
+
                 <PlatformTimePicker
                   value={timePickerValue}
                   onChangeSelected={handleTimeSelected}
                 />
+
                 <View style={styles.modalButtonRow}>
                   <TouchableOpacity
                     style={styles.modalCancelButton}
@@ -3167,8 +3207,8 @@ function CalendarScreenImpl() {
                   </TouchableOpacity>
                 </View>
               </View>
-            </Pressable>
-          </IOSFriendlyModal>
+            </View>
+          </Modal>
         )}
 
         {/* ==================== Android time picker ==================== */}
