@@ -93,8 +93,8 @@ const features = [
 
 const steps = [
   {
-    title: "Sign in with OTP",
-    text: "Verify with an OTP and your account is ready. There is nothing to register.",
+    title: "Enter your phone number",
+    text: "We send you an OTP. Verify it and your account is ready — no forms, no password.",
   },
   {
     title: "Create your property",
@@ -258,7 +258,7 @@ export default function SeoLandingPage() {
             ]}
           >
             <Link href="/(auth)/login" style={styles.signInLink}>
-              Sign in
+              Get started
             </Link>
             <DownloadButton compact light />
           </View>
@@ -286,7 +286,7 @@ export default function SeoLandingPage() {
             <View style={[styles.eyebrow, isMobile && styles.eyebrowMobile]}>
               <View style={styles.eyebrowDot} />
               <Text style={styles.eyebrowText}>
-                FOR SOCIETY SECRETARIES, RESIDENTS & STAFF
+                FOR APARTMENT SOCIETY SECRETARIES
               </Text>
             </View>
             <Text
@@ -299,7 +299,7 @@ export default function SeoLandingPage() {
               // @ts-ignore
               suppressHydrationWarning
             >
-              Run your society's maintenance and accounts in minutes.
+              Start your society's accounts with just your phone number.
             </Text>
             <Text
               style={[
@@ -310,21 +310,21 @@ export default function SeoLandingPage() {
               // @ts-ignore
               suppressHydrationWarning
             >
-              Create maintenance bills, record income and expenses, and manage
-              staff attendance. Residents download their own bills and staff
-              download their own salary slips, so you stop handling requests one
-              by one.
+              No signup form, no password. Verify your phone with an OTP, add
+              your building, and start creating maintenance bills, tracking
+              income and expenses, and managing staff attendance — all in one
+              place.
             </Text>
             <View
               style={[styles.heroActions, isMobile && styles.heroActionsMobile]}
               // @ts-ignore
               suppressHydrationWarning
             >
-              <DownloadButton fullWidth={isMobile} />
-              <SignupButton
+              <StartButton fullWidth={isMobile} />
+              <DownloadButton
                 outline
                 fullWidth={isMobile}
-                label="Use on web (OTP login)"
+                label="Get the Android app"
               />
               <Pressable
                 onPress={watchDemo}
@@ -340,6 +340,25 @@ export default function SeoLandingPage() {
                 />
               </Pressable>
             </View>
+
+            {/* Microcopy that kills the "do I need to sign up?" confusion */}
+            <View
+              style={[
+                styles.firstTimeNote,
+                isMobile && styles.firstTimeNoteMobile,
+              ]}
+            >
+              <Ionicons
+                name="information-circle-outline"
+                size={17}
+                color="#126B58"
+              />
+              <Text style={styles.firstTimeText}>
+                First time? Enter your phone number — we'll create your account
+                automatically.
+              </Text>
+            </View>
+
             {PRICING_NOTE ? (
               <View
                 style={[styles.trustNote, isMobile && styles.trustNoteMobile]}
@@ -355,8 +374,8 @@ export default function SeoLandingPage() {
             <View style={styles.platformRow}>
               <Ionicons name="lock-closed-outline" size={16} color="#66766E" />
               <Text style={styles.trustText}>
-                Sign in with OTP. No password to remember. Android app (APK) and
-                web. iOS coming soon.
+                No password to remember — you log in with your phone. Works on
+                web and Android.
               </Text>
             </View>
           </View>
@@ -507,7 +526,7 @@ export default function SeoLandingPage() {
           </View>
           <DemoVideo playing={videoPlaying} setPlaying={setVideoPlaying} />
           <View style={styles.videoCta}>
-            <DownloadButton fullWidth={isMobile} />
+            <StartButton fullWidth={isMobile} />
           </View>
         </View>
 
@@ -598,10 +617,8 @@ export default function SeoLandingPage() {
               isMobile && styles.bottomCtaActionsMobile,
             ]}
           >
-            <DownloadButton fullWidth={isMobile} />
-            <Link href={SIGNUP_HREF} style={styles.bottomSignIn}>
-              Or sign in on the web with OTP
-            </Link>
+            <StartButton fullWidth={isMobile} />
+            <DownloadButton outline fullWidth={isMobile} />
             {WHATSAPP_URL ? (
               <Link href={WHATSAPP_URL} style={styles.bottomSignIn}>
                 Questions? Chat on WhatsApp
@@ -693,11 +710,16 @@ function DownloadButton({
   compact = false,
   fullWidth = false,
   light = false,
+  outline = false,
+  label,
 }: {
   compact?: boolean;
   fullWidth?: boolean;
   light?: boolean;
+  outline?: boolean;
+  label?: string;
 }) {
+  const text = label ?? (compact ? "Get the app" : "Download Android app");
   return (
     <Link href={ANDROID_APK_URL} asChild>
       <Pressable
@@ -708,34 +730,38 @@ function DownloadButton({
           compact && styles.downloadButtonCompact,
           fullWidth && styles.downloadButtonFullWidth,
           light && styles.downloadButtonLight,
+          outline && styles.downloadButtonOutline,
         ])}
       >
         <Ionicons
           name="logo-android"
           size={19}
-          color={light ? "#126B58" : "#FFFFFF"}
+          color={light || outline ? "#126B58" : "#FFFFFF"}
         />
         <Text
           style={[
             styles.downloadButtonText,
-            light && styles.downloadButtonTextLight,
+            (light || outline) && styles.downloadButtonTextLight,
           ]}
         >
-          {compact ? "Get the app" : "Download Android app"}
+          {text}
         </Text>
       </Pressable>
     </Link>
   );
 }
 
-function SignupButton({
+/**
+ * Primary call-to-action. Starts the OTP flow, which auto-creates the
+ * account for first-time users. We deliberately avoid the word "Sign in"
+ * because that signals "existing users only" to cold traffic.
+ */
+function StartButton({
   fullWidth = false,
-  outline = false,
-  label,
+  label = "Start with your phone number",
 }: {
   fullWidth?: boolean;
-  outline?: boolean;
-  label: string;
+  label?: string;
 }) {
   return (
     <Link href={SIGNUP_HREF} asChild>
@@ -745,17 +771,10 @@ function SignupButton({
         style={StyleSheet.flatten([
           styles.downloadButton,
           fullWidth && styles.downloadButtonFullWidth,
-          outline && styles.downloadButtonOutline,
         ])}
       >
-        <Text
-          style={[
-            styles.downloadButtonText,
-            outline && styles.downloadButtonTextOutline,
-          ]}
-        >
-          {label}
-        </Text>
+        <Ionicons name="phone-portrait-outline" size={18} color="#FFFFFF" />
+        <Text style={styles.downloadButtonText}>{label}</Text>
       </Pressable>
     </Link>
   );
@@ -940,20 +959,38 @@ const styles = StyleSheet.create({
     gap: 7,
   },
   secondaryLinkText: { color: "#193E35", fontSize: 14, fontWeight: "700" },
+  firstTimeNote: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginTop: 18,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    backgroundColor: "#E5F3ED",
+    borderRadius: 8,
+    maxWidth: 510,
+  },
+  firstTimeNoteMobile: { alignItems: "flex-start", maxWidth: "100%" },
+  firstTimeText: {
+    color: "#126B58",
+    fontSize: 13,
+    fontWeight: "600",
+    flexShrink: 1,
+  },
   trustNote: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    marginTop: 20,
+    marginTop: 14,
   },
-  trustNoteMobile: { alignItems: "flex-start", marginTop: 16 },
+  trustNoteMobile: { alignItems: "flex-start", marginTop: 12 },
   trustText: { color: "#66766E", fontSize: 12 },
   platformRow: {
     flexDirection: "row",
     alignItems: "center",
     flexWrap: "wrap",
     gap: 6,
-    marginTop: 12,
+    marginTop: 10,
   },
   inlineLink: {
     color: "#126B58",
