@@ -36,7 +36,18 @@
     },
     "web": {
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/favicon.png",
+      "head": {
+        "script": [
+          {
+            "src": "https://www.googletagmanager.com/gtag/js?id=AW-674352071",
+            "async": true
+          },
+          {
+            "content": "window.dataLayer = window.dataLayer || []; function gtag(){dataLayer.push(arguments);} gtag('js', new Date()); gtag('config', 'AW-674352071');"
+          }
+        ]
+      }
     },
     "plugins": [
       "./plugins/withPreviewArch",

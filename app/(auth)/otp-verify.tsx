@@ -382,9 +382,9 @@ export default function OtpVerifyScreen() {
       const gtag = (window as any).gtag;
       if (typeof gtag === "function") {
         gtag("event", "conversion", {
-          send_to: "AW-674352071/hjvxCIub95idFMeXx8EC",
+          send_to: "AW-674352071/ekkOCInI9ZYDfMEwx8EC",
         });
-        console.log("Google Ads Sign-up Conversion Fired!");
+        console.log("[Google Ads] OTP Signup conversion fired");
       }
     }
     // ---------------------------------------
