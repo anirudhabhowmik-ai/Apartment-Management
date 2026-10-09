@@ -15,57 +15,132 @@ import {
 import { ANDROID_APK_URL } from "../utils/appDownloads";
 
 const SITE_URL = process.env.EXPO_PUBLIC_SITE_URL?.replace(/\/+$/, "");
+
+// ── EDIT THESE ────────────────────────────────────────────────────
+// There is no separate register screen: OTP login creates the account.
+const SIGNUP_HREF = "/(auth)/login";
+// Your WhatsApp number with country code, digits only (e.g. "919876543210").
+// Leave empty ("") to hide the WhatsApp buttons.
+const WHATSAPP_NUMBER = "";
+// Short pricing line shown near the buttons. Make sure it is TRUE.
+const PRICING_NOTE = "Free to get started. No credit card needed.";
+// ──────────────────────────────────────────────────────────────────
+
 const PAGE_TITLE =
-  "Apartment Management App for Societies | Apartment Management";
+  "Society Maintenance Software | Bills, Income & Expenses, Salary Slips";
 const PAGE_DESCRIPTION =
-  "Manage apartment residents, maintenance bills, payments, expenses, and staff attendance in one place with the Apartment Management app.";
+  "Apartment society app for secretaries: collect maintenance, track income and expenses, and manage staff. Residents download their own bills, staff download salary slips.";
 
 const VIDEO_ID = "_yDyKPzM4M0";
-const VIDEO_START_SECONDS = 22;
+const VIDEO_START_SECONDS = 0;
+
+const WHATSAPP_URL = WHATSAPP_NUMBER
+  ? `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(
+      "Hi, I want to know more about the Apartment Management app for my society.",
+    )}`
+  : "";
 
 const features = [
   {
     icon: "people-outline" as const,
     title: "Resident records",
     description:
-      "Keep apartment members and staff details organized by property.",
+      "Keep flat owners, tenants and staff details organized by property.",
     color: "#126B58",
     background: "#E5F3ED",
   },
   {
     icon: "receipt-outline" as const,
-    title: "Bills and payments",
+    title: "Maintenance bills",
     description:
-      "Create maintenance bills and keep payment history easy to review.",
+      "Create monthly maintenance bills and see who has paid and who is pending.",
     color: "#B45432",
     background: "#F8EAE2",
   },
   {
     icon: "wallet-outline" as const,
-    title: "Bills and payments",
+    title: "Income & expenses",
     description:
-      "Track property expenses and see the account picture in one place.",
+      "Record society income and every expense, and see the full account picture in one place.",
     color: "#4B5F9A",
     background: "#E9EDF8",
   },
   {
+    icon: "download-outline" as const,
+    title: "Resident bill download",
+    description:
+      "Residents log in, track their maintenance dues and download their own bills. No more bill requests to the secretary.",
+    color: "#126B58",
+    background: "#E5F3ED",
+  },
+  {
     icon: "calendar-outline" as const,
     title: "Staff attendance",
-    description: "Record attendance and review staff payment details by month.",
+    description:
+      "Record daily attendance for guards, cleaners and other staff, month by month.",
     color: "#8A6417",
     background: "#F6F0DD",
+  },
+  {
+    icon: "document-text-outline" as const,
+    title: "Salary slips",
+    description:
+      "Staff can download their salary slips, so payment records are clear for everyone.",
+    color: "#B45432",
+    background: "#F8EAE2",
+  },
+];
+
+const steps = [
+  {
+    title: "Sign in with OTP",
+    text: "Verify with an OTP and your account is ready. There is nothing to register.",
+  },
+  {
+    title: "Create your property",
+    text: "Add your apartment society or building details.",
+  },
+  {
+    title: "Add residents & staff",
+    text: "Then create maintenance bills and record income, expenses and attendance.",
+  },
+];
+
+const roles = [
+  {
+    icon: "shield-checkmark-outline" as const,
+    who: "Secretary",
+    points: [
+      "Create and track maintenance bills",
+      "Record income and expenses",
+      "Manage residents, staff and attendance",
+    ],
+  },
+  {
+    icon: "home-outline" as const,
+    who: "Resident",
+    points: [
+      "Track maintenance dues and payments",
+      "Download maintenance bills anytime",
+      "Less follow-up with the secretary",
+    ],
+  },
+  {
+    icon: "briefcase-outline" as const,
+    who: "Staff",
+    points: [
+      "View attendance records",
+      "Download salary slips",
+      "Clear monthly payment details",
+    ],
   },
 ];
 
 export default function SeoLandingPage() {
   const { width } = useWindowDimensions();
 
-  // ------------------------------------------------------------------
-  // IMPORTANT (hydration-safe + layout-safe):
-  // We start with a desktop-friendly width so the first render never
-  // accidentally collapses to the stacked mobile layout. After mount,
-  // we switch to the actual viewport width on web.
-  // ------------------------------------------------------------------
+  // Hydration-safe + layout-safe: start desktop-friendly, then switch to the
+  // real viewport width after mount on web.
   const [webViewportWidth, setWebViewportWidth] = useState<number>(1024);
 
   useEffect(() => {
@@ -84,14 +159,25 @@ export default function SeoLandingPage() {
     return () => window.removeEventListener("resize", updateWidth);
   }, []);
 
-  // Final width: prefer the real viewport, then RNW's width, then a
-  // desktop-safe default so the layout never accidentally stacks.
   const responsiveWidth =
     webViewportWidth && webViewportWidth > 0
       ? webViewportWidth
       : width && width > 0
         ? width
         : 1024;
+
+  // "Watch demo" scrolls to the video section and starts playing it.
+  const [videoPlaying, setVideoPlaying] = useState(false);
+  const watchDemo = () => {
+    setVideoPlaying(true);
+    if (Platform.OS === "web" && typeof document !== "undefined") {
+      setTimeout(() => {
+        document
+          .getElementById("video")
+          ?.scrollIntoView({ behavior: "smooth", block: "center" });
+      }, 50);
+    }
+  };
 
   const isWide = responsiveWidth >= 900;
   const isCompactDesktop = responsiveWidth >= 600 && responsiveWidth < 900;
@@ -102,7 +188,7 @@ export default function SeoLandingPage() {
     "@type": "SoftwareApplication",
     name: "Apartment Management",
     applicationCategory: "BusinessApplication",
-    operatingSystem: "Android",
+    operatingSystem: "Android, Web",
     description: PAGE_DESCRIPTION,
     downloadUrl: ANDROID_APK_URL,
     ...(SITE_URL ? { url: SITE_URL } : {}),
@@ -178,7 +264,7 @@ export default function SeoLandingPage() {
           </View>
         </View>
 
-        {/* ── HERO — text on left, video on right (side-by-side) ── */}
+        {/* ── HERO ──────────────────────────────────────────────── */}
         <View
           style={[
             styles.hero,
@@ -200,7 +286,7 @@ export default function SeoLandingPage() {
             <View style={[styles.eyebrow, isMobile && styles.eyebrowMobile]}>
               <View style={styles.eyebrowDot} />
               <Text style={styles.eyebrowText}>
-                MADE FOR EVERYDAY PROPERTY WORK
+                FOR SOCIETY SECRETARIES, RESIDENTS & STAFF
               </Text>
             </View>
             <Text
@@ -213,7 +299,7 @@ export default function SeoLandingPage() {
               // @ts-ignore
               suppressHydrationWarning
             >
-              Apartment management, all in one place.
+              Run your society's maintenance and accounts in minutes.
             </Text>
             <Text
               style={[
@@ -224,26 +310,53 @@ export default function SeoLandingPage() {
               // @ts-ignore
               suppressHydrationWarning
             >
-              Manage residents, maintenance bills, payments, expenses, and staff
-              attendance with one straightforward apartment management app.
+              Create maintenance bills, record income and expenses, and manage
+              staff attendance. Residents download their own bills and staff
+              download their own salary slips, so you stop handling requests one
+              by one.
             </Text>
             <View
               style={[styles.heroActions, isMobile && styles.heroActionsMobile]}
               // @ts-ignore
               suppressHydrationWarning
             >
-              <DownloadButton />
-              <Link href="#features" style={styles.secondaryLink}>
-                Explore features{" "}
-                <Ionicons name="arrow-down" size={16} color="#193E35" />
-              </Link>
+              <DownloadButton fullWidth={isMobile} />
+              <SignupButton
+                outline
+                fullWidth={isMobile}
+                label="Use on web (OTP login)"
+              />
+              <Pressable
+                onPress={watchDemo}
+                accessibilityRole="button"
+                accessibilityLabel="Watch the demo video"
+                style={styles.secondaryLink}
+              >
+                <Text style={styles.secondaryLinkText}>Watch demo</Text>
+                <Ionicons
+                  name="play-circle-outline"
+                  size={18}
+                  color="#193E35"
+                />
+              </Pressable>
             </View>
-            <View
-              style={[styles.trustNote, isMobile && styles.trustNoteMobile]}
-            >
-              <Ionicons name="logo-android" size={17} color="#126B58" />
+            {PRICING_NOTE ? (
+              <View
+                style={[styles.trustNote, isMobile && styles.trustNoteMobile]}
+              >
+                <Ionicons
+                  name="checkmark-circle-outline"
+                  size={17}
+                  color="#126B58"
+                />
+                <Text style={styles.trustText}>{PRICING_NOTE}</Text>
+              </View>
+            ) : null}
+            <View style={styles.platformRow}>
+              <Ionicons name="lock-closed-outline" size={16} color="#66766E" />
               <Text style={styles.trustText}>
-                Android APK available now. iOS app coming soon.
+                Sign in with OTP. No password to remember. Android app (APK) and
+                web. iOS coming soon.
               </Text>
             </View>
           </View>
@@ -255,60 +368,130 @@ export default function SeoLandingPage() {
           >
             <View style={styles.previewTopline}>
               <View>
-                <Text style={styles.previewLabel}>PROPERTY OVERVIEW</Text>
-                <Text style={styles.previewTitle}>
-                  A clearer view of the month
-                </Text>
+                <Text style={styles.previewLabel}>SOCIETY OVERVIEW</Text>
+                <Text style={styles.previewTitle}>Everything in one place</Text>
               </View>
               <View style={styles.previewIcon}>
                 <Ionicons name="business-outline" size={21} color="#126B58" />
               </View>
             </View>
             <View style={styles.balancePanel}>
-              <Text style={styles.balanceLabel}>MAINTENANCE TRACKING</Text>
+              <Text style={styles.balanceLabel}>MONTHLY MAINTENANCE</Text>
               <View style={styles.balanceRow}>
-                <Text style={styles.balanceValue}>Bills & payments</Text>
+                <Text style={styles.balanceValue}>Paid vs pending</Text>
                 <Ionicons name="arrow-forward" size={18} color="#126B58" />
               </View>
               <View style={styles.progressTrack}>
                 <View style={styles.progressValue} />
               </View>
               <Text style={styles.balanceFootnote}>
-                Keep collections and payment history together
+                See collections and dues at a glance
               </Text>
             </View>
             <View style={styles.previewRows}>
               <PreviewRow
-                icon="people-outline"
-                label="Residents & staff"
-                detail="Member records"
+                icon="wallet-outline"
+                label="Income & expenses"
+                detail="Society accounts"
+                color="#4B5F9A"
+              />
+              <PreviewRow
+                icon="download-outline"
+                label="Resident bills"
+                detail="Download anytime"
                 color="#126B58"
               />
               <PreviewRow
-                icon="wallet-outline"
-                label="Property expenses"
-                detail="Account activity"
+                icon="document-text-outline"
+                label="Staff salary slips"
+                detail="Download anytime"
                 color="#B45432"
-              />
-              <PreviewRow
-                icon="calendar-outline"
-                label="Staff attendance"
-                detail="Monthly records"
-                color="#4B5F9A"
               />
             </View>
             <Text style={styles.previewFootnote}>
-              Apartment Management for day-to-day operations
+              Built for day-to-day society work
             </Text>
           </View>
         </View>
 
-        {/* ── VIDEO SECTION — right after hero, before features ── */}
+        {/* ── HOW IT WORKS ──────────────────────────────────────── */}
         <View
+          style={[styles.rolesSection, isMobile && styles.rolesSectionMobile]}
+        >
+          <View style={styles.sectionHeading}>
+            <Text style={styles.sectionKicker}>GET STARTED IN 3 STEPS</Text>
+            <Text
+              style={[
+                styles.sectionTitle,
+                isMobile && styles.sectionTitleMobile,
+              ]}
+            >
+              No forms, no password. Just verify and begin.
+            </Text>
+          </View>
+          <View style={[styles.roleGrid, isMobile && styles.roleGridMobile]}>
+            {steps.map((step, i) => (
+              <View
+                key={step.title}
+                style={[styles.roleCard, isMobile && styles.roleCardMobile]}
+              >
+                <View style={styles.roleHeader}>
+                  <View style={styles.roleIcon}>
+                    <Text style={styles.stepNumber}>{i + 1}</Text>
+                  </View>
+                  <Text style={styles.roleTitle}>{step.title}</Text>
+                </View>
+                <Text style={styles.rolePointText}>{step.text}</Text>
+              </View>
+            ))}
+          </View>
+        </View>
+
+        {/* ── WHO IS IT FOR ─────────────────────────────────────── */}
+        <View
+          style={[styles.rolesSection, isMobile && styles.rolesSectionMobile]}
+        >
+          <View style={styles.sectionHeading}>
+            <Text style={styles.sectionKicker}>ONE APP, THREE LOGINS</Text>
+            <Text
+              style={[
+                styles.sectionTitle,
+                isMobile && styles.sectionTitleMobile,
+              ]}
+            >
+              Less work for the secretary, more clarity for everyone
+            </Text>
+          </View>
+          <View style={[styles.roleGrid, isMobile && styles.roleGridMobile]}>
+            {roles.map((role) => (
+              <View
+                key={role.who}
+                style={[styles.roleCard, isMobile && styles.roleCardMobile]}
+              >
+                <View style={styles.roleHeader}>
+                  <View style={styles.roleIcon}>
+                    <Ionicons name={role.icon} size={20} color="#126B58" />
+                  </View>
+                  <Text style={styles.roleTitle}>{role.who}</Text>
+                </View>
+                {role.points.map((point) => (
+                  <View key={point} style={styles.rolePoint}>
+                    <Ionicons name="checkmark" size={16} color="#126B58" />
+                    <Text style={styles.rolePointText}>{point}</Text>
+                  </View>
+                ))}
+              </View>
+            ))}
+          </View>
+        </View>
+
+        {/* ── VIDEO SECTION ─────────────────────────────────────── */}
+        <View
+          nativeID="video"
           style={[styles.videoSection, isMobile && styles.videoSectionMobile]}
         >
           <View style={styles.videoHeading}>
-            <Text style={styles.sectionKicker}>60-SECOND WALKTHROUGH</Text>
+            <Text style={styles.sectionKicker}>QUICK WALKTHROUGH</Text>
             <Text
               style={[
                 styles.sectionTitle,
@@ -322,7 +505,10 @@ export default function SeoLandingPage() {
               and track expenses with the Apartment Management app.
             </Text>
           </View>
-          <DemoVideo />
+          <DemoVideo playing={videoPlaying} setPlaying={setVideoPlaying} />
+          <View style={styles.videoCta}>
+            <DownloadButton fullWidth={isMobile} />
+          </View>
         </View>
 
         {/* ── FEATURES ──────────────────────────────────────────── */}
@@ -336,18 +522,18 @@ export default function SeoLandingPage() {
           suppressHydrationWarning
         >
           <View style={styles.sectionHeading}>
-            <Text style={styles.sectionKicker}>ONE PRACTICAL TOOLKIT</Text>
+            <Text style={styles.sectionKicker}>WHAT YOU GET</Text>
             <Text
               style={[
                 styles.sectionTitle,
                 isMobile && styles.sectionTitleMobile,
               ]}
             >
-              The work behind a well-run apartment
+              The work behind a well-run apartment society
             </Text>
             <Text style={styles.sectionDescription}>
-              Bring routine property tasks into a single app, from resident
-              records to monthly collections and staff attendance.
+              From resident records to monthly collections, expenses, staff
+              attendance and salary slips, all in a single app.
             </Text>
           </View>
           <View
@@ -400,10 +586,10 @@ export default function SeoLandingPage() {
                 isMobile && styles.bottomCtaTitleMobile,
               ]}
             >
-              Bring your property records together.
+              Ready to simplify your society's accounts?
             </Text>
             <Text style={styles.bottomCtaText}>
-              Android APK available now. iOS is coming soon.
+              {PRICING_NOTE || "Set up your society in a few minutes."}
             </Text>
           </View>
           <View
@@ -413,9 +599,14 @@ export default function SeoLandingPage() {
             ]}
           >
             <DownloadButton fullWidth={isMobile} />
-            <Link href="/(auth)/login" style={styles.bottomSignIn}>
-              Sign in on the web
+            <Link href={SIGNUP_HREF} style={styles.bottomSignIn}>
+              Or sign in on the web with OTP
             </Link>
+            {WHATSAPP_URL ? (
+              <Link href={WHATSAPP_URL} style={styles.bottomSignIn}>
+                Questions? Chat on WhatsApp
+              </Link>
+            ) : null}
           </View>
         </View>
 
@@ -427,17 +618,33 @@ export default function SeoLandingPage() {
         >
           <Text style={styles.footerText}>Apartment Management</Text>
           <Text style={styles.footerNote}>
-            Property, resident, and payment management.
+            Maintenance, accounts and staff management for apartment societies.
           </Text>
         </View>
       </ScrollView>
+
+      {/* Floating WhatsApp button (web) */}
+      {WHATSAPP_URL ? (
+        <Link href={WHATSAPP_URL} asChild>
+          <Pressable
+            accessibilityLabel="Chat on WhatsApp"
+            style={styles.whatsappFab}
+          >
+            <Ionicons name="logo-whatsapp" size={28} color="#FFFFFF" />
+          </Pressable>
+        </Link>
+      ) : null}
     </>
   );
 }
 
-function DemoVideo() {
-  const [playing, setPlaying] = useState(false);
-
+function DemoVideo({
+  playing,
+  setPlaying,
+}: {
+  playing: boolean;
+  setPlaying: (value: boolean) => void;
+}) {
   if (playing) {
     return (
       <View style={styles.videoWrapper}>
@@ -471,6 +678,8 @@ function DemoVideo() {
           width: "100%",
           height: "100%",
           objectFit: "cover",
+          // The YouTube thumbnail has black bars baked in; zoom in to hide them.
+          transform: "scale(1.15)",
         }}
       />
       <View style={styles.playButton}>
@@ -492,6 +701,7 @@ function DownloadButton({
   return (
     <Link href={ANDROID_APK_URL} asChild>
       <Pressable
+        accessibilityRole="button"
         accessibilityLabel="Download the Apartment Management Android app"
         style={StyleSheet.flatten([
           styles.downloadButton,
@@ -513,9 +723,39 @@ function DownloadButton({
         >
           {compact ? "Get the app" : "Download Android app"}
         </Text>
-        {!compact ? (
-          <Ionicons name="arrow-forward" size={17} color="#FFFFFF" />
-        ) : null}
+      </Pressable>
+    </Link>
+  );
+}
+
+function SignupButton({
+  fullWidth = false,
+  outline = false,
+  label,
+}: {
+  fullWidth?: boolean;
+  outline?: boolean;
+  label: string;
+}) {
+  return (
+    <Link href={SIGNUP_HREF} asChild>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityLabel={label}
+        style={StyleSheet.flatten([
+          styles.downloadButton,
+          fullWidth && styles.downloadButtonFullWidth,
+          outline && styles.downloadButtonOutline,
+        ])}
+      >
+        <Text
+          style={[
+            styles.downloadButtonText,
+            outline && styles.downloadButtonTextOutline,
+          ]}
+        >
+          {label}
+        </Text>
       </Pressable>
     </Link>
   );
@@ -527,7 +767,12 @@ function PreviewRow({
   detail,
   color,
 }: {
-  icon: "people-outline" | "wallet-outline" | "calendar-outline";
+  icon:
+    | "people-outline"
+    | "wallet-outline"
+    | "calendar-outline"
+    | "download-outline"
+    | "document-text-outline";
   label: string;
   detail: string;
   color: string;
@@ -632,14 +877,14 @@ const styles = StyleSheet.create({
   },
   heroTitle: {
     color: "#17372E",
-    fontSize: 51,
-    lineHeight: 57,
+    fontSize: 46,
+    lineHeight: 53,
     fontWeight: "700",
     fontFamily: "serif",
     maxWidth: 550,
   },
-  heroTitleMobile: { fontSize: 38, lineHeight: 44 },
-  heroTitleCompact: { fontSize: 34, lineHeight: 40 },
+  heroTitleMobile: { fontSize: 34, lineHeight: 41 },
+  heroTitleCompact: { fontSize: 30, lineHeight: 37 },
   heroDescription: {
     color: "#52645C",
     fontSize: 17,
@@ -656,10 +901,16 @@ const styles = StyleSheet.create({
     gap: 20,
     marginTop: 27,
   },
-  heroActionsMobile: { gap: 14, marginTop: 22 },
+  heroActionsMobile: {
+    gap: 14,
+    marginTop: 22,
+    width: "100%",
+    flexDirection: "column",
+    alignItems: "stretch",
+  },
   downloadButton: {
-    minHeight: 50,
-    paddingHorizontal: 18,
+    minHeight: 52,
+    paddingHorizontal: 22,
     borderRadius: 7,
     backgroundColor: "#126B58",
     flexDirection: "row",
@@ -670,8 +921,15 @@ const styles = StyleSheet.create({
   downloadButtonCompact: { minHeight: 40, paddingHorizontal: 13, gap: 8 },
   downloadButtonLight: { backgroundColor: "#FFFFFF" },
   downloadButtonFullWidth: { width: "100%" },
-  downloadButtonText: { color: "#FFFFFF", fontSize: 14, fontWeight: "700" },
-  downloadButtonTextLight: { color: "#126B58" },
+  downloadButtonOutline: {
+    backgroundColor: "transparent",
+    borderWidth: 1.5,
+    borderColor: "#126B58",
+  },
+  downloadButtonTextOutline: { color: "#126B58" },
+  stepNumber: { color: "#126B58", fontSize: 17, fontWeight: "700" },
+  downloadButtonText: { color: "#FFFFFF", fontSize: 15, fontWeight: "700" },
+  downloadButtonTextLight: { color: "#126B58", fontSize: 14 },
   secondaryLink: {
     color: "#193E35",
     fontSize: 14,
@@ -681,14 +939,28 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 7,
   },
+  secondaryLinkText: { color: "#193E35", fontSize: 14, fontWeight: "700" },
   trustNote: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
-    marginTop: 23,
+    marginTop: 20,
   },
-  trustNoteMobile: { alignItems: "flex-start", marginTop: 18 },
+  trustNoteMobile: { alignItems: "flex-start", marginTop: 16 },
   trustText: { color: "#66766E", fontSize: 12 },
+  platformRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 12,
+  },
+  inlineLink: {
+    color: "#126B58",
+    fontSize: 12,
+    fontWeight: "700",
+    textDecorationLine: "underline",
+  },
   preview: {
     width: "100%",
     maxWidth: 430,
@@ -780,6 +1052,52 @@ const styles = StyleSheet.create({
     textAlign: "center",
   },
 
+  // ── Roles section ────────────────────────────────────────────
+  rolesSection: {
+    width: "100%",
+    maxWidth: 1160,
+    borderTopWidth: 1,
+    borderTopColor: "#E1E5DC",
+    paddingTop: 54,
+    paddingBottom: 54,
+  },
+  rolesSectionMobile: { paddingTop: 38, paddingBottom: 38 },
+  roleGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 20,
+    marginTop: 30,
+  },
+  roleGridMobile: { flexDirection: "column", gap: 16, marginTop: 24 },
+  roleCard: {
+    flexGrow: 1,
+    flexBasis: 250,
+    padding: 20,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#DEE4DA",
+    backgroundColor: "#FFFFFF",
+    gap: 10,
+  },
+  roleCardMobile: { width: "100%", flexBasis: "auto" },
+  roleHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginBottom: 4,
+  },
+  roleIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 8,
+    backgroundColor: "#E5F3ED",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  roleTitle: { color: "#17372E", fontSize: 17, fontWeight: "700" },
+  rolePoint: { flexDirection: "row", alignItems: "flex-start", gap: 8 },
+  rolePointText: { flex: 1, color: "#52645C", fontSize: 14, lineHeight: 21 },
+
   // ── Video section ────────────────────────────────────────────
   videoSection: {
     width: "100%",
@@ -806,6 +1124,13 @@ const styles = StyleSheet.create({
     position: "relative",
     marginTop: 30,
     alignSelf: "center",
+  },
+  videoCta: {
+    marginTop: 28,
+    alignSelf: "center",
+    width: "100%",
+    maxWidth: 800,
+    alignItems: "center",
   },
   playButton: {
     position: "absolute",
@@ -928,4 +1253,20 @@ const styles = StyleSheet.create({
   footerMobile: { flexDirection: "column", alignItems: "flex-start" },
   footerText: { color: "#53645B", fontSize: 12, fontWeight: "700" },
   footerNote: { color: "#829087", fontSize: 12 },
+  whatsappFab: {
+    position: "absolute",
+    right: 18,
+    bottom: 18,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#25D366",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.2,
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
+  },
 });
