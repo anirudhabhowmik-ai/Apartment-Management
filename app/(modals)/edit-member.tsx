@@ -1744,6 +1744,8 @@ export default function EditMemberScreen() {
       console.error("[edit-member] update failed:", e);
 
       const code = e?.code;
+      const serverMessage = e?.body?.message || e?.message || "";
+
       const isPlanError =
         code === "plan_limit_reached" ||
         code === "member_read_only" ||
@@ -1752,16 +1754,28 @@ export default function EditMemberScreen() {
       if (isPlanError) {
         setUpgradePrompt({
           reason: code,
-          message:
-            e?.body?.message ||
-            e?.message ||
-            "This action requires a higher plan.",
+          message: serverMessage || "This action requires a higher plan.",
           limit: e?.body?.limit,
           current: e?.body?.current,
         });
+      } else if (code === "flat_already_registered") {
+        // Inline error on the Flat / Room Number field.
+        setFieldErrors((cur) => ({
+          ...cur,
+          flatNumber:
+            serverMessage ||
+            `Flat ${flatNumber.trim()} is already registered. Delete the existing record first.`,
+        }));
+        setError("");
+      } else if (code === "vehicle_conflict") {
+        setFieldErrors((cur) => ({
+          ...cur,
+          vehicles: serverMessage || "This vehicle is already registered.",
+        }));
+        setError("");
       } else {
         setError(
-          e?.message ||
+          serverMessage ||
             `Failed to update ${
               groupType === "staff"
                 ? "staff"

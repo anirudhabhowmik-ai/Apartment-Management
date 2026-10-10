@@ -1358,6 +1358,8 @@ export default function AddMemberScreen() {
       console.error("[add-member] save failed:", e);
 
       const code = e?.code;
+      const serverMessage = e?.body?.message || e?.message || "";
+
       const isPlanError =
         code === "plan_limit_reached" ||
         code === "member_read_only" ||
@@ -1366,16 +1368,29 @@ export default function AddMemberScreen() {
       if (isPlanError) {
         setUpgradePrompt({
           reason: code,
-          message:
-            e?.body?.message ||
-            e?.message ||
-            "This action requires a higher plan.",
+          message: serverMessage || "This action requires a higher plan.",
           limit: e?.body?.limit,
           current: e?.body?.current,
         });
+      } else if (code === "flat_already_registered") {
+        // Server rejected duplicate flat/room. Show it inline on the
+        // Flat Number field instead of the generic error banner.
+        setFieldErrors((cur) => ({
+          ...cur,
+          flatNumber:
+            serverMessage ||
+            `Flat ${flatNumber.trim()} is already registered. Delete the existing record first.`,
+        }));
+        setError("");
+      } else if (code === "vehicle_conflict") {
+        setFieldErrors((cur) => ({
+          ...cur,
+          vehicles: serverMessage || "This vehicle is already registered.",
+        }));
+        setError("");
       } else {
         setError(
-          e?.message ||
+          serverMessage ||
             `Failed to add ${getGroupTypeLabel(groupType)}. Please try again.`,
         );
       }
