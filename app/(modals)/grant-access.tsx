@@ -6,7 +6,8 @@ import {
   ContactsSortOrder,
   requestPermissionsAsync,
 } from "expo-contacts";
-import { useLocalSearchParams, useRouter } from "expo-router";
+// ─── FIX: added useFocusEffect ───
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
@@ -668,55 +669,67 @@ export default function GrantAccessScreen() {
     setAdminRecords(adminRecs);
   }, []);
 
-  // ─── Cache-aware invitations fetch ───
-  useEffect(() => {
-    let cancelled = false;
+  // ─── FIX: cache-aware invitations fetch that ALWAYS re-fetches on focus ───
+  // Old behaviour: use a plain useEffect and bail out of the cache-hit branch,
+  // which meant a rename made anywhere else never showed up here until a full
+  // remount / manual refresh. New behaviour: use useFocusEffect, render cached
+  // data instantly (snappy UX), and always kick off a background refresh so the
+  // page self-heals every time it is opened.
+  useFocusEffect(
+    useCallback(() => {
+      let cancelled = false;
 
-    if (!accountId) {
-      setInvitationsReady(true);
-      return;
-    }
-
-    // 1. Cache hit — instant
-    const cached = managementCache.getInvitations(accountId);
-    if (cached) {
-      applyInvitationsData(cached);
-      setInvitationsReady(true);
-      return;
-    }
-
-    // 2. Cache miss — fetch
-    setInvitationsReady(false);
-
-    (async () => {
-      try {
-        const token = await getSecureItem("auth_token");
-        if (!token) {
-          if (!cancelled) setInvitationsReady(true);
-          return;
-        }
-        const res = await fetch(
-          `${API_URL}/api/accounts/${accountId}/invitations`,
-          { headers: { Authorization: `Bearer ${token}` } },
-        );
-        if (!res.ok) {
-          if (!cancelled) setInvitationsReady(true);
-          return;
-        }
-        const data = await res.json();
-        managementCache.setInvitations(accountId, data);
-        if (!cancelled) applyInvitationsData(data);
-      } catch (e) {
-        console.warn("[grant-access] invitation load failed:", e);
-      } finally {
-        if (!cancelled) setInvitationsReady(true);
+      if (!accountId) {
+        setInvitationsReady(true);
+        return () => {
+          cancelled = true;
+        };
       }
-    })();
 
-    return () => {
-      cancelled = true;
-    };
-  }, [accountId, applyInvitationsData]);
+      // 1. Cache hit — render instantly for snappy UX
+      const cached = managementCache.getInvitations(accountId);
+      if (cached) {
+        applyInvitationsData(cached);
+        setInvitationsReady(true);
+      } else {
+        setInvitationsReady(false);
+      }
+
+      // 2. ALWAYS refresh in the background so renames / status changes made
+      //    elsewhere show up the moment the page is opened.
+      (async () => {
+        try {
+          const token = await getSecureItem("auth_token");
+          if (!token) {
+            if (!cancelled && !cached) setInvitationsReady(true);
+            return;
+          }
+
+          const res = await fetch(
+            `${API_URL}/api/accounts/${accountId}/invitations`,
+            { headers: { Authorization: `Bearer ${token}` } },
+          );
+
+          if (!res.ok) {
+            if (!cancelled && !cached) setInvitationsReady(true);
+            return;
+          }
+
+          const data = await res.json();
+          managementCache.setInvitations(accountId, data);
+          if (!cancelled) applyInvitationsData(data);
+        } catch (e) {
+          console.warn("[grant-access] invitation refresh failed:", e);
+        } finally {
+          if (!cancelled) setInvitationsReady(true);
+        }
+      })();
+
+      return () => {
+        cancelled = true;
+      };
+    }, [accountId, applyInvitationsData]),
+  );
 
   const visibilityCandidates = useMemo(() => {
     if (!invitationsReady) return [];
@@ -1235,6 +1248,14 @@ export default function GrantAccessScreen() {
           message: `Rename failed · ${res.status} · ${backendMessage}`,
         };
       }
+
+      // ─── FIX: invalidate invitations cache so the next focus refetches ───
+      // Without this, the adminRecords / accepted-invitation name list would
+      // remain stale even with the useFocusEffect refresh above, because the
+      // cache would still be served on the next open before the network reply
+      // lands.
+      if (accountId) managementCache.invalidateInvitations(accountId);
+
       return { ok: true };
     } catch (err: any) {
       console.warn("[grant-access] rename network error:", err);

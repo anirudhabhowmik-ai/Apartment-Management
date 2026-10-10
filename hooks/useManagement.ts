@@ -1,6 +1,8 @@
 // hooks/useManagement.ts
 import * as FileSystem from "expo-file-system/legacy";
-import { useCallback, useEffect, useRef, useState } from "react";
+// ─── FIX: import useFocusEffect instead of useEffect for the loader ───
+import { useFocusEffect } from "expo-router";
+import { useCallback, useRef, useState } from "react";
 import { create } from "zustand";
 import {
   ExpenseEntry,
@@ -665,9 +667,12 @@ function createManagementHook(kind: ManagementType) {
     const [error, setError] = useState<string | null>(null);
 
     const lastFetchedKeyRef = useRef<string>("");
+    const lastForceRefreshAtRef = useRef<number>(0);
 
+    // ─── FIX: refresh() now also accepts `silent` so background refreshes
+    // don't flip isLoading and cause a spinner flash over existing data. ───
     const refresh = useCallback(
-      async (opts?: { force?: boolean }) => {
+      async (opts?: { force?: boolean; silent?: boolean }) => {
         if (!accountId) return;
 
         const aid: string = accountId;
@@ -680,7 +685,7 @@ function createManagementHook(kind: ManagementType) {
           }
         }
 
-        setIsLoading(true);
+        if (!opts?.silent) setIsLoading(true);
         setError(null);
         try {
           const qs =
@@ -697,19 +702,46 @@ function createManagementHook(kind: ManagementType) {
           console.error(`[useManagement:${kind}] refresh failed:`, e);
           setError(e?.message ?? "Failed to load");
         } finally {
-          setIsLoading(false);
+          if (!opts?.silent) setIsLoading(false);
         }
       },
       [accountId, segment, month, kind],
     );
 
-    useEffect(() => {
-      const key = `${accountId ?? ""}:${month ?? ""}`;
-      if (lastFetchedKeyRef.current === key) return;
-      lastFetchedKeyRef.current = key;
+    // ─── FIX: re-fetch on every focus (not just on first mount).
+    //
+    // Old behaviour was a useEffect + "store has data → skip" guard, which
+    // meant the zustand store would never refresh after its very first
+    // successful load. Any rename done elsewhere (management edit screen,
+    // rename-person endpoint, another device) stayed invisible until the
+    // whole app was reloaded.
+    //
+    // New behaviour:
+    //   • First focus for a given (accountId, month) key → normal refresh
+    //     (respects the store; no spinner if data already exists).
+    //   • Every subsequent re-focus → force a *silent* background refresh
+    //     so the list reconciles with the server without a spinner flash.
+    //   • Throttled to 1.5s so rapid navigation doesn't hammer the API. ───
+    useFocusEffect(
+      useCallback(() => {
+        if (!accountId) return;
 
-      refresh();
-    }, [accountId, month, refresh]);
+        const key = `${accountId}:${month ?? ""}`;
+        const now = Date.now();
+        const keyChanged = lastFetchedKeyRef.current !== key;
+
+        if (keyChanged) {
+          lastFetchedKeyRef.current = key;
+          lastForceRefreshAtRef.current = now;
+          refresh();
+          return;
+        }
+
+        if (now - lastForceRefreshAtRef.current < 1500) return;
+        lastForceRefreshAtRef.current = now;
+        refresh({ force: true, silent: true });
+      }, [accountId, month, refresh]),
+    );
 
     const add = useCallback(
       async (input: any) => {

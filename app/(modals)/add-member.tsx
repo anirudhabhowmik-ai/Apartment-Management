@@ -830,28 +830,59 @@ export default function AddMemberScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountId, isPersonTab]);
 
-  // Who can be selected in the "Existing Person" picker for this group?
-  //   Add Staff   → hide Members (and vice versa)
-  //   Owner/Admin → always available
-  const isPersonKindAllowed = (kind: PersonOption["kind"]) => {
-    if (kind === "owner" || kind === "admin") return true;
-    if (groupType === "staff") return kind !== "member";
-    if (groupType === "apartment") return kind !== "staff";
-    return true;
-  };
-
+  // Dedupe by phone: prefer the entry whose kind matches the current picker.
+  // Owner/Admin are never deduped — they're always shown.
+  //
+  //   Add Staff picker  → preferred kind = "staff" (falls back to "member")
+  //   Add Member picker → preferred kind = "member" (falls back to "staff")
+  //
+  // This means once a phone has both a member row and a staff row, the picker
+  // shows exactly one of them (the one belonging to the current group).
   const filteredPeople = useMemo(() => {
-    const base = accountPeople.filter((p) => isPersonKindAllowed(p.kind));
+    const preferredKind: PersonOption["kind"] =
+      groupType === "staff" ? "staff" : "member";
+
+    const privileged: PersonOption[] = [];
+    const byPhone = new Map<string, PersonOption>();
+    const orphans: PersonOption[] = [];
+
+    for (const p of accountPeople) {
+      if (p.kind === "owner" || p.kind === "admin") {
+        privileged.push(p);
+        continue;
+      }
+
+      const ten = normalizePhoneDigits(p.phone);
+      if (ten.length !== 10) {
+        orphans.push(p);
+        continue;
+      }
+
+      const existing = byPhone.get(ten);
+      if (!existing) {
+        byPhone.set(ten, p);
+        continue;
+      }
+
+      const existingPreferred = existing.kind === preferredKind;
+      const newPreferred = p.kind === preferredKind;
+      if (!existingPreferred && newPreferred) {
+        byPhone.set(ten, p);
+      }
+    }
+
+    const deduped = [...privileged, ...byPhone.values(), ...orphans];
+
     const q = personSearch.trim().toLowerCase();
-    if (!q) return base;
-    return base.filter((p) => {
+    if (!q) return deduped;
+
+    return deduped.filter((p) => {
       const nameMatch = p.name.toLowerCase().includes(q);
       const digits = (p.phone || "").replace(/\D/g, "");
       const queryDigits = q.replace(/\D/g, "");
       const phoneMatch = queryDigits ? digits.includes(queryDigits) : false;
       return nameMatch || phoneMatch;
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountPeople, personSearch, groupType]);
 
   const selectedExisting = useMemo(
@@ -2168,33 +2199,15 @@ export default function AddMemberScreen() {
                           color="#B45309"
                         />
                         <Text style={styles.phoneBelongsText}>
-                          {isPersonKindAllowed(phoneAlreadyBelongs.kind) ? (
-                            <>
-                              This number is already in this property as{" "}
-                              <Text style={styles.phoneBelongsName}>
-                                {phoneAlreadyBelongs.name ||
-                                  "an existing entry"}
-                              </Text>
-                              . Go to Existing Person and select them, then add{" "}
-                              {groupType === "staff"
-                                ? "a staff role"
-                                : `another ${unitNoun}`}
-                              .
-                            </>
-                          ) : (
-                            <>
-                              This number is registered as{" "}
-                              <Text style={styles.phoneBelongsName}>
-                                {phoneAlreadyBelongs.name ||
-                                  "an existing entry"}
-                              </Text>{" "}
-                              ({kindLabel(phoneAlreadyBelongs.kind)}). To add{" "}
-                              {groupType === "staff"
-                                ? "this as staff"
-                                : `another ${unitNoun}`}
-                              , type the same name.
-                            </>
-                          )}
+                          This number is already in this property as{" "}
+                          <Text style={styles.phoneBelongsName}>
+                            {phoneAlreadyBelongs.name || "an existing entry"}
+                          </Text>
+                          . Go to Existing Person and select them, then add{" "}
+                          {groupType === "staff"
+                            ? "a staff role"
+                            : `another ${unitNoun}`}
+                          .
                         </Text>
                       </View>
                     ) : (
