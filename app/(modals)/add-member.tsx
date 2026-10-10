@@ -3379,6 +3379,7 @@ const styles = StyleSheet.create({
   inputContainerError: { borderColor: "#FCA5A5", backgroundColor: "#FFF7F7" },
   textInput: {
     flex: 1,
+    minWidth: 0, // Prevents overflow in flex layouts
     minHeight: 50,
     fontSize: 15,
     color: TEXT,
@@ -3528,6 +3529,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
     marginBottom: 8,
+    width: "100%", // Ensures the row doesn't exceed parent width
   },
   vehicleTypeChip: {
     width: 44,
@@ -3539,6 +3541,7 @@ const styles = StyleSheet.create({
   },
   vehicleInput: {
     flex: 1,
+    minWidth: 0, // Critical for TextInput to shrink properly in flex row
     minHeight: 52,
     borderWidth: 1,
     borderColor: BORDER,

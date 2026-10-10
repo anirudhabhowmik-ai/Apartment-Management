@@ -3925,6 +3925,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
     marginBottom: 8,
+    width: "100%",
   },
   vehicleTypeChip: {
     width: 44,
@@ -3933,9 +3934,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#eaf2ff",
     justifyContent: "center",
     alignItems: "center",
+    flexShrink: 0,
   },
   vehicleInput: {
     flex: 1,
+    minWidth: 0,
     minHeight: 52,
     borderWidth: 1,
     borderColor: "#e2e8f0",
@@ -3954,6 +3957,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#FEF2F2",
     justifyContent: "center",
     alignItems: "center",
+    flexShrink: 0,
   },
   addVehicleButton: {
     flexDirection: "row",
