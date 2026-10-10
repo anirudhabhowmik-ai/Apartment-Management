@@ -1007,7 +1007,6 @@ export default function EditMemberScreen() {
     areaSqft: areaSqft.trim(),
     parkingAvailable,
     maintenanceAmount: maintenanceAmount.trim(),
-    // ─── NEW: include vehicles in the diff snapshot ────────────────────
     vehiclesKey: vehicles
       .map((v) => `${v.number}|${v.type}`)
       .sort()
@@ -1064,7 +1063,6 @@ export default function EditMemberScreen() {
       setParkingAvailable(member.parkingAvailable || false);
       setMaintenanceAmount(member.maintenanceAmount?.toString() || "");
 
-      // ─── NEW: hydrate vehicles from the member row ───────────────────
       const rawVehicles = (member as any).vehicles;
       if (Array.isArray(rawVehicles)) {
         setVehicles(
@@ -1231,6 +1229,8 @@ export default function EditMemberScreen() {
       console.error("[edit-member] saveIdentityEditor failed:", e);
 
       const code = e?.code;
+      const serverMessage = e?.body?.message || e?.message || "";
+
       const isPlanError =
         code === "plan_limit_reached" ||
         code === "member_read_only" ||
@@ -1247,9 +1247,13 @@ export default function EditMemberScreen() {
           limit: e?.body?.limit,
           current: e?.body?.current,
         });
+      } else if (code === "phone_name_mismatch") {
+        setIdentityError(
+          serverMessage || "This number is already in use in this property.",
+        );
       } else {
         setIdentityError(
-          e?.message || "Could not save changes. Please try again.",
+          serverMessage || "Could not save changes. Please try again.",
         );
       }
     } finally {
@@ -1602,7 +1606,6 @@ export default function EditMemberScreen() {
         errors.maintenanceAmount = "Enter a valid amount";
       }
 
-      // ─── NEW: validate vehicles when parking is on ───────────────────
       if (parkingAvailable) {
         if (vehicles.length === 0) {
           errors.vehicles = "Add at least one vehicle number";
@@ -1710,7 +1713,6 @@ export default function EditMemberScreen() {
       updateData.parkingAvailable = parkingAvailable;
       updateData.maintenanceAmount = Number(maintenanceAmount);
 
-      // ─── NEW: send vehicles (only when parking is on) ──────────────
       updateData.vehicles = parkingAvailable
         ? vehicles.map((v) => ({
             id: v.isNew ? undefined : v.id,
@@ -1759,7 +1761,6 @@ export default function EditMemberScreen() {
           current: e?.body?.current,
         });
       } else if (code === "flat_already_registered") {
-        // Inline error on the Flat / Room Number field.
         setFieldErrors((cur) => ({
           ...cur,
           flatNumber:
@@ -1771,6 +1772,13 @@ export default function EditMemberScreen() {
         setFieldErrors((cur) => ({
           ...cur,
           vehicles: serverMessage || "This vehicle is already registered.",
+        }));
+        setError("");
+      } else if (code === "phone_name_mismatch") {
+        setFieldErrors((cur) => ({
+          ...cur,
+          phone:
+            serverMessage || "This number is already in use in this property.",
         }));
         setError("");
       } else {
@@ -2026,7 +2034,6 @@ export default function EditMemberScreen() {
                 />
               </View>
 
-              {/* ─── NEW: Vehicle numbers block ──────────────────────── */}
               {parkingAvailable && (
                 <View style={styles.vehicleSection}>
                   <View style={styles.vehicleHeaderRow}>
@@ -2132,7 +2139,6 @@ export default function EditMemberScreen() {
                   ) : null}
                 </View>
               )}
-              {/* ─── END vehicle numbers block ──────────────────────── */}
 
               <FieldLabel
                 label={maintenanceLabel}
@@ -3202,7 +3208,8 @@ export default function EditMemberScreen() {
                     {phone ? ` (+91 ${phone})` : ""} from this home. Their
                     profile stays, but this room's record (room number, rent and
                     payment history) will no longer be part of this property.
-                    This action cannot be undone.
+                    Any gate passes or invites linked to this room will also be
+                    cancelled. This action cannot be undone.
                   </>
                 ) : (
                   <>
@@ -3213,7 +3220,8 @@ export default function EditMemberScreen() {
                     {phone ? ` (+91 ${phone})` : ""} from this property. Their
                     profile stays, but this flat's record (wing, flat number,
                     maintenance and payment history) will no longer be part of
-                    this society. This action cannot be undone.
+                    this society. Any gate passes or invites linked to this flat
+                    will also be cancelled. This action cannot be undone.
                   </>
                 )}
               </Text>
@@ -3842,7 +3850,7 @@ const styles = StyleSheet.create({
   fieldErrorRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: -9,
+    marginTop: 4,
     marginBottom: 14,
   },
   fieldError: {
@@ -3918,7 +3926,6 @@ const styles = StyleSheet.create({
   settingTitle: { fontSize: 14, fontWeight: "700", color: "#1f2937" },
   settingSubtitle: { fontSize: 11, color: "#8a94a6", marginTop: 3 },
 
-  // ─── NEW: Vehicle block styles (mirrors add-member.tsx) ────────────────
   vehicleSection: {
     marginTop: 4,
     marginBottom: 14,
@@ -4004,7 +4011,6 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     color: "#92400E",
   },
-  // ─── END vehicle block styles ──────────────────────────────────────────
 
   paymentStatusRow: {
     flexDirection: "row",
@@ -4358,11 +4364,9 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingHorizontal: 10,
   },
-
   confirmDeleteIcon: {
     flexShrink: 0,
   },
-
   confirmDeleteButtonText: {
     color: "#fff",
     fontSize: 13,

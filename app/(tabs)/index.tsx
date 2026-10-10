@@ -22,6 +22,7 @@ import {
 import { getSecureItem } from "../../utils/tokenStorage";
 
 import { DarkModeBoundary } from "../../components/DarkModeBoundary";
+import { ResidentGateCards } from "../../components/ResidentGateCards";
 import { WorkspaceEmptyState } from "../../components/WorkspaceEmptyState";
 import { useAccounts } from "../../hooks/useAccounts";
 import { useExpenses, useMembers, useStaff } from "../../hooks/useManagement";
@@ -1812,6 +1813,32 @@ export default function HomeScreen() {
 
   const hasAnyProfile =
     matchedMemberProfiles.length > 0 || matchedStaffProfiles.length > 0;
+  // ── Gate access ──────────────────────────────────────────────
+  const myStaffRows = useMemo(() => {
+    if (!user?.id) return [];
+    return staffMembers.filter((s: any) => s.userId === user.id);
+  }, [staffMembers, user?.id]);
+
+  const isSecurityStaff = useMemo(
+    () =>
+      myStaffRows.some(
+        (s: any) => String(s.role ?? "").toLowerCase() === "security",
+      ),
+    [myStaffRows],
+  );
+
+  const canManageGate = isAdmin || isSecurityStaff;
+
+  const hasResidentFlats = useMemo(() => {
+    if (!user?.id) return false;
+    // Admins always see resident cards (they may own a flat)
+    if (isAdmin) return true;
+    // Staff (guard, sweeper, etc.) never see resident cards — they're
+    // not residents even if they happen to be assigned a flat
+    if (isStaff && !isMember) return false;
+    // Otherwise: is the logged-in user a member of any flat?
+    return apartmentMembers.some((m: any) => m.userId === user.id);
+  }, [apartmentMembers, user?.id, isAdmin, isStaff, isMember]);
 
   const handleSelfPrevMonth = () => {
     if (selfMonth === 0) {
@@ -1850,6 +1877,14 @@ export default function HomeScreen() {
       params: { tab: "staff" },
     });
   }, [router]);
+
+  const handleOpenGateEntry = useCallback(() => {
+    if (!accountId) return;
+    router.push({
+      pathname: "/(modals)/gate-entry",
+      params: { accountId },
+    });
+  }, [router, accountId]);
 
   /* ── Load pending offers (now with silent flag) ── */
   const loadPendingOffers = useCallback(
@@ -3743,6 +3778,39 @@ export default function HomeScreen() {
 
             {renderProfileBlock()}
 
+            {hasResidentFlats && selectedAccount?.id ? (
+              <ResidentGateCards accountId={selectedAccount.id} />
+            ) : null}
+
+            {canManageGate && selectedAccount?.id ? (
+              <Pressable
+                onPress={handleOpenGateEntry}
+                style={({ pressed }) => [
+                  gateCardStyles.card,
+                  pressed && { opacity: 0.88 },
+                ]}
+              >
+                <View style={gateCardStyles.iconWrap}>
+                  <Ionicons
+                    name="shield-checkmark-outline"
+                    size={22}
+                    color="#FACC15"
+                  />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={gateCardStyles.title}>Manage Gate Entry</Text>
+                  <Text style={gateCardStyles.subtitle}>
+                    Admin and Security can manage this
+                  </Text>
+                </View>
+                <Ionicons
+                  name="chevron-forward"
+                  size={18}
+                  color="rgba(255,255,255,0.6)"
+                />
+              </Pressable>
+            ) : null}
+
             {isMember ? (
               <>
                 <View style={styles.section}>
@@ -3921,6 +3989,39 @@ export default function HomeScreen() {
           </View>
 
           {renderProfileBlock()}
+
+          {hasResidentFlats && selectedAccount?.id ? (
+            <ResidentGateCards accountId={selectedAccount.id} />
+          ) : null}
+
+          {canManageGate && selectedAccount?.id ? (
+            <Pressable
+              onPress={handleOpenGateEntry}
+              style={({ pressed }) => [
+                gateCardStyles.card,
+                pressed && { opacity: 0.88 },
+              ]}
+            >
+              <View style={gateCardStyles.iconWrap}>
+                <Ionicons
+                  name="shield-checkmark-outline"
+                  size={22}
+                  color="#FACC15"
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={gateCardStyles.title}>Manage Gate Entry</Text>
+                <Text style={gateCardStyles.subtitle}>
+                  Admin and Security can manage this
+                </Text>
+              </View>
+              <Ionicons
+                name="chevron-forward"
+                size={18}
+                color="rgba(255,255,255,0.6)"
+              />
+            </Pressable>
+          ) : null}
 
           {showBalanceCard ? (
             <View style={styles.balanceCard}>
@@ -5604,4 +5705,36 @@ const styles = StyleSheet.create({
 
   pressed: { opacity: 0.72 },
   bottomSpace: { height: 20 },
+});
+
+const gateCardStyles = StyleSheet.create({
+  card: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 16,
+    backgroundColor: "#0F172A",
+    marginBottom: 16,
+    shadowColor: "#0F172A",
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.2,
+    shadowRadius: 10,
+    elevation: 3,
+  },
+  iconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 12,
+    backgroundColor: "rgba(255,255,255,0.14)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  title: { fontSize: 14.5, fontWeight: "800", color: "#fff" },
+  subtitle: {
+    fontSize: 11.5,
+    color: "rgba(255,255,255,0.7)",
+    marginTop: 3,
+  },
 });

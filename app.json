@@ -11,6 +11,7 @@
       "supportsTablet": true,
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "This app needs access to photos to upload profile pictures and bill attachments.",
+        "NSPhotoLibraryAddUsageDescription": "This app saves the gate QR code to your photo gallery so you can share it with visitors.",
         "NSCameraUsageDescription": "This app needs access to camera to take photos for profile pictures and bill attachments.",
         "NSContactsUsageDescription": "This app needs access to contacts to help you quickly add phone numbers."
       }
@@ -30,6 +31,7 @@
       "permissions": [
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.READ_MEDIA_IMAGES",
         "android.permission.CAMERA",
         "android.permission.READ_CONTACTS"
       ]
@@ -89,6 +91,15 @@
         {
           "photosPermission": "The app accesses your photos to let you upload profile pictures and bill attachments.",
           "cameraPermission": "The app accesses your camera to let you take photos for profile pictures and bill attachments."
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow $(PRODUCT_NAME) to access your photos so you can save the gate QR code.",
+          "savePhotosPermission": "Allow $(PRODUCT_NAME) to save the gate QR code to your photo gallery.",
+          "isAccessMediaLocationEnabled": false,
+          "granularPermissions": ["photo"]
         }
       ],
       [

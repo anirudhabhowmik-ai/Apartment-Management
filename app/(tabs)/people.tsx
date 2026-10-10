@@ -3,18 +3,18 @@ import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-    Image,
-    Keyboard,
-    KeyboardAvoidingView,
-    Linking,
-    Modal,
-    Platform,
-    Pressable,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TextInput,
-    View,
+  Image,
+  Keyboard,
+  KeyboardAvoidingView,
+  Linking,
+  Modal,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getSecureItem } from "../../utils/tokenStorage";
@@ -26,10 +26,10 @@ import MonthYearPickerModal from "../../components/MonthYearPickerModal";
 import { WorkspaceEmptyState } from "../../components/WorkspaceEmptyState";
 import { useAccounts } from "../../hooks/useAccounts";
 import {
-    useExpenses,
-    useManagementStore,
-    useMembers,
-    useStaff,
+  useExpenses,
+  useManagementStore,
+  useMembers,
+  useStaff,
 } from "../../hooks/useManagement";
 import { usePayments } from "../../hooks/usePayments";
 import { useUserRole } from "../../hooks/useUserRole";
@@ -917,17 +917,27 @@ interface GroupedCard {
 function groupRowsByUser(rows: any[]): GroupedCard[] {
   const map = new Map<string, GroupedCard>();
   for (const row of rows) {
-    const uid = row.userId || row.user_id || `__orphan__:${row.id}`;
-    if (!map.has(uid)) {
-      map.set(uid, {
-        user_id: uid,
+    const rawUserId = row.userId || row.user_id || null;
+    const ten = String(row.phone ?? "")
+      .replace(/\D/g, "")
+      .slice(-10);
+
+    const key = rawUserId
+      ? `user:${rawUserId}`
+      : ten
+        ? `phone:${ten}`
+        : `__orphan__:${row.id}`;
+
+    if (!map.has(key)) {
+      map.set(key, {
+        user_id: rawUserId || key,
         name: row.name || "",
         phone: row.phone || null,
         photo_url: row.photoUri || row.photo_url || null,
         records: [],
       });
     }
-    map.get(uid)!.records.push(row);
+    map.get(key)!.records.push(row);
   }
   return Array.from(map.values());
 }

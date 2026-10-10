@@ -66,6 +66,7 @@ interface PersonOption {
   phone: string | null;
   photo_url: string | null;
   kind: "owner" | "admin" | "member" | "staff";
+  pending?: boolean;
 }
 
 interface VehicleEntry {
@@ -812,6 +813,7 @@ export default function AddMemberScreen() {
         phone: row.phone ?? null,
         photo_url: row.photo_url ?? null,
         kind: (row.kind ?? "member") as PersonOption["kind"],
+        pending: row.pending === true,
       }));
 
       setAccountPeople(mapped);
@@ -828,17 +830,29 @@ export default function AddMemberScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [accountId, isPersonTab]);
 
+  // Who can be selected in the "Existing Person" picker for this group?
+  //   Add Staff   → hide Members (and vice versa)
+  //   Owner/Admin → always available
+  const isPersonKindAllowed = (kind: PersonOption["kind"]) => {
+    if (kind === "owner" || kind === "admin") return true;
+    if (groupType === "staff") return kind !== "member";
+    if (groupType === "apartment") return kind !== "staff";
+    return true;
+  };
+
   const filteredPeople = useMemo(() => {
+    const base = accountPeople.filter((p) => isPersonKindAllowed(p.kind));
     const q = personSearch.trim().toLowerCase();
-    if (!q) return accountPeople;
-    return accountPeople.filter((p) => {
+    if (!q) return base;
+    return base.filter((p) => {
       const nameMatch = p.name.toLowerCase().includes(q);
       const digits = (p.phone || "").replace(/\D/g, "");
       const queryDigits = q.replace(/\D/g, "");
       const phoneMatch = queryDigits ? digits.includes(queryDigits) : false;
       return nameMatch || phoneMatch;
     });
-  }, [accountPeople, personSearch]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accountPeople, personSearch, groupType]);
 
   const selectedExisting = useMemo(
     () => accountPeople.find((p) => p.user_id === selectedUserId) || null,
@@ -1355,8 +1369,6 @@ export default function AddMemberScreen() {
       await addNewMember(payload);
       router.back();
     } catch (e: any) {
-      console.error("[add-member] save failed:", e);
-
       const code = e?.code;
       const serverMessage = e?.body?.message || e?.message || "";
 
@@ -1373,8 +1385,6 @@ export default function AddMemberScreen() {
           current: e?.body?.current,
         });
       } else if (code === "flat_already_registered") {
-        // Server rejected duplicate flat/room. Show it inline on the
-        // Flat Number field instead of the generic error banner.
         setFieldErrors((cur) => ({
           ...cur,
           flatNumber:
@@ -1386,6 +1396,13 @@ export default function AddMemberScreen() {
         setFieldErrors((cur) => ({
           ...cur,
           vehicles: serverMessage || "This vehicle is already registered.",
+        }));
+        setError("");
+      } else if (code === "phone_name_mismatch") {
+        setFieldErrors((cur) => ({
+          ...cur,
+          phone:
+            serverMessage || "This number is already in use in this property.",
         }));
         setError("");
       } else {
@@ -1627,6 +1644,7 @@ export default function AddMemberScreen() {
                                 </Text>
                                 <Text style={styles.contactPhone}>
                                   {kindLabel(person.kind)}
+                                  {person.pending ? " · Not on app yet" : ""}
                                   {person.phone ? ` • ${person.phone}` : ""}
                                 </Text>
                               </View>
@@ -1824,9 +1842,6 @@ export default function AddMemberScreen() {
     );
   };
 
-  // ─── KeyboardAvoidingView key: changes only when the content height
-  //     meaningfully shifts, so the KAV re-measures without stealing focus
-  //     from a vehicle input mid-type.
   const kavKey = `kav-${groupType}-${parkingAvailable}-${vehicles.length === 0}`;
 
   return (
@@ -1995,6 +2010,9 @@ export default function AddMemberScreen() {
                             numberOfLines={1}
                           >
                             {kindLabel(selectedExisting.kind)}
+                            {selectedExisting.pending
+                              ? " · Not on app yet"
+                              : ""}
                             {selectedExisting.phone
                               ? ` • ${selectedExisting.phone}`
                               : ""}
@@ -2150,15 +2168,33 @@ export default function AddMemberScreen() {
                           color="#B45309"
                         />
                         <Text style={styles.phoneBelongsText}>
-                          This number belongs to{" "}
-                          <Text style={styles.phoneBelongsName}>
-                            {phoneAlreadyBelongs.name || "an existing person"}
-                          </Text>
-                          . Go to Existing Person and select them, then add{" "}
-                          {groupType === "staff"
-                            ? "a staff role"
-                            : `another ${unitNoun}`}
-                          .
+                          {isPersonKindAllowed(phoneAlreadyBelongs.kind) ? (
+                            <>
+                              This number is already in this property as{" "}
+                              <Text style={styles.phoneBelongsName}>
+                                {phoneAlreadyBelongs.name ||
+                                  "an existing entry"}
+                              </Text>
+                              . Go to Existing Person and select them, then add{" "}
+                              {groupType === "staff"
+                                ? "a staff role"
+                                : `another ${unitNoun}`}
+                              .
+                            </>
+                          ) : (
+                            <>
+                              This number is registered as{" "}
+                              <Text style={styles.phoneBelongsName}>
+                                {phoneAlreadyBelongs.name ||
+                                  "an existing entry"}
+                              </Text>{" "}
+                              ({kindLabel(phoneAlreadyBelongs.kind)}). To add{" "}
+                              {groupType === "staff"
+                                ? "this as staff"
+                                : `another ${unitNoun}`}
+                              , type the same name.
+                            </>
+                          )}
                         </Text>
                       </View>
                     ) : (
@@ -3394,7 +3430,7 @@ const styles = StyleSheet.create({
   inputContainerError: { borderColor: "#FCA5A5", backgroundColor: "#FFF7F7" },
   textInput: {
     flex: 1,
-    minWidth: 0, // Prevents overflow in flex layouts
+    minWidth: 0,
     minHeight: 50,
     fontSize: 15,
     color: TEXT,
@@ -3544,7 +3580,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
     marginBottom: 8,
-    width: "100%", // Ensures the row doesn't exceed parent width
+    width: "100%",
   },
   vehicleTypeChip: {
     width: 44,
@@ -3556,7 +3592,7 @@ const styles = StyleSheet.create({
   },
   vehicleInput: {
     flex: 1,
-    minWidth: 0, // Critical for TextInput to shrink properly in flex row
+    minWidth: 0,
     minHeight: 52,
     borderWidth: 1,
     borderColor: BORDER,

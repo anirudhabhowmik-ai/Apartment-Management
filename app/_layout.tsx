@@ -4,6 +4,7 @@ import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
 import { Appearance, AppState, LogBox, Platform } from "react-native";
 
+import { AppAlertHost } from "../components/AppAlert";
 import NameConflictAlert from "../components/NameConflictAlert";
 import { registerForPushNotificationsAsync } from "../services/notificationService";
 import {
@@ -136,6 +137,10 @@ export default function RootLayout() {
         <Stack.Screen name="(modals)" options={{ presentation: "modal" }} />
       </Stack>
       <NameConflictAlert />
+
+      {/* Renders any alert queued via AppAlert.alert(...).
+          Must be a sibling of Stack so it sits on top of every screen. */}
+      <AppAlertHost />
     </>
   );
 }

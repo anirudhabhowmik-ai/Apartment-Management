@@ -32,6 +32,16 @@ export type ModalRouteParams = {
     memberType?: "owner" | "staff";
   };
   "account-profile": undefined;
+
+  // ── Gate feature ─────────────────────────────────────────────
+  "pre-authorize": {
+    accountId: string;
+    mode?: "open" | "named";
+  };
+  "my-passes": { accountId: string };
+  "invite-qr": { accountId: string; inviteId: string };
+  "gate-entry": { accountId: string };
+  "gate-approvals": { accountId: string };
 };
 
 export default function ModalsLayout() {
@@ -92,6 +102,19 @@ export default function ModalsLayout() {
         <Stack.Screen
           name="account-profile"
           options={{ title: "Manage Account Profile" }}
+        />
+
+        {/* ── Gate feature ─────────────────────────────────────── */}
+        <Stack.Screen
+          name="pre-authorize"
+          options={{ title: "Pre-Authorize" }}
+        />
+        <Stack.Screen name="my-passes" options={{ title: "My Pass" }} />
+        <Stack.Screen name="invite-qr" options={{ title: "QR Code" }} />
+        <Stack.Screen name="gate-entry" options={{ title: "Gate Entry" }} />
+        <Stack.Screen
+          name="gate-approvals"
+          options={{ title: "My Approval" }}
         />
       </Stack>
     </>
