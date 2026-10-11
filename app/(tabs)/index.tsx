@@ -66,10 +66,6 @@ type OpeningBalanceResponse = {
   can_edit?: boolean;
 };
 
-// ── NEW ──────────────────────────────────────────────────────────────
-// Same shape the Finance tab uses. Only `carried_forward` is consumed
-// here; it's the running balance entering the current month
-// (opening + sum of net for every prior month).
 type CarriedForwardResponse = {
   account_id: string;
   month: string;
@@ -1717,8 +1713,32 @@ export default function HomeScreen() {
     return String((selectedAccount as any).type ?? "").toLowerCase() === "home";
   }, [selectedAccount]);
 
-  const membersHook = useMembers(accountId, null, { includeInactive: true });
-  const staffHook = useStaff(accountId, null, { includeInactive: true });
+  // ── Month state must be declared BEFORE the hooks that consume it.
+  //    Previously these were declared further down and the hooks were
+  //    called with `null` as the month — which meant the backend never
+  //    returned each member's monthlyPayments map, so all the paid
+  //    income/expense totals came out as zero.
+  const now = new Date();
+  const [selfYear, setSelfYear] = useState(now.getFullYear());
+  const [selfMonth, setSelfMonth] = useState(now.getMonth());
+  const [showSelfPicker, setShowSelfPicker] = useState(false);
+
+  const selfMonthKey = useMemo(
+    () => `${selfYear}-${String(selfMonth + 1).padStart(2, "0")}`,
+    [selfYear, selfMonth],
+  );
+
+  const isSelfCurrentMonth = useMemo(() => {
+    const d = new Date();
+    return d.getFullYear() === selfYear && d.getMonth() === selfMonth;
+  }, [selfYear, selfMonth]);
+
+  const membersHook = useMembers(accountId, selfMonthKey, {
+    includeInactive: true,
+  });
+  const staffHook = useStaff(accountId, selfMonthKey, {
+    includeInactive: true,
+  });
   const { items: expenses } = useExpenses(accountId);
 
   const apartmentMembers = membersHook.items;
@@ -1755,31 +1775,11 @@ export default function HomeScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [openingBalance, setOpeningBalance] = useState(0);
 
-  // ── NEW ──────────────────────────────────────────────────────────────
   // Running balance entering the current month (opening + sum of every
   // prior month's net). Fetched from the same endpoint the Finance tab
-  // uses. This is what the balance card must start from — otherwise
-  // every month after the first shows only opening + this month's net,
-  // which under-counts by all previous months.
-  // ─────────────────────────────────────────────────────────────────────
+  // uses.
   const [carriedForward, setCarriedForward] = useState(0);
   const [carriedForwardLoading, setCarriedForwardLoading] = useState(false);
-
-  const now = new Date();
-
-  const [selfYear, setSelfYear] = useState(now.getFullYear());
-  const [selfMonth, setSelfMonth] = useState(now.getMonth());
-  const [showSelfPicker, setShowSelfPicker] = useState(false);
-
-  const selfMonthKey = useMemo(
-    () => `${selfYear}-${String(selfMonth + 1).padStart(2, "0")}`,
-    [selfYear, selfMonth],
-  );
-
-  const isSelfCurrentMonth = useMemo(() => {
-    const d = new Date();
-    return d.getFullYear() === selfYear && d.getMonth() === selfMonth;
-  }, [selfYear, selfMonth]);
 
   const [downloadingBillKey, setDownloadingBillKey] = useState<string | null>(
     null,
@@ -2525,9 +2525,8 @@ export default function HomeScreen() {
   }, [selectedAccount?.id]);
 
   // ── Carried forward ────────────────────────────────────────────────
-  // Same value the Finance tab uses for its "Carried Forward" metric.
-  // Depends on payments + expenses being loaded, so we re-run whenever
-  // they change.
+  // Uses the currently selected month so it stays in sync with the
+  // Financial Overview cards on this same screen.
   useEffect(() => {
     if (!selectedAccount?.id) {
       setCarriedForward(0);
@@ -2539,8 +2538,10 @@ export default function HomeScreen() {
 
     (async () => {
       try {
-        const monthKey = getCurrentMonthKey();
-        const data = await carriedForwardRequest(selectedAccount.id, monthKey);
+        const data = await carriedForwardRequest(
+          selectedAccount.id,
+          selfMonthKey,
+        );
         if (!cancelled) {
           setCarriedForward(Number(data.carried_forward) || 0);
         }
@@ -2557,7 +2558,13 @@ export default function HomeScreen() {
     return () => {
       cancelled = true;
     };
-  }, [selectedAccount?.id, expenses, apartmentMembers, staffMembers]);
+  }, [
+    selectedAccount?.id,
+    selfMonthKey,
+    expenses,
+    apartmentMembers,
+    staffMembers,
+  ]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -2649,12 +2656,13 @@ export default function HomeScreen() {
     if (!showFinance || !selectedAccount) return emptyData;
 
     try {
-      const currentMonthKey = getCurrentMonthKey();
-
+      // Use the SAME month the hooks fetched so the paid entries
+      // resolve. Previously this used getCurrentMonthKey(), which
+      // mismatched when the user was browsing a different month.
       const monthly = computeMonthlyFinance(
         allMembers,
         expenses ?? [],
-        currentMonthKey,
+        selfMonthKey,
       );
       const allTime = computeAllTimeFinance(allMembers, expenses ?? []);
 
@@ -2678,6 +2686,7 @@ export default function HomeScreen() {
     activeStaffMembers,
     showFinance,
     expenses,
+    selfMonthKey,
   ]);
 
   const stats = dashboardData.stats;
@@ -2685,29 +2694,20 @@ export default function HomeScreen() {
 
   const totalMemberRecords = activeApartmentMembers.length;
 
-  // ── FIX ──────────────────────────────────────────────────────────────
-  // This month's running total = carried forward (opening + sum of all
-  // prior months) + this month's net. Matches the Finance tab's
-  // "Net Balance" for the current month.
-  //
-  // Previous version used `openingBalance + (income − expense)` which
-  // was only correct for the very first month ever.
-  // ─────────────────────────────────────────────────────────────────────
+  // ── Running balance through the selected month ──
+  //   carriedForward = opening + Σ(net of every month BEFORE selected)
+  //   monthlyNet     = carriedForward + selected month's net
   const monthlyNet =
     carriedForward + (stats.monthlyIncome - stats.monthlyExpense);
   const isMonthlyPositive = monthlyNet >= 0;
 
-  const overallIncome = allTime.income;
-  const overallExpense = allTime.expense;
-  const overallNet =
-    carriedForward + allTime.net - openingBalance + openingBalance;
-  // Note: `overallNet` is kept as the all-time sum + opening, which is
-  // what the "Financial Overview" section intends to convey. If you
-  // prefer consistency with the "Net Balance" on the balance card
-  // (running total through this month only), swap it to:
-  //   const overallNet = monthlyNet;
-  // That's a product call — right now "Overall" means "all-time".
-
+  // The Financial Overview cards below show the SELECTED month's
+  // income/expense plus the running net balance through that month.
+  // We only fetch one month's data from the API, so we don't claim
+  // "all-time" totals here.
+  const overallIncome = stats.monthlyIncome;
+  const overallExpense = stats.monthlyExpense;
+  const overallNet = monthlyNet;
   const isOverallPositive = overallNet >= 0;
 
   const handleSelfDownloadBill = useCallback(
@@ -2904,7 +2904,7 @@ export default function HomeScreen() {
             openingBalanceRequest<OpeningBalanceResponse>(
               `/${selectedAccount.id}`,
             ),
-            carriedForwardRequest(selectedAccount.id, getCurrentMonthKey()),
+            carriedForwardRequest(selectedAccount.id, selfMonthKey),
           ]);
           setOpeningBalance(Number(obData.opening_balance) || 0);
           setCarriedForward(Number(cfData.carried_forward) || 0);
@@ -3961,7 +3961,7 @@ export default function HomeScreen() {
                       <View>
                         <Text style={styles.sectionTitle}>Society Finance</Text>
                         <Text style={styles.sectionSubtitle}>
-                          Overall · all-time totals
+                          {MONTHS[selfMonth]} {selfYear} · running balance
                         </Text>
                       </View>
                       <Pressable
@@ -3983,7 +3983,7 @@ export default function HomeScreen() {
                         icon="arrow-down-outline"
                         color="#16A34A"
                         background="#DCFCE7"
-                        period="Overall"
+                        period={MONTHS[selfMonth].slice(0, 3)}
                       />
                       <FinancialCard
                         title="Expenses"
@@ -3991,7 +3991,7 @@ export default function HomeScreen() {
                         icon="arrow-up-outline"
                         color="#EA580C"
                         background="#FFEDD5"
-                        period="Overall"
+                        period={MONTHS[selfMonth].slice(0, 3)}
                       />
                       <FinancialCard
                         title="Net"
@@ -4003,7 +4003,7 @@ export default function HomeScreen() {
                         }
                         color={isOverallPositive ? "#2563EB" : "#DC2626"}
                         background={isOverallPositive ? "#DBEAFE" : "#FEE2E2"}
-                        period="Incl. opening"
+                        period="Incl. carry forward"
                       />
                     </View>
                   </View>
@@ -4135,10 +4135,8 @@ export default function HomeScreen() {
               <View style={styles.balanceTop}>
                 <View>
                   <Text style={styles.balanceLabel}>Net Balance</Text>
-                  {/* ── FIX: clearer subtitle. Value is carried forward
-                         (opening + all prior months) + this month's net. ── */}
                   <Text style={styles.balancePeriod}>
-                    This month · incl. carry forward
+                    {MONTHS[selfMonth]} {selfYear} · incl. carry forward
                   </Text>
                 </View>
                 <View
@@ -4215,7 +4213,7 @@ export default function HomeScreen() {
                 <View>
                   <Text style={styles.sectionTitle}>Financial Overview</Text>
                   <Text style={styles.sectionSubtitle}>
-                    Overall · all-time totals
+                    {MONTHS[selfMonth]} {selfYear} · running balance
                   </Text>
                 </View>
                 <Pressable
@@ -4228,20 +4226,20 @@ export default function HomeScreen() {
               </View>
               <View style={styles.financialGrid}>
                 <FinancialCard
-                  title="Total Income"
+                  title="Income"
                   amount={overallIncome}
                   icon="arrow-down-outline"
                   color="#16A34A"
                   background="#DCFCE7"
-                  period="Overall"
+                  period={MONTHS[selfMonth].slice(0, 3)}
                 />
                 <FinancialCard
-                  title="Total Expenses"
+                  title="Expenses"
                   amount={overallExpense}
                   icon="arrow-up-outline"
                   color="#EA580C"
                   background="#FFEDD5"
-                  period="Overall"
+                  period={MONTHS[selfMonth].slice(0, 3)}
                 />
                 <FinancialCard
                   title="Net Balance"
@@ -4253,7 +4251,7 @@ export default function HomeScreen() {
                   }
                   color={isOverallPositive ? "#2563EB" : "#DC2626"}
                   background={isOverallPositive ? "#DBEAFE" : "#FEE2E2"}
-                  period="Incl. opening"
+                  period="Incl. carry forward"
                 />
               </View>
             </View>
