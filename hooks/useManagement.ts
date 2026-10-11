@@ -1,8 +1,6 @@
 // hooks/useManagement.ts
 import * as FileSystem from "expo-file-system/legacy";
-// ─── FIX: import useFocusEffect instead of useEffect for the loader ───
-import { useFocusEffect } from "expo-router";
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { create } from "zustand";
 import {
   ExpenseEntry,
@@ -166,7 +164,6 @@ function localDateStringToServerISO(local: unknown): string | null {
   return localNoon.toISOString();
 }
 
-// ─── NEW: normalize server vehicles → client shape ──────────────────────
 function mapServerVehicles(raw: unknown): any[] {
   if (!Array.isArray(raw)) return [];
   return raw
@@ -210,9 +207,6 @@ function mapRowToMember(
     createdAt: row.created_at,
     updatedAt: row.updated_at,
 
-    // True when the linked user has an active account_members row for
-    // this account. When true, the owner/admin can no longer edit the
-    // person's identity (name, phone, photo).
     hasAccess: !!row.has_access,
 
     paymentStatus: row.payment_status ?? row.status ?? undefined,
@@ -238,7 +232,6 @@ function mapRowToMember(
     else if (flatNumber) unit = String(flatNumber);
     else if (wing) unit = String(wing);
 
-    // ─── NEW: carry vehicles through to the client model ─────────────
     const vehicles = mapServerVehicles(row.vehicles);
 
     return {
@@ -250,7 +243,6 @@ function mapRowToMember(
       areaSqft: row.area_sqft ?? undefined,
       parkingAvailable: !!row.parking_available,
       maintenanceAmount: Number(row.maintenance_amount ?? 0),
-      // expose the vehicles array so edit-member.tsx can hydrate from it
       vehicles,
       status: row.status ?? "active",
     } as FlatOwner;
@@ -294,10 +286,6 @@ async function toServerBody(
   if (input.mode !== undefined) body.mode = input.mode;
 
   if (kind !== "expense") {
-    // name and phone are only sent when the caller explicitly provided
-    // them (i.e. the identity isn't locked). The backend rejects them
-    // with `user_identity_locked` if the target has an active
-    // account_members row, so sending them is always safe here.
     if (input.name !== undefined) body.name = input.name;
     if (input.phone !== undefined) {
       body.phone = input.phone
@@ -314,8 +302,6 @@ async function toServerBody(
   }
 
   if (kind !== "expense") {
-    // role is a single free-form string. It can be a standard token
-    // ("flat", "shop") or a custom label ("Gardener"). Send it as-is.
     if (input.role !== undefined && input.role !== null) {
       body.role = String(input.role).trim();
     }
@@ -332,9 +318,6 @@ async function toServerBody(
     if (input.maintenanceAmount !== undefined)
       body.maintenance_amount = input.maintenanceAmount ?? 0;
 
-    // ─── NEW: forward the vehicles array to the backend ──────────────
-    // Only forward when present so we don't accidentally clear the list
-    // on partial updates.
     if (input.vehicles !== undefined) {
       if (Array.isArray(input.vehicles)) {
         body.vehicles = input.vehicles
@@ -350,8 +333,6 @@ async function toServerBody(
             const type =
               typeRaw === "bike" || typeRaw === "other" ? typeRaw : "car";
             const entry: any = { number, type };
-            // Existing rows keep their server id so the controller knows
-            // to UPDATE rather than re-INSERT. New rows omit the id.
             if (typeof v.id === "string" && v.id.length > 0 && !v.isNew) {
               entry.id = v.id;
             }
@@ -655,12 +636,22 @@ function createManagementHook(kind: ManagementType) {
   return function useManagement(
     accountId: string | null,
     month?: string | null,
+    opts?: { includeInactive?: boolean },
   ) {
     const segment = endpointFor(kind);
+    const includeInactive = opts?.includeInactive === true;
+
+    // Separate cache slot: the finance tab's "with inactive" list must not
+    // leak into the management tab's "active only" list, and vice versa.
+    const storeKey: string | null = accountId
+      ? includeInactive
+        ? `${accountId}::inactive`
+        : accountId
+      : null;
 
     const items = useManagementStore((s) => {
-      if (!accountId) return EMPTY_MEMBERS;
-      return s.byKindAndAccount[kind][accountId] ?? EMPTY_MEMBERS;
+      if (!storeKey) return EMPTY_MEMBERS;
+      return s.byKindAndAccount[kind][storeKey] ?? EMPTY_MEMBERS;
     });
 
     const [isLoading, setIsLoading] = useState(false);
@@ -669,17 +660,16 @@ function createManagementHook(kind: ManagementType) {
     const lastFetchedKeyRef = useRef<string>("");
     const lastForceRefreshAtRef = useRef<number>(0);
 
-    // ─── FIX: refresh() now also accepts `silent` so background refreshes
-    // don't flip isLoading and cause a spinner flash over existing data. ───
     const refresh = useCallback(
       async (opts?: { force?: boolean; silent?: boolean }) => {
         if (!accountId) return;
 
         const aid: string = accountId;
+        const key: string = storeKey ?? aid;
 
         if (opts?.force !== true) {
           const existing =
-            useManagementStore.getState().byKindAndAccount[kind][aid];
+            useManagementStore.getState().byKindAndAccount[kind][key];
           if (existing && existing.length > 0) {
             return;
           }
@@ -688,14 +678,19 @@ function createManagementHook(kind: ManagementType) {
         if (!opts?.silent) setIsLoading(true);
         setError(null);
         try {
-          const qs =
-            month && /^\d{4}-\d{2}$/.test(month) ? `?month=${month}` : "";
+          const qsParts: string[] = [];
+          if (month && /^\d{4}-\d{2}$/.test(month)) {
+            qsParts.push(`month=${month}`);
+          }
+          if (includeInactive) qsParts.push("includeInactive=true");
+          const qs = qsParts.length ? `?${qsParts.join("&")}` : "";
+
           const rows = await apiRequest<any[]>(
             `/management/${aid}/${segment}${qs}`,
           );
           useManagementStore.getState().setItems(
             kind,
-            aid,
+            key,
             rows.map((r) => mapRowToMember(r, aid, kind)),
           );
         } catch (e: any) {
@@ -705,48 +700,25 @@ function createManagementHook(kind: ManagementType) {
           if (!opts?.silent) setIsLoading(false);
         }
       },
-      [accountId, segment, month, kind],
+      [accountId, segment, month, kind, includeInactive, storeKey],
     );
 
-    // ─── FIX: re-fetch on every focus (not just on first mount).
-    //
-    // Old behaviour was a useEffect + "store has data → skip" guard, which
-    // meant the zustand store would never refresh after its very first
-    // successful load. Any rename done elsewhere (management edit screen,
-    // rename-person endpoint, another device) stayed invisible until the
-    // whole app was reloaded.
-    //
-    // New behaviour:
-    //   • First focus for a given (accountId, month) key → normal refresh
-    //     (respects the store; no spinner if data already exists).
-    //   • Every subsequent re-focus → force a *silent* background refresh
-    //     so the list reconciles with the server without a spinner flash.
-    //   • Throttled to 1.5s so rapid navigation doesn't hammer the API. ───
-    useFocusEffect(
-      useCallback(() => {
-        if (!accountId) return;
+    useEffect(() => {
+      const key = `${accountId ?? ""}:${month ?? ""}:${
+        includeInactive ? "inc" : "act"
+      }`;
+      if (lastFetchedKeyRef.current === key) return;
+      lastFetchedKeyRef.current = key;
 
-        const key = `${accountId}:${month ?? ""}`;
-        const now = Date.now();
-        const keyChanged = lastFetchedKeyRef.current !== key;
-
-        if (keyChanged) {
-          lastFetchedKeyRef.current = key;
-          lastForceRefreshAtRef.current = now;
-          refresh();
-          return;
-        }
-
-        if (now - lastForceRefreshAtRef.current < 1500) return;
-        lastForceRefreshAtRef.current = now;
-        refresh({ force: true, silent: true });
-      }, [accountId, month, refresh]),
-    );
+      refresh();
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [accountId, month, refresh, includeInactive]);
 
     const add = useCallback(
       async (input: any) => {
         if (!accountId) throw new Error("No account selected");
         const aid: string = accountId;
+        const key: string = storeKey ?? aid;
 
         const body = await toServerBody(input, kind);
         const qs =
@@ -756,16 +728,17 @@ function createManagementHook(kind: ManagementType) {
           { method: "POST", body: JSON.stringify(body) },
         );
         const created = mapRowToMember(row, aid, kind);
-        useManagementStore.getState().appendItem(kind, aid, created);
+        useManagementStore.getState().appendItem(kind, key, created);
         return created;
       },
-      [accountId, segment, month, kind],
+      [accountId, segment, month, kind, storeKey],
     );
 
     const update = useCallback(
       async (id: string, input: any) => {
         if (!accountId) throw new Error("No account selected");
         const aid: string = accountId;
+        const key: string = storeKey ?? aid;
 
         const body = await toServerBody(input, kind);
 
@@ -784,10 +757,8 @@ function createManagementHook(kind: ManagementType) {
           { method: "PATCH", body: JSON.stringify(body) },
         );
         const updated = mapRowToMember(row, aid, kind);
-        useManagementStore.getState().replaceItem(kind, aid, id, updated);
+        useManagementStore.getState().replaceItem(kind, key, id, updated);
 
-        // If name or photo changed on this row, propagate to every other
-        // member/staff row for the same user in this account.
         const rowUserId = (updated as any).userId;
         if (rowUserId) {
           useManagementStore.getState().syncUserIdentity(aid, rowUserId, {
@@ -798,25 +769,26 @@ function createManagementHook(kind: ManagementType) {
 
         return updated;
       },
-      [accountId, segment, month, kind],
+      [accountId, segment, month, kind, storeKey],
     );
 
     const remove = useCallback(
       async (id: string) => {
         if (!accountId) throw new Error("No account selected");
         const aid: string = accountId;
+        const key: string = storeKey ?? aid;
 
         await apiRequest(`/management/${aid}/${segment}/${id}`, {
           method: "DELETE",
         });
 
         if (kind === "expense") {
-          useManagementStore.getState().removeItem(kind, aid, id);
+          useManagementStore.getState().removeItem(kind, key, id);
           return;
         }
 
         const state = useManagementStore.getState();
-        const existing = state.byKindAndAccount[kind][aid] ?? [];
+        const existing = state.byKindAndAccount[kind][key] ?? [];
         const current = existing.find((m) => m.id === id);
 
         if (current) {
@@ -826,12 +798,12 @@ function createManagementHook(kind: ManagementType) {
             updatedAt: new Date().toISOString(),
           } as unknown as Member;
 
-          state.replaceItem(kind, aid, id, inactive);
+          state.replaceItem(kind, key, id, inactive);
         } else {
-          state.removeItem(kind, aid, id);
+          state.removeItem(kind, key, id);
         }
       },
-      [accountId, segment, kind],
+      [accountId, segment, kind, storeKey],
     );
 
     const getById = useCallback(
@@ -868,12 +840,12 @@ function createManagementHook(kind: ManagementType) {
 
     const renameByPhone = useCallback(
       (phone10: string, newName: string) => {
-        if (!accountId) return;
+        if (!storeKey) return;
         useManagementStore
           .getState()
-          .renamePersonByPhone(accountId, phone10, newName);
+          .renamePersonByPhone(storeKey, phone10, newName);
       },
-      [accountId],
+      [storeKey],
     );
 
     return {

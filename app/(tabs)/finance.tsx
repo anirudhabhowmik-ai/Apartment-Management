@@ -1404,8 +1404,12 @@ export default function FinanceScreen() {
   } = useAccounts();
 
   const accountId = selectedAccount?.id ?? null;
-  const { items: apartmentMembers } = useMembers(accountId);
-  const { items: staffMembers } = useStaff(accountId);
+  const { items: apartmentMembers } = useMembers(accountId, null, {
+    includeInactive: true,
+  });
+  const { items: staffMembers } = useStaff(accountId, null, {
+    includeInactive: true,
+  });
   const { items: expenses } = useExpenses(accountId);
 
   const members: Member[] = useMemo(
