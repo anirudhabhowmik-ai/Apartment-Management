@@ -1681,13 +1681,37 @@ export default function HomeScreen() {
     return String((selectedAccount as any).type ?? "").toLowerCase() === "home";
   }, [selectedAccount]);
 
-  const membersHook = useMembers(accountId);
-  const staffHook = useStaff(accountId);
+  // ── FIX ──────────────────────────────────────────────────────────────
+  // Finance calculations must include soft-deleted (inactive) members and
+  // staff so their past paid history still counts toward income/expense.
+  // The UI-facing lists below (Overview counts, "My Roles", staff
+  // attendance detection, gate keeper detection) filter back down to
+  // active-only via the `active*` memos.
+  // ─────────────────────────────────────────────────────────────────────
+  const membersHook = useMembers(accountId, null, { includeInactive: true });
+  const staffHook = useStaff(accountId, null, { includeInactive: true });
   const { items: expenses } = useExpenses(accountId);
 
   const apartmentMembers = membersHook.items;
   const staffMembers = staffHook.items;
 
+  const activeApartmentMembers = useMemo(
+    () =>
+      apartmentMembers.filter(
+        (m: any) => String(m?.status ?? "active").toLowerCase() === "active",
+      ),
+    [apartmentMembers],
+  );
+
+  const activeStaffMembers = useMemo(
+    () =>
+      staffMembers.filter(
+        (s: any) => String(s?.status ?? "active").toLowerCase() === "active",
+      ),
+    [staffMembers],
+  );
+
+  // Finance uses BOTH active and inactive rows.
   const allMembers: Member[] = useMemo(
     () => [...apartmentMembers, ...staffMembers],
     [apartmentMembers, staffMembers],
@@ -1799,14 +1823,14 @@ export default function HomeScreen() {
   const visibleMemberProfiles = useMemo(() => {
     if (!user) return [];
     if (!hasMemberAccessOnAccount) return [];
-    return apartmentMembers.filter((m: any) => m.userId === user.id);
-  }, [user, apartmentMembers, hasMemberAccessOnAccount]);
+    return activeApartmentMembers.filter((m: any) => m.userId === user.id);
+  }, [user, activeApartmentMembers, hasMemberAccessOnAccount]);
 
   const visibleStaffProfiles = useMemo(() => {
     if (!user) return [];
     if (!hasStaffAccessOnAccount) return [];
-    return staffMembers.filter((s: any) => s.userId === user.id);
-  }, [user, staffMembers, hasStaffAccessOnAccount]);
+    return activeStaffMembers.filter((s: any) => s.userId === user.id);
+  }, [user, activeStaffMembers, hasStaffAccessOnAccount]);
 
   const matchedMemberProfiles = visibleMemberProfiles;
   const matchedStaffProfiles = visibleStaffProfiles;
@@ -1816,8 +1840,8 @@ export default function HomeScreen() {
   // ── Gate access ──────────────────────────────────────────────
   const myStaffRows = useMemo(() => {
     if (!user?.id) return [];
-    return staffMembers.filter((s: any) => s.userId === user.id);
-  }, [staffMembers, user?.id]);
+    return activeStaffMembers.filter((s: any) => s.userId === user.id);
+  }, [activeStaffMembers, user?.id]);
 
   const isSecurityStaff = useMemo(
     () =>
@@ -1837,8 +1861,8 @@ export default function HomeScreen() {
     // not residents even if they happen to be assigned a flat
     if (isStaff && !isMember) return false;
     // Otherwise: is the logged-in user a member of any flat?
-    return apartmentMembers.some((m: any) => m.userId === user.id);
-  }, [apartmentMembers, user?.id, isAdmin, isStaff, isMember]);
+    return activeApartmentMembers.some((m: any) => m.userId === user.id);
+  }, [activeApartmentMembers, user?.id, isAdmin, isStaff, isMember]);
 
   const handleSelfPrevMonth = () => {
     if (selfMonth === 0) {
@@ -2575,8 +2599,12 @@ export default function HomeScreen() {
 
       return {
         stats: {
-          totalProperties: apartmentMembers.length,
-          totalStaff: staffMembers.length,
+          // Property + staff *counts* stay active-only. The finance
+          // numbers below (`monthly`, `allTime`) use `allMembers`, which
+          // includes inactive (deleted) rows so their past paid history
+          // is counted in income / expense / net totals.
+          totalProperties: activeApartmentMembers.length,
+          totalStaff: activeStaffMembers.length,
           monthlyIncome: monthly.income,
           monthlyExpense: monthly.expense,
         },
@@ -2589,8 +2617,8 @@ export default function HomeScreen() {
   }, [
     selectedAccount,
     allMembers,
-    apartmentMembers,
-    staffMembers,
+    activeApartmentMembers,
+    activeStaffMembers,
     showFinance,
     expenses,
   ]);
@@ -2598,7 +2626,7 @@ export default function HomeScreen() {
   const stats = dashboardData.stats;
   const allTime = dashboardData.allTime;
 
-  const totalMemberRecords = apartmentMembers.length;
+  const totalMemberRecords = activeApartmentMembers.length;
 
   const monthlyNet =
     openingBalance + (stats.monthlyIncome - stats.monthlyExpense);
@@ -3839,8 +3867,10 @@ export default function HomeScreen() {
                     <GroupOverviewCard
                       title="Staff"
                       subtitle="Working on site"
-                      count={staffMembers.length}
-                      countLabel={staffMembers.length === 1 ? "staff" : "staff"}
+                      count={activeStaffMembers.length}
+                      countLabel={
+                        activeStaffMembers.length === 1 ? "staff" : "staff"
+                      }
                       icon="briefcase-outline"
                       color="#16A34A"
                       onPress={handleOpenStaffGroup}
@@ -4170,8 +4200,8 @@ export default function HomeScreen() {
               <GroupOverviewCard
                 title="Staff"
                 subtitle="Working on site"
-                count={staffMembers.length}
-                countLabel={staffMembers.length === 1 ? "staff" : "staff"}
+                count={activeStaffMembers.length}
+                countLabel={activeStaffMembers.length === 1 ? "staff" : "staff"}
                 icon="briefcase-outline"
                 color="#16A34A"
                 onPress={handleOpenStaffGroup}

@@ -1156,7 +1156,7 @@ function TransactionItem({
           <View style={styles.metaRow}>
             <Ionicons name="alert-circle-outline" size={11} color="#94A3B8" />
             <Text style={styles.transactionMeta} numberOfLines={1}>
-              Not counted in totals
+              Record removed · still counted in totals
             </Text>
           </View>
         ) : null}
@@ -1404,6 +1404,13 @@ export default function FinanceScreen() {
   } = useAccounts();
 
   const accountId = selectedAccount?.id ?? null;
+
+  // ── FIX ──────────────────────────────────────────────────────────
+  // The Finance tab must see soft-deleted (status='inactive') rows so
+  // their past paid history still counts toward income/expense totals.
+  // `includeInactive: true` makes the hook fetch and cache those rows
+  // in a separate slot; the management tab keeps using active-only.
+  // ─────────────────────────────────────────────────────────────────
   const { items: apartmentMembers } = useMembers(accountId, null, {
     includeInactive: true,
   });
@@ -1469,10 +1476,7 @@ export default function FinanceScreen() {
     null,
   );
 
-  // ── NEW: prevents tab-switch recalculations ─────────────────────────
-  // Tracks the last account we loaded in this session.
   const financeBootstrappedRef = useRef<string | null>(null);
-  // ────────────────────────────────────────────────────────────────────
 
   const openDetails = (payment: PeopleTransaction) => setDetailPayment(payment);
   const closeDetails = () => setDetailPayment(null);
@@ -1800,7 +1804,13 @@ export default function FinanceScreen() {
   const loadFinanceData = (_opts: { silent?: boolean } = {}) => {
     const { transactions: accountPayments } = getSelectedMonthTransactions();
 
-    const counted = accountPayments.filter((p) => !(p as any).__isInactive);
+    // ─── FIX ─────────────────────────────────────────────────────────
+    // Both active AND inactive (deleted) rows count toward income/expense
+    // totals. A deleted member's past paid maintenance is still real
+    // income; a deleted staff member's past paid salary is still a real
+    // expense. Rows themselves still carry __isInactive so the UI can
+    // style them (dim + Inactive badge + strikethrough).
+    const counted = accountPayments;
     const paidTransactions = counted.filter((p) => p.status === "paid");
 
     const paidIncome = paidTransactions
@@ -1860,7 +1870,6 @@ export default function FinanceScreen() {
     );
   };
 
-  // ── NEW: split into two effects ────────────────────────────────────
   // Effect A: reload when the account, filter, or month changes.
   useEffect(() => {
     if (!selectedAccount) return;
@@ -1878,7 +1887,6 @@ export default function FinanceScreen() {
     loadFinanceData({ silent: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [members, expenses]);
-  // ────────────────────────────────────────────────────────────────────
 
   const onRefresh = async () => {
     setRefreshing(true);
@@ -1913,7 +1921,11 @@ export default function FinanceScreen() {
 
   const getReportData = () => {
     const { monthKey, transactions } = getSelectedMonthTransactions();
-    const counted = transactions.filter((t) => !(t as any).__isInactive);
+
+    // ─── FIX ─────────────────────────────────────────────────────────
+    // Reports must match what the screen shows: inactive rows are
+    // included in the totals.
+    const counted = transactions;
     const reportSummary = getPeopleSummary(counted);
     return { monthKey, reportSummary, transactions };
   };
