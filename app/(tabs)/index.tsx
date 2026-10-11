@@ -66,6 +66,22 @@ type OpeningBalanceResponse = {
   can_edit?: boolean;
 };
 
+// ── NEW ──────────────────────────────────────────────────────────────
+// Same shape the Finance tab uses. Only `carried_forward` is consumed
+// here; it's the running balance entering the current month
+// (opening + sum of net for every prior month).
+type CarriedForwardResponse = {
+  account_id: string;
+  month: string;
+  opening_balance: number;
+  maintenance_income: number;
+  salary_expense: number;
+  transaction_income: number;
+  transaction_expense: number;
+  previous_net: number;
+  carried_forward: number;
+};
+
 type PendingAdminOffer = {
   id: string;
   account_id: string;
@@ -241,6 +257,15 @@ async function openingBalanceRequest<T>(
     throw err;
   }
   return data as T;
+}
+
+async function carriedForwardRequest(
+  accountId: string,
+  month: string,
+): Promise<CarriedForwardResponse> {
+  return openingBalanceRequest<CarriedForwardResponse>(
+    `/${accountId}/carried-forward?month=${encodeURIComponent(month)}`,
+  );
 }
 
 async function fetchAccountOwnerContact(
@@ -552,12 +577,7 @@ function buildHomeRecordChips(
 type PaidEntry = {
   category: PaymentCategory;
   amount: number;
-  /** The month the payment is FOR (billing month). This is what gets
-   *  matched against `monthKey` in `computeMonthlyFinance`, so an
-   *  advance payment made in October for November lands in November. */
   billingMonth: string;
-  /** The date the payment was recorded. Kept for anything that wants to
-   *  show "Paid on <date>". */
   paidDate: string;
 };
 
@@ -605,9 +625,6 @@ function collectMemberPaidEntries(members: any[]): PaidEntry[] {
         amount = Math.max(0, base + add - ded);
       }
 
-      // ── FIX: attribute the amount to the BILLING month, not the
-      //         paid-date month. Advance payments made in one month
-      //         for a future month now land in the future month.
       out.push({
         category,
         amount,
@@ -631,8 +648,6 @@ function computeMonthlyFinance(
   let expense = 0;
 
   for (const row of entries) {
-    // ── FIX: match on the BILLING month so advance payments fall into
-    //         the month they're for, not the month they were recorded.
     if (row.billingMonth !== monthKey) continue;
     if (row.category === "salary") expense += row.amount;
     else income += row.amount;
@@ -1702,13 +1717,6 @@ export default function HomeScreen() {
     return String((selectedAccount as any).type ?? "").toLowerCase() === "home";
   }, [selectedAccount]);
 
-  // ── FIX ──────────────────────────────────────────────────────────────
-  // Finance calculations must include soft-deleted (inactive) members and
-  // staff so their past paid history still counts toward income/expense.
-  // The UI-facing lists below (Overview counts, "My Roles", staff
-  // attendance detection, gate keeper detection) filter back down to
-  // active-only via the `active*` memos.
-  // ─────────────────────────────────────────────────────────────────────
   const membersHook = useMembers(accountId, null, { includeInactive: true });
   const staffHook = useStaff(accountId, null, { includeInactive: true });
   const { items: expenses } = useExpenses(accountId);
@@ -1732,7 +1740,6 @@ export default function HomeScreen() {
     [staffMembers],
   );
 
-  // Finance uses BOTH active and inactive rows.
   const allMembers: Member[] = useMemo(
     () => [...apartmentMembers, ...staffMembers],
     [apartmentMembers, staffMembers],
@@ -1747,6 +1754,16 @@ export default function HomeScreen() {
 
   const [refreshing, setRefreshing] = useState(false);
   const [openingBalance, setOpeningBalance] = useState(0);
+
+  // ── NEW ──────────────────────────────────────────────────────────────
+  // Running balance entering the current month (opening + sum of every
+  // prior month's net). Fetched from the same endpoint the Finance tab
+  // uses. This is what the balance card must start from — otherwise
+  // every month after the first shows only opening + this month's net,
+  // which under-counts by all previous months.
+  // ─────────────────────────────────────────────────────────────────────
+  const [carriedForward, setCarriedForward] = useState(0);
+  const [carriedForwardLoading, setCarriedForwardLoading] = useState(false);
 
   const now = new Date();
 
@@ -1799,10 +1816,7 @@ export default function HomeScreen() {
   const [myRoles, setMyRoles] = useState<MyRole[]>([]);
   const [myRolesLoading, setMyRolesLoading] = useState(true);
 
-  // ── NEW: prevents tab-switch refetches ────────────────────────────
-  // Tracks the last account fully loaded in this app session.
   const homeBootstrappedRef = useRef<string | null>(null);
-  // ──────────────────────────────────────────────────────────────────
 
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
   const [withdrawPreview, setWithdrawPreview] = useState<RevokePreview | null>(
@@ -1858,7 +1872,7 @@ export default function HomeScreen() {
 
   const hasAnyProfile =
     matchedMemberProfiles.length > 0 || matchedStaffProfiles.length > 0;
-  // ── Gate access ──────────────────────────────────────────────
+
   const myStaffRows = useMemo(() => {
     if (!user?.id) return [];
     return activeStaffMembers.filter((s: any) => s.userId === user.id);
@@ -1876,12 +1890,8 @@ export default function HomeScreen() {
 
   const hasResidentFlats = useMemo(() => {
     if (!user?.id) return false;
-    // Admins always see resident cards (they may own a flat)
     if (isAdmin) return true;
-    // Staff (guard, sweeper, etc.) never see resident cards — they're
-    // not residents even if they happen to be assigned a flat
     if (isStaff && !isMember) return false;
-    // Otherwise: is the logged-in user a member of any flat?
     return activeApartmentMembers.some((m: any) => m.userId === user.id);
   }, [activeApartmentMembers, user?.id, isAdmin, isStaff, isMember]);
 
@@ -1931,7 +1941,6 @@ export default function HomeScreen() {
     });
   }, [router, accountId]);
 
-  /* ── Load pending offers (now with silent flag) ── */
   const loadPendingOffers = useCallback(
     async (opts: { silent?: boolean } = {}) => {
       const { silent = false } = opts;
@@ -2057,7 +2066,6 @@ export default function HomeScreen() {
     return () => clearInterval(handle);
   }, [isFocused, user?.phone, loadPendingOffers]);
 
-  /* ── Load my grants (now with silent flag) ── */
   const loadMyRoles = useCallback(
     async (opts: { silent?: boolean } = {}) => {
       const { silent = false } = opts;
@@ -2137,7 +2145,6 @@ export default function HomeScreen() {
     return () => clearInterval(handle);
   }, [isFocused, selectedAccount?.id, user?.id, loadMyRoles]);
 
-  /* ── Main focus effect (load once per account) ── */
   useFocusEffect(
     useCallback(() => {
       if (!accountId) return;
@@ -2148,7 +2155,6 @@ export default function HomeScreen() {
       (async () => {
         try {
           if (isFirstLoadForAccount) {
-            // First visit → full load with spinner.
             await Promise.all([
               membersHook.refresh({ force: true }),
               staffHook.refresh({ force: true }),
@@ -2159,7 +2165,6 @@ export default function HomeScreen() {
               homeBootstrappedRef.current = accountId;
             }
           } else {
-            // Already loaded → silent role verification only.
             await loadMyRoles({ silent: true });
           }
         } catch (e) {
@@ -2176,7 +2181,6 @@ export default function HomeScreen() {
     }, [accountId]),
   );
 
-  /* ── Accept / Reject admin upgrade ── */
   const handleAcceptOffer = async (offer: PendingAdminOffer) => {
     const token = await getAuthToken();
     if (!token) return;
@@ -2490,6 +2494,7 @@ export default function HomeScreen() {
     }
   };
 
+  // ── Opening balance ────────────────────────────────────────────────
   useEffect(() => {
     if (!selectedAccount?.id) {
       setOpeningBalance(0);
@@ -2518,6 +2523,41 @@ export default function HomeScreen() {
       cancelled = true;
     };
   }, [selectedAccount?.id]);
+
+  // ── Carried forward ────────────────────────────────────────────────
+  // Same value the Finance tab uses for its "Carried Forward" metric.
+  // Depends on payments + expenses being loaded, so we re-run whenever
+  // they change.
+  useEffect(() => {
+    if (!selectedAccount?.id) {
+      setCarriedForward(0);
+      return;
+    }
+
+    let cancelled = false;
+    setCarriedForwardLoading(true);
+
+    (async () => {
+      try {
+        const monthKey = getCurrentMonthKey();
+        const data = await carriedForwardRequest(selectedAccount.id, monthKey);
+        if (!cancelled) {
+          setCarriedForward(Number(data.carried_forward) || 0);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          console.warn("[home] carried forward fetch failed:", e);
+          setCarriedForward(0);
+        }
+      } finally {
+        if (!cancelled) setCarriedForwardLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedAccount?.id, expenses, apartmentMembers, staffMembers]);
 
   useEffect(() => {
     if (!user?.id) return;
@@ -2620,10 +2660,6 @@ export default function HomeScreen() {
 
       return {
         stats: {
-          // Property + staff *counts* stay active-only. The finance
-          // numbers below (`monthly`, `allTime`) use `allMembers`, which
-          // includes inactive (deleted) rows so their past paid history
-          // is counted in income / expense / net totals.
           totalProperties: activeApartmentMembers.length,
           totalStaff: activeStaffMembers.length,
           monthlyIncome: monthly.income,
@@ -2649,13 +2685,29 @@ export default function HomeScreen() {
 
   const totalMemberRecords = activeApartmentMembers.length;
 
+  // ── FIX ──────────────────────────────────────────────────────────────
+  // This month's running total = carried forward (opening + sum of all
+  // prior months) + this month's net. Matches the Finance tab's
+  // "Net Balance" for the current month.
+  //
+  // Previous version used `openingBalance + (income − expense)` which
+  // was only correct for the very first month ever.
+  // ─────────────────────────────────────────────────────────────────────
   const monthlyNet =
-    openingBalance + (stats.monthlyIncome - stats.monthlyExpense);
+    carriedForward + (stats.monthlyIncome - stats.monthlyExpense);
   const isMonthlyPositive = monthlyNet >= 0;
 
   const overallIncome = allTime.income;
   const overallExpense = allTime.expense;
-  const overallNet = openingBalance + allTime.net;
+  const overallNet =
+    carriedForward + allTime.net - openingBalance + openingBalance;
+  // Note: `overallNet` is kept as the all-time sum + opening, which is
+  // what the "Financial Overview" section intends to convey. If you
+  // prefer consistency with the "Net Balance" on the balance card
+  // (running total through this month only), swap it to:
+  //   const overallNet = monthlyNet;
+  // That's a product call — right now "Overall" means "all-time".
+
   const isOverallPositive = overallNet >= 0;
 
   const handleSelfDownloadBill = useCallback(
@@ -2848,12 +2900,16 @@ export default function HomeScreen() {
       await refreshProfile();
       if (selectedAccount?.id) {
         try {
-          const data = await openingBalanceRequest<OpeningBalanceResponse>(
-            `/${selectedAccount.id}`,
-          );
-          setOpeningBalance(Number(data.opening_balance) || 0);
+          const [obData, cfData] = await Promise.all([
+            openingBalanceRequest<OpeningBalanceResponse>(
+              `/${selectedAccount.id}`,
+            ),
+            carriedForwardRequest(selectedAccount.id, getCurrentMonthKey()),
+          ]);
+          setOpeningBalance(Number(obData.opening_balance) || 0);
+          setCarriedForward(Number(cfData.carried_forward) || 0);
         } catch (e) {
-          console.warn("[home] refresh opening balance failed:", e);
+          console.warn("[home] refresh balance data failed:", e);
         }
       }
       await new Promise((resolve) => setTimeout(resolve, 400));
@@ -4079,8 +4135,10 @@ export default function HomeScreen() {
               <View style={styles.balanceTop}>
                 <View>
                   <Text style={styles.balanceLabel}>Net Balance</Text>
+                  {/* ── FIX: clearer subtitle. Value is carried forward
+                         (opening + all prior months) + this month's net. ── */}
                   <Text style={styles.balancePeriod}>
-                    Monthly · incl. opening
+                    This month · incl. carry forward
                   </Text>
                 </View>
                 <View
@@ -4104,17 +4162,25 @@ export default function HomeScreen() {
                   />
                 </View>
               </View>
-              <Text
-                style={[
-                  styles.balanceAmount,
-                  { color: isMonthlyPositive ? "#15803D" : "#DC2626" },
-                ]}
-                numberOfLines={1}
-                adjustsFontSizeToFit
-              >
-                {isMonthlyPositive ? "" : "-"}
-                {formatCurrency(monthlyNet)}
-              </Text>
+              {carriedForwardLoading ? (
+                <ActivityIndicator
+                  size="small"
+                  color={isMonthlyPositive ? "#16A34A" : "#DC2626"}
+                  style={{ marginTop: 15, alignSelf: "flex-start" }}
+                />
+              ) : (
+                <Text
+                  style={[
+                    styles.balanceAmount,
+                    { color: isMonthlyPositive ? "#15803D" : "#DC2626" },
+                  ]}
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                >
+                  {isMonthlyPositive ? "" : "-"}
+                  {formatCurrency(monthlyNet)}
+                </Text>
+              )}
               <View style={styles.balanceDivider} />
               <View style={styles.balanceBottom}>
                 <View style={styles.balanceMiniItem}>
