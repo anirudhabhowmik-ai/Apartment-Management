@@ -2,7 +2,7 @@
 import { downloadFinanceReportPdf } from "@/services/financeReportPdf";
 import { Ionicons } from "@expo/vector-icons";
 import * as FileSystem from "expo-file-system/legacy";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import * as Sharing from "expo-sharing";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -305,7 +305,16 @@ type CarriedForwardResponse = {
   salary_expense: number;
   transaction_income: number;
   transaction_expense: number;
+  /** Net (income − expense) for the month immediately before `month`. */
   previous_net: number;
+  /**
+   * Running balance entering the selected month.
+   * = opening_balance + sum(net of every month before `month`).
+   *
+   * For the first month ever (e.g. October), this equals the opening
+   * balance. For every later month it equals the previous month's Net
+   * Balance.
+   */
   carried_forward: number;
 };
 
@@ -690,26 +699,20 @@ function findPaidPaymentInMonth(
   month: string,
 ): { billingMonth: string; paidDate: string } | null {
   const mp = member?.monthlyPayments;
-  if (!mp || typeof mp !== "object") {
-    const pd = member?.paidDate ? toDateOnly(member.paidDate) : "";
-    if (pd && toMonthKey(pd) === month) {
+
+  if (mp && typeof mp === "object") {
+    const entry = mp[month];
+    if (entry && entry.status === "paid") {
+      const pd =
+        entry.paidDate != null ? toDateOnly(entry.paidDate) : `${month}-01`;
       return { billingMonth: month, paidDate: pd };
     }
     return null;
   }
 
-  const keys = Object.keys(mp);
-  for (const billingMonth of keys) {
-    const entry = mp[billingMonth];
-    if (!entry || entry.status !== "paid" || !entry.paidDate) continue;
-    const pd = toDateOnly(entry.paidDate);
-    if (toMonthKey(pd) === month) {
-      return { billingMonth, paidDate: pd };
-    }
-  }
-
-  const pd = member?.paidDate ? toDateOnly(member.paidDate) : "";
-  if (pd && toMonthKey(pd) === month) {
+  const legacyStatus = member?.paymentStatus ?? member?.status;
+  if (legacyStatus === "paid") {
+    const pd = member?.paidDate ? toDateOnly(member.paidDate) : `${month}-01`;
     return { billingMonth: month, paidDate: pd };
   }
   return null;
@@ -771,7 +774,25 @@ function groupFinanceRowsByUser(
     map.get(uid)!.records.push(row);
   }
 
-  return Array.from(map.values());
+  const grouped = Array.from(map.values());
+
+  for (const group of grouped) {
+    group.records.sort((a, b) => {
+      const aInactive = (a as any).__isInactive === true;
+      const bInactive = (b as any).__isInactive === true;
+      if (aInactive === bInactive) return 0;
+      return aInactive ? 1 : -1;
+    });
+  }
+
+  grouped.sort((a, b) => {
+    const aHasActive = a.records.some((r) => !(r as any).__isInactive);
+    const bHasActive = b.records.some((r) => !(r as any).__isInactive);
+    if (aHasActive === bHasActive) return 0;
+    return aHasActive ? -1 : 1;
+  });
+
+  return grouped;
 }
 
 // ============================================================
@@ -1243,24 +1264,54 @@ function GroupedCard({
   const isStaff = card.records[0]?.category === "salary";
   const count = card.records.length;
 
+  const allInactive = card.records.every(
+    (r) => (r as any).__isInactive === true,
+  );
+
   return (
-    <View style={styles.groupCard}>
+    <View style={[styles.groupCard, allInactive && styles.groupCardInactive]}>
       <View style={styles.groupHeader}>
-        <View style={[styles.groupAvatar, isStaff && styles.groupAvatarStaff]}>
+        <View
+          style={[
+            styles.groupAvatar,
+            isStaff && styles.groupAvatarStaff,
+            allInactive && styles.groupAvatarInactive,
+          ]}
+        >
           {card.photo_url ? (
-            <Image source={{ uri: card.photo_url }} style={styles.groupPhoto} />
+            <Image
+              source={{ uri: card.photo_url }}
+              style={[
+                styles.groupPhoto,
+                allInactive && styles.groupPhotoInactive,
+              ]}
+            />
           ) : (
-            <Text style={styles.groupInitial}>
+            <Text
+              style={[
+                styles.groupInitial,
+                allInactive && styles.groupInitialInactive,
+              ]}
+            >
               {card.name?.charAt(0)?.toUpperCase() || "?"}
             </Text>
           )}
         </View>
 
         <View style={styles.groupInfo}>
-          <Text style={styles.groupName} numberOfLines={1}>
+          <Text
+            style={[styles.groupName, allInactive && styles.groupNameInactive]}
+            numberOfLines={1}
+          >
             {card.name || "Unnamed"}
           </Text>
-          <Text style={styles.groupSubline} numberOfLines={1}>
+          <Text
+            style={[
+              styles.groupSubline,
+              allInactive && styles.groupSublineInactive,
+            ]}
+            numberOfLines={1}
+          >
             {[
               card.phone ? formatPhoneForDisplay(card.phone) : null,
               count > 1 ? `${count} ${isStaff ? "roles" : "flats"}` : null,
@@ -1272,7 +1323,10 @@ function GroupedCard({
 
         {card.phone ? (
           <TouchableOpacity
-            style={styles.groupCallButton}
+            style={[
+              styles.groupCallButton,
+              allInactive && styles.groupCallButtonInactive,
+            ]}
             onPress={(event) => {
               event.stopPropagation();
               onCall(card.phone);
@@ -1280,7 +1334,11 @@ function GroupedCard({
             hitSlop={6}
             activeOpacity={0.7}
           >
-            <Ionicons name="call" size={18} color="#2563EB" />
+            <Ionicons
+              name="call"
+              size={18}
+              color={allInactive ? "#94A3B8" : "#2563EB"}
+            />
           </TouchableOpacity>
         ) : null}
       </View>
@@ -1405,19 +1463,21 @@ export default function FinanceScreen() {
 
   const accountId = selectedAccount?.id ?? null;
 
-  // ── FIX ──────────────────────────────────────────────────────────
-  // The Finance tab must see soft-deleted (status='inactive') rows so
-  // their past paid history still counts toward income/expense totals.
-  // `includeInactive: true` makes the hook fetch and cache those rows
-  // in a separate slot; the management tab keeps using active-only.
-  // ─────────────────────────────────────────────────────────────────
-  const { items: apartmentMembers } = useMembers(accountId, null, {
+  const [selectedMonth, setSelectedMonth] = useState(new Date());
+  const selectedMonthKey = `${selectedMonth.getFullYear()}-${String(
+    selectedMonth.getMonth() + 1,
+  ).padStart(2, "0")}`;
+
+  const membersHook = useMembers(accountId, selectedMonthKey, {
     includeInactive: true,
   });
-  const { items: staffMembers } = useStaff(accountId, null, {
+  const staffHook = useStaff(accountId, selectedMonthKey, {
     includeInactive: true,
   });
   const { items: expenses } = useExpenses(accountId);
+
+  const apartmentMembers = membersHook.items;
+  const staffMembers = staffHook.items;
 
   const members: Member[] = useMemo(
     () => [...apartmentMembers, ...staffMembers],
@@ -1453,7 +1513,6 @@ export default function FinanceScreen() {
     net: 0,
   });
 
-  const [selectedMonth, setSelectedMonth] = useState(new Date());
   const [showReportOptions, setShowReportOptions] = useState(false);
 
   const [openingBalance, setOpeningBalanceState] = useState(0);
@@ -1469,6 +1528,21 @@ export default function FinanceScreen() {
     useState(false);
   const [openingBalanceInput, setOpeningBalanceInput] = useState("");
 
+  // ── Balance model ────────────────────────────────────────────────
+  // The backend returns a single field `carried_forward` that is the
+  // running balance entering the selected month:
+  //
+  //   carried_forward = opening_balance + sum(net of every prior month)
+  //
+  // For the first month (October in the example), it equals the opening
+  // balance (₹10,000). For every subsequent month, it equals the
+  // previous month's Net Balance.
+  //
+  //   Carried Forward (this month) = carried_forward
+  //   Net Balance    (this month) = carried_forward + summary.net
+  //
+  // `previous_net` is not used by the UI anymore.
+  // ─────────────────────────────────────────────────────────────────
   const [carriedForwardBalance, setCarriedForwardBalance] = useState(0);
   const [carriedForwardLoading, setCarriedForwardLoading] = useState(false);
 
@@ -1477,6 +1551,24 @@ export default function FinanceScreen() {
   );
 
   const financeBootstrappedRef = useRef<string | null>(null);
+
+  const membersRefresh = membersHook.refresh;
+  const staffRefresh = staffHook.refresh;
+  useFocusEffect(
+    useCallback(() => {
+      if (!selectedAccount?.id) return;
+      (async () => {
+        try {
+          await Promise.all([
+            membersRefresh({ force: true, silent: true }),
+            staffRefresh({ force: true, silent: true }),
+          ]);
+        } catch (e) {
+          console.warn("[finance] focus refresh failed:", e);
+        }
+      })();
+    }, [selectedAccount?.id, membersRefresh, staffRefresh]),
+  );
 
   const openDetails = (payment: PeopleTransaction) => setDetailPayment(payment);
   const closeDetails = () => setDetailPayment(null);
@@ -1555,11 +1647,6 @@ export default function FinanceScreen() {
     [showAlert],
   );
 
-  const getMonthKey = (date: Date) =>
-    `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`;
-
-  const selectedMonthKey = getMonthKey(selectedMonth);
-
   useEffect(() => {
     if (!selectedAccount?.id) {
       setOpeningBalanceState(0);
@@ -1614,6 +1701,7 @@ export default function FinanceScreen() {
           selectedMonthKey,
         );
         if (!cancelled) {
+          // Running balance entering this month.
           setCarriedForwardBalance(Number(data.carried_forward) || 0);
         }
       } catch (e) {
@@ -1800,16 +1888,9 @@ export default function FinanceScreen() {
     }
   };
 
-  // ── Load finance data (accepts silent flag for background recalc) ──
   const loadFinanceData = (_opts: { silent?: boolean } = {}) => {
     const { transactions: accountPayments } = getSelectedMonthTransactions();
 
-    // ─── FIX ─────────────────────────────────────────────────────────
-    // Both active AND inactive (deleted) rows count toward income/expense
-    // totals. A deleted member's past paid maintenance is still real
-    // income; a deleted staff member's past paid salary is still a real
-    // expense. Rows themselves still carry __isInactive so the UI can
-    // style them (dim + Inactive badge + strikethrough).
     const counted = accountPayments;
     const paidTransactions = counted.filter((p) => p.status === "paid");
 
@@ -1870,17 +1951,14 @@ export default function FinanceScreen() {
     );
   };
 
-  // Effect A: reload when the account, filter, or month changes.
   useEffect(() => {
     if (!selectedAccount) return;
     const isFirst = financeBootstrappedRef.current !== selectedAccount.id;
     loadFinanceData({ silent: !isFirst });
     financeBootstrappedRef.current = selectedAccount.id;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedAccount, filter, selectedMonth]);
+  }, [selectedAccount, filter, selectedMonthKey]);
 
-  // Effect B: silent recalc when members/expenses update in the
-  // background (e.g. the Home tab refetched them).
   useEffect(() => {
     if (!selectedAccount) return;
     if (financeBootstrappedRef.current !== selectedAccount.id) return;
@@ -1921,10 +1999,6 @@ export default function FinanceScreen() {
 
   const getReportData = () => {
     const { monthKey, transactions } = getSelectedMonthTransactions();
-
-    // ─── FIX ─────────────────────────────────────────────────────────
-    // Reports must match what the screen shows: inactive rows are
-    // included in the totals.
     const counted = transactions;
     const reportSummary = getPeopleSummary(counted);
     return { monthKey, reportSummary, transactions };
@@ -2163,6 +2237,11 @@ export default function FinanceScreen() {
 
   const hasBeenEdited = Boolean(openingBalanceMeta.updatedAt);
 
+  // ── Net Balance = Carried Forward (running balance entering this
+  //    month) + this month's net. Which is:
+  //      = opening_balance + sum(net of all months <= selected)
+  //    For October: 10,000 + (−1,10,000) = −1,00,000
+  //    For November: (−1,00,000) + this month's net
   const netBalance = carriedForwardBalance + summary.net;
 
   return (
@@ -2261,6 +2340,10 @@ export default function FinanceScreen() {
             <View style={styles.heroDivider} />
 
             <View style={styles.heroBottomRow}>
+              {/* ── Carried Forward = running balance entering this
+                     month. In the first month it equals the opening
+                     balance; in later months it equals the previous
+                     month's Net Balance. ── */}
               <View style={styles.heroMetric}>
                 <Text style={styles.heroMetricLabel}>Carried Forward</Text>
                 {carriedForwardLoading ? (
@@ -2271,7 +2354,8 @@ export default function FinanceScreen() {
                   />
                 ) : (
                   <Text style={styles.heroMetricValue}>
-                    ₹{carriedForwardBalance.toLocaleString("en-IN")}
+                    {carriedForwardBalance < 0 ? "-" : ""}₹
+                    {Math.abs(carriedForwardBalance).toLocaleString("en-IN")}
                   </Text>
                 )}
               </View>
@@ -2293,6 +2377,7 @@ export default function FinanceScreen() {
 
               <View style={styles.heroMetricDivider} />
 
+              {/* ── Net Balance = Carried Forward + This Month ── */}
               <View style={styles.heroMetric}>
                 <Text style={styles.heroMetricLabel}>Net Balance</Text>
                 <Text
@@ -3051,6 +3136,12 @@ const styles = StyleSheet.create({
     borderColor: "#E8EDF5",
   },
 
+  groupCardInactive: {
+    backgroundColor: "#FAFBFC",
+    borderColor: "#EDF0F5",
+    opacity: 0.85,
+  },
+
   groupHeader: {
     flexDirection: "row",
     alignItems: "center",
@@ -3075,12 +3166,24 @@ const styles = StyleSheet.create({
     backgroundColor: "#7C3AED",
   },
 
+  groupAvatarInactive: {
+    backgroundColor: "#E2E8F0",
+  },
+
   groupPhoto: { width: "100%", height: "100%" },
+
+  groupPhotoInactive: {
+    opacity: 0.5,
+  },
 
   groupInitial: {
     color: "#fff",
     fontSize: 18,
     fontWeight: "800",
+  },
+
+  groupInitialInactive: {
+    color: "#94A3B8",
   },
 
   groupInfo: { flex: 1, minWidth: 0 },
@@ -3092,10 +3195,18 @@ const styles = StyleSheet.create({
     letterSpacing: -0.2,
   },
 
+  groupNameInactive: {
+    color: "#94A3B8",
+  },
+
   groupSubline: {
     color: "#64748B",
     fontSize: 12,
     marginTop: 2,
+  },
+
+  groupSublineInactive: {
+    color: "#CBD5E1",
   },
 
   groupCallButton: {
@@ -3106,6 +3217,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginLeft: 8,
+  },
+
+  groupCallButtonInactive: {
+    backgroundColor: "#F1F5F9",
   },
 
   groupRecords: {},

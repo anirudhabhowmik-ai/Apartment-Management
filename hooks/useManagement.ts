@@ -429,6 +429,35 @@ interface ManagementState {
   ) => void;
 }
 
+// ── NEW helper: deep-compare two members for the store's "nothing
+// changed" short-circuit. The old version only compared id + updatedAt,
+// which missed monthly payment changes (marking a future month paid
+// does NOT bump the member row's updated_at).
+function itemEqual(a: any, b: any): boolean {
+  if (!a || !b) return a === b;
+  if (a.id !== b.id) return false;
+  if (a.updatedAt !== b.updatedAt) return false;
+
+  const aMP = a.monthlyPayments || {};
+  const bMP = b.monthlyPayments || {};
+  const aKeys = Object.keys(aMP);
+  const bKeys = Object.keys(bMP);
+  if (aKeys.length !== bKeys.length) return false;
+  for (const k of bKeys) {
+    const av = aMP[k];
+    const bv = bMP[k];
+    if (!av || !bv) return false;
+    if (av.status !== bv.status) return false;
+    if (av.paidDate !== bv.paidDate) return false;
+    if (av.netAmount !== bv.netAmount) return false;
+    if (av.additionalAmount !== bv.additionalAmount) return false;
+    if (av.additionalNote !== bv.additionalNote) return false;
+    if (av.deductionAmount !== bv.deductionAmount) return false;
+    if (av.deductionNote !== bv.deductionNote) return false;
+  }
+  return true;
+}
+
 export const useManagementStore = create<ManagementState>((set) => ({
   byKindAndAccount: {
     apartment: {},
@@ -440,19 +469,15 @@ export const useManagementStore = create<ManagementState>((set) => ({
     set((s) => {
       const existing = s.byKindAndAccount[kind][accountId];
 
-      if (
-        existing &&
-        existing.length === items.length &&
-        existing.every((oldItem, i) => {
-          const newItem = items[i];
-          if (!newItem) return false;
-          return (
-            oldItem.id === newItem.id &&
-            (oldItem as any).updatedAt === (newItem as any).updatedAt
-          );
-        })
-      ) {
-        return s;
+      if (existing && existing.length === items.length) {
+        let same = true;
+        for (let i = 0; i < items.length; i++) {
+          if (!itemEqual(existing[i], items[i])) {
+            same = false;
+            break;
+          }
+        }
+        if (same) return s;
       }
 
       return {
@@ -641,8 +666,6 @@ function createManagementHook(kind: ManagementType) {
     const segment = endpointFor(kind);
     const includeInactive = opts?.includeInactive === true;
 
-    // Separate cache slot: the finance tab's "with inactive" list must not
-    // leak into the management tab's "active only" list, and vice versa.
     const storeKey: string | null = accountId
       ? includeInactive
         ? `${accountId}::inactive`
@@ -708,9 +731,13 @@ function createManagementHook(kind: ManagementType) {
         includeInactive ? "inc" : "act"
       }`;
       if (lastFetchedKeyRef.current === key) return;
+
+      const previousKey = lastFetchedKeyRef.current;
       lastFetchedKeyRef.current = key;
 
-      refresh();
+      // Force a fetch whenever the (account, month, mode) tuple changes
+      // so the user never sees data cached for a different month.
+      refresh({ force: true, silent: previousKey !== "" });
       // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [accountId, month, refresh, includeInactive]);
 

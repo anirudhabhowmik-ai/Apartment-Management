@@ -552,6 +552,12 @@ function buildHomeRecordChips(
 type PaidEntry = {
   category: PaymentCategory;
   amount: number;
+  /** The month the payment is FOR (billing month). This is what gets
+   *  matched against `monthKey` in `computeMonthlyFinance`, so an
+   *  advance payment made in October for November lands in November. */
+  billingMonth: string;
+  /** The date the payment was recorded. Kept for anything that wants to
+   *  show "Paid on <date>". */
   paidDate: string;
 };
 
@@ -569,7 +575,12 @@ function collectMemberPaidEntries(members: any[]): PaidEntry[] {
         const base = isSalary
           ? Number(member.monthlySalary) || 0
           : Number(member.maintenanceAmount) || 0;
-        out.push({ category, amount: base, paidDate: pd });
+        out.push({
+          category,
+          amount: base,
+          billingMonth: toMonthKey(pd),
+          paidDate: pd,
+        });
       }
       continue;
     }
@@ -594,7 +605,15 @@ function collectMemberPaidEntries(members: any[]): PaidEntry[] {
         amount = Math.max(0, base + add - ded);
       }
 
-      out.push({ category, amount, paidDate: pd });
+      // ── FIX: attribute the amount to the BILLING month, not the
+      //         paid-date month. Advance payments made in one month
+      //         for a future month now land in the future month.
+      out.push({
+        category,
+        amount,
+        billingMonth: toMonthKey(billingMonth) || toMonthKey(pd),
+        paidDate: pd,
+      });
     }
   }
 
@@ -612,7 +631,9 @@ function computeMonthlyFinance(
   let expense = 0;
 
   for (const row of entries) {
-    if (toMonthKey(row.paidDate) !== monthKey) continue;
+    // ── FIX: match on the BILLING month so advance payments fall into
+    //         the month they're for, not the month they were recorded.
+    if (row.billingMonth !== monthKey) continue;
     if (row.category === "salary") expense += row.amount;
     else income += row.amount;
   }
